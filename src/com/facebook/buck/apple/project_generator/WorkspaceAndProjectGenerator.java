@@ -920,6 +920,7 @@ public class WorkspaceAndProjectGenerator {
               XcodeWorkspaceConfigDescription.getActionConfigNamesFromArg(workspaceArguments),
               targetToProjectPathMap,
               schemeConfigArg.getEnvironmentVariables(),
+              schemeConfigArg.getAdditionalSchemeActions(),
               schemeConfigArg.getLaunchStyle().orElse(XCScheme.LaunchAction.LaunchStyle.AUTO));
       schemeGenerator.writeScheme();
       schemeGenerators.put(schemeName, schemeGenerator);
