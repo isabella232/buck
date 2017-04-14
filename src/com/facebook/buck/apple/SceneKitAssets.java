@@ -18,7 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -42,7 +42,7 @@ import java.util.Optional;
 
 public class SceneKitAssets extends AbstractBuildRule {
 
-  public static final Flavor FLAVOR = ImmutableFlavor.of("scenekit-assets");
+  public static final Flavor FLAVOR = InternalFlavor.of("scenekit-assets");
 
   @AddToRuleKey
   private final Optional<Tool> copySceneKitAssets;
@@ -77,7 +77,7 @@ public class SceneKitAssets extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
-    stepsBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
+    stepsBuilder.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
     for (SourcePath inputPath : sceneKitAssetsPaths) {
       final Path absoluteInputPath = context.getSourcePathResolver().getAbsolutePath(inputPath);
 

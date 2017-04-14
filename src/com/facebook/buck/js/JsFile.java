@@ -30,6 +30,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.RmStep;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
@@ -64,7 +65,7 @@ public abstract class JsFile extends AbstractBuildRule {
       String jobArgsFormat,
       Path outputPath) {
     return ImmutableList.of(
-        new RmStep(getProjectFilesystem(), outputPath),
+        RmStep.of(getProjectFilesystem(), outputPath),
         JsUtil.workerShellStep(
             worker,
             String.format(jobArgsFormat, extraArgs.orElse("")),
@@ -79,17 +80,22 @@ public abstract class JsFile extends AbstractBuildRule {
     private final SourcePath src;
 
     @AddToRuleKey
+    private final Optional<String> subPath;
+
+    @AddToRuleKey
     private final Optional<String> virtualPath;
 
     JsFileDev(
         BuildRuleParams params,
         SourcePath src,
-        Optional<String> virtualPath,
+        Optional<String> subPath,
+        Optional<Path> virtualPath,
         Optional<String> extraArgs,
         WorkerTool worker) {
       super(params, extraArgs, worker);
       this.src = src;
-      this.virtualPath = virtualPath;
+      this.subPath = subPath;
+      this.virtualPath = virtualPath.map(MorePaths::pathWithUnixSeparators);
     }
 
     @Override
@@ -99,23 +105,29 @@ public abstract class JsFile extends AbstractBuildRule {
 
       final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
       final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
+      final Path srcPath = sourcePathResolver.getAbsolutePath(src);
       final String jobArgs = String.format(
           "transform %%s --filename %s --out %s %s",
           virtualPath.orElseGet(() ->
               MorePaths.pathWithUnixSeparators(sourcePathResolver.getRelativePath(src))),
           outputPath,
-          sourcePathResolver.getAbsolutePath(src));
+          subPath.map(srcPath::resolve).orElse(srcPath));
 
       return getBuildSteps(context, jobArgs, outputPath);
     }
+
+    @VisibleForTesting
+    Optional<String> getVirtualPath() {
+      return virtualPath;
+    }
   }
 
-  static class JsFileProd extends JsFile {
+  static class JsFileRelease extends JsFile {
 
     @AddToRuleKey
     private final SourcePath devFile;
 
-    JsFileProd(
+    JsFileRelease(
         BuildRuleParams buildRuleParams,
         SourcePath devFile,
         Optional<String> extraArgs,
@@ -133,8 +145,8 @@ public abstract class JsFile extends AbstractBuildRule {
       final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
       final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
       final String jobArgs = String.format(
-          "optimize %%s --platform %s --out %s %s",
-          JsFlavors.getPlatform(buildTarget.getFlavors()),
+          "optimize %%s %s --out %s %s",
+          JsFlavors.platformArgForRelease(buildTarget.getFlavors()),
           outputPath,
           sourcePathResolver.getAbsolutePath(devFile).toString());
 

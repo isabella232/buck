@@ -40,9 +40,15 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
         targetNode.getBuildTarget(),
         Suppliers.ofInstance(ruleResolver.requireAllRules(targetNode.getDeclaredDeps())),
         Suppliers.ofInstance(ruleResolver.requireAllRules(targetNode.getExtraDeps())),
-        targetNode.getFilesystem(),
-        targetNode.getCellNames());
+        ruleResolver.requireAllRules(targetNode.getTargetGraphOnlyDeps()),
+        targetNode.getFilesystem()
+    );
 
-    return description.createBuildRule(targetGraph, params, ruleResolver, arg);
+    return description.createBuildRule(
+        targetGraph,
+        params,
+        ruleResolver,
+        targetNode.getCellNames(),
+        arg);
   }
 }

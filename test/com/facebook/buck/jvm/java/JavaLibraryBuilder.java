@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
+import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -43,7 +44,24 @@ public class JavaLibraryBuilder extends
       ProjectFilesystem projectFilesystem,
       HashCode hashCode) {
     super(
-        new JavaLibraryDescription(DEFAULT_JAVAC_OPTIONS),
+        new JavaLibraryDescription(
+            DEFAULT_JAVA_CONFIG,
+            DEFAULT_JAVAC_OPTIONS),
+        target,
+        projectFilesystem,
+        hashCode);
+    this.projectFilesystem = projectFilesystem;
+  }
+
+  protected JavaLibraryBuilder(
+      BuildTarget target,
+      JavaBuckConfig javaBuckConfig,
+      ProjectFilesystem projectFilesystem,
+      HashCode hashCode) {
+    super(
+        new JavaLibraryDescription(
+            javaBuckConfig,
+            DEFAULT_JAVAC_OPTIONS),
         target,
         projectFilesystem,
         hashCode);
@@ -60,6 +78,12 @@ public class JavaLibraryBuilder extends
 
   public static JavaLibraryBuilder createBuilder(
       BuildTarget target,
+      JavaBuckConfig javaBuckConfig) {
+    return new JavaLibraryBuilder(target, javaBuckConfig, new FakeProjectFilesystem(), null);
+  }
+
+  public static JavaLibraryBuilder createBuilder(
+      BuildTarget target,
       ProjectFilesystem projectFilesystem) {
     return new JavaLibraryBuilder(target, projectFilesystem, null);
   }
@@ -70,6 +94,11 @@ public class JavaLibraryBuilder extends
 
   public JavaLibraryBuilder addDep(BuildTarget rule) {
     arg.deps = amend(arg.deps, rule);
+    return this;
+  }
+
+  public JavaLibraryBuilder addAnnotationProcessorDep(BuildTarget rule) {
+    arg.annotationProcessorDeps = amend(arg.annotationProcessorDeps, rule);
     return this;
   }
 

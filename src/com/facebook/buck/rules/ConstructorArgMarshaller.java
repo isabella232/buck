@@ -18,6 +18,8 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.coercer.ParamInfo;
+import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
@@ -85,6 +87,7 @@ public class ConstructorArgMarshaller {
       Object dto,
       ImmutableSet.Builder<BuildTarget> declaredDeps,
       ImmutableSet.Builder<VisibilityPattern> visibilityPatterns,
+      ImmutableSet.Builder<VisibilityPattern> withinViewPatterns,
       Map<String, ?> instance) throws ParamInfoException {
     for (ParamInfo info : getAllParamInfo(dto)) {
       info.setFromParams(cellRoots, filesystem, buildTarget, dto, instance);
@@ -92,7 +95,8 @@ public class ConstructorArgMarshaller {
         populateDeclaredDeps(info, declaredDeps, dto);
       }
     }
-    populateVisibilityPatterns(cellRoots, visibilityPatterns, instance, buildTarget);
+    populateVisibilityPatterns(cellRoots, visibilityPatterns, instance, "visibility", buildTarget);
+    populateVisibilityPatterns(cellRoots, withinViewPatterns, instance, "within_view", buildTarget);
   }
 
   /**
@@ -136,12 +140,13 @@ public class ConstructorArgMarshaller {
       CellPathResolver cellNames,
       ImmutableSet.Builder<VisibilityPattern> visibilityPatterns,
       Map<String, ?> instance,
+      String param,
       BuildTarget target) {
-    Object value = instance.get("visibility");
+    Object value = instance.get(param);
     if (value != null) {
       if (!(value instanceof List)) {
         throw new RuntimeException(
-            String.format("Expected an array for visibility but was %s", value));
+            String.format("Expected an array for %s but was %s", param, value));
       }
 
       VisibilityPatternParser parser = new VisibilityPatternParser();
@@ -151,13 +156,13 @@ public class ConstructorArgMarshaller {
         } catch (IllegalArgumentException e) {
           throw new HumanReadableException(
               e,
-              "Bad visibility expression: %s listed %s in its visibility argument, but only %s, " +
-                  "%s, or fully qualified target patterns are allowed (i.e. those starting with " +
+              "Bad visibility expression: %s listed %s in its %s argument, but only %s " +
+                  "or fully qualified target patterns are allowed (i.e. those starting with " +
                   "// or a cell).",
               target.getFullyQualifiedName(),
               visibility,
-              VisibilityPatternParser.VISIBILITY_PUBLIC,
-              VisibilityPatternParser.VISIBILITY_GROUP
+              param,
+              VisibilityPatternParser.VISIBILITY_PUBLIC
           );
         }
       }

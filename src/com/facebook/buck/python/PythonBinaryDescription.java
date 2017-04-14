@@ -26,14 +26,14 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -41,12 +41,14 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -91,7 +93,7 @@ public class PythonBinaryDescription implements
   }
 
   public static BuildTarget getEmptyInitTarget(BuildTarget baseTarget) {
-    return baseTarget.withAppendedFlavors(ImmutableFlavor.of("__init__"));
+    return baseTarget.withAppendedFlavors(InternalFlavor.of("__init__"));
   }
 
   public static SourcePath createEmptyInitModule(
@@ -105,10 +107,11 @@ public class PythonBinaryDescription implements
             "%s/__init__.py");
     WriteFile rule = resolver.addToIndex(
         new WriteFile(
-            params.copyWithChanges(
-                emptyInitTarget,
-                Suppliers.ofInstance(ImmutableSortedSet.of()),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
+            params
+                .withBuildTarget(emptyInitTarget)
+                .copyReplacingDeclaredAndExtraDeps(
+                    Suppliers.ofInstance(ImmutableSortedSet.of()),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
             "",
             emptyInitPath,
             /* executable */ false));
@@ -164,16 +167,14 @@ public class PythonBinaryDescription implements
     components = components.withModules(addMissingInitModules(components.getModules(), emptyInit));
 
     BuildTarget linkTreeTarget =
-        params.getBuildTarget().withAppendedFlavors(ImmutableFlavor.of("link-tree"));
+        params.getBuildTarget().withAppendedFlavors(InternalFlavor.of("link-tree"));
     Path linkTreeRoot =
         BuildTargets.getGenPath(params.getProjectFilesystem(), linkTreeTarget, "%s");
     SymlinkTree linkTree =
         resolver.addToIndex(
             new SymlinkTree(
-                params.copyWithChanges(
-                    linkTreeTarget,
-                    Suppliers.ofInstance(ImmutableSortedSet.of()),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
+                linkTreeTarget,
+                params.getProjectFilesystem(),
                 linkTreeRoot,
                 ImmutableMap.<Path, SourcePath>builder()
                     .putAll(components.getModules())
@@ -247,11 +248,18 @@ public class PythonBinaryDescription implements
 
   }
 
+  private CxxPlatform getCxxPlatform(BuildTarget target, Arg args) {
+    return cxxPlatforms.getValue(target)
+        .orElse(args.cxxPlatform.map(cxxPlatforms::getValue)
+            .orElse(defaultCxxPlatform));
+  }
+
   @Override
   public <A extends Arg> PythonBinary createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     if (!(args.main.isPresent() ^ args.mainModule.isPresent())) {
       throw new HumanReadableException(
@@ -290,15 +298,17 @@ public class PythonBinaryDescription implements
     PythonPlatform pythonPlatform =
         pythonPlatforms.getValue(params.getBuildTarget()).orElse(
             pythonPlatforms.getValue(
-                args.platform.<Flavor>map(ImmutableFlavor::of).orElse(
+                args.platform.<Flavor>map(InternalFlavor::of).orElse(
                     pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
-        defaultCxxPlatform);
+    CxxPlatform cxxPlatform = getCxxPlatform(params.getBuildTarget(), args);
     PythonPackageComponents allPackageComponents =
         PythonUtil.getAllComponents(
             params,
             resolver,
             ruleFinder,
+            PythonUtil.getDeps(pythonPlatform, cxxPlatform, args.deps, args.platformDeps).stream()
+                .map(resolver::getRule)
+                .collect(MoreCollectors.toImmutableList()),
             binaryPackageComponents,
             pythonPlatform,
             cxxBuckConfig,
@@ -307,7 +317,7 @@ public class PythonBinaryDescription implements
                 .map(MacroArg.toMacroArgFunction(
                     PythonUtil.MACRO_HANDLER,
                     params.getBuildTarget(),
-                    params.getCellRoots(),
+                    cellRoots,
                     resolver)::apply)
                 .collect(MoreCollectors.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
@@ -330,24 +340,21 @@ public class PythonBinaryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
-    targets.addAll(
-        cxxPlatforms.getValue(buildTarget).orElse(defaultCxxPlatform).getLd().getParseTimeDeps());
+    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLd().getParseTimeDeps());
 
     if (constructorArg.packageStyle.orElse(pythonBuckConfig.getPackageStyle()) ==
         PythonBuckConfig.PackageStyle.STANDALONE) {
-      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexTarget()));
-      targets.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexExecutorTarget()));
+      extraDepsBuilder.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexTarget()));
+      extraDepsBuilder.addAll(OptionalCompat.asSet(pythonBuckConfig.getPexExecutorTarget()));
     }
-
-    return targets.build();
   }
 
   @Override
@@ -360,10 +367,13 @@ public class PythonBinaryDescription implements
     public Optional<SourcePath> main;
     public Optional<String> mainModule;
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
+        PatternMatchedCollection.of();
     public Optional<String> baseModule;
     public Optional<Boolean> zipSafe;
     public ImmutableList<String> buildArgs = ImmutableList.of();
     public Optional<String> platform;
+    public Optional<Flavor> cxxPlatform;
     public Optional<PythonBuckConfig.PackageStyle> packageStyle;
     public ImmutableSet<BuildTarget> preloadDeps = ImmutableSet.of();
     public ImmutableList<String> linkerFlags = ImmutableList.of();

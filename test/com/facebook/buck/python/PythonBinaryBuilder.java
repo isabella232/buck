@@ -21,9 +21,11 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -98,6 +100,12 @@ public class PythonBinaryBuilder extends AbstractNodeBuilder<
     return this;
   }
 
+  public PythonBinaryBuilder setPlatformDeps(
+      PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> deps) {
+    arg.platformDeps = deps;
+    return this;
+  }
+
   public PythonBinaryBuilder setPreloadDeps(ImmutableSet<BuildTarget> deps) {
     arg.preloadDeps = deps;
     return this;
@@ -105,6 +113,11 @@ public class PythonBinaryBuilder extends AbstractNodeBuilder<
 
   public PythonBinaryBuilder setPlatform(String platform) {
     arg.platform = Optional.of(platform);
+    return this;
+  }
+
+  public PythonBinaryBuilder setCxxPlatform(Flavor platform) {
+    arg.cxxPlatform = Optional.of(platform);
     return this;
   }
 

@@ -23,15 +23,15 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.Hint;
+import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -49,11 +49,6 @@ public class TargetNodeTest {
 
   public static final BuildTarget TARGET_THREE =
       BuildTargetFactory.newInstance("//example/path:three");
-
-  private static final TargetGraph GRAPH = new TargetGraph(
-      new MutableDirectedGraph<TargetNode<?, ?>>(),
-      ImmutableMap.of(),
-      ImmutableSet.of());
 
   @Test
   public void testIgnoreNonBuildTargetOrPathOrSourcePathArgument()
@@ -106,14 +101,14 @@ public class TargetNodeTest {
       throws Exception {
 
     ProjectFilesystem rootOne = FakeProjectFilesystem.createJavaOnlyFilesystem("/one");
-    BuildTarget buildTargetOne = BuildTargetFactory.newInstance(rootOne, "//foo:bar");
+    BuildTarget buildTargetOne = BuildTargetFactory.newInstance(rootOne.getRootPath(), "//foo:bar");
     TargetNode<Arg, ExampleDescription> targetNodeOne = createTargetNode(buildTargetOne);
 
     ProjectFilesystem rootTwo = FakeProjectFilesystem.createJavaOnlyFilesystem("/two");
-    BuildTarget buildTargetTwo = BuildTargetFactory.newInstance(rootTwo, "//foo:bar");
+    BuildTarget buildTargetTwo = BuildTargetFactory.newInstance(rootTwo.getRootPath(), "//foo:bar");
     TargetNode<Arg, ExampleDescription> targetNodeTwo = createTargetNode(buildTargetTwo);
 
-    boolean isVisible = targetNodeOne.isVisibleTo(GRAPH, targetNodeTwo);
+    boolean isVisible = targetNodeOne.isVisibleTo(targetNodeTwo);
 
     assertThat(isVisible, is(false));
   }
@@ -140,6 +135,7 @@ public class TargetNodeTest {
         TargetGraph targetGraph,
         BuildRuleParams params,
         BuildRuleResolver resolver,
+        CellPathResolver cellRoots,
         A args) {
       return new FakeBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
     }
@@ -165,7 +161,7 @@ public class TargetNodeTest {
 
     ExampleDescription description = new ExampleDescription();
 
-    return new TargetNodeFactory(new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance()))
+    return new TargetNodeFactory(new DefaultTypeCoercerFactory())
         .create(
             Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
             description,
@@ -177,6 +173,7 @@ public class TargetNodeTest {
             buildTarget,
             declaredDeps,
             ImmutableSet.of(),
+            ImmutableSet.of(),
             createCellRoots(filesystem));
   }
 
@@ -186,8 +183,7 @@ public class TargetNodeTest {
       BuildTarget buildTarget,
       Map<String, Object> instance) throws NoSuchBuildTargetException {
     ConstructorArgMarshaller marshaller =
-        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
-            ObjectMappers.newDefaultInstance()));
+        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory());
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     Arg constructorArg = description.createUnpopulatedConstructorArg();
     try {
@@ -196,6 +192,7 @@ public class TargetNodeTest {
           projectFilesystem,
           buildTarget,
           constructorArg,
+          ImmutableSet.builder(),
           ImmutableSet.builder(),
           ImmutableSet.builder(),
           instance);

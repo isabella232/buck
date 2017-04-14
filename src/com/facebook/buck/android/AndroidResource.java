@@ -163,7 +163,7 @@ public class AndroidResource extends AbstractBuildRule
       boolean resourceUnion,
       boolean isGrayscaleImageProcessingEnabled) {
     super(
-        buildRuleParams.appendExtraDeps(
+        buildRuleParams.copyAppendingExtraDeps(
             Suppliers.compose(ruleFinder::filterBuildRuleInputs, symbolFilesFromDeps)));
     if (res != null && rDotJavaPackageArgument == null && manifestFile == null) {
       throw new HumanReadableException(
@@ -256,7 +256,7 @@ public class AndroidResource extends AbstractBuildRule
         assets,
         assetsSrcs,
         manifestFile,
-        () -> FluentIterable.from(buildRuleParams.getDeps())
+        () -> FluentIterable.from(buildRuleParams.getBuildDeps())
             .filter(HasAndroidResourceDeps.class)
             .filter(input -> input.getRes() != null)
             .transform(HasAndroidResourceDeps::getPathToTextSymbolsFile)
@@ -291,8 +291,8 @@ public class AndroidResource extends AbstractBuildRule
     buildableContext.recordArtifact(Preconditions.checkNotNull(pathToRDotJavaPackageFile));
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(
-        new MakeCleanDirectoryStep(
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
             getProjectFilesystem(),
             Preconditions.checkNotNull(pathToTextSymbolsDir)));
     if (getRes() == null) {

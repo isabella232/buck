@@ -19,7 +19,7 @@ package com.facebook.buck.versions;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -97,10 +97,6 @@ public class VersionedTargetGraphBuilder {
       ForkJoinPool pool,
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets) {
-
-    Preconditions.checkArgument(
-        unversionedTargetGraphAndBuildTargets.getTargetGraph().getGroups().isEmpty(),
-        "graph versioning does not currently support target groups");
 
     this.pool = pool;
     this.versionSelector = versionSelector;
@@ -199,7 +195,7 @@ public class VersionedTargetGraphBuilder {
       hasher.putString(ent.getKey().toString(), Charsets.UTF_8);
       hasher.putString(ent.getValue().getName(), Charsets.UTF_8);
     }
-    return ImmutableFlavor.of("v" + hasher.hash().toString().substring(0, 7));
+    return InternalFlavor.of("v" + hasher.hash().toString().substring(0, 7));
   }
 
   private TargetNode<?, ?> resolveVersions(
@@ -328,7 +324,7 @@ public class VersionedTargetGraphBuilder {
         node = oldNode;
       } else {
         targetGraphBuilder.addNode(node.getBuildTarget().withFlavors(), node);
-        for (TargetNode<?, ?> dep : process(node.getDeps())) {
+        for (TargetNode<?, ?> dep : process(node.getParseDeps())) {
           targetGraphBuilder.addEdge(node, dep);
         }
       }
@@ -441,7 +437,7 @@ public class VersionedTargetGraphBuilder {
                     node.getBuildTarget().getFlavors())),
             newNode);
         for (BuildTarget depTarget :
-             FluentIterable.from(node.getDeps())
+             FluentIterable.from(node.getParseDeps())
                  .filter(Predicates.or(isVersionPropagator, isVersioned))) {
           targetGraphBuilder.addEdge(
               newNode,
@@ -452,7 +448,7 @@ public class VersionedTargetGraphBuilder {
         }
         for (TargetNode<?, ?> dep :
              process(
-                 FluentIterable.from(node.getDeps())
+                 FluentIterable.from(node.getParseDeps())
                      .filter(Predicates.not(Predicates.or(isVersionPropagator, isVersioned))))) {
           targetGraphBuilder.addEdge(newNode, dep);
         }

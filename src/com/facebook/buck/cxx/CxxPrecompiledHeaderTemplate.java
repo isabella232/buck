@@ -18,7 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -54,7 +54,7 @@ public class CxxPrecompiledHeaderTemplate
     implements NativeLinkable, CxxPreprocessorDep {
 
   private static final Flavor AGGREGATED_PREPROCESS_DEPS_FLAVOR =
-      ImmutableFlavor.of("preprocessor-deps");
+      InternalFlavor.of("preprocessor-deps");
 
   public final BuildRuleParams params;
   public final BuildRuleResolver ruleResolver;
@@ -78,16 +78,16 @@ public class CxxPrecompiledHeaderTemplate
   }
 
   private ImmutableSortedSet<BuildRule> getExportedDeps() {
-    return BuildRules.getExportedRules(getDeps());
+    return BuildRules.getExportedRules(getBuildDeps());
   }
 
   /**
-   * Returns our {@link #getDeps()},
+   * Returns our {@link #getBuildDeps()},
    * limited to the subset of those which are {@link NativeLinkable}.
    */
   @Override
   public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
-    return RichStream.from(getDeps()).filter(NativeLinkable.class).toImmutableList();
+    return RichStream.from(getBuildDeps()).filter(NativeLinkable.class).toImmutableList();
   }
 
   /**
@@ -127,19 +127,14 @@ public class CxxPrecompiledHeaderTemplate
       Linker.LinkableDepType type) throws NoSuchBuildTargetException {
     return NativeLinkables.getTransitiveNativeLinkableInput(
         cxxPlatform,
-        getDeps(),
+        getBuildDeps(),
         Linker.LinkableDepType.SHARED,
         NativeLinkable.class::isInstance);
   }
 
   @Override
   public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
-    return RichStream.from(getDeps()).filter(CxxPreprocessorDep.class).toImmutableList();
-  }
-
-  @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    return Optional.empty();
+    return RichStream.from(getBuildDeps()).filter(CxxPreprocessorDep.class).toImmutableList();
   }
 
   @Override
@@ -200,7 +195,7 @@ public class CxxPrecompiledHeaderTemplate
       builder.addAll(frameworkPath.getDeps(ruleFinder));
     }
 
-    builder.addAll(getDeps());
+    builder.addAll(getBuildDeps());
     builder.addAll(getExportedDeps());
 
     return builder.build();
@@ -221,10 +216,11 @@ public class CxxPrecompiledHeaderTemplate
       return existingRule.get();
     }
 
-    BuildRuleParams depAggParams = params.copyWithChanges(
-        depAggTarget,
-        Suppliers.ofInstance(getPreprocessDeps(cxxPlatform)),
-        Suppliers.ofInstance(ImmutableSortedSet.of()));
+    BuildRuleParams depAggParams = params
+        .withBuildTarget(depAggTarget)
+        .copyReplacingDeclaredAndExtraDeps(
+            Suppliers.ofInstance(getPreprocessDeps(cxxPlatform)),
+            Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     DependencyAggregation depAgg = new DependencyAggregation(depAggParams);
     ruleResolver.addToIndex(depAgg);

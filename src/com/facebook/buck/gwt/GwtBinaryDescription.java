@@ -26,6 +26,7 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -74,6 +75,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -94,7 +96,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         JavaLibrary javaLibrary = (JavaLibrary) rule;
         if (javaLibrary.getSourcePathToOutput() == null) {
-          return rule.getDeps();
+          return rule.getBuildDeps();
         }
 
         BuildTarget gwtModuleTarget = BuildTargets.createFlavoredBuildTarget(
@@ -112,10 +114,11 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
 
           BuildRule module = resolver.addToIndex(
               new GwtModule(
-                  params.copyWithChanges(
-                      gwtModuleTarget,
-                      Suppliers.ofInstance(deps),
-                      Suppliers.ofInstance(ImmutableSortedSet.of())),
+                  params
+                      .withBuildTarget(gwtModuleTarget)
+                      .copyReplacingDeclaredAndExtraDeps(
+                          Suppliers.ofInstance(deps),
+                          Suppliers.ofInstance(ImmutableSortedSet.of())),
                   ruleFinder,
                   filesForGwtModule));
           gwtModule = Optional.of(module);
@@ -130,12 +133,12 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
         }
 
         // Traverse all of the deps of this rule.
-        return rule.getDeps();
+        return rule.getBuildDeps();
       }
     }.start();
 
     return new GwtBinary(
-        params.copyWithExtraDeps(Suppliers.ofInstance(extraDeps.build())),
+        params.copyReplacingExtraDeps(Suppliers.ofInstance(extraDeps.build())),
         args.modules,
         javaOptions.getJavaRuntimeLauncher(),
         args.vmArgs,

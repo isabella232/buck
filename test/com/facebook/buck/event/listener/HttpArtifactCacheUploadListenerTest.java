@@ -19,11 +19,11 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.counters.CountersSnapshotEvent;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.timing.FakeClock;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;
 
 import org.junit.After;
@@ -32,6 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,9 +49,8 @@ public class HttpArtifactCacheUploadListenerTest {
   public void setUp() {
     buildId = new BuildId();
     clock = new FakeClock(0);
-    events = Lists.newArrayList();
-    eventBus = new BuckEventBus(clock, buildId);
-    eventBus = new BuckEventBus(clock, /* async */ false, buildId, 1000);
+    events = new ArrayList<>();
+    eventBus = new DefaultBuckEventBus(clock, /* async */ false, buildId, 1000);
     eventBus.register(this);
     lastStartedEvent = null;
   }
@@ -94,7 +94,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   private BuildEvent.Finished createBuildFinishedEvent(int timeMillis) {
-    BuildEvent.Started startedEvent = BuildEvent.started(Lists.newArrayList());
+    BuildEvent.Started startedEvent = BuildEvent.started(new ArrayList<>());
     startedEvent.configure(timeMillis, 0, 0, 0, buildId);
     BuildEvent.Finished finishedEvent = BuildEvent.finished(startedEvent, 0);
     finishedEvent.configure(timeMillis, 0, 0, 0, buildId);

@@ -32,11 +32,11 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.RichStream;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -49,7 +49,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 /**
  * An action graph representation of a C/C++ library from the target graph, providing the
@@ -59,10 +58,9 @@ public class CxxLibrary
     extends NoopBuildRule
     implements AbstractCxxLibrary, HasRuntimeDeps, NativeTestable, NativeLinkTarget {
 
-  private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
-  private final Iterable<? extends BuildRule> exportedDeps;
-  private final Predicate<CxxPlatform> hasExportedHeaders;
+  private final CxxDeps deps;
+  private final CxxDeps exportedDeps;
   private final Predicate<CxxPlatform> headerOnly;
   private final Function<? super CxxPlatform, Iterable<? extends Arg>> exportedLinkerFlags;
   private final Function<? super CxxPlatform, NativeLinkableInput> linkTargetInput;
@@ -93,8 +91,8 @@ public class CxxLibrary
   public CxxLibrary(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
-      Iterable<? extends BuildRule> exportedDeps,
-      Predicate<CxxPlatform> hasExportedHeaders,
+      CxxDeps deps,
+      CxxDeps exportedDeps,
       Predicate<CxxPlatform> headerOnly,
       Function<? super CxxPlatform, Iterable<? extends Arg>> exportedLinkerFlags,
       Function<? super CxxPlatform, NativeLinkableInput> linkTargetInput,
@@ -108,10 +106,9 @@ public class CxxLibrary
       boolean canBeAsset,
       boolean propagateLinkables) {
     super(params);
-    this.params = params;
     this.ruleResolver = ruleResolver;
+    this.deps = deps;
     this.exportedDeps = exportedDeps;
-    this.hasExportedHeaders = hasExportedHeaders;
     this.headerOnly = headerOnly;
     this.exportedLinkerFlags = exportedLinkerFlags;
     this.linkTargetInput = linkTargetInput;
@@ -138,8 +135,13 @@ public class CxxLibrary
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(getDeps())
-        .filter(CxxPreprocessorDep.class);
+    return RichStream
+        .from(
+            Iterables.concat(
+                deps.get(ruleResolver, cxxPlatform),
+                exportedDeps.get(ruleResolver, cxxPlatform)))
+        .filter(CxxPreprocessorDep.class)
+        .toImmutableList();
   }
 
   @Override
@@ -157,19 +159,6 @@ public class CxxLibrary
   }
 
   @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    if (hasExportedHeaders.apply(cxxPlatform)) {
-      return Optional.of(
-          CxxPreprocessables.requireHeaderSymlinkTreeForLibraryTarget(
-              ruleResolver,
-              getBuildTarget(),
-              cxxPlatform.getFlavor()));
-    } else {
-      return Optional.empty();
-    }
-  }
-
-  @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
       CxxPlatform cxxPlatform,
       HeaderVisibility headerVisibility) {
@@ -182,16 +171,22 @@ public class CxxLibrary
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(getDeclaredDeps())
-        .filter(NativeLinkable.class);
+    return RichStream.from(deps.getForAllPlatforms(ruleResolver))
+        .filter(NativeLinkable.class)
+        .toImmutableList();
   }
 
   @Override
   public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(CxxPlatform cxxPlatform) {
+    if (!propagateLinkables) {
+      return ImmutableList.of();
+    }
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return getNativeLinkableDeps();
+    return RichStream.from(deps.get(ruleResolver, cxxPlatform))
+        .filter(NativeLinkable.class)
+        .toImmutableList();
   }
 
   @Override
@@ -199,20 +194,26 @@ public class CxxLibrary
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(exportedDeps)
-        .filter(NativeLinkable.class);
+    return RichStream.from(exportedDeps.getForAllPlatforms(ruleResolver))
+        .filter(NativeLinkable.class)
+        .toImmutableList();
   }
 
   @Override
   public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
       CxxPlatform cxxPlatform) {
+    if (!propagateLinkables) {
+      return ImmutableList.of();
+    }
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return getNativeLinkableExportedDeps();
+    return RichStream.from(exportedDeps.get(ruleResolver, cxxPlatform))
+        .filter(NativeLinkable.class)
+        .toImmutableList();
   }
 
-  public NativeLinkableInput getNativeLinkableInputUncached(
+  private NativeLinkableInput getNativeLinkableInputUncached(
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type) throws NoSuchBuildTargetException {
 
@@ -305,7 +306,13 @@ public class CxxLibrary
 
   @Override
   public Iterable<AndroidPackageable> getRequiredPackageables() {
-    return AndroidPackageableCollector.getPackageableRules(params.getDeps());
+    return AndroidPackageableCollector.getPackageableRules(
+        RichStream
+            .from(
+                Iterables.concat(
+                    deps.getForAllPlatforms(ruleResolver),
+                    exportedDeps.getForAllPlatforms(ruleResolver)))
+            .toImmutableList());
   }
 
   @Override
@@ -377,10 +384,8 @@ public class CxxLibrary
     // will pull in runtime deps (e.g. other binaries) or transitive C/C++ libraries.  Since the
     // `CxxLibrary` rules themselves are noop meta rules, they shouldn't add any unnecessary
     // overhead.
-    return Stream
-        .concat(
-            getDeclaredDeps().stream(),
-            StreamSupport.stream(exportedDeps.spliterator(), false))
+    return RichStream.from(getDeclaredDeps().stream())
+        .concat(exportedDeps.getForAllPlatforms(ruleResolver).stream())
         .map(BuildRule::getBuildTarget);
   }
 

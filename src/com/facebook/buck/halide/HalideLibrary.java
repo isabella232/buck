@@ -22,7 +22,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
@@ -84,7 +83,7 @@ public class HalideLibrary
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(getDeps())
+    return FluentIterable.from(getBuildDeps())
         .filter(CxxPreprocessorDep.class);
   }
 
@@ -111,15 +110,6 @@ public class HalideLibrary
     }
 
     throw new RuntimeException("Invalid header visibility: " + headerVisibility);
-  }
-
-  @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    return Optional.of(
-        CxxPreprocessables.requireHeaderSymlinkTreeForLibraryTarget(
-            ruleResolver,
-            getBuildTarget(),
-            cxxPlatform.getFlavor()));
   }
 
   @Override

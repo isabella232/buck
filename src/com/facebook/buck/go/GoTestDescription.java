@@ -21,7 +21,7 @@ import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -42,6 +42,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,7 +59,7 @@ public class GoTestDescription implements
     MetadataProvidingDescription<GoTestDescription.Arg>,
     ImplicitDepsInferringDescription<GoTestDescription.Arg> {
 
-  private static final Flavor TEST_LIBRARY_FLAVOR = ImmutableFlavor.of("test-library");
+  private static final Flavor TEST_LIBRARY_FLAVOR = InternalFlavor.of("test-library");
 
   private final GoBuckConfig goBuckConfig;
   private final Optional<Long> defaultTestRuleTimeoutMs;
@@ -138,12 +139,12 @@ public class GoTestDescription implements
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     GoTestMain generatedTestMain = new GoTestMain(
-        params.copyWithChanges(
-            params.getBuildTarget().withAppendedFlavors(ImmutableFlavor.of("test-main-src")),
-            Suppliers.ofInstance(ImmutableSortedSet.copyOf(
-                testMainGenerator.getDeps(ruleFinder))),
-            Suppliers.ofInstance(ImmutableSortedSet.of())
-        ),
+        params
+            .withAppendedFlavor(InternalFlavor.of("test-main-src"))
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(ImmutableSortedSet.copyOf(
+                    testMainGenerator.getDeps(ruleFinder))),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         testMainGenerator,
         srcs,
         packageName
@@ -157,6 +158,7 @@ public class GoTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     GoPlatform platform = goBuckConfig.getPlatformFlavorDomain().getValue(params.getBuildTarget())
         .orElse(goBuckConfig.getDefaultPlatform());
@@ -178,7 +180,7 @@ public class GoTestDescription implements
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new GoTest(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(testMain)),
             Suppliers.ofInstance(ImmutableSortedSet.of())
         ),
@@ -198,8 +200,7 @@ public class GoTestDescription implements
       GoPlatform platform) throws NoSuchBuildTargetException {
     Path packageName = getGoPackageName(resolver, params.getBuildTarget(), args);
 
-    BuildRuleParams testTargetParams = params.copyWithBuildTarget(
-        params.getBuildTarget().withAppendedFlavors(TEST_LIBRARY_FLAVOR));
+    BuildRuleParams testTargetParams = params.withAppendedFlavor(TEST_LIBRARY_FLAVOR);
     BuildRule testLibrary = new NoopBuildRule(
         testTargetParams);
     resolver.addToIndex(testLibrary);
@@ -207,10 +208,11 @@ public class GoTestDescription implements
     BuildRule generatedTestMain = requireTestMainGenRule(
         params, resolver, args.srcs, packageName);
     GoBinary testMain = GoDescriptors.createGoBinaryRule(
-        params.copyWithChanges(
-            params.getBuildTarget().withAppendedFlavors(ImmutableFlavor.of("test-main")),
-            Suppliers.ofInstance(ImmutableSortedSet.of(testLibrary)),
-            Suppliers.ofInstance(ImmutableSortedSet.of(generatedTestMain))),
+        params
+            .withAppendedFlavor(InternalFlavor.of("test-main"))
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(ImmutableSortedSet.of(testLibrary)),
+                Suppliers.ofInstance(ImmutableSortedSet.of(generatedTestMain))),
         resolver,
         goBuckConfig,
         ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
@@ -271,7 +273,7 @@ public class GoTestDescription implements
           args.library.get(), GoLibraryDescription.Arg.class).get();
 
       final BuildRuleParams originalParams = params;
-      BuildRuleParams testTargetParams = params.copyWithDeps(
+      BuildRuleParams testTargetParams = params.copyReplacingDeclaredAndExtraDeps(
           () -> ImmutableSortedSet.<BuildRule>naturalOrder()
               .addAll(originalParams.getDeclaredDeps().get())
               .addAll(resolver.getAllRules(libraryArg.deps))
@@ -323,23 +325,20 @@ public class GoTestDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-
-    ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ linker parse time deps.
     GoPlatform goPlatform =
         goBuckConfig.getPlatformFlavorDomain().getValue(buildTarget)
             .orElse(goBuckConfig.getDefaultPlatform());
     Optional<CxxPlatform> cxxPlatform = goPlatform.getCxxPlatform();
     if (cxxPlatform.isPresent()) {
-      targets.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform.get()));
+      extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform.get()));
     }
-
-    return targets.build();
   }
 
   @SuppressFieldNotInitialized

@@ -17,13 +17,11 @@
 package com.facebook.buck.jvm.java.abi;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.jvm.java.testutil.CompilerTreeApiTest;
 import com.facebook.buck.jvm.java.testutil.CompilerTreeApiTestRunner;
 import com.google.common.base.Joiner;
 
-import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.objectweb.asm.Opcodes;
@@ -34,28 +32,52 @@ import java.io.IOException;
 public class AccessFlagsTest extends CompilerTreeApiTest {
 
   @Test
-  public void testPublicFlag() throws IOException {
+  public void testPublicFlagOnField() throws IOException {
     testFieldFlags("public", Opcodes.ACC_PUBLIC);
+  }
+
+  @Test
+  public void testPublicFlagOnMethod() throws IOException {
     testMethodFlags("public", Opcodes.ACC_PUBLIC);
+  }
+
+  @Test
+  public void testPublicFlagOnClass() throws IOException {
     testClassFlags("public", Opcodes.ACC_PUBLIC);
   }
 
   @Test
-  public void testProtectedFlag() throws IOException {
+  public void testProtectedFlagOnField() throws IOException {
     testFieldFlags("protected", Opcodes.ACC_PROTECTED);
+  }
+
+  @Test
+  public void testProtectedFlagOnMethod() throws IOException {
     testMethodFlags("protected", Opcodes.ACC_PROTECTED);
   }
 
   @Test
-  public void testPrivateFlag() throws IOException {
+  public void testPrivateFlagOnField() throws IOException {
     testFieldFlags("private", Opcodes.ACC_PRIVATE);
+  }
+
+  @Test
+  public void testPrivateFlagOnMethod() throws IOException {
     testMethodFlags("private", Opcodes.ACC_PRIVATE);
   }
 
   @Test
-  public void testNoFlagForDefaultVisibility() throws IOException {
+  public void testNoFlagForDefaultVisibilityOnField() throws IOException {
     testFieldFlags("", 0);
+  }
+
+  @Test
+  public void testNoFlagForDefaultVisibilityOnMethod() throws IOException {
     testMethodFlags("", 0);
+  }
+
+  @Test
+  public void testNoFlagForDefaultVisibilityOnClass() throws IOException {
     testClassFlags("", 0);
   }
 
@@ -71,9 +93,17 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
   }
 
   @Test
-  public void testStaticFlag() throws IOException {
+  public void testStaticFlagOnField() throws IOException {
     testFieldFlags("static", Opcodes.ACC_STATIC);
+  }
+
+  @Test
+  public void testStaticFlagOnMethod() throws IOException {
     testMethodFlags("static", Opcodes.ACC_STATIC);
+  }
+
+  @Test
+  public void testStaticFlagOnClass() throws IOException {
     testTypeFlags(
         Joiner.on('\n').join(
             "class Foo {",
@@ -84,9 +114,17 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
   }
 
   @Test
-  public void testFinalFlag() throws IOException {
+  public void testFinalFlagOnField() throws IOException {
     testFieldFlags("final", Opcodes.ACC_FINAL);
+  }
+
+  @Test
+  public void testFinalFlagOnMethod() throws IOException {
     testMethodFlags("final", Opcodes.ACC_FINAL);
+  }
+
+  @Test
+  public void testFinalFlagOnClass() throws IOException {
     testClassFlags("final", Opcodes.ACC_FINAL);
   }
 
@@ -101,9 +139,12 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
   }
 
   @Test
-  public void testAbstractFlag() throws IOException {
+  public void testAbstractFlagOnClass() throws IOException {
     testClassFlags("abstract", Opcodes.ACC_ABSTRACT);
+  }
 
+  @Test
+  public void testAbstractFlagOnMethod() throws IOException {
     compile(Joiner.on('\n').join(
         "abstract class Foo {",
         "  abstract void foo();",
@@ -137,8 +178,12 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
   }
 
   @Test
-  public void testMultipleFlags() throws IOException {
+  public void testMultipleFlagsOnMethod() throws IOException {
     testMethodFlags("public static", Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
+  }
+
+  @Test
+  public void testMultipleFlagsOnField() throws IOException {
     testFieldFlags("public static", Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
   }
 
@@ -156,8 +201,12 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
   }
 
   @Test
-  public void testDeprecatedPseudoFlag() throws IOException {
+  public void testDeprecatedPseudoFlagOnField() throws IOException {
     testFieldFlags("@Deprecated", Opcodes.ACC_DEPRECATED);
+  }
+
+  @Test
+  public void testDeprecatedPseudoFlagOnMethod() throws IOException {
     testMethodFlags("@Deprecated", Opcodes.ACC_DEPRECATED);
   }
 
@@ -221,7 +270,7 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
       String typeName,
       int expectedFlags) throws IOException {
     compile(content);
-    assertThat(diagnostics.getDiagnostics(), Matchers.empty());
+    assertNoErrors();
     assertEquals(
         expectedFlags,
         AccessFlags.getAccessFlags(elements.getTypeElement(typeName)));
@@ -233,7 +282,7 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
         String.format("  %s void method() { }", modifiers),
         "}"));
 
-    assertThat(diagnostics.getDiagnostics(), Matchers.empty());
+    assertNoErrors();
     assertEquals(
         expectedFlags,
         AccessFlags.getAccessFlags(
@@ -246,7 +295,7 @@ public class AccessFlagsTest extends CompilerTreeApiTest {
         String.format("  %s int field = 0;", modifiers),
         "}"));
 
-    assertThat(diagnostics.getDiagnostics(), Matchers.empty());
+    assertNoErrors();
     assertEquals(
         expectedFlags,
         AccessFlags.getAccessFlags(

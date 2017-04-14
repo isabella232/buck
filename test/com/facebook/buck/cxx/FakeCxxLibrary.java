@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 
 /**
  * Fake implementation of {@link CxxLibrary} for testing.
@@ -86,7 +85,7 @@ public final class FakeCxxLibrary
 
   @Override
   public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
-    return FluentIterable.from(getDeps())
+    return FluentIterable.from(getBuildDeps())
         .filter(CxxPreprocessorDep.class);
   }
 
@@ -127,11 +126,6 @@ public final class FakeCxxLibrary
       HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
     return transitiveCxxPreprocessorInputCache.getUnchecked(
         ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
-  }
-
-  @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    return Optional.empty();
   }
 
   @Override

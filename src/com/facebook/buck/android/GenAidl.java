@@ -101,11 +101,11 @@ public class GenAidl extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), genPath));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), genPath));
 
     BuildTarget target = getBuildTarget();
     Path outputDirectory = BuildTargets.getScratchPath(getProjectFilesystem(), target, "__%s.aidl");
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDirectory));
 
     AidlStep command = new AidlStep(
         getProjectFilesystem(),
@@ -120,7 +120,7 @@ public class GenAidl extends AbstractBuildRule {
 
     // Warn the user if the genDirectory is not under the output directory.
     if (!importPath.startsWith(target.getBasePath().toString())) {
-      // TODO(shs96c): Make this fatal. Give people some time to clean up their rules.
+      // TODO(simons): Make this fatal. Give people some time to clean up their rules.
       context.getEventBus().post(
           ConsoleEvent.warning(
               "%s, gen_aidl import path (%s) should be a child of %s",
@@ -129,7 +129,7 @@ public class GenAidl extends AbstractBuildRule {
               target.getBasePath()));
     }
 
-    commands.add(new MkdirStep(getProjectFilesystem(), genDirectory));
+    commands.add(MkdirStep.of(getProjectFilesystem(), genDirectory));
 
     commands.add(
         new JarDirectoryStep(

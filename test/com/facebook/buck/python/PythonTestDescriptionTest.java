@@ -20,13 +20,14 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
+import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -237,12 +238,12 @@ public class PythonTestDescriptionTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     PythonPlatform platform1 =
         PythonPlatform.of(
-            ImmutableFlavor.of("pyPlat1"),
+            InternalFlavor.of("pyPlat1"),
             new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6")),
             Optional.empty());
     PythonPlatform platform2 =
         PythonPlatform.of(
-            ImmutableFlavor.of("pyPlat2"),
+            InternalFlavor.of("pyPlat2"),
             new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7")),
             Optional.empty());
     PythonTestBuilder builder =
@@ -500,7 +501,7 @@ public class PythonTestDescriptionTest {
   }
 
   @Test
-  public void nonBuildDepsDoNotAffectRuleKey() throws Exception {
+  public void targetGraphOnlyDepsDoNotAffectRuleKey() throws Exception {
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
     for (PythonBuckConfig.PackageStyle packageStyle : PythonBuckConfig.PackageStyle.values()) {
 
@@ -534,6 +535,94 @@ public class PythonTestDescriptionTest {
       // Verify that the rule keys are identical.
       assertThat(ruleKeyWithoutDep, Matchers.equalTo(ruleKeyWithDep));
     }
+  }
+
+  @Test
+  public void platformDeps() throws Exception {
+    SourcePath libASrc = new FakeSourcePath("libA.py");
+    PythonLibraryBuilder libraryABuilder =
+        PythonLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:libA"))
+            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(libASrc)));
+    SourcePath libBSrc = new FakeSourcePath("libB.py");
+    PythonLibraryBuilder libraryBBuilder =
+        PythonLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:libB"))
+            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(libBSrc)));
+    PythonTestBuilder binaryBuilder =
+        PythonTestBuilder.create(BuildTargetFactory.newInstance("//:bin"))
+            .setPlatformDeps(
+                PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
+                    .add(
+                        Pattern.compile(
+                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
+                            Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryABuilder.getTarget()))
+                    .add(
+                        Pattern.compile("matches nothing", Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryBBuilder.getTarget()))
+                    .build());
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            libraryABuilder.build(),
+            libraryBBuilder.build(),
+            binaryBuilder.build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    PythonTest test = (PythonTest) resolver.requireRule(binaryBuilder.getTarget());
+    assertThat(
+        test.getBinary().getComponents().getModules().values(),
+        Matchers.allOf(Matchers.hasItem(libASrc), Matchers.not(Matchers.hasItem(libBSrc))));
+  }
+
+  @Test
+  public void cxxPlatform() throws Exception {
+    CxxPlatform platformA =
+        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("platA"));
+    CxxPlatform platformB =
+        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("platB"));
+    FlavorDomain<CxxPlatform> cxxPlatforms =
+        FlavorDomain.from("C/C++ platform", ImmutableList.of(platformA, platformB));
+    SourcePath libASrc = new FakeSourcePath("libA.py");
+    PythonLibraryBuilder libraryABuilder =
+        new PythonLibraryBuilder(
+            BuildTargetFactory.newInstance("//:libA"),
+            PythonTestUtils.PYTHON_PLATFORMS,
+            cxxPlatforms)
+            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(libASrc)));
+    SourcePath libBSrc = new FakeSourcePath("libB.py");
+    PythonLibraryBuilder libraryBBuilder =
+        new PythonLibraryBuilder(
+            BuildTargetFactory.newInstance("//:libB"),
+            PythonTestUtils.PYTHON_PLATFORMS,
+            cxxPlatforms)
+            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(libBSrc)));
+    PythonTestBuilder binaryBuilder =
+        new PythonTestBuilder(
+            BuildTargetFactory.newInstance("//:bin"),
+            PythonTestUtils.PYTHON_CONFIG,
+            PythonTestUtils.PYTHON_PLATFORMS,
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            cxxPlatforms)
+            .setCxxPlatform(platformA.getFlavor())
+            .setPlatformDeps(
+                PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
+                    .add(
+                        Pattern.compile(platformA.getFlavor().toString(), Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryABuilder.getTarget()))
+                    .add(
+                        Pattern.compile(platformB.getFlavor().toString(), Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryBBuilder.getTarget()))
+                    .build());
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            libraryABuilder.build(),
+            libraryBBuilder.build(),
+            binaryBuilder.build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    PythonTest test = (PythonTest) resolver.requireRule(binaryBuilder.getTarget());
+    assertThat(
+        test.getBinary().getComponents().getModules().values(),
+        Matchers.allOf(Matchers.hasItem(libASrc), Matchers.not(Matchers.hasItem(libBSrc))));
   }
 
   private RuleKey calculateRuleKey(BuildRuleResolver ruleResolver, BuildRule rule) {

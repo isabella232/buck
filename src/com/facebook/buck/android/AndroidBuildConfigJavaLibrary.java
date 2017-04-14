@@ -17,7 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
@@ -48,11 +50,12 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
+      Javac javac,
       JavacOptions javacOptions,
       ImmutableSortedSet<SourcePath> abiInputs,
       AndroidBuildConfig androidBuildConfig) {
     super(
-        params,
+        params.copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(abiInputs)),
         resolver,
         ruleFinder,
         /* srcs */ ImmutableSortedSet.of(androidBuildConfig.getSourcePathToOutput()),
@@ -60,12 +63,18 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         javacOptions.getGeneratedSourceFolderName(),
         /* proguardConfig */ Optional.empty(),
         /* postprocessClassesCommands */ ImmutableList.of(),
+        /* declaredDeps */ params.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
+        /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
+            androidBuildConfig.getSourcePathToOutput()),
         abiInputs,
+        HasJavaAbi.getClassAbiJar(params.getBuildTarget()),
         /* trackClassUsage */ javacOptions.trackClassUsage(),
-        /* additionalClasspathEntries */ ImmutableSet.of(),
-        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+        new JavacToJarStepFactory(
+            javac,
+            javacOptions,
+            JavacOptionsAmender.IDENTITY),
         /* resourcesRoot */ Optional.empty(),
         /* manifest file */ Optional.empty(),
         /* mavenCoords */ Optional.empty(),
@@ -73,7 +82,7 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         /* classesToRemoveFromJar */ ImmutableSet.of());
     this.androidBuildConfig = androidBuildConfig;
     Preconditions.checkState(
-        params.getDeps().contains(androidBuildConfig),
+        params.getBuildDeps().contains(androidBuildConfig),
         "%s must depend on the AndroidBuildConfig whose output is in this rule's srcs.",
         params.getBuildTarget());
   }

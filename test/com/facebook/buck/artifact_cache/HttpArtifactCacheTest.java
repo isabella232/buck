@@ -24,6 +24,7 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.RuleKey;
@@ -35,7 +36,6 @@ import com.facebook.buck.timing.IncrementingFakeClock;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteSource;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -53,6 +53,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -70,7 +71,7 @@ public class HttpArtifactCacheTest {
   private static final String SERVER = "http://localhost";
 
   private static final BuckEventBus BUCK_EVENT_BUS =
-      new BuckEventBus(new IncrementingFakeClock(), new BuildId());
+      new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
   private static final MediaType OCTET_STREAM = MediaType.parse("application/octet-stream");
   private static final ListeningExecutorService DIRECT_EXECUTOR_SERVICE =
       MoreExecutors.newDirectExecutorService();
@@ -138,7 +139,7 @@ public class HttpArtifactCacheTest {
         .setScheduleType("some_schedule")
         .setFetchClient(withMakeRequest((a, b) -> null))
         .setStoreClient(withMakeRequest((a, b) -> null))
-        .setDoStore(true)
+        .setCacheReadMode(CacheReadMode.READWRITE)
         .setProjectFilesystem(new FakeProjectFilesystem())
         .setBuckEventBus(BUCK_EVENT_BUS)
         .setHttpWriteExecutorService(DIRECT_EXECUTOR_SERVICE)
@@ -148,7 +149,7 @@ public class HttpArtifactCacheTest {
 
   @Test
   public void testFetchNotFound() throws Exception {
-    final List<Response> responseList = Lists.newArrayList();
+    final List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(withMakeRequest((path, requestBuilder) -> {
       Response response =
           new Response.Builder()
@@ -180,7 +181,7 @@ public class HttpArtifactCacheTest {
     final String data = "test";
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final List<Response> responseList = Lists.newArrayList();
+    final List<Response> responseList = new ArrayList<>();
     argsBuilder.setProjectFilesystem(filesystem);
     argsBuilder.setFetchClient(withMakeRequest((path, requestBuilder) -> {
       Request request = requestBuilder.url(SERVER + path).build();
@@ -241,7 +242,7 @@ public class HttpArtifactCacheTest {
   public void testFetchBadChecksum() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final List<Response> responseList = Lists.newArrayList();
+    final List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(withMakeRequest((path, requestBuilder) -> {
       Request request = requestBuilder.url(SERVER + path).build();
       Response response =
@@ -274,7 +275,7 @@ public class HttpArtifactCacheTest {
   public void testFetchExtraPayload() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final List<Response> responseList = Lists.newArrayList();
+    final List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(withMakeRequest((path, requestBuilder) -> {
       Request request = requestBuilder.url(SERVER + path).build();
       Response response =
@@ -497,7 +498,7 @@ public class HttpArtifactCacheTest {
         .setCacheName(cacheName)
         .setProjectFilesystem(filesystem)
         .setBuckEventBus(
-            new BuckEventBus(new IncrementingFakeClock(), new BuildId()) {
+            new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId()) {
               @Override
               public void post(BuckEvent event) {
                 if (event instanceof ConsoleEvent) {

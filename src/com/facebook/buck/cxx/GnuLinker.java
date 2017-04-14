@@ -145,11 +145,12 @@ public class GnuLinker implements Linker {
       Iterable<? extends SourcePath> symbolFiles) {
     UndefinedSymbolsLinkerScript rule = ruleResolver.addToIndex(
         new UndefinedSymbolsLinkerScript(
-            baseParams.copyWithChanges(
-                target,
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(symbolFiles))),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
+            baseParams
+                .withBuildTarget(target)
+                .copyReplacingDeclaredAndExtraDeps(
+                    Suppliers.ofInstance(
+                        ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(symbolFiles))),
+                    Suppliers.ofInstance(ImmutableSortedSet.of())),
             symbolFiles));
     return ImmutableList.of(SourcePathArg.of(rule.getSourcePathToOutput()));
   }
@@ -218,7 +219,7 @@ public class GnuLinker implements Linker {
       final Path linkerScript = getLinkerScript();
       buildableContext.recordArtifact(linkerScript);
       return ImmutableList.of(
-          new MkdirStep(getProjectFilesystem(), linkerScript.getParent()),
+          MkdirStep.of(getProjectFilesystem(), linkerScript.getParent()),
           new WriteFileStep(
               getProjectFilesystem(),
               () -> {

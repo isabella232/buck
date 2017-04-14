@@ -16,17 +16,20 @@
 
 package com.facebook.buck.jvm.java.abi.source;
 
-import com.facebook.buck.event.api.BuckTracing;
+import com.facebook.buck.jvm.java.abi.source.api.StopCompilation;
+import com.facebook.buck.jvm.java.plugin.adapter.BuckJavacTask;
 import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.JavacTask;
-import com.sun.source.util.TaskListener;
 import com.sun.source.util.Trees;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -34,6 +37,7 @@ import javax.annotation.processing.Processor;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
 import javax.tools.JavaFileObject;
 
 /**
@@ -45,26 +49,29 @@ import javax.tools.JavaFileObject;
  * about references to symbols defined in those dependencies. See the documentation of
  * {@link com.facebook.buck.jvm.java.abi.source} for details.
  */
-public class FrontendOnlyJavacTask extends JavacTask {
-  private static final BuckTracing BUCK_TRACING = BuckTracing.getInstance("TreeResolver");
+public class FrontendOnlyJavacTask extends BuckJavacTask {
   private final JavacTask javacTask;
-  private final TreeBackedElements elements;
-  private final TreeBackedTrees trees;
-  private final TreeBackedTypes types;
-  private final TypeResolverFactory resolverFactory;
+
+  @Nullable
+  private TreeBackedElements elements;
+  @Nullable
+  private TreeBackedTrees trees;
+  @Nullable
+  private TreeBackedTypes types;
 
   @Nullable
   private Iterable<? extends CompilationUnitTree> parsedCompilationUnits;
   @Nullable
   private List<TreeBackedTypeElement> topLevelElements;
+  private boolean stopCompilationAfterEnter = false;
 
-  public FrontendOnlyJavacTask(JavacTask javacTask) {
-    this.javacTask = javacTask;
-    elements = new TreeBackedElements(javacTask.getElements());
-    trees = new TreeBackedTrees(Trees.instance(javacTask), elements);
-    types = new TreeBackedTypes();
-    resolverFactory = new TypeResolverFactory(elements, types, trees);
-    elements.setResolverFactory(resolverFactory);
+  public FrontendOnlyJavacTask(JavacTask task) {
+    super(task);
+    javacTask = task;
+
+    // Add the entering plugin first so that all other plugins and annotation processors will
+    // run with the TreeBackedElements already entered
+    addPlugin(new EnteringPlugin());
   }
 
   @Override
@@ -76,13 +83,14 @@ public class FrontendOnlyJavacTask extends JavacTask {
     return parsedCompilationUnits;
   }
 
+  @Override
   public Iterable<? extends TypeElement> enter() throws IOException {
-    if (topLevelElements == null) {
-      topLevelElements = StreamSupport.stream(parse().spliterator(), false)
-          .map(this::enterTree)
-          .flatMap(List::stream)
-          .collect(Collectors.toList());
-    }
+    Iterable<? extends TypeElement> javacTopLevelElements = super.enter();
+
+    topLevelElements = StreamSupport.stream(javacTopLevelElements.spliterator(), false)
+        .map(getElements()::getCanonicalElement)
+        .map(element -> (TreeBackedTypeElement) element)
+        .collect(Collectors.toList());
 
     return topLevelElements;
   }
@@ -98,65 +106,56 @@ public class FrontendOnlyJavacTask extends JavacTask {
   }
 
   @Override
-  public void setTaskListener(TaskListener taskListener) {
-    throw new UnsupportedOperationException("NYI");
-  }
-
-  // TODO(jkeljo): Get a java 8 stub to compile against and then uncomment the below:
-  // @Override
-  public void addTaskListener(TaskListener taskListener) {
-    // If check is just here to shut up the compiler about the unused parameter. Updating our tools
-    // stub to java 8 will fix that too
-    if (taskListener != null) {
-      throw new UnsupportedOperationException("NYI");
-    }
-  }
-
-  // TODO(jkeljo): Get a java 8 stub to compile against and then uncomment the below:
-  // @Override
-  public void removeTaskListener(TaskListener taskListener) {
-    // If check is just here to shut up the compiler about the unused parameter. Updating our tools
-    // stub to java 8 will fix that too
-    if (taskListener != null) {
-      throw new UnsupportedOperationException("NYI");
-    }
-  }
-
-  @Override
   public TypeMirror getTypeMirror(Iterable<? extends Tree> path) {
     throw new UnsupportedOperationException();
   }
 
-  /* package */ JavacTask getInnerTask() {
-    return javacTask;
+  @Override
+  public TreeBackedElements getElements() {
+    if (elements == null) {
+      initUtils();
+    }
+    return Preconditions.checkNotNull(elements);
   }
 
   @Override
-  public TreeBackedElements getElements() {
-    return elements;
-  }
-
   public TreeBackedTrees getTrees() {
-    return trees;
+    if (trees == null) {
+      initUtils();
+    }
+    return Preconditions.checkNotNull(trees);
   }
 
   @Override
   public TreeBackedTypes getTypes() {
-    return types;
+    if (types == null) {
+      initUtils();
+    }
+    return Preconditions.checkNotNull(types);
   }
 
-  List<TreeBackedTypeElement> enterTree(CompilationUnitTree compilationUnit) {
-    try (BuckTracing.TraceSection t = BUCK_TRACING.traceSection("buck.abi.enterTree")) {
-      return trees.enterTree(compilationUnit, resolverFactory);
-    }
+  private void initUtils() {
+    Elements javacElements = javacTask.getElements();
+    Trees javacTrees = super.getTrees();
+    types = new TreeBackedTypes(javacTask.getTypes());
+    elements = new TreeBackedElements(javacElements, javacTrees);
+    trees = new TreeBackedTrees(javacTrees, elements, types);
+    types.setElements(elements);
+    elements.setResolver(new TreeBackedElementResolver(elements, types));
   }
 
   @Override
   public void setProcessors(Iterable<? extends Processor> processors) {
-    if (processors.iterator().hasNext()) {
-      // Only throw if there's actually something there; an empty list we can actually handle
-      throw new UnsupportedOperationException("NYI");
+    javacTask.setProcessors(wrap(processors));
+  }
+
+  private List<TreeBackedProcessorWrapper> wrap(Iterable<? extends Processor> processors) {
+    List<TreeBackedProcessorWrapper> result = new ArrayList<>();
+    for (Processor processor : processors) {
+      result.add(new TreeBackedProcessorWrapper(this, processor));
     }
+
+    return result;
   }
 
   @Override
@@ -166,6 +165,24 @@ public class FrontendOnlyJavacTask extends JavacTask {
 
   @Override
   public Boolean call() {
-    throw new UnsupportedOperationException("NYI");
+    try {
+      stopCompilationAfterEnter = true;
+      return javacTask.call();
+    } catch (RuntimeException e) {
+      if (e.getCause() instanceof StopCompilation) {
+        return true;
+      }
+
+      throw e;
+    }
+  }
+
+  @Override
+  protected void onPostEnter(Set<TypeElement> topLevelTypes) {
+    super.onPostEnter(topLevelTypes);
+
+    if (stopCompilationAfterEnter) {
+      throw new StopCompilation();
+    }
   }
 }

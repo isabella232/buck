@@ -30,6 +30,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -98,13 +99,10 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
 
     // Make sure the parent directory exists.
-    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(new RmStep(
-        getProjectFilesystem(),
-        output,
-        RmStep.Mode.RECURSIVE));
+    steps.add(RmStep.of(getProjectFilesystem(), output).withRecursive(true));
 
     SourcePathResolver resolver = context.getSourcePathResolver();
 
@@ -115,7 +113,7 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
           protected Optional<String> getStdin(ExecutionContext context) {
             try {
               return Optional.of(
-                  context.getObjectMapper().writeValueAsString(
+                  ObjectMappers.WRITER.writeValueAsString(
                       ImmutableMap.of(
                           "modules",
                           Maps.transformValues(

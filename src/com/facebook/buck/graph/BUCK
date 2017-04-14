@@ -1,5 +1,7 @@
 standard_java_library(
-  tests = [
-    '//test/com/facebook/buck/graph:graph',
-  ],
+    name = "graph",
+    tests = [
+        "//test/com/facebook/buck/graph:graph",
+    ],
+    deps = ["//third-party/java/guava:guava"],
 )

@@ -32,9 +32,9 @@ import com.facebook.buck.rage.WatchmanDiagReportCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
 
 import org.kohsuke.args4j.Option;
 
@@ -60,15 +60,15 @@ public class RageCommand extends AbstractCommand {
     RageConfig rageConfig = RageConfig.of(buckConfig);
     ProcessExecutor processExecutor = new DefaultProcessExecutor(params.getConsole());
 
-    VersionControlCmdLineInterfaceFactory vcsFactory =
-        new DefaultVersionControlCmdLineInterfaceFactory(
+    VersionControlCmdLineInterface versionControlCmdLineInterface =
+        new DelegatingVersionControlCmdLineInterface(
             params.getCell().getFilesystem().getRootPath(),
             new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(buckConfig),
+            new VersionControlBuckConfig(buckConfig).getHgCmd(),
             buckConfig.getEnvironment());
 
     Optional<VcsInfoCollector> vcsInfoCollector =
-        VcsInfoCollector.create(vcsFactory.createCmdLineInterface());
+        VcsInfoCollector.create(versionControlCmdLineInterface);
 
     ExtraInfoCollector extraInfoCollector =
         new DefaultExtraInfoCollector(rageConfig, filesystem, processExecutor);
@@ -84,7 +84,6 @@ public class RageCommand extends AbstractCommand {
     AbstractReport report;
     DefaultDefectReporter reporter = new DefaultDefectReporter(
         filesystem,
-        params.getObjectMapper(),
         rageConfig,
         params.getBuckEventBus(),
         params.getClock());
@@ -92,7 +91,6 @@ public class RageCommand extends AbstractCommand {
       report = new InteractiveReport(
           reporter,
           filesystem,
-          params.getObjectMapper(),
           params.getConsole(),
           params.getStdIn(),
           params.getBuildEnvironmentDescription(),
@@ -104,7 +102,6 @@ public class RageCommand extends AbstractCommand {
       report = new AutomatedReport(
           reporter,
           filesystem,
-          params.getObjectMapper(),
           params.getConsole(),
           params.getBuildEnvironmentDescription(),
           gatherVcsInfo ? vcsInfoCollector : Optional.empty(),

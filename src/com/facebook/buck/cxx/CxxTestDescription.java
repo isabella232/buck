@@ -41,6 +41,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -78,6 +79,47 @@ public class CxxTestDescription implements
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
+  private ImmutableSet<BuildTarget> getImplicitFrameworkDeps(Arg constructorArg) {
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+
+    CxxTestType type = constructorArg.framework.orElse(getDefaultTestType());
+    switch (type) {
+      case GTEST: {
+        cxxBuckConfig.getGtestDep().ifPresent(deps::add);
+        if (constructorArg.useDefaultTestMain.orElse(true)) {
+          cxxBuckConfig.getGtestDefaultTestMainDep().ifPresent(deps::add);
+        }
+        break;
+      }
+      case BOOST: {
+        cxxBuckConfig.getBoostTestDep().ifPresent(deps::add);
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+
+    return deps.build();
+  }
+
+  private CxxPlatform getCxxPlatform(BuildTarget target, CxxBinaryDescription.Arg constructorArg) {
+
+    // First check if the build target is setting a particular target.
+    Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
+    if (targetPlatform.isPresent()) {
+      return targetPlatform.get();
+    }
+
+    // Next, check for a constructor arg level default platform.
+    if (constructorArg.defaultPlatform.isPresent()) {
+      return cxxPlatforms.getValue(constructorArg.defaultPlatform.get());
+    }
+
+    // Otherwise, fallback to the description-level default platform.
+    return defaultCxxPlatform;
+  }
+
   @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
@@ -89,6 +131,7 @@ public class CxxTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams inputParams,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       final A args) throws NoSuchBuildTargetException {
     Optional<StripStyle> flavoredStripStyle =
         StripStyle.FLAVOR_DOMAIN.getValue(inputParams.getBuildTarget());
@@ -102,8 +145,7 @@ public class CxxTestDescription implements
         flavoredLinkerMapMode);
     final BuildRuleParams params = inputParams;
 
-    Optional<CxxPlatform> platform = cxxPlatforms.getValue(params.getBuildTarget());
-    CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = getCxxPlatform(params.getBuildTarget(), args);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     if (params.getBuildTarget().getFlavors()
@@ -115,9 +157,11 @@ public class CxxTestDescription implements
               targetGraph,
               paramsWithoutFlavor,
               resolver,
+              cellRoots,
               cxxBuckConfig,
               cxxPlatform,
               args,
+              getImplicitFrameworkDeps(args),
               flavoredStripStyle,
               flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
@@ -128,9 +172,9 @@ public class CxxTestDescription implements
     if (params.getBuildTarget().getFlavors()
           .contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
-          platform.isPresent() ?
+          cxxPlatforms.getValue(params.getBuildTarget()).isPresent() ?
               params :
-              params.withFlavor(cxxPlatform.getFlavor()),
+              params.withAppendedFlavor(cxxPlatform.getFlavor()),
           resolver
       );
     }
@@ -150,9 +194,11 @@ public class CxxTestDescription implements
             targetGraph,
             params,
             resolver,
+            cellRoots,
             cxxBuckConfig,
             cxxPlatform,
             args,
+            getImplicitFrameworkDeps(args),
             flavoredStripStyle,
             flavoredLinkerMapMode);
 
@@ -160,8 +206,9 @@ public class CxxTestDescription implements
     // CxxLink rule above which builds the test binary.
     BuildRuleParams testParams =
         params
-            .copyWithDeps(() -> cxxLinkAndCompileRules.deps, params.getExtraDeps())
-            .appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
+            .copyReplacingDeclaredAndExtraDeps(
+                () -> cxxLinkAndCompileRules.deps, params.getExtraDeps())
+            .copyAppendingExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
     testParams = CxxStrip.restoreStripStyleFlavorInParams(
         testParams,
         flavoredStripStyle);
@@ -176,7 +223,7 @@ public class CxxTestDescription implements
                 args.env,
                 CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
                     params.getBuildTarget(),
-                    params.getCellRoots(),
+                    cellRoots,
                     resolver)));
 
     // Supplier which expands macros in the passed in test arguments.
@@ -184,7 +231,7 @@ public class CxxTestDescription implements
         () -> args.args.stream()
             .map(CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
                 params.getBuildTarget(),
-                params.getCellRoots(),
+                cellRoots,
                 resolver)::apply)
             .collect(MoreCollectors.toImmutableList());
 
@@ -196,8 +243,8 @@ public class CxxTestDescription implements
           // during the test, so make sure to add them as runtime deps.
           deps.addAll(
               Sets.difference(
-                  params.getDeps(),
-                  cxxLinkAndCompileRules.getBinaryRule().getDeps()));
+                  params.getBuildDeps(),
+                  cxxLinkAndCompileRules.getBinaryRule().getBuildDeps()));
 
           // Add any build-time from any macros embedded in the `env` or `args` parameter.
           for (String part :
@@ -208,7 +255,7 @@ public class CxxTestDescription implements
               deps.addAll(
                   CxxDescriptionEnhancer.MACRO_HANDLER.extractBuildTimeDeps(
                       params.getBuildTarget(),
-                      params.getCellRoots(),
+                      cellRoots,
                       resolver,
                       part));
             } catch (MacroException e) {
@@ -274,18 +321,16 @@ public class CxxTestDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     // Get any parse time deps from the C/C++ platforms.
-    deps.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            cxxPlatforms
-                .getValue(buildTarget.getFlavors()).orElse(defaultCxxPlatform)));
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(getCxxPlatform(buildTarget, constructorArg)));
 
     // Extract parse time deps from flags, args, and environment parameters.
     Iterable<Iterable<String>> macroStrings =
@@ -295,40 +340,24 @@ public class CxxTestDescription implements
             .build();
     for (String macroString : Iterables.concat(macroStrings)) {
       try {
-        deps.addAll(
-            CxxDescriptionEnhancer.MACRO_HANDLER.extractParseTimeDeps(
-                buildTarget,
-                cellRoots,
-                macroString));
+        CxxDescriptionEnhancer.MACRO_HANDLER.extractParseTimeDeps(
+            buildTarget,
+            cellRoots,
+            macroString,
+            extraDepsBuilder,
+            targetGraphOnlyDepsBuilder);
       } catch (MacroException e) {
         throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
       }
     }
 
-    CxxTestType type = constructorArg.framework.orElse(getDefaultTestType());
-    switch (type) {
-      case GTEST: {
-        cxxBuckConfig.getGtestDep().ifPresent(deps::add);
-        if (constructorArg.useDefaultTestMain.orElse(true)) {
-          cxxBuckConfig.getGtestDefaultTestMainDep().ifPresent(deps::add);
-        }
-        break;
-      }
-      case BOOST: {
-        cxxBuckConfig.getBoostTestDep().ifPresent(deps::add);
-        break;
-      }
-      default: {
-        break;
-      }
-    }
+    // Add in any implicit framework deps.
+    extraDepsBuilder.addAll(getImplicitFrameworkDeps(constructorArg));
 
     constructorArg.depsQuery.ifPresent(
         depsQuery ->
             QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
-                .forEach(deps::add));
-
-    return deps.build();
+                .forEach(extraDepsBuilder::add));
   }
 
   public CxxTestType getDefaultTestType() {

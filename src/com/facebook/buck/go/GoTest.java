@@ -50,13 +50,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -126,10 +126,10 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
       args.add("-test.timeout", testRuleTimeoutMs.get() + "ms");
     }
 
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestWorkingDirectory()),
-        new SymlinkTreeStep(
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestWorkingDirectory()))
+        .add(new SymlinkTreeStep(
             getProjectFilesystem(),
             getPathToTestWorkingDirectory(),
             ImmutableMap.copyOf(
@@ -138,15 +138,16 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
                     getProjectFilesystem().getPath(pathResolver.getSourcePathName(
                         getBuildTarget(),
                         input)),
-                    pathResolver.getAbsolutePath(input))))),
-        new GoTestStep(
+                    pathResolver.getAbsolutePath(input))))))
+        .add(new GoTestStep(
             getProjectFilesystem(),
             getPathToTestWorkingDirectory(),
             args.build(),
             testMain.getExecutableCommand().getEnvironment(pathResolver),
             getPathToTestExitCode(),
             processTimeoutMs,
-            getPathToTestResults()));
+            getPathToTestResults()))
+        .build();
   }
 
   private ImmutableList<TestResultSummary> parseTestResults() throws IOException {
@@ -154,7 +155,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
     try (BufferedReader reader = Files.newBufferedReader(
         getProjectFilesystem().resolve(getPathToTestResults()), Charsets.UTF_8)) {
       Optional<String> currentTest = Optional.empty();
-      List<String> stdout = Lists.newArrayList();
+      List<String> stdout = new ArrayList<>();
       String line;
       while ((line = reader.readLine()) != null) {
         Matcher matcher;

@@ -24,7 +24,7 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.Cell;
@@ -32,8 +32,8 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -52,17 +52,14 @@ import java.util.stream.Collectors;
  */
 public class DistBuildTargetGraphCodec {
 
-  private final ObjectMapper objectMapper;
   private final ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory;
   private final Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
   private Set<String> topLevelTargets;
 
   public DistBuildTargetGraphCodec(
-      ObjectMapper objectMapper,
       ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory,
       Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode,
       Set<String> topLevelTargets) {
-    this.objectMapper = objectMapper;
     this.parserTargetNodeFactory = parserTargetNodeFactory;
     this.nodeToRawNode = nodeToRawNode;
     this.topLevelTargets = topLevelTargets;
@@ -70,7 +67,7 @@ public class DistBuildTargetGraphCodec {
 
   public BuildJobStateTargetGraph dump(
       Collection<TargetNode<?, ?>> targetNodes,
-      Function<Path, Integer> cellIndexer) {
+      DistBuildCellIndexer cellIndexer) {
     BuildJobStateTargetGraph result = new BuildJobStateTargetGraph();
 
 
@@ -79,10 +76,10 @@ public class DistBuildTargetGraphCodec {
       ProjectFilesystem projectFilesystem = targetNode.getFilesystem();
 
       BuildJobStateTargetNode remoteNode = new BuildJobStateTargetNode();
-      remoteNode.setCellIndex(cellIndexer.apply(projectFilesystem.getRootPath()));
+      remoteNode.setCellIndex(cellIndexer.getCellIndex(projectFilesystem.getRootPath()));
       remoteNode.setBuildTarget(encodeBuildTarget(targetNode.getBuildTarget()));
       try {
-        remoteNode.setRawNode(objectMapper.writeValueAsString(rawTargetNode));
+        remoteNode.setRawNode(ObjectMappers.WRITER.writeValueAsString(rawTargetNode));
       } catch (JsonProcessingException e) {
         throw new RuntimeException(e);
       }
@@ -116,7 +113,7 @@ public class DistBuildTargetGraphCodec {
         .build();
 
     ImmutableSet<Flavor> flavors = remoteTarget.flavors.stream()
-        .map(ImmutableFlavor::of)
+        .map(InternalFlavor::of)
         .collect(MoreCollectors.toImmutableSet());
 
     return BuildTarget.builder()
@@ -144,7 +141,7 @@ public class DistBuildTargetGraphCodec {
       }
 
       @SuppressWarnings("unchecked")
-      Map<String, Object> rawNode = objectMapper.readValue(remoteNode.getRawNode(), Map.class);
+      Map<String, Object> rawNode = ObjectMappers.readValue(remoteNode.getRawNode(), Map.class);
       Path buildFilePath = projectFilesystem
           .resolve(target.getBasePath())
           .resolve(cell.getBuildFileName());
@@ -166,16 +163,15 @@ public class DistBuildTargetGraphCodec {
     MutableDirectedGraph<TargetNode<?, ?>> mutableTargetGraph = new MutableDirectedGraph<>();
     for (TargetNode<?, ?> targetNode : targetNodeIndex.values()) {
       mutableTargetGraph.addNode(targetNode);
-      for (BuildTarget dep : targetNode.getDeps()) {
+      for (BuildTarget dep : targetNode.getParseDeps()) {
         mutableTargetGraph.addEdge(
             targetNode,
             Preconditions.checkNotNull(targetNodeIndex.get(dep)));
       }
     }
 
-    // TODO(tophyr): make this work with TargetGroups
     TargetGraph targetGraph =
-        new TargetGraph(mutableTargetGraph, targetNodeIndex, ImmutableSet.of());
+        new TargetGraph(mutableTargetGraph, targetNodeIndex);
 
     return TargetGraphAndBuildTargets.builder()
         .setTargetGraph(targetGraph)

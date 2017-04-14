@@ -25,15 +25,18 @@ import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
+import com.facebook.buck.rules.FakeCellPathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
@@ -60,23 +63,27 @@ public class ApplePackageDescriptionTest {
         new BuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(packageBuildTarget).build();
-    resolver.requireAllRules(
-        description.findDepsForTargetFromConstructorArgs(
-            packageBuildTarget,
-            params.getCellRoots(),
-            arg));
+    ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
+    description.findDepsForTargetFromConstructorArgs(
+        packageBuildTarget,
+        new FakeCellPathResolver(params.getProjectFilesystem()),
+        arg,
+        implicitDeps,
+        ImmutableSortedSet.naturalOrder());
+    resolver.requireAllRules(implicitDeps.build());
     BuildRule rule = description.createBuildRule(
         graph,
         new FakeBuildRuleParamsBuilder(packageBuildTarget).build(),
         resolver,
+        TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
         arg);
 
     assertThat(rule, instanceOf(ExternallyBuiltApplePackage.class));
     assertThat(
-        rule.getDeps(),
+        rule.getBuildDeps(),
         hasItem(
             resolver.getRule(
-                bundleBuildTarget.withFlavors(ImmutableFlavor.of("macosx-x86_64")))));
+                bundleBuildTarget.withFlavors(InternalFlavor.of("macosx-x86_64")))));
   }
 
   @Test
@@ -102,26 +109,34 @@ public class ApplePackageDescriptionTest {
         new BuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(packageBuildTarget).build();
-    resolver.requireAllRules(
-        description.findDepsForTargetFromConstructorArgs(
-            packageBuildTarget,
-            params.getCellRoots(),
-            arg));
-    BuildRule rule = description.createBuildRule(graph, params, resolver, arg);
+    ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
+    description.findDepsForTargetFromConstructorArgs(
+        packageBuildTarget,
+        new FakeCellPathResolver(params.getProjectFilesystem()),
+        arg,
+        implicitDeps,
+        ImmutableSortedSet.naturalOrder());
+    resolver.requireAllRules(implicitDeps.build());
+    BuildRule rule = description.createBuildRule(
+        graph,
+        params,
+        resolver,
+        TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+        arg);
 
-    assertThat(rule.getDeps(), hasItem(resolver.getRule(exportFileBuildTarget)));
+    assertThat(rule.getBuildDeps(), hasItem(resolver.getRule(exportFileBuildTarget)));
   }
 
   private ApplePackageDescription descriptionWithCommand(String command) {
     return new ApplePackageDescription(
-        new AppleConfig(
-            FakeBuckConfig.builder()
-                .setSections(
-                    "[apple]",
-                    "macosx_package_command = " + command.replace("$", "\\$"),
-                    "macosx_package_extension = api"
-                )
-                .build()),
+        FakeBuckConfig.builder()
+            .setSections(
+                "[apple]",
+                "macosx_package_command = " + command.replace("$", "\\$"),
+                "macosx_package_extension = api"
+            )
+            .build()
+            .getView(AppleConfig.class),
         CxxPlatformUtils.DEFAULT_PLATFORM,
         FakeAppleRuleDescriptions.DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN);
   }

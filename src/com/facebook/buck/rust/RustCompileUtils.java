@@ -41,7 +41,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.HasSourcePath;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.HumanReadableException;
@@ -80,16 +79,15 @@ public class RustCompileUtils {
   // - rustc optim / feature / cfg / user-specified flags
   // - linker args
   // - `--extern <crate>=<rlibpath>` for direct dependencies
-  // - `-L dependency=<dir>` for transitive dependencies (?)
-  // - `-L native=<dir>`
+  // - `-L dependency=<dir>` for transitive dependencies
   // - `-C relocation-model=pic/static/default/dynamic-no-pic` according to flavor
+  // - `--emit metadata` if flavor is "check"
   // - `--crate-type lib/rlib/dylib/cdylib/staticlib` according to flavor
   protected static RustCompileRule createBuild(
       BuildTarget target,
       String crateName,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       RustBuckConfig rustConfig,
@@ -102,7 +100,7 @@ public class RustCompileUtils {
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule
   ) throws NoSuchBuildTargetException {
-    ImmutableSortedSet<BuildRule> ruledeps = params.getDeps();
+    ImmutableSortedSet<BuildRule> ruledeps = params.getBuildDeps();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
 
     Stream.concat(
@@ -122,12 +120,21 @@ public class RustCompileUtils {
       relocModel = "static";
     }
 
+    Stream<String> checkArgs;
+    if (crateType.isCheck()) {
+      args.add(StringArg.of("--emit=metadata"));
+      checkArgs = rustConfig.getRustCheckFlags().stream();
+    } else {
+      checkArgs = Stream.of();
+    }
+
     Stream.of(
         Stream.of(
             String.format("--crate-name=%s", crateName),
             String.format("--crate-type=%s", crateType),
             String.format("-Crelocation-model=%s", relocModel)),
-        extraFlags.stream())
+        extraFlags.stream(),
+        checkArgs)
         .flatMap(x -> x)
         .map(StringArg::of)
         .forEach(args::add);
@@ -141,13 +148,14 @@ public class RustCompileUtils {
     // First pass - direct deps
     ruledeps.stream()
         .filter(RustLinkable.class::isInstance)
-        .map(rule -> ((RustLinkable) rule).getLinkerArg(true, cxxPlatform, depType))
+        .map(rule -> ((RustLinkable) rule).getLinkerArg(
+                true, crateType.isCheck(), cxxPlatform, depType))
         .forEach(args::add);
 
     // Second pass - indirect deps
     new AbstractBreadthFirstTraversal<BuildRule>(
         ruledeps.stream()
-            .flatMap(r -> r.getDeps().stream())
+            .flatMap(r -> r.getBuildDeps().stream())
             .collect(MoreCollectors.toImmutableList())) {
       private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
 
@@ -155,12 +163,12 @@ public class RustCompileUtils {
       public Iterable<BuildRule> visit(BuildRule rule) {
         ImmutableSet<BuildRule> deps = empty;
         if (rule instanceof RustLinkable) {
-          deps = rule.getDeps();
+          deps = rule.getBuildDeps();
 
           Arg arg = ((RustLinkable) rule).getLinkerArg(
               false,
-              cxxPlatform,
-              depType);
+              crateType.isCheck(),
+              cxxPlatform, depType);
 
           args.add(arg);
         }
@@ -181,23 +189,11 @@ public class RustCompileUtils {
           .getArgs();
 
       // Add necessary rpaths if we're dynamically linking with things
-      // XXX currently breaks on paths containing commas, which all of ours do: see
-      // https://github.com/rust-lang/rust/issues/38795
       if (rpath && depType == Linker.LinkableDepType.SHARED) {
         args.add(StringArg.of("-Crpath"));
       }
 
       linkerArgs.addAll(nativeArgs);
-
-      // Also let rustc know about libraries as native deps (in case someone is using #[link]
-      // even though it won't generally work with Buck)
-      nativeArgs.stream()
-          .filter(HasSourcePath.class::isInstance)
-          .map(sp -> (HasSourcePath) sp)
-          .map(sp -> pathResolver.getRelativePath(sp.getPath()).getParent())
-          .map(dir -> String.format("-Lnative=%s", dir))
-          .map(StringArg::of)
-          .forEach(args::add);
     }
 
     // If we want shared deps or are building a dynamic rlib, make sure we prefer
@@ -212,7 +208,7 @@ public class RustCompileUtils {
     return resolver.addToIndex(
         RustCompileRule.from(
             ruleFinder,
-            params.copyWithBuildTarget(target),
+            params.withBuildTarget(target),
             filename,
             rustConfig.getRustCompiler().resolve(resolver),
             rustConfig.getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType())
@@ -220,15 +216,13 @@ public class RustCompileUtils {
             args.build(),
             linkerArgs.build(),
             CxxGenruleDescription.fixupSourcePaths(resolver, ruleFinder, cxxPlatform, sources),
-            CxxGenruleDescription.fixupSourcePath(resolver, ruleFinder, cxxPlatform, rootModule)
-
-        ));
+            CxxGenruleDescription.fixupSourcePath(resolver, ruleFinder, cxxPlatform, rootModule),
+            crateType.hasOutput()));
   }
 
   public static RustCompileRule requireBuild(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       RustBuckConfig rustConfig,
@@ -255,7 +249,6 @@ public class RustCompileUtils {
         crateName,
         params,
         resolver,
-        pathResolver,
         ruleFinder,
         cxxPlatform,
         rustConfig,
@@ -309,8 +302,8 @@ public class RustCompileUtils {
       boolean rpath,
       ImmutableSortedSet<SourcePath> srcs,
       Optional<SourcePath> crateRoot,
-      ImmutableSet<String> defaultRoots
-  ) throws NoSuchBuildTargetException {
+      ImmutableSet<String> defaultRoots,
+      boolean isCheck) throws NoSuchBuildTargetException {
     final BuildTarget buildTarget = params.getBuildTarget();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
@@ -345,7 +338,7 @@ public class RustCompileUtils {
     BuildTarget binaryTarget =
         params.getBuildTarget().withAppendedFlavors(
             cxxPlatform.getFlavor(),
-            RustDescriptionEnhancer.RFBIN);
+            isCheck ? RustDescriptionEnhancer.RFCHECK : RustDescriptionEnhancer.RFBIN);
 
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
@@ -358,9 +351,10 @@ public class RustCompileUtils {
           resolver.addToIndex(
               CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
                   ruleFinder,
-                  params,
+                  params.getBuildTarget(),
+                  params.getProjectFilesystem(),
                   cxxPlatform,
-                  params.getDeps(),
+                  params.getBuildDeps(),
                   RustLinkable.class::isInstance,
                   RustLinkable.class::isInstance));
 
@@ -385,7 +379,7 @@ public class RustCompileUtils {
       // Also add Rust shared libraries as runtime deps. We don't need these in the symlink tree
       // because rustc will include their dirs in rpath by default.
       Map<String, SourcePath> rustSharedLibraries =
-          getTransitiveRustSharedLibraries(cxxPlatform, params.getDeps());
+          getTransitiveRustSharedLibraries(cxxPlatform, params.getBuildDeps());
       executableBuilder.addInputs(rustSharedLibraries.values());
     }
 
@@ -394,14 +388,13 @@ public class RustCompileUtils {
         crate,
         params,
         resolver,
-        pathResolver,
         ruleFinder,
         cxxPlatform,
         rustBuckConfig,
         rustcArgs.build(),
         linkerArgs.build(),
         /* linkerInputs */ ImmutableList.of(),
-        CrateType.BIN,
+        isCheck ? CrateType.CHECKBIN : CrateType.BIN,
         linkStyle,
         rpath,
         rootModuleAndSources.getSecond(),
@@ -412,7 +405,7 @@ public class RustCompileUtils {
 
     final CommandTool executable = executableBuilder.build();
 
-    return new BinaryWrapperRule(params.appendExtraDeps(buildRule), ruleFinder) {
+    return new BinaryWrapperRule(params.copyAppendingExtraDeps(buildRule), ruleFinder) {
 
       @Override
       public Tool getExecutableCommand() {
@@ -502,7 +495,7 @@ public class RustCompileUtils {
       public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
         ImmutableSet<BuildRule> deps = empty;
         if (rule instanceof RustLinkable) {
-          deps = rule.getDeps();
+          deps = rule.getBuildDeps();
 
           RustLinkable rustLinkable = (RustLinkable) rule;
 

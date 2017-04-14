@@ -18,10 +18,12 @@ package com.facebook.buck.js;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -129,8 +131,19 @@ public class JsUtil {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       BuildTarget worker) {
-    return params.copyWithDeps(
+    return params.copyReplacingDeclaredAndExtraDeps(
         Suppliers.ofInstance(ImmutableSortedSet.of()),
         Suppliers.ofInstance(ImmutableSortedSet.of(resolver.getRule(worker))));
+  }
+
+  static SourcePath relativeToOutputRoot(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      String subpath) {
+    return new ExplicitBuildTargetSourcePath(
+        buildTarget,
+        BuildTargets
+            .getGenPath(projectFilesystem, buildTarget, "%s")
+            .resolve(subpath));
   }
 }

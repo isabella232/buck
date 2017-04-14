@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.model.BuildTarget;
@@ -27,14 +28,14 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePath;
@@ -43,6 +44,7 @@ import com.facebook.buck.versions.Version;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -58,10 +60,10 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       CxxDescriptionEnhancer.STATIC_FLAVOR,
       CxxDescriptionEnhancer.SHARED_FLAVOR);
 
-  public static final Flavor WATCH_OS_FLAVOR = ImmutableFlavor.of("watchos-armv7k");
-  public static final Flavor WATCH_SIMULATOR_FLAVOR = ImmutableFlavor.of("watchsimulator-i386");
+  public static final Flavor WATCH_OS_FLAVOR = InternalFlavor.of("watchos-armv7k");
+  public static final Flavor WATCH_SIMULATOR_FLAVOR = InternalFlavor.of("watchsimulator-i386");
 
-  private static final Flavor WATCH = ImmutableFlavor.of("watch");
+  private static final Flavor WATCH = InternalFlavor.of("watch");
 
   private final AppleBinaryDescription appleBinaryDescription;
   private final AppleLibraryDescription appleLibraryDescription;
@@ -136,6 +138,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     AppleDebugFormat flavoredDebugFormat = AppleDebugFormat.FLAVOR_DOMAIN
         .getValue(params.getBuildTarget())
@@ -175,10 +178,12 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
    * which are other bundles (e.g. extensions)
    */
   @Override
-  public ImmutableSet<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      AppleBundleDescription.Arg constructorArg) {
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     if (!cxxPlatformFlavorDomain.containsAnyOf(buildTarget.getFlavors())) {
       buildTarget = BuildTarget.builder(buildTarget).addAllFlavors(
           ImmutableSet.of(defaultCxxPlatform.getFlavor())).build();
@@ -205,7 +210,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
         platformName.startsWith(ApplePlatform.WATCHOS.getName())) {
       actualWatchFlavor = WATCH_OS_FLAVOR;
     } else {
-      actualWatchFlavor = ImmutableFlavor.of(platformName);
+      actualWatchFlavor = InternalFlavor.of(platformName);
     }
 
     FluentIterable<BuildTarget> depsExcludingBinary = FluentIterable.from(constructorArg.deps)
@@ -265,7 +270,7 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
               .orElse(ImmutableSet.of()));
     }
 
-    return ImmutableSet.copyOf(depsExcludingBinary);
+    extraDepsBuilder.addAll(depsExcludingBinary);
   }
 
   @Override
@@ -275,6 +280,10 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
       A args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) throws NoSuchBuildTargetException {
+    if (metadataClass.isAssignableFrom(FrameworkDependencies.class)) {
+      // Bundles should be opaque to framework dependencies.
+      return Optional.empty();
+    }
     return resolver.requireMetadata(args.binary, metadataClass);
   }
 
@@ -312,6 +321,11 @@ public class AppleBundleDescription implements Description<AppleBundleDescriptio
     @Override
     public Optional<String> getProductName() {
       return productName;
+    }
+
+    @Override
+    public ImmutableMap<String, String> getInfoPlistSubstitutions() {
+      return infoPlistSubstitutions;
     }
   }
 }

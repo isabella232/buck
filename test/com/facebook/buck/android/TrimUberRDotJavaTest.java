@@ -16,10 +16,10 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
@@ -28,6 +28,7 @@ import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -37,15 +38,12 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.EnumSet;
 import java.util.Optional;
 
 public class TrimUberRDotJavaTest {
@@ -91,25 +89,6 @@ public class TrimUberRDotJavaTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
-    AaptPackageResources aaptPackageResources = new AaptPackageResources(
-        new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:aapt"))
-            .setProjectFilesystem(filesystem)
-            .build(),
-         ruleFinder,
-         resolver,
-        null,
-        new IdentityResourcesProvider(ImmutableList.of()),
-        ImmutableList.of(),
-        ImmutableSortedSet.of(),
-        ImmutableSet.of(),
-        Optional.empty(),
-        false,
-        false,
-        /* includesVectorDrawables */ false,
-        EnumSet.noneOf(RType.class),
-        null);
-    resolver.addToIndex(aaptPackageResources);
-
     String rDotJavaContents =
         "package com.test;\n" +
         "\n" +
@@ -120,8 +99,11 @@ public class TrimUberRDotJavaTest {
         "    public static final int keep_resource=0x7f083bc2;\n" +
         "  }\n" +
         "}\n";
-    Path rDotJavaPath = aaptPackageResources.getPathToGeneratedRDotJavaSrcFiles()
-        .resolve("com/test/R.java");
+    Path rDotJavaDir = BuildTargets.getGenPath(
+        filesystem,
+        BuildTargetFactory.newInstance("//:aapt#aapt_package_resources"),
+        "%s/__r_java_srcs__/R.java");
+    Path rDotJavaPath = rDotJavaDir.resolve("com/test/R.java");
     filesystem.createParentDirs(rDotJavaPath);
     filesystem.writeContentsToPath(rDotJavaContents, rDotJavaPath);
 
@@ -143,7 +125,7 @@ public class TrimUberRDotJavaTest {
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:trim"))
             .setProjectFilesystem(filesystem)
             .build(),
-        aaptPackageResources,
+        Optional.of(new PathSourcePath(filesystem, rDotJavaDir)),
         ImmutableList.of(dexProducedFromJavaLibrary),
         keepResourcePattern);
     resolver.addToIndex(trimUberRDotJava);

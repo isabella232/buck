@@ -49,6 +49,7 @@ public class CxxBinary
   private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathRuleFinder ruleFinder;
+  private final CxxPlatform cxxPlatform;
   private final BuildRule linkRule;
   private final Tool executable;
   private final ImmutableSortedSet<BuildTarget> tests;
@@ -59,6 +60,7 @@ public class CxxBinary
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
+      CxxPlatform cxxPlatform,
       BuildRule linkRule,
       Tool executable,
       Iterable<FrameworkPath> frameworks,
@@ -68,6 +70,7 @@ public class CxxBinary
     this.params = params;
     this.ruleResolver = ruleResolver;
     this.ruleFinder = ruleFinder;
+    this.cxxPlatform = cxxPlatform;
     this.linkRule = linkRule;
     this.executable = executable;
     this.tests = ImmutableSortedSet.copyOf(tests);
@@ -82,7 +85,7 @@ public class CxxBinary
         "CxxBinary (%s) link rule (%s) is expected to be instance of either CxxLink or CxxStrip",
         this, linkRule);
     Preconditions.checkArgument(
-        getDeps().contains(linkRule),
+        getBuildDeps().contains(linkRule),
         "CxxBinary (%s) must depend on its link rule (%s) via deps",
         this, linkRule);
     Preconditions.checkArgument(
@@ -127,7 +130,7 @@ public class CxxBinary
       CxxPlatform cxxPlatform,
       HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
     return CxxPreprocessables.getCxxPreprocessorInput(
-        params.copyWithBuildTarget(platformlessTarget),
+        params.withBuildTarget(platformlessTarget),
         ruleResolver,
         /* hasHeaderSymlinkTree */ true,
         cxxPlatform,
@@ -162,4 +165,9 @@ public class CxxBinary
     return Stream.concat(getDeclaredDeps().stream(), executable.getDeps(ruleFinder).stream())
         .map(BuildRule::getBuildTarget);
   }
+
+  public CxxPlatform getCxxPlatform() {
+    return cxxPlatform;
+  }
+
 }

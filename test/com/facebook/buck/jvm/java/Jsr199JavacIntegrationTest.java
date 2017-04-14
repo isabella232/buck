@@ -119,7 +119,6 @@ public class Jsr199JavacIntegrationTest {
         new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
         executionContext.getStdErr(),
         executionContext.getClassLoaderCache(),
-        executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
         executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
@@ -138,7 +137,7 @@ public class Jsr199JavacIntegrationTest {
         SOURCE_PATHS,
         pathToSrcsList,
         Optional.empty(),
-        JavacOptions.AbiGenerationMode.CLASS);
+        Javac.CompilationMode.FULL);
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
     assertTrue(Files.exists(pathToSrcsList));
@@ -168,7 +167,6 @@ public class Jsr199JavacIntegrationTest {
         new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
         executionContext.getStdErr(),
         executionContext.getClassLoaderCache(),
-        executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
         executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
@@ -187,7 +185,7 @@ public class Jsr199JavacIntegrationTest {
         SOURCE_PATHS,
         pathToSrcsList,
         Optional.empty(),
-        JavacOptions.AbiGenerationMode.CLASS);
+        Javac.CompilationMode.FULL);
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
     assertTrue(Files.exists(pathToSrcsList));
@@ -255,7 +253,7 @@ public class Jsr199JavacIntegrationTest {
     MockClassLoader mockClassLoader = new MockClassLoader(
         ClassLoader.getSystemClassLoader(),
         ImmutableMap.of(
-            JavacOptions.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
+            JavacSpec.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
             MockJavac.class));
     executionContext.getClassLoaderCache().injectClassLoader(
         ClassLoader.getSystemClassLoader(),
@@ -270,7 +268,6 @@ public class Jsr199JavacIntegrationTest {
         new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
         executionContext.getStdErr(),
         executionContext.getClassLoaderCache(),
-        executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
         executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
@@ -292,7 +289,7 @@ public class Jsr199JavacIntegrationTest {
           SOURCE_PATHS,
           pathToSrcsList,
           Optional.empty(),
-          JavacOptions.AbiGenerationMode.CLASS);
+          Javac.CompilationMode.FULL);
       fail("Did not expect compilation to succeed");
     } catch (UnsupportedOperationException ex) {
       if (ex.toString().contains("abcdef")) {
@@ -325,7 +322,7 @@ public class Jsr199JavacIntegrationTest {
         .map(p -> new PathSourcePath(new FakeProjectFilesystem(), p));
     if (jar.isPresent()) {
       return new JarBackedJavac(
-          JavacOptions.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
+          JavacSpec.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
           ImmutableSet.of(jar.get()));
     }
 

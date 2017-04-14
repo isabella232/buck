@@ -18,6 +18,7 @@ package com.facebook.buck.haskell;
 
 import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
@@ -29,7 +30,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -42,12 +43,14 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -110,13 +113,14 @@ public class HaskellLibraryDescription implements
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args,
+      ImmutableSet<BuildRule> deps,
       Linker.LinkableDepType depType)
       throws NoSuchBuildTargetException {
     return HaskellDescriptionUtils.requireCompileRule(
         params,
         resolver,
         ruleFinder,
-        params.getDeps(),
+        deps,
         cxxPlatform,
         haskellConfig,
         depType,
@@ -141,10 +145,11 @@ public class HaskellLibraryDescription implements
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args,
+      ImmutableSet<BuildRule> deps,
       Linker.LinkableDepType depType)
       throws NoSuchBuildTargetException {
     HaskellCompileRule compileRule = requireCompileRule(
-        baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, depType);
+        baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, deps, depType);
     return Archive.from(
         target,
         baseParams,
@@ -170,6 +175,7 @@ public class HaskellLibraryDescription implements
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args,
+      ImmutableSet<BuildRule> deps,
       Linker.LinkableDepType depType)
       throws NoSuchBuildTargetException {
     Preconditions.checkArgument(
@@ -196,6 +202,7 @@ public class HaskellLibraryDescription implements
             ruleFinder,
             cxxPlatform,
             args,
+            deps,
             depType));
   }
 
@@ -207,6 +214,7 @@ public class HaskellLibraryDescription implements
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args,
+      ImmutableSet<BuildRule> deps,
       Linker.LinkableDepType depType)
       throws NoSuchBuildTargetException {
 
@@ -221,7 +229,8 @@ public class HaskellLibraryDescription implements
                 pathResolver,
                 ruleFinder,
                 cxxPlatform,
-                args);
+                args,
+                deps);
         break;
       case STATIC:
       case STATIC_PIC:
@@ -234,6 +243,7 @@ public class HaskellLibraryDescription implements
                 ruleFinder,
                 cxxPlatform,
                 args,
+                deps,
                 depType);
         break;
       default:
@@ -254,7 +264,7 @@ public class HaskellLibraryDescription implements
     ImmutableSortedMap<String, HaskellPackage> depPackages = depPackagesBuilder.build();
 
     HaskellCompileRule compileRule = requireCompileRule(
-        baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, depType);
+        baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, deps, depType);
 
     return HaskellPackageRule.from(
         target,
@@ -277,6 +287,7 @@ public class HaskellLibraryDescription implements
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args,
+      ImmutableSet<BuildRule> deps,
       Linker.LinkableDepType depType)
       throws NoSuchBuildTargetException {
     Preconditions.checkArgument(
@@ -304,7 +315,7 @@ public class HaskellLibraryDescription implements
       return packageRule.get();
     }
     return resolver.addToIndex(createPackage(
-        target, baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, depType));
+        target, baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, deps, depType));
   }
 
   private HaskellLinkRule createSharedLibrary(
@@ -314,7 +325,8 @@ public class HaskellLibraryDescription implements
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
-      Arg args)
+      Arg args,
+      ImmutableSet<BuildRule> deps)
       throws NoSuchBuildTargetException {
     HaskellCompileRule compileRule =
         requireCompileRule(
@@ -324,6 +336,7 @@ public class HaskellLibraryDescription implements
             ruleFinder,
             cxxPlatform,
             args,
+            deps,
             Linker.LinkableDepType.SHARED);
     return HaskellDescriptionUtils.createLinkRule(
         target,
@@ -346,7 +359,8 @@ public class HaskellLibraryDescription implements
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
-      Arg args)
+      Arg args,
+      ImmutableSet<BuildRule> deps)
       throws NoSuchBuildTargetException {
     Preconditions.checkArgument(
         Sets.intersection(
@@ -361,7 +375,7 @@ public class HaskellLibraryDescription implements
       return linkRule.get();
     }
     return resolver.addToIndex(createSharedLibrary(
-        target, baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args));
+        target, baseParams, resolver, pathResolver, ruleFinder, cxxPlatform, args, deps));
   }
 
   @Override
@@ -369,12 +383,18 @@ public class HaskellLibraryDescription implements
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       final A args)
       throws NoSuchBuildTargetException {
 
     final BuildTarget buildTarget = params.getBuildTarget();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    CxxDeps allDeps =
+        CxxDeps.builder()
+            .addDeps(args.deps)
+            .addPlatformDeps(args.platformDeps)
+            .build();
 
     // See if we're building a particular "type" and "platform" of this library, and if so, extract
     // them from the flavors attached to the build target.
@@ -387,6 +407,8 @@ public class HaskellLibraryDescription implements
       BuildTarget baseTarget =
           params.getBuildTarget().withoutFlavors(
               Sets.union(Type.FLAVOR_VALUES, cxxPlatforms.getFlavors()));
+
+      ImmutableSet<BuildRule> deps = allDeps.get(resolver, cxxPlatform.get());
 
       switch (type.get().getValue()) {
         case PACKAGE_SHARED:
@@ -408,6 +430,7 @@ public class HaskellLibraryDescription implements
               ruleFinder,
               cxxPlatform.get(),
               args,
+              deps,
               depType);
         case SHARED:
           return requireSharedLibrary(
@@ -417,7 +440,8 @@ public class HaskellLibraryDescription implements
               pathResolver,
               ruleFinder,
               cxxPlatform.get(),
-              args);
+              args,
+              deps);
         case STATIC_PIC:
         case STATIC:
           return requireStaticLibrary(
@@ -428,6 +452,7 @@ public class HaskellLibraryDescription implements
               ruleFinder,
               cxxPlatform.get(),
               args,
+              deps,
               type.get().getValue() == Type.STATIC ?
                   Linker.LinkableDepType.STATIC :
                   Linker.LinkableDepType.STATIC_PIC);
@@ -443,6 +468,13 @@ public class HaskellLibraryDescription implements
     return new HaskellLibrary(params) {
 
       @Override
+      public Iterable<BuildRule> getCompileDeps(CxxPlatform cxxPlatform) {
+        return RichStream.from(allDeps.get(resolver, cxxPlatform))
+            .filter(HaskellCompileDep.class::isInstance)
+            .toImmutableList();
+      }
+
+      @Override
       public HaskellCompileInput getCompileInput(
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType depType)
@@ -456,6 +488,7 @@ public class HaskellLibraryDescription implements
                 ruleFinder,
                 cxxPlatform,
                 args,
+                allDeps.get(resolver, cxxPlatform),
                 depType);
         return HaskellCompileInput.builder()
             .addPackages(rule.getPackage())
@@ -468,9 +501,18 @@ public class HaskellLibraryDescription implements
       }
 
       @Override
+      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
+          CxxPlatform cxxPlatform) {
+        return RichStream.from(allDeps.get(resolver, cxxPlatform))
+            .filter(NativeLinkable.class)
+            .toImmutableList();
+      }
+
+      @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
-        return FluentIterable.from(getDeps())
-            .filter(NativeLinkable.class);
+        return RichStream.from(allDeps.getForAllPlatforms(resolver))
+            .filter(NativeLinkable.class)
+            .toImmutableList();
       }
 
       @Override
@@ -491,6 +533,7 @@ public class HaskellLibraryDescription implements
                     ruleFinder,
                     cxxPlatform,
                     args,
+                    allDeps.get(resolver, cxxPlatform),
                     type);
             linkArgs =
                 args.linkWhole.orElse(false) ?
@@ -506,7 +549,8 @@ public class HaskellLibraryDescription implements
                     pathResolver,
                     ruleFinder,
                     cxxPlatform,
-                    args);
+                    args,
+                    allDeps.get(resolver, cxxPlatform));
             linkArgs =
                 ImmutableList.of(
                     SourcePathArg.of(rule.getSourcePathToOutput()));
@@ -541,7 +585,8 @@ public class HaskellLibraryDescription implements
                 pathResolver,
                 ruleFinder,
                 cxxPlatform,
-                args);
+                args,
+                allDeps.get(resolver, cxxPlatform));
         libs.put(
             sharedLibrarySoname,
             sharedLibraryBuildRule.getSourcePathToOutput());
@@ -567,18 +612,23 @@ public class HaskellLibraryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    return HaskellDescriptionUtils.getParseTimeDeps(haskellConfig, cxxPlatforms.getValues());
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    HaskellDescriptionUtils.getParseTimeDeps(
+        haskellConfig,
+        cxxPlatforms.getValues(),
+        extraDepsBuilder);
   }
 
   protected enum Type implements FlavorConvertible {
 
-    PACKAGE_SHARED(ImmutableFlavor.of("package-shared")),
-    PACKAGE_STATIC(ImmutableFlavor.of("package-static")),
-    PACKAGE_STATIC_PIC(ImmutableFlavor.of("package-static-pic")),
+    PACKAGE_SHARED(InternalFlavor.of("package-shared")),
+    PACKAGE_STATIC(InternalFlavor.of("package-static")),
+    PACKAGE_STATIC_PIC(InternalFlavor.of("package-static-pic")),
 
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
     STATIC(CxxDescriptionEnhancer.STATIC_FLAVOR),
@@ -609,6 +659,8 @@ public class HaskellLibraryDescription implements
     public SourceList srcs = SourceList.EMPTY;
     public ImmutableList<String> compilerFlags = ImmutableList.of();
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
+        PatternMatchedCollection.of();
     public Optional<Boolean> linkWhole;
     public Optional<NativeLinkable.Linkage> preferredLinkage;
   }

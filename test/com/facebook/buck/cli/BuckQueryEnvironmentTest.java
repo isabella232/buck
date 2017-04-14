@@ -40,7 +40,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -81,8 +80,7 @@ public class BuckQueryEnvironmentTest {
         .build();
 
     TestConsole console = new TestConsole();
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     Parser parser = new Parser(
         new BroadcastEventListener(),
         cell.getBuckConfig().getView(ParserConfig.class),

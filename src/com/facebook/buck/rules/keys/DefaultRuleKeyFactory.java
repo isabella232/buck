@@ -28,13 +28,15 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.HashCode;
 
 import java.io.IOException;
+import java.util.function.Function;
 
 /**
  * A {@link RuleKeyFactory} which adds some default settings to {@link RuleKey}s.
  */
-public class DefaultRuleKeyFactory implements RuleKeyFactory<RuleKey> {
+public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<RuleKey> {
 
   private final RuleKeyFieldLoader ruleKeyFieldLoader;
   private final FileHashLoader hashLoader;
@@ -76,105 +78,124 @@ public class DefaultRuleKeyFactory implements RuleKeyFactory<RuleKey> {
     this(new RuleKeyFieldLoader(seed), hashLoader, pathResolver, ruleFinder);
   }
 
-  private RuleKeyBuilder<RuleKeyResult<RuleKey>> newPopulatedBuilder(BuildRule buildRule) {
-    RuleKeyBuilder<RuleKeyResult<RuleKey>> builder = newBuilder();
+  private <HASH> Builder<HASH> newPopulatedBuilder(
+      BuildRule buildRule,
+      RuleKeyHasher<HASH> hasher) {
+    Builder<HASH> builder = new Builder<>(hasher);
     ruleKeyFieldLoader.setFields(buildRule, builder);
     addDepsToRuleKey(buildRule, builder);
     return builder;
   }
 
-  private RuleKeyResult<RuleKey> calculateBuildRuleKey(BuildRule buildRule) {
-    return newPopulatedBuilder(buildRule).build();
+  private <HASH> Builder<HASH> newPopulatedBuilder(
+      RuleKeyAppendable appendable,
+      RuleKeyHasher<HASH> hasher) {
+    Builder<HASH> builder = new Builder<>(hasher);
+    appendable.appendToRuleKey(builder);
+    return builder;
+  }
+
+  @VisibleForTesting
+  public Builder<HashCode> newBuilderForTesting(BuildRule buildRule) {
+    return newPopulatedBuilder(buildRule, RuleKeyBuilder.createDefaultHasher());
   }
 
   @Override
   public RuleKey build(BuildRule buildRule) {
-    return ruleKeyCache.get(buildRule, this::calculateBuildRuleKey);
+    return ruleKeyCache.get(
+        buildRule,
+        rule -> newPopulatedBuilder(rule, RuleKeyBuilder.createDefaultHasher())
+            .buildResult(RuleKey::new));
   }
 
-  @VisibleForTesting
-  public RuleKeyBuilder<RuleKeyResult<RuleKey>> newBuilderForTesting(BuildRule buildRule) {
-    return newPopulatedBuilder(buildRule);
+  private RuleKey buildAppendableKey(RuleKeyAppendable appendable) {
+    return ruleKeyCache.get(
+        appendable,
+        app -> newPopulatedBuilder(app, RuleKeyBuilder.createDefaultHasher())
+            .buildResult(RuleKey::new)
+    );
+  }
+
+  @Override
+  public <DIAG_KEY> RuleKeyDiagnostics.Result<RuleKey, DIAG_KEY> buildForDiagnostics(
+      BuildRule buildRule,
+      RuleKeyHasher<DIAG_KEY> hasher) {
+    return RuleKeyDiagnostics.Result.of(
+        build(buildRule), // real rule key
+        newPopulatedBuilder(buildRule, hasher).buildResult(Function.identity()));
+  }
+
+  @Override
+  public <DIAG_KEY> RuleKeyDiagnostics.Result<RuleKey, DIAG_KEY> buildForDiagnostics(
+      RuleKeyAppendable appendable,
+      RuleKeyHasher<DIAG_KEY> hasher) {
+    return RuleKeyDiagnostics.Result.of(
+        buildAppendableKey(appendable), // real rule key
+        newPopulatedBuilder(appendable, hasher).buildResult(Function.identity()));
   }
 
   private void addDepsToRuleKey(BuildRule buildRule, RuleKeyObjectSink sink) {
     if (buildRule instanceof AbstractBuildRule) {
-      // TODO(marcinkosiba): We really need to get rid of declared/extra deps in rules. Instead
+      // TODO(mkosiba): We really need to get rid of declared/extra deps in rules. Instead
       // rules should explicitly take the needed sub-sets of deps as constructor args.
       AbstractBuildRule abstractBuildRule = (AbstractBuildRule) buildRule;
       sink.setReflectively("buck.extraDeps", abstractBuildRule.deprecatedGetExtraDeps());
       sink.setReflectively("buck.declaredDeps", abstractBuildRule.getDeclaredDeps());
+      sink.setReflectively("buck.targetGraphOnlyDeps", abstractBuildRule.getTargetGraphOnlyDeps());
     } else {
-      sink.setReflectively("buck.deps", buildRule.getDeps());
+      sink.setReflectively("buck.deps", buildRule.getBuildDeps());
     }
   }
 
-  private RuleKeyBuilder<RuleKeyResult<RuleKey>> newBuilder() {
-    return new RuleKeyBuilder<RuleKeyResult<RuleKey>>(ruleFinder, pathResolver, hashLoader) {
+  public class Builder<RULE_KEY> extends RuleKeyBuilder<RULE_KEY> {
 
-      private final ImmutableList.Builder<Object> deps = ImmutableList.builder();
-      private final ImmutableList.Builder<RuleKeyInput> inputs = ImmutableList.builder();
+    private final ImmutableList.Builder<Object> deps = ImmutableList.builder();
+    private final ImmutableList.Builder<RuleKeyInput> inputs = ImmutableList.builder();
 
-      @Override
-      protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setBuildRule(BuildRule rule) {
+    public Builder(RuleKeyHasher<RULE_KEY> hasher) {
+      super(ruleFinder, pathResolver, hashLoader, hasher);
+    }
 
-        // Record the `BuildRule` as an immediate dep.
-        deps.add(rule);
+    @Override
+    protected RuleKeyBuilder<RULE_KEY> setBuildRule(BuildRule rule) {
+      // Record the `BuildRule` as an immediate dep.
+      deps.add(rule);
+      return setBuildRuleKey(DefaultRuleKeyFactory.this.build(rule));
+    }
 
-        return setBuildRuleKey(DefaultRuleKeyFactory.this.build(rule));
+    @Override
+    protected RuleKeyBuilder<RULE_KEY> setAppendableRuleKey(RuleKeyAppendable appendable) {
+      // Record the `RuleKeyAppendable` as an immediate dep.
+      deps.add(appendable);
+      return setAppendableRuleKey(DefaultRuleKeyFactory.this.buildAppendableKey(appendable));
+    }
+
+    @Override
+    protected RuleKeyBuilder<RULE_KEY> setSourcePath(SourcePath sourcePath) throws IOException {
+      if (sourcePath instanceof BuildTargetSourcePath) {
+        return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
+      } else {
+        // Add `PathSourcePath`s to our tracked inputs.
+        pathResolver.getPathSourcePath(sourcePath).ifPresent(
+            path -> inputs.add(RuleKeyInput.of(path.getFilesystem(), path.getRelativePath())));
+        return setSourcePathDirectly(sourcePath);
       }
+    }
 
-      private RuleKeyResult<RuleKey> calculateRuleKeyAppendableKey(RuleKeyAppendable appendable) {
-        RuleKeyBuilder<RuleKeyResult<RuleKey>> subKeyBuilder = newBuilder();
-        appendable.appendToRuleKey(subKeyBuilder);
-        return subKeyBuilder.build();
+    @Override
+    protected RuleKeyBuilder<RULE_KEY> setNonHashingSourcePath(SourcePath sourcePath) {
+      try {
+        // The default rule keys must include the hash of the source path to properly propagate
+        // changes to dependent rule keys.
+        return setSourcePath(sourcePath);
+      } catch (IOException e) {
+        throw new RuntimeException(e);
       }
+    }
 
-      @Override
-      protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setAppendableRuleKey(
-          RuleKeyAppendable appendable) {
-
-        // Record the `RuleKeyAppendable` as an immediate dep.
-        deps.add(appendable);
-
-        // Calculate the rule key for the rule key appendable.
-        RuleKey ruleKey = ruleKeyCache.get(appendable, this::calculateRuleKeyAppendableKey);
-
-        return setAppendableRuleKey(ruleKey);
-      }
-
-      @Override
-      protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setSourcePath(SourcePath sourcePath)
-          throws IOException {
-        if (sourcePath instanceof BuildTargetSourcePath) {
-          return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
-        } else {
-
-          // Add `PathSourcePath`s to our tracked inputs.
-          pathResolver.getPathSourcePath(sourcePath).ifPresent(
-              path -> inputs.add(RuleKeyInput.of(path.getFilesystem(), path.getRelativePath())));
-
-          return setSourcePathDirectly(sourcePath);
-        }
-      }
-
-      @Override
-      protected RuleKeyBuilder<RuleKeyResult<RuleKey>> setNonHashingSourcePath(
-          SourcePath sourcePath) {
-        try {
-          // The default rulekeys must include the hash of the source path to properly propagate
-          // changes to dependent rulekeys.
-          return setSourcePath(sourcePath);
-        } catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-      }
-
-      @Override
-      public RuleKeyResult<RuleKey> build() {
-        return new RuleKeyResult<>(buildRuleKey(), deps.build(), inputs.build());
-      }
-    };
+    public <RESULT> RuleKeyResult<RESULT> buildResult(Function<RULE_KEY, RESULT> mapper) {
+      return new RuleKeyResult<>(this.build(mapper), deps.build(), inputs.build());
+    }
   }
 
 }

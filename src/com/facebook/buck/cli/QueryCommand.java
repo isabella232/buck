@@ -29,6 +29,7 @@ import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,7 +39,6 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
@@ -47,10 +47,12 @@ import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.TreeMap;
 
 public class QueryCommand extends AbstractCommand {
 
@@ -100,7 +102,7 @@ public class QueryCommand extends AbstractCommand {
   }
 
   @Argument
-  private List<String> arguments = Lists.newArrayList();
+  private List<String> arguments = new ArrayList<>();
 
   @VisibleForTesting
   void setArguments(List<String> arguments) {
@@ -271,7 +273,7 @@ public class QueryCommand extends AbstractCommand {
       Set<QueryTarget> queryResult)
       throws QueryException {
     PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
-    SortedMap<String, SortedMap<String, Object>> result = Maps.newTreeMap();
+    SortedMap<String, SortedMap<String, Object>> result = new TreeMap<>();
     for (QueryTarget target : queryResult) {
       if (!(target instanceof QueryBuildTarget)) {
         continue;
@@ -287,7 +289,7 @@ public class QueryCommand extends AbstractCommand {
               "unable to find rule for target " + node.getBuildTarget().getFullyQualifiedName());
           continue;
         }
-        SortedMap<String, Object> attributes = Maps.newTreeMap();
+        SortedMap<String, Object> attributes = new TreeMap<>();
         if (patternsMatcher.hasPatterns()) {
           for (String key : sortedTargetRule.keySet()) {
             String snakeCaseKey = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, key);
@@ -308,7 +310,7 @@ public class QueryCommand extends AbstractCommand {
     }
     StringWriter stringWriter = new StringWriter();
     try {
-      params.getObjectMapper().writerWithDefaultPrettyPrinter().writeValue(stringWriter, result);
+      ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, result);
     } catch (IOException e) {
       // Shouldn't be possible while writing to a StringWriter...
       throw new RuntimeException(e);

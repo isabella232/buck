@@ -80,7 +80,7 @@ public class MultiarchFile extends AbstractBuildRule
     buildableContext.recordArtifact(output);
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
 
     lipoBinaries(context, steps);
     copyLinkMaps(buildableContext, steps);
@@ -90,7 +90,7 @@ public class MultiarchFile extends AbstractBuildRule
 
   private void copyLinkMaps(BuildableContext buildableContext, ImmutableList.Builder<Step> steps) {
     Path linkMapDir = Paths.get(output + "-LinkMap");
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), linkMapDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), linkMapDir));
 
     for (SourcePath thinBinary : thinBinaries) {
       Optional<BuildRule> maybeRule = ruleFinder.getRule(thinBinary);
@@ -135,7 +135,7 @@ public class MultiarchFile extends AbstractBuildRule
   @Override
   public ImmutableSet<BuildRule> getStaticLibraryDeps() {
     ImmutableSet.Builder<BuildRule> builder = ImmutableSet.builder();
-    for (BuildRule dep : getDeps()) {
+    for (BuildRule dep : getBuildDeps()) {
       if (dep instanceof ProvidesLinkedBinaryDeps) {
         builder.addAll(((ProvidesLinkedBinaryDeps) dep).getStaticLibraryDeps());
       }
@@ -146,7 +146,7 @@ public class MultiarchFile extends AbstractBuildRule
   @Override
   public ImmutableSet<BuildRule> getCompileDeps() {
     ImmutableSet.Builder<BuildRule> builder = ImmutableSet.builder();
-    for (BuildRule dep : getDeps()) {
+    for (BuildRule dep : getBuildDeps()) {
       if (dep instanceof ProvidesLinkedBinaryDeps) {
         builder.addAll(((ProvidesLinkedBinaryDeps) dep).getCompileDeps());
       }

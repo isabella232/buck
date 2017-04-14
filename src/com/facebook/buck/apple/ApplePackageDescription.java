@@ -29,7 +29,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -39,6 +39,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -72,6 +73,7 @@ public class ApplePackageDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     final BuildRule bundle = resolver.getRule(
         propagateFlavorsToTarget(params.getBuildTarget(), args.bundle));
@@ -83,11 +85,11 @@ public class ApplePackageDescription implements
             MacroArg.toMacroArgFunction(
                 AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER,
                 params.getBuildTarget(),
-                params.getCellRoots(),
+                cellRoots,
                 resolver));
     if (applePackageConfigAndPlatformInfo.isPresent()) {
       return new ExternallyBuiltApplePackage(
-          params.copyWithExtraDeps(() -> ImmutableSortedSet.<BuildRule>naturalOrder()
+          params.copyReplacingExtraDeps(() -> ImmutableSortedSet.<BuildRule>naturalOrder()
               .add(bundle)
               .addAll(
                   applePackageConfigAndPlatformInfo.get().getExpandedArg()
@@ -118,14 +120,14 @@ public class ApplePackageDescription implements
    * Propagate the packages's flavors to its dependents.
    */
   @Override
-  public ImmutableSet<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      ApplePackageDescription.Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> builder = ImmutableSet.builder();
-    builder.add(propagateFlavorsToTarget(buildTarget, constructorArg.bundle));
-    addDepsFromParam(builder, buildTarget, cellRoots);
-    return builder.build();
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.add(propagateFlavorsToTarget(buildTarget, constructorArg.bundle));
+    addDepsFromParam(extraDepsBuilder, targetGraphOnlyDepsBuilder, buildTarget, cellRoots);
   }
 
   @Override
@@ -198,7 +200,8 @@ public class ApplePackageDescription implements
    * This is used for ImplicitDepsInferringDescription, so it is flavor agnostic.
    */
   private void addDepsFromParam(
-      ImmutableSet.Builder<BuildTarget> builder,
+      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder,
       BuildTarget target,
       CellPathResolver cellNames) {
     // Add all macro expanded dependencies for these platforms.
@@ -209,11 +212,12 @@ public class ApplePackageDescription implements
 
       if (packageConfig.isPresent()) {
         try {
-          builder.addAll(
-            AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
-                target,
-                cellNames,
-                packageConfig.get().getCommand()));
+          AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
+              target,
+              cellNames,
+              packageConfig.get().getCommand(),
+              buildDepsBuilder,
+              targetGraphOnlyDepsBuilder);
         } catch (MacroException e) {
           throw new HumanReadableException(
               e,

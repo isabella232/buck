@@ -82,7 +82,7 @@ public class AndroidLibraryDescriptionTest {
         .build(resolver);
 
     assertThat(
-        javaLibrary.getDeps(),
+        javaLibrary.getBuildDeps(),
         Matchers.allOf(
             Matchers.hasItem(exportedRule),
             Matchers.hasItem(transitiveExportedRule)));
@@ -134,11 +134,11 @@ public class AndroidLibraryDescriptionTest {
         .build(resolver, targetGraph);
 
     assertThat(
-        javaLibrary.getDeps(),
+        javaLibrary.getBuildDeps(),
         Matchers.hasItems(libRule, sublibRule));
     // The bottom rule should be filtered since it does not match the regex
     assertThat(
-        javaLibrary.getDeps(),
+        javaLibrary.getBuildDeps(),
             Matchers.not(Matchers.hasItem(bottomRule)));
   }
 
@@ -166,7 +166,7 @@ public class AndroidLibraryDescriptionTest {
         .build(resolver);
 
     assertThat(
-        javaLibrary.getDeps(),
+        javaLibrary.getBuildDeps(),
         Matchers.allOf(
             Matchers.hasItem(exportedRule),
             Matchers.hasItem(transitiveExportedRule)));
@@ -209,5 +209,30 @@ public class AndroidLibraryDescriptionTest {
         updated.getBootclasspath());
 
     verify(androidPlatformTarget);
+  }
+
+  @Test
+  public void testClasspathContainsOnlyJavaTargets() throws Exception {
+    TargetNode<AndroidResourceDescription.Arg, AndroidResourceDescription> resourceRule =
+        AndroidResourceBuilder.createBuilder(
+            BuildTargetFactory.newInstance("//:res"))
+            .build();
+
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceRule);
+
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+
+    resolver.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget(), pathResolver));
+
+    AndroidLibrary androidLibrary = AndroidLibraryBuilder.createBuilder(
+        BuildTargetFactory.newInstance("//:android_lib"))
+        .addDep(resourceRule.getBuildTarget())
+        .build(resolver, targetGraph);
+
+    assertThat(
+        androidLibrary.getCompileTimeClasspathSourcePaths(),
+        Matchers.empty());
   }
 }

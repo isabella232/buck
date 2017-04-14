@@ -20,6 +20,7 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.RuleKeyObjectSink;
@@ -35,6 +36,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
+import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -73,6 +75,7 @@ public class CxxLinkableEnhancer {
       Path output,
       ImmutableList<Arg> args,
       Linker.LinkableDepType depType,
+      boolean thinLto,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType) {
 
     final Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
@@ -83,6 +86,11 @@ public class CxxLinkableEnhancer {
     // Add flags to generate linker map if supported.
     if (linker instanceof HasLinkerMap && LinkerMapMode.isLinkerMapEnabledForBuildTarget(target)) {
       argsBuilder.addAll(((HasLinkerMap) linker).linkerMap(output));
+    }
+
+    // Add lto object path if thin LTO is on.
+    if (linker instanceof HasThinLTO && thinLto) {
+      argsBuilder.addAll(((HasThinLTO) linker).thinLTO(output));
     }
 
     // Pass any platform specific or extra linker flags.
@@ -103,22 +111,25 @@ public class CxxLinkableEnhancer {
     final ImmutableList<Arg> allArgs = argsBuilder.build();
 
     // Build the C/C++ link step.
+    Supplier<ImmutableSortedSet<BuildRule>> declaredDeps = () -> FluentIterable.from(allArgs)
+        .transformAndConcat(arg -> arg.getDeps(ruleFinder))
+        .append(linker.getDeps(ruleFinder))
+        .toSortedSet(Ordering.natural());
     return new CxxLink(
         // Construct our link build rule params.  The important part here is combining the build
         // rules that construct our object file inputs and also the deps that build our
         // dependencies.
-        params.copyWithChanges(
-            target,
-            () -> FluentIterable.from(allArgs)
-                .transformAndConcat(arg -> arg.getDeps(ruleFinder))
-                .append(linker.getDeps(ruleFinder))
-                .toSortedSet(Ordering.natural()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        params
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                declaredDeps,
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         linker,
         output,
         allArgs,
         cxxBuckConfig.getLinkScheduleInfo(),
-        cxxBuckConfig.shouldCacheLinks());
+        cxxBuckConfig.shouldCacheLinks(),
+        thinLto);
   }
 
   /**
@@ -141,6 +152,7 @@ public class CxxLinkableEnhancer {
       Optional<String> soname,
       Path output,
       Linker.LinkableDepType depType,
+      boolean thinLto,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       Optional<SourcePath> bundleLoader,
@@ -222,6 +234,7 @@ public class CxxLinkableEnhancer {
         output,
         allArgs,
         depType,
+        thinLto,
         cxxRuntimeType);
   }
 
@@ -358,6 +371,7 @@ public class CxxLinkableEnhancer {
         output,
         linkArgs,
         Linker.LinkableDepType.SHARED,
+        /* thinLto */ false,
         Optional.empty());
   }
 

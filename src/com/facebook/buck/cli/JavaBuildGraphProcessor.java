@@ -25,7 +25,6 @@ import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEngineBuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
@@ -37,7 +36,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
-import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
+import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
@@ -135,70 +134,68 @@ final class JavaBuildGraphProcessor {
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
       LocalCachingBuildEngineDelegate cachingBuildEngineDelegate =
           new LocalCachingBuildEngineDelegate(params.getFileHashCache());
-      BuildEngine buildEngine = new CachingBuildEngine(
-          cachingBuildEngineDelegate,
-          executorService,
-          executorService,
-          new DefaultStepRunner(),
-          CachingBuildEngine.BuildMode.SHALLOW,
-          cachingBuildEngineBuckConfig.getBuildDepFiles(),
-          cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-          cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-          params.getObjectMapper(),
-          buildRuleResolver,
-          cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
-          new RuleKeyFactoryManager(
-              params.getBuckConfig().getKeySeed(),
-              cachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+      try (
+          CachingBuildEngine buildEngine = new CachingBuildEngine(
+              cachingBuildEngineDelegate,
+              executorService,
+              executorService,
+              new DefaultStepRunner(),
+              CachingBuildEngine.BuildMode.SHALLOW,
+              cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
+              cachingBuildEngineBuckConfig.getBuildDepFiles(),
+              cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+              cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
               buildRuleResolver,
-              cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-              new DefaultRuleKeyCache<>()));
+              cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+              RuleKeyFactories.of(
+                  params.getBuckConfig().getKeySeed(),
+                  cachingBuildEngineDelegate.getFileHashCache(),
+                  buildRuleResolver,
+                  cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                  new DefaultRuleKeyCache<>()));
+      ) {
+        // Create a BuildEngine because we store symbol information as build artifacts.
+        BuckEventBus eventBus = params.getBuckEventBus();
+        ExecutionContext executionContext = ExecutionContext.builder()
+            .setConsole(params.getConsole())
+            .setConcurrencyLimit(concurrencyLimit)
+            .setBuckEventBus(eventBus)
+            .setEnvironment(/* environment */ ImmutableMap.of())
+            .setExecutors(
+                ImmutableMap.<ExecutorPool, ListeningExecutorService>of(
+                    ExecutorPool.CPU,
+                    executorService))
+            .setJavaPackageFinder(params.getJavaPackageFinder())
+            .setPlatform(params.getPlatform())
+            .setCellPathResolver(params.getCell().getCellPathResolver())
+            .build();
 
-      // Create a BuildEngine because we store symbol information as build artifacts.
-      BuckEventBus eventBus = params.getBuckEventBus();
-      ExecutionContext executionContext = ExecutionContext.builder()
-          .setConsole(params.getConsole())
-          .setConcurrencyLimit(concurrencyLimit)
-          .setBuckEventBus(eventBus)
-          .setEnvironment(/* environment */ ImmutableMap.of())
-          .setExecutors(
-              ImmutableMap.<ExecutorPool, ListeningExecutorService>of(
-                  ExecutorPool.CPU,
-                  executorService))
-          .setJavaPackageFinder(params.getJavaPackageFinder())
-          .setObjectMapper(params.getObjectMapper())
-          .setPlatform(params.getPlatform())
-          .setCellPathResolver(params.getCell().getCellPathResolver())
-          .build();
+        SourcePathResolver pathResolver =
+            new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
+        BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
+            .setBuildContext(BuildContext.builder()
+                    // Note we do not create a real action graph because we do not need one.
+                    .setActionGraph(new ActionGraph(ImmutableList.of()))
+                    .setSourcePathResolver(pathResolver)
+                    .setJavaPackageFinder(executionContext.getJavaPackageFinder())
+                    .setEventBus(eventBus)
+                    .build())
+            .setClock(params.getClock())
+            .setArtifactCache(params.getArtifactCacheFactory().newInstance())
+            .setBuildId(eventBus.getBuildId())
+            .setEnvironment(executionContext.getEnvironment())
+            .setKeepGoing(false)
+            .build();
 
-      SourcePathResolver pathResolver =
-          new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
-      BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
-          .setBuildContext(BuildContext.builder()
-              // Note we do not create a real action graph because we do not need one.
-              .setActionGraph(new ActionGraph(ImmutableList.of()))
-              .setSourcePathResolver(pathResolver)
-              .setJavaPackageFinder(executionContext.getJavaPackageFinder())
-              .setEventBus(eventBus)
-              .build())
-          .setClock(params.getClock())
-          .setArtifactCache(params.getArtifactCacheFactory().newInstance())
-          .setBuildId(eventBus.getBuildId())
-          .setObjectMapper(params.getObjectMapper())
-          .setEnvironment(executionContext.getEnvironment())
-          .setKeepGoing(false)
-          .build();
+        // Traverse the TargetGraph to find all of the auto-generated dependencies.
+        JavaDepsFinder javaDepsFinder = JavaDepsFinder.createJavaDepsFinder(
+            params.getBuckConfig(),
+            buildContext,
+            executionContext,
+            buildEngine);
 
-      // Traverse the TargetGraph to find all of the auto-generated dependencies.
-      JavaDepsFinder javaDepsFinder = JavaDepsFinder.createJavaDepsFinder(
-          params.getBuckConfig(),
-          params.getCell().getCellPathResolver(),
-          params.getObjectMapper(),
-          buildContext,
-          executionContext,
-          buildEngine);
-
-      processor.process(graph, javaDepsFinder, executorService);
+        processor.process(graph, javaDepsFinder, executorService);
+      }
     }
   }
 }

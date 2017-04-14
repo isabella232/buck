@@ -16,10 +16,12 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.android.Aapt2Compile;
 import com.facebook.buck.android.AndroidResource;
+import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -34,8 +36,8 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class ReactNativeLibraryGraphEnhancer {
 
-  private static final Flavor REACT_NATIVE_BUNDLE_FLAVOR = ImmutableFlavor.of("bundle");
-  private static final Flavor REACT_NATIVE_ANDROID_RES_FLAVOR = ImmutableFlavor.of("android_res");
+  private static final Flavor REACT_NATIVE_BUNDLE_FLAVOR = InternalFlavor.of("bundle");
+  private static final Flavor REACT_NATIVE_ANDROID_RES_FLAVOR = InternalFlavor.of("android_res");
 
   private final ReactNativeBuckConfig buckConfig;
 
@@ -52,15 +54,16 @@ public class ReactNativeLibraryGraphEnhancer {
       ReactNativePlatform platform) {
     Tool jsPackager = buckConfig.getPackager(resolver);
     return new ReactNativeBundle(
-        baseParams.copyWithChanges(
-            target,
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(ruleFinder.filterBuildRuleInputs(args.entryPath))
-                    .addAll(ruleFinder.filterBuildRuleInputs(args.srcs))
-                    .addAll(jsPackager.getDeps(ruleFinder))
-                    .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        baseParams
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(ruleFinder.filterBuildRuleInputs(args.entryPath))
+                        .addAll(ruleFinder.filterBuildRuleInputs(args.srcs))
+                        .addAll(jsPackager.getDeps(ruleFinder))
+                        .build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         args.entryPath,
         args.srcs,
         ReactNativeFlavors.useUnbundling(baseParams.getBuildTarget()),
@@ -96,12 +99,9 @@ public class ReactNativeLibraryGraphEnhancer {
     extraDeps.add(bundle);
     if (args.rDotJavaPackage.isPresent()) {
       BuildRuleParams paramsForResource =
-          params.copyWithBuildTarget(
-              BuildTarget.builder(originalBuildTarget)
-                  .addFlavors(REACT_NATIVE_ANDROID_RES_FLAVOR)
-                  .build())
-              .copyWithExtraDeps(Suppliers.ofInstance(
-                      ImmutableSortedSet.of(bundle)));
+          params
+              .withAppendedFlavor(REACT_NATIVE_ANDROID_RES_FLAVOR)
+              .copyReplacingExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(bundle)));
 
       SourcePath resources = new ExplicitBuildTargetSourcePath(
           bundle.getBuildTarget(),
@@ -119,10 +119,16 @@ public class ReactNativeLibraryGraphEnhancer {
           /* hasWhitelistedStrings */ false);
       resolver.addToIndex(resource);
       extraDeps.add(resource);
+
+      Aapt2Compile aapt2Compile = new Aapt2Compile(
+          paramsForResource.withAppendedFlavor(
+              AndroidResourceDescription.AAPT2_COMPILE_FLAVOR),
+          resources);
+      resolver.addToIndex(aapt2Compile);
     }
 
     return new AndroidReactNativeLibrary(
-        params.appendExtraDeps(extraDeps.build()),
+        params.copyAppendingExtraDeps(extraDeps.build()),
         bundle);
   }
 

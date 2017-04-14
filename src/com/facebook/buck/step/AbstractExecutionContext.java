@@ -17,13 +17,13 @@
 package com.facebook.buck.step;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.NoAndroidSdkException;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.ClassLoaderCache;
@@ -36,7 +36,6 @@ import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
@@ -70,9 +69,6 @@ abstract class AbstractExecutionContext implements Closeable {
 
   @Value.Parameter
   abstract JavaPackageFinder getJavaPackageFinder();
-
-  @Value.Parameter
-  abstract ObjectMapper getObjectMapper();
 
   @Value.Parameter
   abstract Map<ExecutorPool, ListeningExecutorService> getExecutors();
@@ -130,6 +126,11 @@ abstract class AbstractExecutionContext implements Closeable {
     return false;
   }
 
+  @Value.Default
+  public RuleKeyDiagnosticsMode getRuleKeyDiagnosticsMode() {
+    return RuleKeyDiagnosticsMode.NEVER;
+  }
+
   /**
    * Worker process pools that you can populate as needed. These will be destroyed as soon as
    * buck invocation finishes, thus, these pools are not persisted across buck invocations.
@@ -143,7 +144,6 @@ abstract class AbstractExecutionContext implements Closeable {
   public ConcurrencyLimit getConcurrencyLimit() {
     return new ConcurrencyLimit(
         /* threadLimit */ Runtime.getRuntime().availableProcessors(),
-        /* loadLimit */ Double.POSITIVE_INFINITY,
         ResourceAllocationFairness.FAIR,
         ResourceAmountsEstimator.DEFAULT_MANAGED_THREAD_COUNT,
         ResourceAmountsEstimator.DEFAULT_AMOUNTS,
@@ -187,16 +187,16 @@ abstract class AbstractExecutionContext implements Closeable {
 
   /**
    * Returns the {@link AndroidPlatformTarget}, if present. If not, throws a
-   * {@link NoAndroidSdkException}. Use this when your logic requires the user to specify the
+   * {@link RuntimeException}. Use this when your logic requires the user to specify the
    * location of an Android SDK. A user who is building a "pure Java" (i.e., not Android) project
    * using Buck should never have to exercise this code path.
    * <p>
    * If the location of an Android SDK is optional, then use
    * {@link #getAndroidPlatformTargetSupplier()}.
-   * @throws NoAndroidSdkException if no AndroidPlatformTarget is available
+   * @throws RuntimeException if no AndroidPlatformTarget is available
    */
   @Value.Lazy
-  public AndroidPlatformTarget getAndroidPlatformTarget() throws NoAndroidSdkException {
+  public AndroidPlatformTarget getAndroidPlatformTarget() {
     return getAndroidPlatformTargetSupplier().get();
   }
 
@@ -206,7 +206,7 @@ abstract class AbstractExecutionContext implements Closeable {
     return executorService;
   }
 
-  public String getPathToAdbExecutable() throws NoAndroidSdkException {
+  public String getPathToAdbExecutable() {
     return getAndroidPlatformTarget().getAdbExecutable().toString();
   }
 

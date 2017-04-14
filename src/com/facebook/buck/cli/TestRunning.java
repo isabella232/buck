@@ -70,7 +70,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.FutureCallback;
@@ -89,6 +88,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -147,12 +147,11 @@ public class TestRunning {
           // support multiple repos
           // TODO(t8220837): Support tests in multiple repos
           JavaLibrary library = rulesUnderTestForCoverage.iterator().next();
-          stepRunner.runStepForBuildTarget(
-              executionContext,
-              new MakeCleanDirectoryStep(
-                  library.getProjectFilesystem(),
-                  JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem())),
-              Optional.empty());
+          for (Step step : MakeCleanDirectoryStep.of(
+              library.getProjectFilesystem(),
+              JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem()))) {
+            stepRunner.runStepForBuildTarget(executionContext, step, Optional.empty());
+          }
         } catch (StepFailedException e) {
           params.getBuckEventBus().post(
               ConsoleEvent.severe(Throwables.getRootCause(e).getLocalizedMessage()));
@@ -180,12 +179,12 @@ public class TestRunning {
 
     // Start running all of the tests. The result of each java_test() rule is represented as a
     // ListenableFuture.
-    List<ListenableFuture<TestResults>> results = Lists.newArrayList();
+    List<ListenableFuture<TestResults>> results = new ArrayList<>();
 
     TestRuleKeyFileHelper testRuleKeyFileHelper = new TestRuleKeyFileHelper(buildEngine);
     final AtomicInteger lastReportedTestSequenceNumber = new AtomicInteger();
-    final List<TestRun> separateTestRuns = Lists.newArrayList();
-    List<TestRun> parallelTestRuns = Lists.newArrayList();
+    final List<TestRun> separateTestRuns = new ArrayList<>();
+    List<TestRun> parallelTestRuns = new ArrayList<>();
     for (final TestRule test : tests) {
       // Determine whether the test needs to be executed.
       final Callable<TestResults> resultsInterpreter = getCachingCallable(
@@ -353,7 +352,7 @@ public class TestRunning {
 
     ListenableFuture<List<TestResults>> parallelTestStepsFuture = Futures.allAsList(results);
 
-    final List<TestResults> completedResults = Lists.newArrayList();
+    final List<TestResults> completedResults = new ArrayList<>();
 
     final ListeningExecutorService directExecutorService = MoreExecutors.newDirectExecutorService();
     ListenableFuture<Void> uberFuture = MoreFutures.addListenableCallback(
@@ -363,7 +362,7 @@ public class TestRunning {
           public void onSuccess(List<TestResults> parallelTestResults) {
             LOG.debug("Parallel tests completed, running separate tests...");
             completedResults.addAll(parallelTestResults);
-            List<ListenableFuture<TestResults>> separateResultsList = Lists.newArrayList();
+            List<ListenableFuture<TestResults>> separateResultsList = new ArrayList<>();
             for (TestRun testRun : separateTestRuns) {
               separateResultsList.add(
                   transformTestResults(
@@ -626,7 +625,7 @@ public class TestRunning {
     } else if (isRunningWithTestSelectors) {
       // As a feature to aid developers, we'll assume that when we are using test selectors,
       // we should always run each test (and never look at the cache.)
-      // TODO(edwardspeyer) When #3090004 and #3436849 are closed we can respect the cache again.
+      // TODO(edward) When #3090004 and #3436849 are closed we can respect the cache again.
       isTestRunRequired = true;
     } else if (hasEnvironmentOverrides) {
       // This is rather obtuse, ideally the environment overrides can be hashed and compared...

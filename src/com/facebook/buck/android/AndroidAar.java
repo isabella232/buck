@@ -92,10 +92,10 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Create temp folder to store the files going to be zipped
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), temp));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), temp));
 
     // Remove the output .aar file
-    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile));
+    commands.add(RmStep.of(getProjectFilesystem(), pathToOutputFile));
 
     // put manifest into tmp folder
     commands.add(
@@ -154,7 +154,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     }
 
     // do the zipping
-    commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
+    commands.add(MkdirStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
     commands.add(
         new ZipStep(
             getProjectFilesystem(),
@@ -186,7 +186,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
 
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
-    return JavaLibraryClasspathProvider.getClasspathDeps(getDeps());
+    return JavaLibraryClasspathProvider.getClasspathDeps(getBuildDeps());
   }
 
   @Override

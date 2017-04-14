@@ -34,8 +34,8 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -114,7 +114,7 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     Path outputDirectory = getOutputDirectory();
-    Step mkdir = new MkdirStep(getProjectFilesystem(), outputDirectory);
+    Step mkdir = MkdirStep.of(getProjectFilesystem(), outputDirectory);
     commands.add(mkdir);
 
     ImmutableSortedSet<Path> includePaths;
@@ -122,16 +122,14 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
       Path stagingRoot = outputDirectory.resolve("meta_inf_staging");
       Path stagingTarget = stagingRoot.resolve("META-INF");
 
-      MakeCleanDirectoryStep createStagingRoot = new MakeCleanDirectoryStep(
-          getProjectFilesystem(),
-          stagingRoot);
-      commands.add(createStagingRoot);
+      commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), stagingRoot));
 
-      MkdirAndSymlinkFileStep link = new MkdirAndSymlinkFileStep(
-          getProjectFilesystem(),
-          context.getSourcePathResolver().getAbsolutePath(metaInfDirectory),
-          stagingTarget);
-      commands.add(link);
+      commands.add(
+          SymlinkFileStep.builder()
+              .setFilesystem(getProjectFilesystem())
+              .setExistingFile(context.getSourcePathResolver().getAbsolutePath(metaInfDirectory))
+              .setDesiredLink(stagingTarget)
+              .build());
 
       includePaths = ImmutableSortedSet.<Path>naturalOrder()
           .add(stagingRoot)

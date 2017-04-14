@@ -25,8 +25,10 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
+import com.facebook.buck.artifact_cache.CacheReadMode;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.MorePathsForTests;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -42,7 +44,6 @@ import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -82,14 +83,14 @@ public class BuildInfoRecorderTest {
   @Test
   public void testWriteMetadataToDisk() throws IOException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-
+    BuildInfoStore store = new FilesystemBuildInfoStore(filesystem);
     BuildInfoRecorder buildInfoRecorder = createBuildInfoRecorder(filesystem);
     buildInfoRecorder.addMetadata("key1", "value1");
 
     buildInfoRecorder.writeMetadataToDisk(/* clearExistingMetadata */ true);
 
     OnDiskBuildInfo onDiskBuildInfo =
-        new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, new ObjectMapper());
+        new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, store);
     assertOnDiskBuildInfoHasMetadata(onDiskBuildInfo, "key1", "value1");
 
     buildInfoRecorder = createBuildInfoRecorder(filesystem);
@@ -97,7 +98,11 @@ public class BuildInfoRecorderTest {
 
     buildInfoRecorder.writeMetadataToDisk(/* clearExistingMetadata */ false);
 
-    onDiskBuildInfo = new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, new ObjectMapper());
+    onDiskBuildInfo = new DefaultOnDiskBuildInfo(
+        BUILD_TARGET,
+        filesystem,
+        store
+    );
     assertOnDiskBuildInfoHasMetadata(onDiskBuildInfo, "key1", "value1");
     assertOnDiskBuildInfoHasMetadata(onDiskBuildInfo, "key2", "value2");
 
@@ -106,7 +111,11 @@ public class BuildInfoRecorderTest {
 
     buildInfoRecorder.writeMetadataToDisk(/* clearExistingMetadata */ true);
 
-    onDiskBuildInfo = new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, new ObjectMapper());
+    onDiskBuildInfo = new DefaultOnDiskBuildInfo(
+        BUILD_TARGET,
+        filesystem,
+        store
+    );
     assertOnDiskBuildInfoHasMetadata(onDiskBuildInfo, "key3", "value3");
     assertOnDiskBuildInfoDoesNotHaveMetadata(onDiskBuildInfo, "key1");
     assertOnDiskBuildInfoDoesNotHaveMetadata(onDiskBuildInfo, "key2");
@@ -115,13 +124,21 @@ public class BuildInfoRecorderTest {
     buildInfoRecorder = createBuildInfoRecorder(filesystem);
     buildInfoRecorder.addBuildMetadata("build", "metadata");
     buildInfoRecorder.writeMetadataToDisk(/* clearExistingMetadata */ true);
-    onDiskBuildInfo = new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, new ObjectMapper());
+    onDiskBuildInfo = new DefaultOnDiskBuildInfo(
+        BUILD_TARGET,
+        filesystem,
+        store
+    );
     assertOnDiskBuildInfoHasMetadata(onDiskBuildInfo, "build", "metadata");
 
     // Verify additional info build metadata always gets written.
     buildInfoRecorder = createBuildInfoRecorder(filesystem);
     buildInfoRecorder.writeMetadataToDisk(/* clearExistingMetadata */ true);
-    onDiskBuildInfo = new DefaultOnDiskBuildInfo(BUILD_TARGET, filesystem, new ObjectMapper());
+    onDiskBuildInfo = new DefaultOnDiskBuildInfo(
+        BUILD_TARGET,
+        filesystem,
+        store
+    );
     assertTrue(onDiskBuildInfo.getValue(BuildInfo.MetadataKey.ADDITIONAL_INFO).isPresent());
   }
 
@@ -147,7 +164,7 @@ public class BuildInfoRecorderTest {
 
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildInfoRecorder buildInfoRecorder = createBuildInfoRecorder(filesystem);
-    BuckEventBus bus = new BuckEventBus(new FakeClock(0), new BuildId("BUILD"));
+    BuckEventBus bus = new DefaultBuckEventBus(new FakeClock(0), new BuildId("BUILD"));
 
     final byte[] contents = "contents".getBytes();
 
@@ -172,9 +189,10 @@ public class BuildInfoRecorderTest {
     final ArtifactCache cache =
         new NoopArtifactCache() {
           @Override
-          public boolean isStoreSupported() {
-            return true;
+          public CacheReadMode getCacheReadMode() {
+            return CacheReadMode.READWRITE;
           }
+
           @Override
           public ListenableFuture<Void> store(
               ArtifactInfo info,
@@ -321,9 +339,9 @@ public class BuildInfoRecorderTest {
     return new BuildInfoRecorder(
         BUILD_TARGET,
         filesystem,
+        new FilesystemBuildInfoStore(filesystem),
         new DefaultClock(),
         new BuildId(),
-        new ObjectMapper(),
         ImmutableMap.of());
   }
 }

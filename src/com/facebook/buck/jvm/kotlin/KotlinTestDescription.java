@@ -16,36 +16,31 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.jvm.common.ResourceValidator;
-import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
 import com.facebook.buck.jvm.java.ForkMode;
+import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibrary;
-import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -79,78 +74,28 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    BuildRuleParams testsLibraryParams = params
+        .withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
-    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
-      BuildTarget testTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
-      BuildRule testRule = resolver.requireRule(testTarget);
-      return CalculateAbi.of(
-          testTarget,
-          ruleFinder,
-          params,
-          Preconditions.checkNotNull(testRule.getSourcePathToOutput()));
+    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder = new DefaultKotlinLibraryBuilder(
+        testsLibraryParams,
+        resolver,
+        kotlinBuckConfig)
+        .setArgs(args)
+        .setGeneratedSourceFolder(templateJavacOptions.getGeneratedSourceFolderName());
+
+    if (HasJavaAbi.isAbiTarget(params.getBuildTarget())) {
+      return defaultJavaLibraryBuilder.buildAbi();
     }
 
+    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryBuilder.build());
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-
-    JavacOptions javacOptions =
-        JavacOptionsFactory.create(
-            templateJavacOptions,
-            params,
-            resolver,
-            ruleFinder,
-            args
-        );
-
-    KotlincToJarStepFactory stepFactory = new KotlincToJarStepFactory(
-        kotlinBuckConfig.getKotlinCompiler().get(),
-        args.extraKotlincArguments);
-
-    BuildRuleParams testsLibraryParams = params.copyWithDeps(
-        Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(params.getDeclaredDeps().get())
-                .addAll(BuildRules.getExportedRules(
-                    Iterables.concat(
-                        params.getDeclaredDeps().get(),
-                        resolver.getAllRules(args.providedDeps))))
-                .addAll(ruleFinder.filterBuildRuleInputs(
-                    javacOptions.getInputs(ruleFinder)))
-                .build()
-            ),
-            params.getExtraDeps())
-         .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
-
-        JavaLibrary testsLibrary =
-        resolver.addToIndex(
-            new DefaultKotlinLibrary(
-                testsLibraryParams,
-                pathResolver,
-                ruleFinder,
-                args.srcs,
-                ResourceValidator.validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                templateJavacOptions.getGeneratedSourceFolderName(),
-                Optional.empty(),        /* proguardConfig */
-                ImmutableList.of(),      /* postprocessClassesCommands */
-                ImmutableSortedSet.of(), /* exportedDeps */
-                ImmutableSortedSet.of(), /* providedDeps */
-                JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
-                false,                   /* trackClassUsage */
-                ImmutableSet.of(),       /* additionalClasspathEntries */
-                stepFactory,
-                args.resourcesRoot,
-                args.manifestFile,
-                args.mavenCoords,
-                ImmutableSortedSet.of(), /* tests */
-                ImmutableSet.of()        /* classesToRemoveFromJar */
-            ));
-
     return new KotlinTest(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,

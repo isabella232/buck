@@ -92,7 +92,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
@@ -142,6 +142,7 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Collection;
@@ -162,7 +163,7 @@ public class ProjectGeneratorTest {
       OUTPUT_PROJECT_BUNDLE_PATH.resolve("project.pbxproj");
   private static final FlavorDomain<CxxPlatform> PLATFORMS = FlavorDomain.of("C/C++ platform");
   private static final CxxPlatform DEFAULT_PLATFORM = CxxPlatformUtils.DEFAULT_PLATFORM;
-  private static final Flavor DEFAULT_FLAVOR = ImmutableFlavor.of("default");
+  private static final Flavor DEFAULT_FLAVOR = InternalFlavor.of("default");
   private SettableFakeClock clock;
   private ProjectFilesystem projectFilesystem;
   private Cell projectCell;
@@ -208,7 +209,7 @@ public class ProjectGeneratorTest {
             "version", "1.23"));
     BuckConfig config = FakeBuckConfig.builder().setSections(sections).build();
     cxxBuckConfig = new CxxBuckConfig(config);
-    appleConfig = new AppleConfig(config);
+    appleConfig = config.getView(AppleConfig.class);
     swiftBuckConfig = new SwiftBuckConfig(config);
   }
 
@@ -2706,6 +2707,43 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testCodeSignEntitlementsAddsReference() throws IOException {
+    BuildTarget libraryTarget = BuildTarget.builder(rootPath, "//foo", "lib").build();
+    BuildTarget bundleTarget = BuildTarget.builder(rootPath, "//foo", "bundle").build();
+
+    TargetNode<?, ?> libraryNode = AppleLibraryBuilder
+        .createBuilder(libraryTarget)
+        .setExportedHeaders(
+            ImmutableSortedSet.of(new FakeSourcePath("foo.h")))
+        .build();
+
+    TargetNode<?, ?> bundleNode = AppleBundleBuilder
+        .createBuilder(bundleTarget)
+        .setBinary(libraryTarget)
+        .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+        .setInfoPlist(new FakeSourcePath(("Info.plist")))
+        .setInfoPlistSubstitutions(ImmutableMap.of("CODE_SIGN_ENTITLEMENTS", "foo.plist"))
+        .build();
+
+    ProjectGenerator projectGenerator = createProjectGeneratorForCombinedProject(
+        ImmutableSet.of(libraryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXGroup targetGroup =
+        project.getMainGroup().getOrCreateChildGroupByName(bundleTarget.getFullyQualifiedName());
+
+    assertThat(targetGroup.getChildren(), hasSize(3));
+
+    PBXFileReference ruleReference = (PBXFileReference) Iterables.get(
+        targetGroup.getChildren(),
+        2);
+    assertEquals("foo.plist", ruleReference.getName());
+  }
+
+
+  @Test
   public void testAppleWatchTarget() throws IOException {
     BuildTarget watchAppBinaryTarget =
         BuildTarget.builder(rootPath, "//foo", "WatchAppBinary").build();
@@ -3278,7 +3316,7 @@ public class ProjectGeneratorTest {
     projectGenerator.createXcodeProjects();
     assertThat(
         projectFilesystem.getLastModifiedTime(OUTPUT_PROJECT_FILE_PATH),
-        equalTo(49152L));
+        equalTo(FileTime.fromMillis(49152L)));
 
     BuildTarget buildTarget = BuildTarget.builder(rootPath, "//foo", "foo").build();
     TargetNode<?, ?> node = AppleLibraryBuilder
@@ -3291,7 +3329,7 @@ public class ProjectGeneratorTest {
     projectGenerator2.createXcodeProjects();
     assertThat(
         projectFilesystem.getLastModifiedTime(OUTPUT_PROJECT_FILE_PATH),
-        equalTo(64738L));
+        equalTo(FileTime.fromMillis(64738L)));
   }
 
   @Test
@@ -3303,7 +3341,7 @@ public class ProjectGeneratorTest {
     projectGenerator.createXcodeProjects();
     assertThat(
         projectFilesystem.getLastModifiedTime(OUTPUT_PROJECT_FILE_PATH),
-        equalTo(49152L));
+        equalTo(FileTime.fromMillis(49152L)));
 
     ProjectGenerator projectGenerator2 = createProjectGeneratorForCombinedProject(
         ImmutableSet.of());
@@ -3312,7 +3350,7 @@ public class ProjectGeneratorTest {
     projectGenerator2.createXcodeProjects();
     assertThat(
         projectFilesystem.getLastModifiedTime(OUTPUT_PROJECT_FILE_PATH),
-        equalTo(49152L));
+        equalTo(FileTime.fromMillis(49152L)));
   }
 
   @Test
@@ -3631,7 +3669,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -3742,7 +3780,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -3828,7 +3866,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4284,7 +4322,7 @@ public class ProjectGeneratorTest {
         .addFlavors(
             DEFAULT_FLAVOR,
             CxxDescriptionEnhancer.SHARED_FLAVOR,
-            ImmutableFlavor.of("iphoneos-arm64"))
+            InternalFlavor.of("iphoneos-arm64"))
         .build();
     TargetNode<?, ?> framework1FlavoredNode = AppleBundleBuilder
         .createBuilder(framework1FlavoredTarget)
@@ -4550,7 +4588,7 @@ public class ProjectGeneratorTest {
         false, /* isMainProject */
         Optional.of(lib1Target),
         ImmutableSet.of(lib1Target, lib4Target),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4598,7 +4636,7 @@ public class ProjectGeneratorTest {
         true, /* isMainProject */
         Optional.of(lib1Target),
         ImmutableSet.of(lib1Target, lib4Target),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,
@@ -4702,7 +4740,7 @@ public class ProjectGeneratorTest {
         false,
         Optional.empty(),
         ImmutableSet.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
         PLATFORMS,

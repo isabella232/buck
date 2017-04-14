@@ -24,7 +24,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.MacroFinder;
 import com.facebook.buck.model.Pair;
@@ -62,6 +62,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -86,7 +87,7 @@ public class PrebuiltCxxLibraryDescription implements
   enum Type implements FlavorConvertible {
     EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
-    SHARED_INTERFACE(ImmutableFlavor.of("shared-interface"))
+    SHARED_INTERFACE(InternalFlavor.of("shared-interface"))
     ;
 
     private final Flavor flavor;
@@ -372,6 +373,7 @@ public class PrebuiltCxxLibraryDescription implements
   private <A extends Arg> BuildRule createSharedLibraryBuildRule(
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
+      CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       A args) throws NoSuchBuildTargetException {
@@ -382,7 +384,7 @@ public class PrebuiltCxxLibraryDescription implements
     BuildTarget target = params.getBuildTarget();
     String soname = getSoname(
         target,
-        params.getCellRoots(),
+        cellRoots,
         ruleResolver,
         cxxPlatform,
         args.soname,
@@ -397,7 +399,7 @@ public class PrebuiltCxxLibraryDescription implements
     SourcePath staticLibraryPath =
         getStaticPicLibraryPath(
             target,
-            params.getCellRoots(),
+            cellRoots,
             params.getProjectFilesystem(),
             ruleResolver,
             cxxPlatform,
@@ -407,7 +409,7 @@ public class PrebuiltCxxLibraryDescription implements
     if (!params.getProjectFilesystem().exists(pathResolver.getAbsolutePath(staticLibraryPath))) {
       staticLibraryPath = getStaticLibraryPath(
           target,
-          params.getCellRoots(),
+          cellRoots,
           params.getProjectFilesystem(),
           ruleResolver,
           cxxPlatform,
@@ -429,16 +431,16 @@ public class PrebuiltCxxLibraryDescription implements
         cxxBuckConfig,
         cxxPlatform,
         params
-            .appendExtraDeps(
+            .copyAppendingExtraDeps(
                 getBuildRules(
                     params.getBuildTarget(),
-                    params.getCellRoots(),
+                    cellRoots,
                     ruleResolver,
                     Optionals.toStream(args.libDir).collect(MoreCollectors.toImmutableList())))
-            .appendExtraDeps(
+            .copyAppendingExtraDeps(
                 getBuildRules(
                     params.getBuildTarget(),
-                    params.getCellRoots(),
+                    cellRoots,
                     ruleResolver,
                     args.includeDirs)),
         ruleResolver,
@@ -449,7 +451,8 @@ public class PrebuiltCxxLibraryDescription implements
         Optional.of(soname),
         builtSharedLibraryPath,
         Linker.LinkableDepType.SHARED,
-        FluentIterable.from(params.getDeps())
+        /* thinLto */ false,
+        FluentIterable.from(params.getBuildDeps())
             .filter(NativeLinkable.class),
         Optional.empty(),
         Optional.empty(),
@@ -496,7 +499,7 @@ public class PrebuiltCxxLibraryDescription implements
             args.libName);
 
     // If the shared library is prebuilt, just return a reference to it.
-    // TODO(alisdair04): this code misbehaves. whether the file exists should have been figured
+    // TODO(alisdair): this code misbehaves. whether the file exists should have been figured
     // out earlier during parsing/target graph creation, or it should be later when steps being
     // produced. This is preventing distributed build loading files lazily.
     if (sharedLibraryPath instanceof BuildTargetSourcePath ||
@@ -519,6 +522,7 @@ public class PrebuiltCxxLibraryDescription implements
       BuildTarget baseTarget,
       BuildRuleParams baseParams,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<String> versionSubdir,
       A args)
@@ -548,7 +552,7 @@ public class PrebuiltCxxLibraryDescription implements
             baseTarget,
             resolver,
             pathResolver,
-            baseParams.getCellRoots(),
+            cellRoots,
             baseParams.getProjectFilesystem(),
             cxxPlatform,
             versionSubdir,
@@ -568,6 +572,7 @@ public class PrebuiltCxxLibraryDescription implements
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver ruleResolver,
+      CellPathResolver cellRoots,
       final A args) throws NoSuchBuildTargetException {
 
     // See if we're building a particular "type" of this library, and if so, extract
@@ -601,6 +606,7 @@ public class PrebuiltCxxLibraryDescription implements
         return createSharedLibraryBuildRule(
             params,
             ruleResolver,
+            cellRoots,
             platform.get().getValue(),
             selectedVersions,
             args);
@@ -609,6 +615,7 @@ public class PrebuiltCxxLibraryDescription implements
             baseTarget,
             params,
             ruleResolver,
+            cellRoots,
             platform.get().getValue(),
             versionSubdir,
             args);
@@ -679,7 +686,7 @@ public class PrebuiltCxxLibraryDescription implements
       private String getSoname(CxxPlatform cxxPlatform) {
         return PrebuiltCxxLibraryDescription.getSoname(
             getBuildTarget(),
-            params.getCellRoots(),
+            cellRoots,
             ruleResolver,
             cxxPlatform,
             args.soname,
@@ -715,7 +722,7 @@ public class PrebuiltCxxLibraryDescription implements
             params.getBuildTarget(),
             ruleResolver,
             pathResolver,
-            params.getCellRoots(),
+            cellRoots,
             params.getProjectFilesystem(),
             cxxPlatform,
             versionSubdir,
@@ -730,7 +737,7 @@ public class PrebuiltCxxLibraryDescription implements
         SourcePath staticPicLibraryPath =
             PrebuiltCxxLibraryDescription.getStaticPicLibraryPath(
                 getBuildTarget(),
-                params.getCellRoots(),
+                cellRoots,
                 params.getProjectFilesystem(),
                 ruleResolver,
                 cxxPlatform,
@@ -746,7 +753,7 @@ public class PrebuiltCxxLibraryDescription implements
         SourcePath staticLibraryPath =
             PrebuiltCxxLibraryDescription.getStaticLibraryPath(
                 getBuildTarget(),
-                params.getCellRoots(),
+                cellRoots,
                 getProjectFilesystem(),
                 ruleResolver,
                 cxxPlatform,
@@ -767,7 +774,7 @@ public class PrebuiltCxxLibraryDescription implements
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return FluentIterable.from(getDeps())
+        return FluentIterable.from(getBuildDeps())
             .filter(CxxPreprocessorDep.class);
       }
 
@@ -796,7 +803,7 @@ public class PrebuiltCxxLibraryDescription implements
                     .map(
                         input -> PrebuiltCxxLibraryDescription.getApplicableSourcePath(
                             params.getBuildTarget(),
-                            params.getCellRoots(),
+                            cellRoots,
                             params.getProjectFilesystem(),
                             ruleResolver,
                             cxxPlatform,
@@ -816,19 +823,6 @@ public class PrebuiltCxxLibraryDescription implements
         // We explicitly don't put this in a default statement because we
         // want the compiler to warn if someone modifies the HeaderVisibility enum.
         throw new RuntimeException("Invalid header visibility: " + headerVisibility);
-      }
-
-      @Override
-      public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-        if (hasHeaders(cxxPlatform)) {
-          return Optional.of(
-              CxxPreprocessables.requireHeaderSymlinkTreeForLibraryTarget(
-                  ruleResolver,
-                  getBuildTarget(),
-                  cxxPlatform.getFlavor()));
-        } else {
-          return Optional.empty();
-        }
       }
 
       @Override
@@ -909,7 +903,7 @@ public class PrebuiltCxxLibraryDescription implements
                     getStaticPicLibrary(cxxPlatform).get() :
                     PrebuiltCxxLibraryDescription.getStaticLibraryPath(
                         getBuildTarget(),
-                        params.getCellRoots(),
+                        cellRoots,
                         params.getProjectFilesystem(),
                         ruleResolver,
                         cxxPlatform,
@@ -951,19 +945,20 @@ public class PrebuiltCxxLibraryDescription implements
       public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
         if (headerOnly) {
           return Linkage.ANY;
-        }
-        if (forceStatic) {
+        } else if (forceStatic) {
           return Linkage.STATIC;
-        }
-        if (args.provided || !getStaticPicLibrary(cxxPlatform).isPresent()) {
+        } else if (args.preferredLinkage.orElse(Linkage.ANY) != Linkage.ANY) {
+          return args.preferredLinkage.get();
+        } else if (args.provided || !getStaticPicLibrary(cxxPlatform).isPresent()) {
           return Linkage.SHARED;
+        } else {
+          return Linkage.ANY;
         }
-        return Linkage.ANY;
       }
 
       @Override
       public Iterable<AndroidPackageable> getRequiredPackageables() {
-        return AndroidPackageableCollector.getPackageableRules(params.getDeps());
+        return AndroidPackageableCollector.getPackageableRules(params.getBuildDeps());
       }
 
       @Override
@@ -1035,19 +1030,28 @@ public class PrebuiltCxxLibraryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      PrebuiltCxxLibraryDescription.Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     if (constructorArg.libDir.isPresent()) {
-      addDepsFromParam(buildTarget, cellRoots, constructorArg.libDir.get(), targets);
+      addDepsFromParam(
+          buildTarget,
+          cellRoots,
+          constructorArg.libDir.get(),
+          extraDepsBuilder,
+          targetGraphOnlyDepsBuilder);
     }
     for (String include : constructorArg.includeDirs) {
-      addDepsFromParam(buildTarget, cellRoots, include, targets);
+      addDepsFromParam(
+          buildTarget,
+          cellRoots,
+          include,
+          extraDepsBuilder,
+          targetGraphOnlyDepsBuilder);
     }
-    return targets.build();
   }
 
   private ImmutableList<BuildRule> getBuildRules(
@@ -1072,12 +1076,18 @@ public class PrebuiltCxxLibraryDescription implements
       BuildTarget target,
       CellPathResolver cellNames,
       String paramValue,
-      ImmutableSet.Builder<BuildTarget> targets) {
+      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     try {
       // doesn't matter that the platform expander doesn't do anything.
       MacroHandler macroHandler = getMacroHandler(Optional.empty());
       // Then get the parse time deps.
-      targets.addAll(macroHandler.extractParseTimeDeps(target, cellNames, paramValue));
+      macroHandler.extractParseTimeDeps(
+          target,
+          cellNames,
+          paramValue,
+          buildDepsBuilder,
+          targetGraphOnlyDepsBuilder);
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s : %s in \"%s\"", target, e.getMessage(), paramValue);
     }
@@ -1096,6 +1106,7 @@ public class PrebuiltCxxLibraryDescription implements
     public boolean provided = false;
     public boolean linkWhole = false;
     public Optional<Boolean> forceStatic;
+    public Optional<NativeLinkable.Linkage> preferredLinkage;
     public ImmutableList<String> exportedPreprocessorFlags = ImmutableList.of();
     public PatternMatchedCollection<ImmutableList<String>>
         exportedPlatformPreprocessorFlags = PatternMatchedCollection.of();

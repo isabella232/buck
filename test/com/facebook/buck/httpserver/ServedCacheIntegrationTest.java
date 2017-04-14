@@ -24,6 +24,7 @@ import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
+import com.facebook.buck.artifact_cache.CacheReadMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
@@ -37,10 +38,8 @@ import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
@@ -69,7 +68,6 @@ public class ServedCacheIntegrationTest {
 
   private static final Path A_FILE_PATH = Paths.get("aFile");
   private static final String A_FILE_DATA = "somedata";
-  private static final ObjectMapper MAPPER = ObjectMappers.newDefaultInstance();
   public static final RuleKey A_FILE_RULE_KEY = new RuleKey("0123456789");
 
   private ProjectFilesystem projectFilesystem;
@@ -133,8 +131,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache = createArtifactCache(
@@ -204,8 +202,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         throwingStreamFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache = createArtifactCache(
@@ -236,8 +234,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache = createArtifactCache(
@@ -253,8 +251,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.empty());
 
     ArtifactCache serverBackedCache = createArtifactCache(
@@ -270,8 +268,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.empty());
 
     ArtifactCache serverBackedCache = createArtifactCache(
@@ -301,8 +299,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache secondCache = new ArtifactCache() {
@@ -327,8 +325,8 @@ public class ServedCacheIntegrationTest {
       }
 
       @Override
-      public boolean isStoreSupported() {
-        return true;
+      public CacheReadMode getCacheReadMode() {
+        return CacheReadMode.READWRITE;
       }
 
       @Override
@@ -345,8 +343,8 @@ public class ServedCacheIntegrationTest {
     WebServer secondWebServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
 
     try {
       secondWebServer.updateAndStartIfNeeded(Optional.of(secondCache));
@@ -378,8 +376,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
         createMockLocalConfig(
             "[cache]",
@@ -420,8 +418,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
         createMockLocalConfig(
             "[cache]",
@@ -462,8 +460,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
         createMockLocalConfig(
             "[cache]",
@@ -500,8 +498,8 @@ public class ServedCacheIntegrationTest {
     webServer = new WebServer(
         /* port */ 0,
         projectFilesystem,
-        "/static/",
-        MAPPER);
+        "/static/"
+    );
     webServer.updateAndStartIfNeeded(ArtifactCaches.newServedCache(
         createMockLocalConfig(
             "[cache]",

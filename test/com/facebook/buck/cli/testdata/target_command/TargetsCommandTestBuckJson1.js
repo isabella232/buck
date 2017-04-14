@@ -14,7 +14,6 @@
   "extraArguments": null,
   "fully_qualified_name": "//:test-library",
   "generateAbiFromSource": null,
-  "generatedSymbols": null,
   "labels" : null,
   "licenses": null,
   "javac": null,
@@ -36,6 +35,7 @@
   "srcs" : [],
   "target" : "6",
   "tests" : null,
-  "visibility" : [ "PUBLIC" ]
+  "visibility" : [ "PUBLIC" ],
+  "within_view" : null
 }
 ]

@@ -33,6 +33,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.FakeBuckEventListener;
@@ -45,7 +46,7 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
@@ -63,7 +64,6 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -195,7 +195,9 @@ public class ParserTest {
 
     // Create a temp directory with some build files.
     Path root = tempDir.getRoot().toRealPath();
-    filesystem = new ProjectFilesystem(root);
+    filesystem = new ProjectFilesystem(
+        root,
+        ConfigBuilder.createFromText("[project]", "ignore = **/*.swp"));
     cellRoot = filesystem.getRootPath();
     eventBus = BuckEventBusFactory.newInstance();
 
@@ -207,11 +209,8 @@ public class ParserTest {
       configSectionsBuilder.put(
           "project",
           ImmutableMap.of(
-              "temp_files", ".*\\.swp$",
               "parallel_parsing", "true",
               "parsing_threads", Integer.toString(threads)));
-    } else {
-      configSectionsBuilder.put("project", ImmutableMap.of("temp_files", ".*\\.swp$"));
     }
 
     configSectionsBuilder.put("unknown_flavors_messages",
@@ -227,8 +226,7 @@ public class ParserTest {
         .setBuckConfig(config)
         .build();
 
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     BroadcastEventListener broadcastEventListener = new BroadcastEventListener();
     broadcastEventListener.addEventBus(eventBus);
     parser = new Parser(
@@ -275,11 +273,11 @@ public class ParserTest {
 
     Iterable<ParseEvent> events = Iterables.filter(listener.getEvents(), ParseEvent.class);
     assertThat(events, Matchers.contains(
+        Matchers.hasProperty("buildTargets", equalTo(buildTargets)),
+        Matchers.allOf(
             Matchers.hasProperty("buildTargets", equalTo(buildTargets)),
-            Matchers.allOf(
-                Matchers.hasProperty("buildTargets", equalTo(buildTargets)),
-                Matchers.hasProperty("graph", equalTo(Optional.of(targetGraph)))
-            )));
+            Matchers.hasProperty("graph", equalTo(Optional.of(targetGraph)))
+        )));
   }
 
   @Test
@@ -362,7 +360,9 @@ public class ParserTest {
         cell,
         false,
         executorService,
-        Collections.singleton(BuildTargetFactory.newInstance(cell.getFilesystem(), "//:cake")));
+        Collections.singleton(BuildTargetFactory.newInstance(
+            cell.getFilesystem().getRootPath(),
+            "//:cake")));
   }
 
   @Test
@@ -375,7 +375,7 @@ public class ParserTest {
     Files.write(
         buckFile,
         ("export_file(name = 'cake', src = 'hello.txt')\n" +
-        "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n").getBytes(UTF_8));
+            "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n").getBytes(UTF_8));
 
     parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
   }
@@ -398,7 +398,7 @@ public class ParserTest {
   public void shouldThrowAnExceptionWhenAnUnknownFlavorIsSeen()
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
     BuildTarget flavored = BuildTarget.builder(cellRoot, "//java/com/facebook", "foo")
-        .addFlavors(ImmutableFlavor.of("doesNotExist"))
+        .addFlavors(InternalFlavor.of("doesNotExist"))
         .build();
 
     thrown.expect(HumanReadableException.class);
@@ -417,7 +417,7 @@ public class ParserTest {
   public void shouldThrowAnExceptionWhenAnUnknownFlavorIsSeenAndShowSuggestionsDefault()
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
     BuildTarget flavored = BuildTarget.builder(cellRoot, "//java/com/facebook", "foo")
-        .addFlavors(ImmutableFlavor.of("android-unknown"))
+        .addFlavors(InternalFlavor.of("android-unknown"))
         .build();
 
     thrown.expect(HumanReadableException.class);
@@ -439,7 +439,7 @@ public class ParserTest {
   public void shouldThrowAnExceptionWhenAnUnknownFlavorIsSeenAndShowSuggestionsFromConfig()
       throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
     BuildTarget flavored = BuildTarget.builder(cellRoot, "//java/com/facebook", "foo")
-        .addFlavors(ImmutableFlavor.of("macosx109sdk"))
+        .addFlavors(InternalFlavor.of("macosx109sdk"))
         .build();
 
     thrown.expect(HumanReadableException.class);
@@ -1018,7 +1018,7 @@ public class ParserTest {
   }
 
   @Test
-  // TODO(shs96c): avoid invalidation when arbitrary contained (possibly backup) files are added.
+  // TODO(simons): avoid invalidation when arbitrary contained (possibly backup) files are added.
   public void whenNotifiedOfContainedFileAddThenCacheRulesAreInvalidated()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     // Call parseBuildFile to populate the cache.
@@ -1128,7 +1128,7 @@ public class ParserTest {
   }
 
   @Test
-  // TODO(shs96c): avoid invalidation when arbitrary contained (possibly backup) files are deleted.
+  // TODO(simons): avoid invalidation when arbitrary contained (possibly backup) files are deleted.
   public void whenNotifiedOfContainedFileDeleteThenCacheRulesAreInvalidated()
       throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
     // Call parseBuildFile to populate the cache.
@@ -1467,7 +1467,7 @@ public class ParserTest {
     // Fetch //bar:bar#src to put it in cache.
     BuildTarget barTarget = BuildTarget
         .builder(cellRoot, "//bar", "bar")
-        .addFlavors(ImmutableFlavor.of("src"))
+        .addFlavors(InternalFlavor.of("src"))
         .build();
     Iterable<BuildTarget> buildTargets = ImmutableList.of(barTarget);
 
@@ -1513,7 +1513,7 @@ public class ParserTest {
     HashCode original = buildTargetGraphAndGetHashCodes(parser, fooLibTarget).get(fooLibTarget);
 
     DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    );
     parser = new Parser(
         new BroadcastEventListener(),
         cell.getBuckConfig().getView(ParserConfig.class),
@@ -1633,16 +1633,15 @@ public class ParserTest {
     HashCode lib2Key = hashes.get(fooLib2Target);
 
     DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    );
     parser = new Parser(
         new BroadcastEventListener(),
         cell.getBuckConfig().getView(ParserConfig.class),
         typeCoercerFactory,
         new ConstructorArgMarshaller(typeCoercerFactory));
-    Files.write(
-        testFooBuckFile,
-        ("java_library(name = 'lib', deps = [], visibility=['PUBLIC'])\n" +
-         "java_library(name = 'lib2', deps = [':lib'], visibility=['PUBLIC'])\n").getBytes(UTF_8));
+    Files.write(testFooBuckFile,
+        ("java_library(name = 'lib', deps = [], visibility=['PUBLIC'])\njava_library(" +
+            "name = 'lib2', deps = [':lib'], visibility=['PUBLIC'])\n").getBytes(UTF_8));
 
     hashes = buildTargetGraphAndGetHashCodes(
         parser,
@@ -1709,12 +1708,12 @@ public class ParserTest {
         fooLibTarget);
     assertThat(targetNode.getBuildTarget(), equalTo(fooLibTarget));
 
-      SortedMap<String, Object> rules = parser.getRawTargetNode(
-          eventBus,
-          cell,
-          false,
-          executorService,
-          targetNode);
+    SortedMap<String, Object> rules = parser.getRawTargetNode(
+        eventBus,
+        cell,
+        false,
+        executorService,
+        targetNode);
     assertThat(rules, Matchers.hasKey("name"));
     assertThat(
         (String) rules.get("name"),
@@ -1754,7 +1753,7 @@ public class ParserTest {
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
           ImmutableSortedSet.of(new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java"))),
-              libRule.getJavaSrcs());
+          libRule.getJavaSrcs());
     }
 
     tempDir.newFile("bar/Baz.java");
@@ -1852,8 +1851,8 @@ public class ParserTest {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "Target //foo:lib contains input files under a path which contains a symbolic link (" +
-        "{foo/bar=bar}). To resolve this, use separate rules and declare dependencies instead of " +
-        "using symbolic links.");
+            "{foo/bar=bar}). To resolve this, use separate rules and declare dependencies " +
+            "instead of using symbolic links.");
 
     BuckConfig config = FakeBuckConfig.builder()
         .setFilesystem(filesystem)
@@ -2161,6 +2160,35 @@ public class ParserTest {
     assertEquals("Should not have invalidated.", 1, counter.calls);
   }
 
+  @Test
+  public void emptyStringBuckConfigEntryDoesNotCauseInvalidation() throws Exception {
+    Path buckFile = cellRoot.resolve("BUCK");
+    Files.write(
+        buckFile,
+        Joiner.on("").join(
+            ImmutableList.of(
+                "read_config('foo', 'bar')\n",
+                "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n"))
+            .getBytes(UTF_8));
+
+    BuckConfig config =
+        FakeBuckConfig.builder()
+            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "")))
+            .setFilesystem(filesystem)
+            .build();
+
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
+
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
+
+    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
+
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
+
+    // Test that the second parseBuildFile call repopulated the cache.
+    assertEquals("Should not have invalidated.", 1, counter.calls);
+  }
+
   @Test(timeout = 20000)
   public void resolveTargetSpecsDoesNotHangOnException() throws Exception {
     Path buckFile = cellRoot.resolve("foo/BUCK");
@@ -2199,14 +2227,14 @@ public class ParserTest {
 
   @Test
   public void resolveTargetSpecsPreservesOrder() throws Exception {
-    BuildTarget foo = BuildTargetFactory.newInstance(filesystem, "//foo:foo");
+    BuildTarget foo = BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:foo");
     Path buckFile = cellRoot.resolve("foo/BUCK");
     Files.createDirectories(buckFile.getParent());
     Files.write(
         buckFile,
         "genrule(name='foo', out='foo', cmd='foo')".getBytes(UTF_8));
 
-    BuildTarget bar = BuildTargetFactory.newInstance(filesystem, "//bar:bar");
+    BuildTarget bar = BuildTargetFactory.newInstance(filesystem.getRootPath(), "//bar:bar");
     buckFile = cellRoot.resolve("bar/BUCK");
     Files.createDirectories(buckFile.getParent());
     Files.write(
@@ -2270,10 +2298,10 @@ public class ParserTest {
     Files.write(
         buckFile,
         ("cxx_library(" +
-        "  name = 'lib', " +
-        "  srcs=glob(['*.c']), " +
-        "  defaults={'platform':'iphonesimulator-x86_64'}" +
-        ")").getBytes(UTF_8));
+            "  name = 'lib', " +
+            "  srcs=glob(['*.c']), " +
+            "  defaults={'platform':'iphonesimulator-x86_64'}" +
+            ")").getBytes(UTF_8));
 
     ImmutableSet<BuildTarget> result =
         parser.buildTargetGraphForTargetNodeSpecs(
@@ -2292,8 +2320,8 @@ public class ParserTest {
         hasItems(
             BuildTarget.builder(cellRoot, "//lib", "lib")
                 .addFlavors(
-                    ImmutableFlavor.of("iphonesimulator-x86_64"),
-                    ImmutableFlavor.of("static"))
+                    InternalFlavor.of("iphonesimulator-x86_64"),
+                    InternalFlavor.of("static"))
                 .build()));
   }
 
@@ -2307,9 +2335,9 @@ public class ParserTest {
     Files.write(
         buckFile,
         ("cxx_library(" +
-        "  name = 'lib', " +
-        "  srcs=glob(['*.c']) " +
-        ")").getBytes(UTF_8));
+            "  name = 'lib', " +
+            "  srcs=glob(['*.c']) " +
+            ")").getBytes(UTF_8));
 
     BuckConfig config = FakeBuckConfig.builder()
         .setFilesystem(filesystem)
@@ -2342,8 +2370,8 @@ public class ParserTest {
         hasItems(
             BuildTarget.builder(cellRoot, "//lib", "lib")
                 .addFlavors(
-                    ImmutableFlavor.of("iphoneos-arm64"),
-                    ImmutableFlavor.of("shared"))
+                    InternalFlavor.of("iphoneos-arm64"),
+                    InternalFlavor.of("shared"))
                 .build()));
   }
 
@@ -2357,10 +2385,10 @@ public class ParserTest {
     Files.write(
         buckFile,
         ("cxx_library(" +
-        "  name = 'lib', " +
-        "  srcs=glob(['*.c']), " +
-        "  defaults={'platform':'macosx-x86_64'}" +
-        ")").getBytes(UTF_8));
+            "  name = 'lib', " +
+            "  srcs=glob(['*.c']), " +
+            "  defaults={'platform':'macosx-x86_64'}" +
+            ")").getBytes(UTF_8));
 
     BuckConfig config = FakeBuckConfig.builder()
         .setFilesystem(filesystem)
@@ -2393,8 +2421,8 @@ public class ParserTest {
         hasItems(
             BuildTarget.builder(cellRoot, "//lib", "lib")
                 .addFlavors(
-                    ImmutableFlavor.of("macosx-x86_64"),
-                    ImmutableFlavor.of("shared"))
+                    InternalFlavor.of("macosx-x86_64"),
+                    InternalFlavor.of("shared"))
                 .build()));
   }
 
@@ -2406,33 +2434,6 @@ public class ParserTest {
     assertNotEquals(
         parser.getPermState().getOrCreateNodeCache(TargetNode.class),
         parser.getPermState().getOrCreateNodeCache(Map.class));
-  }
-
-  @Test
-  public void groupsAreExpanded() throws Exception {
-    Path buckFile = cellRoot.resolve("BUCK");
-    Files.createDirectories(buckFile.getParent());
-    Path groupsData = TestDataHelper.getTestDataScenario(this, "groups");
-    Files.copy(groupsData.resolve("BUCK.fixture"), buckFile);
-
-    BuildTarget fooTarget = BuildTargetFactory.newInstance(cellRoot, "//:foo");
-    BuildTarget barTarget = BuildTargetFactory.newInstance(cellRoot, "//:bar");
-
-    TargetGraph targetGraph = parser.buildTargetGraph(
-        eventBus,
-        cell,
-        false,
-        executorService,
-        ImmutableSet.of(barTarget));
-
-    assertThat(targetGraph.getGroupsContainingTarget(fooTarget).size(), is(2));
-
-    assertThat(
-        targetGraph.get(fooTarget).isVisibleTo(targetGraph, targetGraph.get(barTarget)),
-        is(true));
-    assertThat(
-        targetGraph.get(barTarget).isVisibleTo(targetGraph, targetGraph.get(fooTarget)),
-        is(false));
   }
 
   @Test

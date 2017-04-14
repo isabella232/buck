@@ -31,8 +31,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -72,7 +72,7 @@ public class NativeLinkables {
 
             // Otherwise, make sure this rule is marked as traversable before following it's deps.
             if (traverse.apply(rule)) {
-              return rule.getDeps();
+              return rule.getBuildDeps();
             }
 
             return ImmutableSet.of();
@@ -112,7 +112,7 @@ public class NativeLinkables {
       final Linker.LinkableDepType linkStyle,
       final Predicate<? super NativeLinkable> traverse) {
 
-    final Map<BuildTarget, NativeLinkable> nativeLinkables = Maps.newHashMap();
+    final Map<BuildTarget, NativeLinkable> nativeLinkables = new HashMap<>();
     for (NativeLinkable nativeLinkable : inputs) {
       nativeLinkables.put(nativeLinkable.getBuildTarget(), nativeLinkable);
     }
@@ -243,7 +243,7 @@ public class NativeLinkables {
       final CxxPlatform cxxPlatform,
       Iterable<? extends NativeLinkable> inputs) {
 
-    final Map<BuildTarget, NativeLinkable> nativeLinkables = Maps.newHashMap();
+    final Map<BuildTarget, NativeLinkable> nativeLinkables = new HashMap<>();
     for (NativeLinkable nativeLinkable : inputs) {
       nativeLinkables.put(nativeLinkable.getBuildTarget(), nativeLinkable);
     }

@@ -21,12 +21,11 @@ import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableCollection;
 
 import java.nio.file.Path;
 
@@ -36,7 +35,6 @@ import java.nio.file.Path;
  * the actual compilation step.
  * This allows us to use different compilers for different {@link JvmLanguage}.
  */
-@SuppressWarnings("unused")
 public abstract class AndroidLibraryCompiler
     implements ImplicitDepsInferringDescription<AndroidLibraryDescription.Arg> {
 
@@ -48,29 +46,17 @@ public abstract class AndroidLibraryCompiler
       JavacOptions javacOptions,
       BuildRuleResolver resolver);
 
-  public Iterable<BuildRule> getDeclaredDeps(
-      AndroidLibraryDescription.Arg args,
-      BuildRuleResolver resolver) {
-    return ImmutableList.of();
-  }
-
-  public Iterable<BuildRule> getExtraDeps(
-      AndroidLibraryDescription.Arg args,
-      BuildRuleResolver resolver) {
-    return ImmutableList.of();
-  }
-
   public boolean trackClassUsage(JavacOptions javacOptions) {
     return javacOptions.trackClassUsage();
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      AndroidLibraryDescription.Arg constructorArg) {
-
-    return ImmutableList.of();
+      AndroidLibraryDescription.Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
   }
 }
 

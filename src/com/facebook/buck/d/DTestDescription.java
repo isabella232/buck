@@ -35,6 +35,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -72,6 +73,7 @@ public class DTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
       A args)
       throws NoSuchBuildTargetException {
 
@@ -100,7 +102,7 @@ public class DTestDescription implements
 
     BuildRule binaryRule =
         DDescriptionUtils.createNativeLinkable(
-            params.copyWithBuildTarget(binaryTarget),
+            params.withBuildTarget(binaryTarget),
             buildRuleResolver,
             cxxPlatform,
             dBuckConfig,
@@ -115,7 +117,7 @@ public class DTestDescription implements
     buildRuleResolver.addToIndex(binaryRule);
 
     return new DTest(
-        params.appendExtraDeps(ImmutableList.of(binaryRule)),
+        params.copyAppendingExtraDeps(ImmutableList.of(binaryRule)),
         binaryRule,
         args.contacts,
         args.labels,
@@ -123,11 +125,13 @@ public class DTestDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    return cxxPlatform.getLd().getParseTimeDeps();
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(cxxPlatform.getLd().getParseTimeDeps());
   }
 
   @Override

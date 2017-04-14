@@ -21,7 +21,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -37,24 +37,24 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
 public class CxxCompilationDatabase extends AbstractBuildRule implements HasRuntimeDeps {
   private static final Logger LOG = Logger.get(CxxCompilationDatabase.class);
-  public static final Flavor COMPILATION_DATABASE = ImmutableFlavor.of("compilation-database");
+  public static final Flavor COMPILATION_DATABASE = InternalFlavor.of("compilation-database");
   public static final Flavor UBER_COMPILATION_DATABASE =
-      ImmutableFlavor.of("uber-compilation-database");
+      InternalFlavor.of("uber-compilation-database");
 
   @AddToRuleKey
   private final ImmutableSortedSet<CxxPreprocessAndCompile> compileRules;
@@ -70,11 +70,11 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
         .naturalOrder();
     for (CxxPreprocessAndCompile compileRule : compileAndPreprocessRules) {
       compileRules.add(compileRule);
-      deps.addAll(compileRule.getDeps());
+      deps.addAll(compileRule.getBuildDeps());
     }
 
     return new CxxCompilationDatabase(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         compileRules.build(),
@@ -103,7 +103,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
       BuildContext context,
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MkdirStep(getProjectFilesystem(), outputJsonFile.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), outputJsonFile.getParent()));
     steps.add(new GenerateCompilationCommandsJson(
         context.getSourcePathResolver(),
         context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
@@ -155,7 +155,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
 
     @VisibleForTesting
     Iterable<CxxCompilationDatabaseEntry> createEntries() {
-      List<CxxCompilationDatabaseEntry> entries = Lists.newArrayList();
+      List<CxxCompilationDatabaseEntry> entries = new ArrayList<>();
       for (CxxPreprocessAndCompile compileRule : compileRules) {
         entries.add(createEntry(compileRule));
       }
@@ -182,8 +182,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
         ExecutionContext context) {
       try (OutputStream outputStream =
                getProjectFilesystem().newFileOutputStream(outputRelativePath)) {
-        ObjectMapper mapper = context.getObjectMapper();
-        mapper.writeValue(outputStream, entries);
+        ObjectMappers.WRITER.writeValue(outputStream, entries);
       } catch (IOException e) {
         logError(e, context);
         return 1;

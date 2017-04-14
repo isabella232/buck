@@ -16,8 +16,8 @@
 
 package com.facebook.buck.maven;
 
+import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -143,9 +143,8 @@ public class ArtifactConfig {
 
     // If the -config argument was specified, load a config from JSON.
     if (parsedArgs.artifactConfigJson != null) {
-      ObjectMapper mapper = new ObjectMapper();
       File jsonFile = new File(parsedArgs.artifactConfigJson);
-      artifactConfig = mapper.readValue(jsonFile, ArtifactConfig.class);
+      artifactConfig = ObjectMappers.readValue(jsonFile, ArtifactConfig.class);
     } else {
       artifactConfig = new ArtifactConfig();
     }

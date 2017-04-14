@@ -37,7 +37,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -48,6 +48,7 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -114,7 +115,6 @@ public class RustLibraryDescription implements
     return RustCompileUtils.requireBuild(
         params,
         resolver,
-        pathResolver,
         ruleFinder,
         cxxPlatform,
         rustBuckConfig,
@@ -133,6 +133,7 @@ public class RustLibraryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     final BuildTarget buildTarget = params.getBuildTarget();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -191,41 +192,47 @@ public class RustLibraryDescription implements
       @Override
       public com.facebook.buck.rules.args.Arg getLinkerArg(
           boolean direct,
-          CxxPlatform cxxPlatform, Linker.LinkableDepType depType) {
+          boolean isCheck,
+          CxxPlatform cxxPlatform,
+          Linker.LinkableDepType depType) {
         BuildRule rule;
         CrateType crateType;
 
         // Determine a crate type from preferred linkage and deptype.
         // NOTE: DYLIB requires upstream rustc bug #38795 to be fixed, because otherwise
         // the use of -rpath will break with flavored paths containing ','.
-        switch (args.preferredLinkage) {
-          case ANY:
-          default:
-            switch (depType) {
-              case SHARED:
-                crateType = CrateType.DYLIB;
-                break;
-              case STATIC_PIC:
-                crateType = CrateType.RLIB_PIC;
-                break;
-              case STATIC:
-              default:
+        if (isCheck) {
+          crateType = CrateType.CHECK;
+        } else {
+          switch (args.preferredLinkage) {
+            case ANY:
+            default:
+              switch (depType) {
+                case SHARED:
+                  crateType = CrateType.DYLIB;
+                  break;
+                case STATIC_PIC:
+                  crateType = CrateType.RLIB_PIC;
+                  break;
+                case STATIC:
+                default:
+                  crateType = CrateType.RLIB;
+                  break;
+              }
+              break;
+
+            case SHARED:
+              crateType = CrateType.DYLIB;
+              break;
+
+            case STATIC:
+              if (depType == Linker.LinkableDepType.STATIC) {
                 crateType = CrateType.RLIB;
-                break;
-            }
-            break;
-
-          case SHARED:
-            crateType = CrateType.DYLIB;
-            break;
-
-          case STATIC:
-            if (depType == Linker.LinkableDepType.STATIC) {
-              crateType = CrateType.RLIB;
-            } else {
-              crateType = CrateType.RLIB_PIC;
-            }
-            break;
+              } else {
+                crateType = CrateType.RLIB_PIC;
+              }
+              break;
+          }
         }
 
         try {
@@ -247,7 +254,7 @@ public class RustLibraryDescription implements
           throw new RuntimeException(e);
         }
         SourcePath rlib = rule.getSourcePathToOutput();
-        return new RustLibraryArg(pathResolver, crate, rlib, direct, params.getDeps());
+        return new RustLibraryArg(pathResolver, crate, rlib, direct, params.getBuildDeps());
       }
 
       @Override
@@ -289,7 +296,7 @@ public class RustLibraryDescription implements
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
-        return FluentIterable.from(getDeps())
+        return FluentIterable.from(getBuildDeps())
             .filter(NativeLinkable.class);
       }
 
@@ -374,21 +381,19 @@ public class RustLibraryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-
-    deps.addAll(rustBuckConfig.getRustCompiler().getParseTimeDeps());
-    deps.addAll(
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(rustBuckConfig.getRustCompiler().getParseTimeDeps());
+    extraDepsBuilder.addAll(
         rustBuckConfig.getLinker()
             .map(ToolProvider::getParseTimeDeps)
             .orElse(ImmutableList.of()));
 
-    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
-
-    return deps.build();
+    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
   }
 
   @Override

@@ -36,7 +36,6 @@ import com.facebook.buck.timing.SettableFakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -48,6 +47,8 @@ import org.w3c.dom.NodeList;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -155,7 +156,7 @@ public class SchemeGeneratorTest {
         "rightGID",
         "childGID");
 
-    List<String> actualOrdering = Lists.newArrayList();
+    List<String> actualOrdering = new ArrayList<>();
     for (int i = 0; i < nodes.getLength(); i++) {
       actualOrdering.add(nodes.item(i).getNodeValue());
     }
@@ -246,7 +247,7 @@ public class SchemeGeneratorTest {
 
     List<String> expectedBuildOrdering = ImmutableList.of("rootGID", "testDepGID", "testGID");
 
-    List<String> actualBuildOrdering = Lists.newArrayList();
+    List<String> actualBuildOrdering = new ArrayList<>();
     for (int i = 0; i < buildNodes.getLength(); i++) {
       actualBuildOrdering.add(buildNodes.item(i).getNodeValue());
     }
@@ -259,7 +260,7 @@ public class SchemeGeneratorTest {
 
     List<String> expectedTestOrdering = ImmutableList.of("testGID");
 
-    List<String> actualTestOrdering = Lists.newArrayList();
+    List<String> actualTestOrdering = new ArrayList<>();
     for (int i = 0; i < testNodes.getLength(); i++) {
       actualTestOrdering.add(testNodes.item(i).getNodeValue());
     }
@@ -341,7 +342,7 @@ public class SchemeGeneratorTest {
         "rootGID",
         "testBundleGID");
 
-    List<String> actualOrdering = Lists.newArrayList();
+    List<String> actualOrdering = new ArrayList<>();
     for (int i = 0; i < buildActionNodes.getLength(); i++) {
       actualOrdering.add(buildActionNodes.item(i).getNodeValue());
     }
@@ -550,7 +551,9 @@ public class SchemeGeneratorTest {
           XCScheme.LaunchAction.LaunchStyle.AUTO);
 
       Path schemePath = schemeGenerator.writeScheme();
-      assertThat(projectFilesystem.getLastModifiedTime(schemePath), equalTo(49152L));
+      assertThat(
+          projectFilesystem.getLastModifiedTime(schemePath),
+          equalTo(FileTime.fromMillis(49152L)));
     }
 
     {
@@ -584,7 +587,9 @@ public class SchemeGeneratorTest {
           XCScheme.LaunchAction.LaunchStyle.AUTO);
 
       Path schemePath = schemeGenerator.writeScheme();
-      assertThat(projectFilesystem.getLastModifiedTime(schemePath), equalTo(64738L));
+      assertThat(
+          projectFilesystem.getLastModifiedTime(schemePath),
+          equalTo(FileTime.fromMillis(64738L)));
     }
   }
 
@@ -621,7 +626,9 @@ public class SchemeGeneratorTest {
           XCScheme.LaunchAction.LaunchStyle.AUTO);
 
       Path schemePath = schemeGenerator.writeScheme();
-      assertThat(projectFilesystem.getLastModifiedTime(schemePath), equalTo(49152L));
+      assertThat(
+          projectFilesystem.getLastModifiedTime(schemePath),
+          equalTo(FileTime.fromMillis(49152L)));
     }
 
     {
@@ -654,7 +661,9 @@ public class SchemeGeneratorTest {
           ImmutableMap.of(rootTarget, pbxprojectPath),
           XCScheme.LaunchAction.LaunchStyle.AUTO);
       Path schemePath = schemeGenerator.writeScheme();
-      assertThat(projectFilesystem.getLastModifiedTime(schemePath), equalTo(49152L));
+      assertThat(
+          projectFilesystem.getLastModifiedTime(schemePath),
+          equalTo(FileTime.fromMillis(49152L)));
     }
   }
 
@@ -731,7 +740,7 @@ public class SchemeGeneratorTest {
     List<String> expectedOrdering = ImmutableList.of(
         "testBundleGID");
 
-    List<String> actualOrdering = Lists.newArrayList();
+    List<String> actualOrdering = new ArrayList<>();
     for (int i = 0; i < buildActionNodes.getLength(); i++) {
       actualOrdering.add(buildActionNodes.item(i).getNodeValue());
     }

@@ -79,7 +79,7 @@ import java.util.stream.Stream;
  * As a rule of thumb, if the "out" parameter is missing, the "name" parameter is used as the name
  * of the file to be saved.
  */
-// TODO(shs96c): Extend to also allow exporting a rule.
+// TODO(simons): Extend to also allow exporting a rule.
 public class ExportFile extends AbstractBuildRuleWithResolver
     implements HasOutputName, HasRuntimeDeps {
 
@@ -127,11 +127,8 @@ public class ExportFile extends AbstractBuildRuleWithResolver
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
     if (mode == ExportFileDescription.Mode.COPY) {
       Path out = getCopiedPath();
-      builder.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
-      builder.add(new RmStep(
-          getProjectFilesystem(),
-          out,
-          RmStep.Mode.RECURSIVE));
+      builder.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
+      builder.add(RmStep.of(getProjectFilesystem(), out).withRecursive(true));
       if (resolver.getFilesystem(src).isDirectory(resolver.getRelativePath(src))) {
         builder.add(
             CopyStep.forDirectory(

@@ -21,6 +21,7 @@ import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.apple.project_generator.FocusedModuleTargetMatcher;
 import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.apple.project_generator.WorkspaceAndProjectGenerator;
 import com.facebook.buck.cxx.CxxBuckConfig;
@@ -28,6 +29,12 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.halide.HalideBuckConfig;
+import com.facebook.buck.ide.intellij.AggregationMode;
+import com.facebook.buck.ide.intellij.IjProject;
+import com.facebook.buck.ide.intellij.IjProjectBuckConfig;
+import com.facebook.buck.ide.intellij.IjProjectConfig;
+import com.facebook.buck.ide.intellij.deprecated.IntellijConfig;
+import com.facebook.buck.ide.intellij.deprecated.Project;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -35,10 +42,6 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.intellij.AggregationMode;
-import com.facebook.buck.jvm.java.intellij.IjProject;
-import com.facebook.buck.jvm.java.intellij.IntellijConfig;
-import com.facebook.buck.jvm.java.intellij.Project;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -71,6 +74,7 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.ProcessManager;
+import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.base.Charsets;
@@ -80,9 +84,9 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -108,6 +112,7 @@ import java.io.InputStreamReader;
 import java.nio.channels.Channels;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -309,13 +314,6 @@ public class ProjectCommand extends BuildCommand {
     return buckConfig.getBooleanValue("project", "ide_prompt", true);
   }
 
-  public boolean getRemoveUnusedLibraries(BuckConfig buckConfig) {
-    if (removeUnusedLibraries) {
-      return true;
-    }
-    return buckConfig.getBooleanValue("intellij", "remove_unused_libraries", false);
-  }
-
   private Optional<Ide> getIdeFromBuckConfig(BuckConfig buckConfig) {
     return buckConfig.getValue("project", "ide").map(Ide::fromString);
   }
@@ -351,10 +349,6 @@ public class ProjectCommand extends BuildCommand {
     return buckConfig.getBooleanValue("project", "skip_build", false);
   }
 
-  private boolean getExcludeArtifactsFromConfig(BuckConfig buckConfig) {
-    return buckConfig.getBooleanValue("project", "exclude_artifacts", false);
-  }
-
   private boolean isBuildWithBuckDisabledWithFocus(BuckConfig buckConfig) {
     return buckConfig.getBooleanValue("project", "xcode_focus_disable_build_with_buck", false);
   }
@@ -377,24 +371,13 @@ public class ProjectCommand extends BuildCommand {
     if (additionalInitialTargets.isEmpty()) {
       initialTargets = getInitialTargets(buckConfig);
     } else {
-      initialTargets = Lists.newArrayList();
+      initialTargets = new ArrayList<>();
       initialTargets.addAll(getInitialTargets(buckConfig));
       initialTargets.addAll(additionalInitialTargets);
     }
 
     BuildCommand buildCommand = new BuildCommand(initialTargets);
     return buildCommand;
-  }
-
-  public AggregationMode getIntellijAggregationMode(BuckConfig buckConfig) {
-    if (intellijAggregationMode != null) {
-      return intellijAggregationMode;
-    }
-    Optional<AggregationMode> aggregationMode =
-        buckConfig.getValue(
-            "project",
-            "intellij_aggregation_mode").map(AggregationMode::fromString);
-    return aggregationMode.orElse(AggregationMode.AUTO);
   }
 
   @Override
@@ -625,32 +608,34 @@ public class ProjectCommand extends BuildCommand {
       final TargetGraphAndTargets targetGraphAndTargets
   ) throws IOException {
     ActionGraphAndResolver result = Preconditions.checkNotNull(
-        ActionGraphCache.getFreshActionGraph(
+        params.getActionGraphCache().getActionGraph(
             params.getBuckEventBus(),
-            targetGraphAndTargets.getTargetGraph()));
+            params.getBuckConfig().isActionGraphCheckingEnabled(),
+            params.getBuckConfig().isSkipActionGraphCache(),
+            targetGraphAndTargets.getTargetGraph(),
+            params.getBuckConfig().getKeySeed()));
 
     BuckConfig buckConfig = params.getBuckConfig();
     BuildRuleResolver ruleResolver = result.getResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     JavacOptions javacOptions = buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions();
+
+    IjProjectConfig projectConfig = IjProjectBuckConfig.create(
+        buckConfig,
+        intellijAggregationMode,
+        runIjCleaner,
+        removeUnusedLibraries,
+        excludeArtifacts);
 
     IjProject project = new IjProject(
         targetGraphAndTargets,
         getJavaPackageFinder(buckConfig),
         JavaFileParser.createJavaFileParser(javacOptions),
         ruleResolver,
-        sourcePathResolver,
-        ruleFinder,
         params.getCell().getFilesystem(),
-        getIntellijAggregationMode(buckConfig),
-        buckConfig);
+        projectConfig);
 
-    return project.write(
-        runIjCleaner,
-        getRemoveUnusedLibraries(buckConfig),
-        excludeArtifacts || getExcludeArtifactsFromConfig(buckConfig));
+    return project.write();
   }
 
   private int buildRequiredTargetsWithoutUsingCacheForAnnotatedTargets(
@@ -823,7 +808,6 @@ public class ProjectCommand extends BuildCommand {
           new PythonBuckConfig(
               params.getBuckConfig(),
               new ExecutableFinder()).getPythonInterpreter(),
-          params.getObjectMapper(),
           isAndroidAutoGenerateDisabled(params.getBuckConfig()));
 
       File tempDir = Files.createTempDir();
@@ -915,7 +899,7 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargetsSet)
       throws IOException, InterruptedException {
     int exitCode = 0;
-    AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
+    AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
     ImmutableSet<ProjectGenerator.Option> options = buildWorkspaceGeneratorOptions(
         getReadOnly(params.getBuckConfig()),
         isWithTests(params.getBuckConfig()),
@@ -939,13 +923,37 @@ public class ProjectCommand extends BuildCommand {
         options,
         super.getOptions(),
         getFocusModules(params, executor),
-        new HashMap<Path, ProjectGenerator>(),
+        new HashMap<>(),
         getCombinedProject(),
         shouldBuildWithBuck);
     if (!requiredBuildTargets.isEmpty()) {
-      BuildCommand buildCommand = new BuildCommand(requiredBuildTargets.stream()
-          .map(Object::toString)
-          .collect(MoreCollectors.toImmutableList()));
+      ImmutableMultimap<Path, String> cellPathToCellName =
+          params.getCell().getCellPathResolver().getCellPaths().asMultimap().inverse();
+      BuildCommand buildCommand = new BuildCommand(
+          RichStream.from(requiredBuildTargets)
+              .map(target -> {
+                if (!target.getCellPath().equals(params.getCell().getRoot())) {
+                  Optional<String> cellName =
+                      cellPathToCellName.get(target.getCellPath()).stream().findAny();
+                  if (cellName.isPresent()) {
+                    return target.withUnflavoredBuildTarget(
+                        UnflavoredBuildTarget.of(
+                            target.getCellPath(),
+                            cellName,
+                            target.getBaseName(),
+                            target.getShortName()));
+                  } else {
+                    throw new IllegalStateException(
+                        "Failed to find cell name for cell path while constructing parameters to " +
+                            "build dependencies for project generation. " +
+                            "Build target: " + target + " cell path: " + target.getCellPath());
+                  }
+                } else {
+                  return target;
+                }
+              })
+              .map(Object::toString)
+              .toImmutableList());
       exitCode = buildCommand.runWithoutHelp(params);
     }
     return exitCode;
@@ -969,7 +977,7 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
       ImmutableList<String> buildWithBuckFlags,
-      Optional<ImmutableSet<UnflavoredBuildTarget>> focusModules,
+      FocusedModuleTargetMatcher focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
       boolean buildWithBuck)
@@ -1001,7 +1009,7 @@ public class ProjectCommand extends BuildCommand {
       }
 
       BuckConfig buckConfig = params.getBuckConfig();
-      AppleConfig appleConfig = new AppleConfig(buckConfig);
+      AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
       HalideBuckConfig halideBuckConfig = new HalideBuckConfig(buckConfig);
       CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
       SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(buckConfig);
@@ -1051,12 +1059,12 @@ public class ProjectCommand extends BuildCommand {
     return requiredBuildTargetsBuilder.build();
   }
 
-  private Optional<ImmutableSet<UnflavoredBuildTarget>> getFocusModules(
+  private FocusedModuleTargetMatcher getFocusModules(
       CommandRunnerParams params,
       ListeningExecutorService executor)
       throws IOException, InterruptedException {
     if (modulesToFocusOn == null) {
-      return Optional.empty();
+      return FocusedModuleTargetMatcher.noFocus();
     }
 
     Iterable<String> patterns = Splitter.onPattern("\\s+").split(modulesToFocusOn);
@@ -1083,32 +1091,16 @@ public class ProjectCommand extends BuildCommand {
     } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return Optional.empty();
+      return FocusedModuleTargetMatcher.noFocus();
     }
     LOG.debug("Selected targets: %s", passedInTargetsSet.toString());
 
-    // Retrieve mapping: cell name -> path.
-    ImmutableMap<String, Path> cellPaths = params.getCell().getCellPathResolver().getCellPaths();
-    ImmutableMap<Path, String> cellNames = ImmutableBiMap.copyOf(cellPaths).inverse();
-
-    // Create a set of unflavored targets that have cell names.
-    ImmutableSet.Builder<UnflavoredBuildTarget> builder = ImmutableSet.builder();
-    for (BuildTarget target : passedInTargetsSet) {
-      String cell = cellNames.get(target.getCellPath());
-      if (cell == null) {
-        builder.add(target.getUnflavoredBuildTarget());
-      } else {
-        UnflavoredBuildTarget targetWithCell = UnflavoredBuildTarget.of(
-            target.getCellPath(),
-            Optional.of(cell),
-            target.getBaseName(),
-            target.getShortName());
-        builder.add(targetWithCell);
-      }
-    }
-    ImmutableSet<UnflavoredBuildTarget> passedInUnflavoredTargetsSet = builder.build();
+    ImmutableSet<UnflavoredBuildTarget> passedInUnflavoredTargetsSet =
+        RichStream.from(passedInTargetsSet)
+            .map(BuildTarget::getUnflavoredBuildTarget)
+            .toImmutableSet();
     LOG.debug("Selected unflavored targets: %s", passedInUnflavoredTargetsSet.toString());
-    return Optional.of(passedInUnflavoredTargetsSet);
+    return FocusedModuleTargetMatcher.focusedOn(passedInUnflavoredTargetsSet);
   }
 
   public static ImmutableSet<ProjectGenerator.Option> buildWorkspaceGeneratorOptions(
@@ -1287,10 +1279,9 @@ public class ProjectCommand extends BuildCommand {
         replaceWorkspacesWithSourceTargetsIfPossible(graphRoots, projectGraph);
 
     if (isWithTests) {
-      Optional<ImmutableSet<UnflavoredBuildTarget>> focusedModules =
-          getFocusModules(params, executor);
+      FocusedModuleTargetMatcher focusedModules = getFocusModules(params, executor);
 
-      explicitTestTargets = TargetGraphAndTargets.getExplicitTestTargets(
+      explicitTestTargets = getExplicitTestTargets(
           graphRootsOrSourceTargets,
           projectGraph,
           isWithDependenciesTests,
@@ -1387,6 +1378,32 @@ public class ProjectCommand extends BuildCommand {
     return "generates project configuration files for an IDE";
   }
 
+  /**
+   * @param buildTargets The set of targets for which we would like to find tests
+   * @param projectGraph A TargetGraph containing all nodes and their tests.
+   * @param shouldIncludeDependenciesTests Should or not include tests
+   * that test dependencies
+   * @return A set of all test targets that test any of {@code buildTargets} or their dependencies.
+   */
+  @VisibleForTesting
+  static ImmutableSet<BuildTarget> getExplicitTestTargets(
+      ImmutableSet<BuildTarget> buildTargets,
+      TargetGraph projectGraph,
+      boolean shouldIncludeDependenciesTests,
+      FocusedModuleTargetMatcher focusedModules) {
+    Iterable<TargetNode<?, ?>> projectRoots = projectGraph.getAll(buildTargets);
+    Iterable<TargetNode<?, ?>> nodes;
+    if (shouldIncludeDependenciesTests) {
+      nodes = projectGraph.getSubgraph(projectRoots).getNodes();
+    } else {
+      nodes = projectRoots;
+    }
+
+    return TargetGraphAndTargets.getExplicitTestTargets(
+        RichStream.from(nodes)
+            .filter(node -> focusedModules.isFocusedOn(node.getBuildTarget()))
+            .iterator());
+  }
 
   public static class AggregationModeOptionHandler
       extends OptionHandler<AggregationMode> {

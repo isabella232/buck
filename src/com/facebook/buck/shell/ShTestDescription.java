@@ -38,6 +38,7 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -77,13 +78,14 @@ public class ShTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     Function<String, com.facebook.buck.rules.args.Arg> toArg =
         MacroArg.toMacroArgFunction(
             MACRO_HANDLER,
             params.getBuildTarget(),
-            params.getCellRoots(),
+            cellRoots,
             resolver);
     final ImmutableList<com.facebook.buck.rules.args.Arg> testArgs =
         args.args.stream()
@@ -95,7 +97,7 @@ public class ShTestDescription implements
                 args.env,
                 toArg));
     return new ShTest(
-        params.appendExtraDeps(
+        params.copyAppendingExtraDeps(
             () -> FluentIterable.from(testArgs)
                 .append(testEnv.values())
                 .transformAndConcat(arg -> arg.getDeps(ruleFinder))),
@@ -113,25 +115,28 @@ public class ShTestDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add parse time deps for any macros.
     for (String blob :
          Iterables.concat(
              constructorArg.args,
              constructorArg.env.values())) {
       try {
-        deps.addAll(MACRO_HANDLER.extractParseTimeDeps(buildTarget, cellRoots, blob));
+        MACRO_HANDLER.extractParseTimeDeps(
+            buildTarget,
+            cellRoots,
+            blob,
+            extraDepsBuilder,
+            targetGraphOnlyDepsBuilder);
       } catch (MacroException e) {
         throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
       }
     }
-
-    return deps.build();
   }
 
   @SuppressFieldNotInitialized

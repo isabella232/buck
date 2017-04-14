@@ -51,7 +51,7 @@ import java.util.Random;
 
 public class MachineReadableLogJsonViewTest {
 
-  private static final ObjectWriter WRITER = ObjectMappers.newDefaultInstance()
+  private static final ObjectWriter WRITER = ObjectMappers.legacyCreate()
       .configure(MapperFeature.DEFAULT_VIEW_INCLUSION, false)
       .writerWithView(JsonViews.MachineReadableLog.class);
 
@@ -124,7 +124,7 @@ public class MachineReadableLogJsonViewTest {
 
   @Test
   public void testBuildRuleEvent() throws IOException {
-    BuildRule rule = FakeBuildRule.newEmptyInstance("//fake:rule");
+    BuildRule rule = new FakeBuildRule("//fake:rule");
     BuildRuleEvent.Started started = BuildRuleEvent.started(rule, durationTracker);
     started.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
     BuildRuleEvent.Finished event =
@@ -143,7 +143,7 @@ public class MachineReadableLogJsonViewTest {
                 Optional.empty()),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             Optional.of(HashCode.fromString("abcd42")),
-            Optional.empty());
+            Optional.empty(), Optional.empty());
     event.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
     String message = WRITER.writeValueAsString(event);
     assertJsonEquals(

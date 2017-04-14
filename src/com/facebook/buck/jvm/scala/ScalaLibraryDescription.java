@@ -16,34 +16,25 @@
 
 package com.facebook.buck.jvm.scala;
 
-import static com.facebook.buck.jvm.common.ResourceValidator.validateResources;
 
-import com.facebook.buck.jvm.java.CalculateAbi;
-import com.facebook.buck.jvm.java.DefaultJavaLibrary;
-import com.facebook.buck.jvm.java.JavaLibraryRules;
+import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -53,8 +44,7 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
 
   private final ScalaBuckConfig scalaBuckConfig;
 
-  public ScalaLibraryDescription(
-      ScalaBuckConfig scalaBuckConfig) {
+  public ScalaLibraryDescription(ScalaBuckConfig scalaBuckConfig) {
     this.scalaBuckConfig = scalaBuckConfig;
   }
 
@@ -68,79 +58,30 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
       TargetGraph targetGraph,
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ScalaLibraryBuilder scalaLibraryBuilder = new ScalaLibraryBuilder(
+        rawParams,
+        resolver,
+        scalaBuckConfig)
+        .setArgs(args);
 
-    if (CalculateAbi.isAbiTarget(rawParams.getBuildTarget())) {
-      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(rawParams.getBuildTarget());
-      BuildRule libraryRule = resolver.requireRule(libraryTarget);
-      return CalculateAbi.of(
-          rawParams.getBuildTarget(),
-          ruleFinder,
-          rawParams,
-          Preconditions.checkNotNull(libraryRule.getSourcePathToOutput()));
-    }
-
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-
-    Tool scalac = scalaBuckConfig.getScalac(resolver);
-
-    final BuildRule scalaLibrary = resolver.getRule(scalaBuckConfig.getScalaLibraryTarget());
-    BuildRuleParams params = rawParams.copyWithDeps(
-        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(rawParams.getDeclaredDeps().get())
-            .add(scalaLibrary)
-            .build(),
-        rawParams.getExtraDeps());
-
-    BuildRuleParams javaLibraryParams =
-        params.appendExtraDeps(
-            Iterables.concat(
-                BuildRules.getExportedRules(
-                    Iterables.concat(
-                        params.getDeclaredDeps().get(),
-                        resolver.getAllRules(args.providedDeps))),
-                scalac.getDeps(ruleFinder)));
-    return new DefaultJavaLibrary(
-        javaLibraryParams,
-        pathResolver,
-        ruleFinder,
-        args.srcs,
-        validateResources(
-            pathResolver,
-            params.getProjectFilesystem(),
-            args.resources),
-        /* generatedSourceFolder */ Optional.empty(),
-        /* proguardConfig */ Optional.empty(),
-        /* postprocessClassesCommands */ ImmutableList.of(),
-        params.getDeclaredDeps().get(),
-        resolver.getAllRules(args.providedDeps),
-        JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
-        /* trackClassUsage */ false,
-        /* additionalClasspathEntries */ ImmutableSet.of(),
-        new ScalacToJarStepFactory(
-            scalac,
-            scalaBuckConfig.getCompilerFlags(),
-            args.extraArguments,
-            resolver.getAllRules(scalaBuckConfig.getCompilerPlugins())
-        ),
-        args.resourcesRoot,
-        args.manifestFile,
-        args.mavenCoords,
-        args.tests,
-        /* classesToRemoveFromJar */ ImmutableSet.of());
+    return HasJavaAbi.isAbiTarget(rawParams.getBuildTarget())
+        ? scalaLibraryBuilder.buildAbi()
+        : scalaLibraryBuilder.build();
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    return ImmutableList.<BuildTarget>builder()
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder
         .add(scalaBuckConfig.getScalaLibraryTarget())
         .addAll(scalaBuckConfig.getCompilerPlugins())
-        .addAll(OptionalCompat.asSet(scalaBuckConfig.getScalacTarget()))
-        .build();
+        .addAll(OptionalCompat.asSet(scalaBuckConfig.getScalacTarget()));
   }
 
   @SuppressFieldNotInitialized

@@ -15,23 +15,15 @@
  */
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.HumanReadableException;
-
-import java.util.Optional;
-
 
 public final class JavacOptionsFactory {
   public static JavacOptions create(
       JavacOptions defaultOptions,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      SourcePathRuleFinder ruleFinder,
       JvmLibraryArg jvmLibraryArg) {
     if ((jvmLibraryArg.source.isPresent() || jvmLibraryArg.target.isPresent()) &&
         jvmLibraryArg.javaVersion.isPresent()) {
@@ -57,37 +49,12 @@ public final class JavacOptionsFactory {
         !jvmLibraryArg.generateAbiFromSource.get()) {
       // This parameter can only be used to turn off ABI generation from source where it would
       // otherwise be employed.
-      builder.setAbiGenerationMode(AbstractJavacOptions.AbiGenerationMode.CLASS);
+      builder.setCompilationMode(Javac.CompilationMode.FULL);
     }
 
     builder.addAllExtraArguments(jvmLibraryArg.extraArguments);
 
     builder.addAllClassesToRemoveFromJar(jvmLibraryArg.removeClasses);
-
-    if (jvmLibraryArg.compiler.isPresent()) {
-      Either<BuiltInJavac, SourcePath> either = jvmLibraryArg.compiler.get();
-
-      if (either.isRight()) {
-        SourcePath sourcePath = either.getRight();
-
-        Optional<BuildRule> possibleRule = ruleFinder.getRule(sourcePath);
-        if (possibleRule.isPresent() && possibleRule.get() instanceof PrebuiltJar) {
-          builder.setJavacJarPath(((PrebuiltJar) possibleRule.get()).getSourcePathToOutput());
-        } else {
-          builder.setJavacPath(Either.ofRight(sourcePath));
-        }
-      }
-    } else {
-      if (jvmLibraryArg.javac.isPresent() || jvmLibraryArg.javacJar.isPresent()) {
-        if (jvmLibraryArg.javac.isPresent() && jvmLibraryArg.javacJar.isPresent()) {
-          throw new HumanReadableException("Cannot set both javac and javacjar");
-        }
-        builder.setJavacPath(
-            jvmLibraryArg.javac.map(Either::ofLeft));
-        builder.setJavacJarPath(jvmLibraryArg.javacJar);
-        builder.setCompilerClassName(jvmLibraryArg.compilerClassName);
-      }
-    }
 
     AnnotationProcessingParams annotationParams =
         jvmLibraryArg.buildAnnotationProcessingParams(

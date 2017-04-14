@@ -30,7 +30,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.InferHelper;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -229,8 +229,8 @@ public class CxxLibraryIntegrationTest {
     result.assertSuccess();
 
     BuildTarget implicitTarget = target.withAppendedFlavors(
-        ImmutableFlavor.of("static-pic"),
-        ImmutableFlavor.of("android-armv7")
+        InternalFlavor.of("static-pic"),
+        InternalFlavor.of("android-armv7")
     );
     workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget.getFullyQualifiedName());
   }
@@ -269,6 +269,26 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
+  public void sourceChangeInHeaderOnlyDependencyDoesntCauseRebuild() throws IOException {
+    // gcc doesn't support the `-all_load` flag which we need to use to ensure our symbols don't
+    // get stripped. Skip the test on linux (a gcc platform) for now.
+    assumeTrue(Platform.detect() != Platform.LINUX);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this,
+            "explicit_header_only_caching",
+            tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+    workspace.runBuckBuild("//:binary").assertSuccess();
+    workspace.runBuckCommand("clean");
+    workspace.copyFile("lib1.c.new", "lib1.c");
+    workspace.runBuckBuild("//:binary").assertSuccess();
+    BuckBuildLog log = workspace.getBuildLog();
+    log.assertTargetWasFetchedFromCache("//:lib3#default,static");
+  }
+
+  @Test
   public void sourceFromCxxGenrule() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
@@ -288,6 +308,85 @@ public class CxxLibraryIntegrationTest {
             tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:lib_header#default,shared").assertSuccess();
+  }
+
+  private void assumeSymLinkTreeWithHeaderMap(Path rootPath) throws IOException {
+    // We can only disable symlink trees if header map is supported.
+    CxxPreprocessables.HeaderMode headerMode =
+        CxxPlatformUtils.getHeaderModeForDefaultPlatform(rootPath);
+    assumeTrue(headerMode == CxxPreprocessables.HeaderMode.SYMLINK_TREE_WITH_HEADER_MAP);
+  }
+
+  @Test
+  public void buildWithHeadersSymlink()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(
+        "-v=3",
+        "//:main#default").assertSuccess();
+    Path rootPath = tmp.getRoot();
+    assumeSymLinkTreeWithHeaderMap(rootPath);
+    assertTrue(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertTrue(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+  }
+
+  @Test
+  public void buildWithoutPublicHeadersSymlink()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(
+        "-c", "cxx.exported_headers_symlinks_enabled=false",
+        "-v=3",
+        "//:main#default").assertSuccess();
+    Path rootPath = tmp.getRoot();
+    assumeSymLinkTreeWithHeaderMap(rootPath);
+    assertFalse(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertTrue(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+  }
+
+  @Test
+  public void buildWithoutPrivateHeadersSymlink()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(
+        "-c", "cxx.headers_symlinks_enabled=false",
+        "-v=3",
+        "//:main#default").assertSuccess();
+    Path rootPath = tmp.getRoot();
+    assumeSymLinkTreeWithHeaderMap(rootPath);
+    assertTrue(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertFalse(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+  }
+
+  @Test
+  public void buildWithoutHeadersSymlink()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(
+        "-c", "cxx.headers_symlinks_enabled=false",
+        "-c", "cxx.exported_headers_symlinks_enabled=false",
+        "-v=3",
+        "//:main#default").assertSuccess();
+    Path rootPath = tmp.getRoot();
+    assumeSymLinkTreeWithHeaderMap(rootPath);
+    assertFalse(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertFalse(Files.exists(rootPath.resolve(
+        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
   }
 
 }

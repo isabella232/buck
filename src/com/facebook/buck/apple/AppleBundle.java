@@ -90,7 +90,7 @@ public class AppleBundle
     implements NativeTestable, BuildRuleWithBinary, HasRuntimeDeps, BinaryBuildRule {
 
   private static final Logger LOG = Logger.get(AppleBundle.class);
-  private static final String CODE_SIGN_ENTITLEMENTS = "CODE_SIGN_ENTITLEMENTS";
+  public static final String CODE_SIGN_ENTITLEMENTS = "CODE_SIGN_ENTITLEMENTS";
   private static final String FRAMEWORK_EXTENSION =
       AppleBundleExtension.FRAMEWORK.toFileExtension();
   private static final String PP_DRY_RUN_RESULT_FILE = "BUCK_pp_dry_run.plist";
@@ -168,6 +168,7 @@ public class AppleBundle
   private final Optional<String> platformBuildVersion;
   private final Optional<String> xcodeVersion;
   private final Optional<String> xcodeBuildVersion;
+  private final Path sdkPath;
 
   private final String minOSVersion;
   private final String binaryName;
@@ -227,6 +228,7 @@ public class AppleBundle
     AppleSdk sdk = appleCxxPlatform.getAppleSdk();
     this.platform = sdk.getApplePlatform();
     this.sdkName = sdk.getName();
+    this.sdkPath = appleCxxPlatform.getAppleSdkPaths().getSdkPath();
     this.sdkVersion = sdk.getVersion();
     this.minOSVersion = appleCxxPlatform.getMinVersion();
     this.platformBuildVersion = appleCxxPlatform.getBuildVersion();
@@ -313,12 +315,11 @@ public class AppleBundle
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
 
-    stepsBuilder.add(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), bundleRoot));
+    stepsBuilder.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), bundleRoot));
 
     Path resourcesDestinationPath = bundleRoot.resolve(this.destinations.getResourcesPath());
     if (assetCatalog.isPresent()) {
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), resourcesDestinationPath));
       Path bundleDir = assetCatalog.get().getOutputDir();
       stepsBuilder.add(
           CopyStep.forDirectory(
@@ -329,7 +330,7 @@ public class AppleBundle
     }
 
     if (coreDataModel.isPresent()) {
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), resourcesDestinationPath));
       stepsBuilder.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
@@ -340,7 +341,7 @@ public class AppleBundle
     }
 
     if (sceneKitAssets.isPresent()) {
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), resourcesDestinationPath));
       stepsBuilder.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
@@ -358,14 +359,14 @@ public class AppleBundle
     Path infoPlistOutputPath = metadataPath.resolve("Info.plist");
 
     stepsBuilder.add(
-        new MkdirStep(getProjectFilesystem(), metadataPath),
+        MkdirStep.of(getProjectFilesystem(), metadataPath),
         // TODO(bhamiltoncx): This is only appropriate for .app bundles.
         new WriteFileStep(
             getProjectFilesystem(),
             "APPLWRUN",
             metadataPath.resolve("PkgInfo"),
             /* executable */ false),
-        new MkdirStep(getProjectFilesystem(), infoPlistSubstitutionTempPath.getParent()),
+        MkdirStep.of(getProjectFilesystem(), infoPlistSubstitutionTempPath.getParent()),
         new FindAndReplaceStep(
             getProjectFilesystem(),
             infoPlistInputPath,
@@ -400,7 +401,7 @@ public class AppleBundle
                 resources.getResourceDirs(),
                 resources.getDirsContainingResourceDirs(),
                 resources.getResourceFiles()))) {
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), resourcesDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), resourcesDestinationPath));
       for (SourcePath dir : resources.getResourceDirs()) {
         stepsBuilder.add(
             CopyStep.forDirectory(
@@ -418,8 +419,7 @@ public class AppleBundle
                 CopyStep.DirectoryMode.CONTENTS_ONLY));
       }
       for (SourcePath file : resources.getResourceFiles()) {
-        // TODO(shs96c): Check that this work cross-cell
-        Path resolvedFilePath = context.getSourcePathResolver().getRelativePath(file);
+        Path resolvedFilePath = context.getSourcePathResolver().getAbsolutePath(file);
         Path destinationPath = resourcesDestinationPath.resolve(resolvedFilePath.getFileName());
         addResourceProcessingSteps(
             context.getSourcePathResolver(), resolvedFilePath, destinationPath, stepsBuilder);
@@ -432,8 +432,7 @@ public class AppleBundle
         context.getSourcePathResolver(), stepsBuilder, codeSignOnCopyPathsBuilder);
 
     for (SourcePath variantSourcePath : resources.getResourceVariantFiles()) {
-      // TODO(shs96c): Ensure this works cross-cell, as relative path begins with "buck-out"
-      Path variantFilePath = context.getSourcePathResolver().getRelativePath(variantSourcePath);
+      Path variantFilePath = context.getSourcePathResolver().getAbsolutePath(variantSourcePath);
 
       Path variantDirectory = variantFilePath.getParent();
       if (variantDirectory == null || !variantDirectory.toString().endsWith(".lproj")) {
@@ -445,7 +444,7 @@ public class AppleBundle
 
       Path bundleVariantDestinationPath =
           resourcesDestinationPath.resolve(variantDirectory.getFileName());
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), bundleVariantDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), bundleVariantDestinationPath));
 
       Path destinationPath = bundleVariantDestinationPath.resolve(variantFilePath.getFileName());
       addResourceProcessingSteps(
@@ -454,7 +453,7 @@ public class AppleBundle
 
     if (!frameworks.isEmpty()) {
       Path frameworksDestinationPath = bundleRoot.resolve(this.destinations.getFrameworksPath());
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), frameworksDestinationPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), frameworksDestinationPath));
       for (SourcePath framework : frameworks) {
         Path srcPath = context.getSourcePathResolver().getAbsolutePath(framework);
         stepsBuilder.add(
@@ -625,7 +624,7 @@ public class AppleBundle
       ImmutableList.Builder<Step> stepsBuilder,
       Path binaryOutputPath) {
     stepsBuilder.add(
-        new MkdirStep(
+        MkdirStep.of(
             getProjectFilesystem(),
             bundleRoot.resolve(this.destinations.getExecutablesPath())));
     stepsBuilder.add(
@@ -644,7 +643,7 @@ public class AppleBundle
         binary.get() instanceof WriteFile) {
       final Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
       stepsBuilder.add(
-          new MkdirStep(getProjectFilesystem(), watchKitStubDir),
+          MkdirStep.of(getProjectFilesystem(), watchKitStubDir),
           CopyStep.forFile(
               getProjectFilesystem(),
               binaryOutputPath,
@@ -678,10 +677,7 @@ public class AppleBundle
     Path dsymSourcePath = bundleRoot.getParent().resolve(dsymPath.getFileName());
     Path dsymDestinationPath = bundleRoot.getParent().resolve(
         bundleRoot.getFileName() + "." + AppleBundleExtension.DSYM.toFileExtension());
-    stepsBuilder.add(new RmStep(
-        getProjectFilesystem(),
-        dsymDestinationPath,
-        RmStep.Mode.RECURSIVE));
+    stepsBuilder.add(RmStep.of(getProjectFilesystem(), dsymDestinationPath).withRecursive(true));
     stepsBuilder.add(new MoveStep(getProjectFilesystem(), dsymSourcePath, dsymDestinationPath));
 
     String dwarfFilename =
@@ -704,7 +700,7 @@ public class AppleBundle
     for (Map.Entry<SourcePath, String> entry : extensionBundlePaths.entrySet()) {
       Path srcPath = resolver.getAbsolutePath(entry.getKey());
       Path destPath = bundleRoot.resolve(entry.getValue());
-      stepsBuilder.add(new MkdirStep(getProjectFilesystem(), destPath));
+      stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), destPath));
       stepsBuilder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -717,7 +713,7 @@ public class AppleBundle
     }
   }
 
-  static ImmutableMap<String, String> withDefaults(
+  public static ImmutableMap<String, String> withDefaults(
       ImmutableMap<String, String> map,
       ImmutableMap<String, String> defaults) {
     ImmutableMap.Builder<String, String> builder = ImmutableMap.<String, String>builder()
@@ -807,6 +803,7 @@ public class AppleBundle
                   getProjectFilesystem(),
                   getBuildTarget(),
                   tempDirPattern),
+              this.sdkPath,
               destinationPath,
               swiftStdlibCommand.build(),
               codeSignIdentitySupplier)

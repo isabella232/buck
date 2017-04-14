@@ -98,7 +98,9 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   public ImmutableSet<QueryTarget> getTargetsMatchingPattern(
       String pattern,
       ListeningExecutorService executor) throws QueryException, InterruptedException {
-    if ("$declared_deps".equals(pattern)) {
+    if ("$declared_deps".equals(pattern) ||
+        "$declared".equals(pattern) ||
+        "first_order_deps()".equals(pattern)) {
       return declaredDeps
           .stream()
           .map(QueryBuildTarget::of)
@@ -118,7 +120,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
     ImmutableSet.Builder<QueryTarget> builder = ImmutableSet.builder();
     for (QueryTarget target : targets) {
       List<QueryBuildTarget> deps = getNode(target)
-          .getDeps()
+          .getParseDeps()
           .stream()
           .map(QueryBuildTarget::of)
           .collect(Collectors.toList());
@@ -138,6 +140,9 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
         action.accept(QueryBuildTarget.of(dep));
       }
       for (BuildTarget dep : node.getExtraDeps()) {
+        action.accept(QueryBuildTarget.of(dep));
+      }
+      for (BuildTarget dep : node.getTargetGraphOnlyDeps()) {
         action.accept(QueryBuildTarget.of(dep));
       }
     }

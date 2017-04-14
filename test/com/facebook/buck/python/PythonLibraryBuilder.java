@@ -33,7 +33,7 @@ public class PythonLibraryBuilder extends AbstractNodeBuilder<
     PythonLibraryDescription,
     PythonLibrary> {
 
-  private PythonLibraryBuilder(
+  PythonLibraryBuilder(
       BuildTarget target,
       FlavorDomain<PythonPlatform> pythonPlatforms,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
@@ -73,6 +73,12 @@ public class PythonLibraryBuilder extends AbstractNodeBuilder<
 
   public PythonLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
     arg.deps = deps;
+    return this;
+  }
+
+  public PythonLibraryBuilder setPlatformDeps(
+      PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> deps) {
+    arg.platformDeps = deps;
     return this;
   }
 

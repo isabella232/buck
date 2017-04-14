@@ -65,7 +65,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   }
 
   private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
-    return params.copyWithDeps(
+    return params.copyReplacingDeclaredAndExtraDeps(
         Suppliers.ofInstance(
             ImmutableSortedSet.copyOf(Ordering.natural(), traversedDeps.packagedDeps)),
         Suppliers.ofInstance(ImmutableSortedSet.of()));
@@ -95,7 +95,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     Path pathToOutput = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
-    MkdirStep mkOutputDirStep = new MkdirStep(getProjectFilesystem(), pathToOutput.getParent());
+    MkdirStep mkOutputDirStep = MkdirStep.of(getProjectFilesystem(), pathToOutput.getParent());
     JarDirectoryStep mergeOutputsStep = new JarDirectoryStep(
         getProjectFilesystem(),
         pathToOutput,
@@ -163,7 +163,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
         ImmutableSortedSet<SourcePath> topLevelSrcs,
         Optional<String> mavenCoords,
         Optional<SourcePath> mavenPomTemplate) {
-      TraversedDeps traversedDeps = TraversedDeps.traverse(params.getDeps());
+      TraversedDeps traversedDeps = TraversedDeps.traverse(params.getBuildDeps());
 
       params = adjustParams(params, traversedDeps);
 

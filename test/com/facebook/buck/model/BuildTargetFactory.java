@@ -16,7 +16,6 @@
 
 package com.facebook.buck.model;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
 
@@ -35,11 +34,7 @@ public class BuildTargetFactory {
   }
 
   public static BuildTarget newInstance(String fullyQualifiedName) {
-    return newInstance((Path) null, fullyQualifiedName);
-  }
-
-  public static BuildTarget newInstance(ProjectFilesystem filesystem, String fullyQualifiedName) {
-    return newInstance(filesystem.getRootPath(), fullyQualifiedName);
+    return newInstance(null, fullyQualifiedName);
   }
 
   public static BuildTarget newInstance(
@@ -51,6 +46,11 @@ public class BuildTargetFactory {
     Optional<String> cellName = Optional.empty();
     if (buildTarget > 0) {
       cellName = Optional.of(fullyQualifiedName.substring(0, buildTarget));
+    } else if (buildTarget < 0) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Fully qualified target %s did not start with // or a cell name then //",
+              fullyQualifiedName));
     }
     String[] parts = fullyQualifiedName.substring(buildTarget).split(":");
     Preconditions.checkArgument(parts.length == 2);
@@ -64,7 +64,7 @@ public class BuildTargetFactory {
         BuildTarget.builder(
             UnflavoredBuildTarget.of(root, cellName, parts[0], nameAndFlavor[0]));
     for (String flavor : flavors) {
-      buildTargetBuilder.addFlavors(ImmutableFlavor.of(flavor));
+      buildTargetBuilder.addFlavors(InternalFlavor.of(flavor));
     }
     return buildTargetBuilder.build();
   }

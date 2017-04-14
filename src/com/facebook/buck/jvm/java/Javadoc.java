@@ -21,7 +21,7 @@ import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVE
 import com.facebook.buck.maven.AetherUtil;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -49,7 +49,7 @@ import java.util.Optional;
 
 public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
-  public static final Flavor DOC_JAR = ImmutableFlavor.of("doc");
+  public static final Flavor DOC_JAR = InternalFlavor.of("doc");
 
   @AddToRuleKey
   private final ImmutableSet<SourcePath> sources;
@@ -94,8 +94,8 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
-    steps.add(new RmStep(getProjectFilesystem(), output));
+    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(RmStep.of(getProjectFilesystem(), output));
 
     // Fast path: nothing to do so just create an empty zip and return.
     if (sources.isEmpty()) {
@@ -112,7 +112,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
     Path sourcesListFilePath = scratchDir.resolve("all-sources.txt");
 
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir));
     // Write an @-file with all the source files in
     steps.add(new WriteFileStep(
         getProjectFilesystem(),
@@ -129,7 +129,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
     StringBuilder argsBuilder = new StringBuilder("-classpath ");
     Joiner.on(File.pathSeparator).appendTo(
         argsBuilder,
-        getDeps().stream()
+        getBuildDeps().stream()
             .filter(HasClasspathEntries.class::isInstance)
             .flatMap(rule -> ((HasClasspathEntries) rule).getTransitiveClasspaths().stream())
             .map(context.getSourcePathResolver()::getAbsolutePath)
@@ -142,7 +142,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
           /* can execute */ false));
 
     Path uncompressedOutputDir = scratchDir.resolve("docs");
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), uncompressedOutputDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), uncompressedOutputDir));
     steps.add(new ShellStep(getProjectFilesystem().resolve(scratchDir)) {
       @Override
       protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {

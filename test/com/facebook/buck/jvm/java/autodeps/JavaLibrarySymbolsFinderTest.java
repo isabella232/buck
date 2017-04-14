@@ -39,7 +39,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
@@ -159,10 +158,7 @@ public class JavaLibrarySymbolsFinderTest {
           JavaSymbolsRule javaSymbolsRule = new JavaSymbolsRule(
               BuildTargetFactory.newInstance("//foo:rule"),
               finder,
-              /* generatedSymbols */ ImmutableSortedSet.of(),
-              ObjectMappers.newDefaultInstance(),
-              projectFilesystem
-          );
+              projectFilesystem);
           return ruleKeyFactory.build(javaSymbolsRule);
         };
 

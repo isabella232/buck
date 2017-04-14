@@ -45,7 +45,7 @@ import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
-import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
+import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.TargetDevice;
@@ -56,6 +56,7 @@ import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
@@ -67,7 +68,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 
 import org.kohsuke.args4j.Option;
 
@@ -77,6 +77,7 @@ import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -191,7 +192,7 @@ public class TestCommand extends BuildCommand {
           "Available options after -- are specific to that particular test runner and you may " +
           "also want to consult its help pages.",
       handler = ConsumeAllOptionsHandler.class)
-  private List<String> withDashArguments = Lists.newArrayList();
+  private List<String> withDashArguments = new ArrayList<>();
 
   public boolean isRunAllTests() {
     return all || getArguments().isEmpty();
@@ -317,7 +318,6 @@ public class TestCommand extends BuildCommand {
 
     ConcurrencyLimit concurrencyLimit = new ConcurrencyLimit(
         getNumTestThreads(params.getBuckConfig()),
-        params.getBuckConfig().getLoadLimit(),
         params.getBuckConfig().getResourceAllocationFairness(),
         getNumTestManagedThreads(params.getBuckConfig()),
         params.getBuckConfig().getDefaultResourceAmounts(),
@@ -354,7 +354,7 @@ public class TestCommand extends BuildCommand {
     TestRunningOptions options = getTestRunningOptions(params);
 
     // Walk the test rules, collecting all the specs.
-    List<ExternalTestRunnerTestSpec> specs = Lists.newArrayList();
+    List<ExternalTestRunnerTestSpec> specs = new ArrayList<>();
     for (TestRule testRule : testRules) {
       if (!(testRule instanceof ExternalTestRunnerRule)) {
         params.getBuckEventBus().post(ConsoleEvent.severe(String.format(
@@ -373,7 +373,7 @@ public class TestCommand extends BuildCommand {
             .resolve("external_runner_specs.json");
     Files.createDirectories(infoFile.getParent());
     Files.deleteIfExists(infoFile);
-    params.getObjectMapper().writerWithDefaultPrettyPrinter().writeValue(infoFile.toFile(), specs);
+    ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(infoFile.toFile(), specs);
 
     // Launch and run the external test runner, forwarding it's stdout/stderr to the console.
     // We wait for it to complete then returns its error code.
@@ -539,46 +539,46 @@ public class TestCommand extends BuildCommand {
                        actionGraphAndResolver.getActionGraph()))) {
         LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
             new LocalCachingBuildEngineDelegate(params.getFileHashCache());
-        CachingBuildEngine cachingBuildEngine =
-            new CachingBuildEngine(
-                new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
-                pool.getExecutor(),
-                artifactFetchService == null ?
-                    pool.getExecutor() :
-                    artifactFetchService.getExecutor(),
-                new DefaultStepRunner(),
-                getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
-                cachingBuildEngineBuckConfig.getBuildDepFiles(),
-                cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-                cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-                params.getObjectMapper(),
-                actionGraphAndResolver.getResolver(),
-                cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
-                new RuleKeyFactoryManager(
-                    params.getBuckConfig().getKeySeed(),
-                    localCachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+        try (
+            CachingBuildEngine cachingBuildEngine =
+                new CachingBuildEngine(
+                    new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
+                    pool.getExecutor(),
+                    artifactFetchService == null ?
+                        pool.getExecutor() :
+                        artifactFetchService.getExecutor(),
+                    new DefaultStepRunner(),
+                    getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
+                    cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
+                    cachingBuildEngineBuckConfig.getBuildDepFiles(),
+                    cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+                    cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
                     actionGraphAndResolver.getResolver(),
-                    cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                    ruleKeyCacheScope.getCache()));
-        try (Build build = createBuild(
-            params.getBuckConfig(),
-            actionGraphAndResolver.getActionGraph(),
-            actionGraphAndResolver.getResolver(),
-            params.getCell(),
-            params.getAndroidPlatformTargetSupplier(),
-            cachingBuildEngine,
-            params.getArtifactCacheFactory().newInstance(),
-            params.getConsole(),
-            params.getBuckEventBus(),
-            getTargetDeviceOptional(),
-            params.getPersistentWorkerPools(),
-            params.getPlatform(),
-            params.getEnvironment(),
-            params.getObjectMapper(),
-            params.getClock(),
-            Optional.of(getAdbOptions(params.getBuckConfig())),
-            Optional.of(getTargetDeviceOptions()),
-            params.getExecutors())) {
+                    cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+                    RuleKeyFactories.of(
+                        params.getBuckConfig().getKeySeed(),
+                        localCachingBuildEngineDelegate.getFileHashCache(),
+                        actionGraphAndResolver.getResolver(),
+                        cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                        ruleKeyCacheScope.getCache()));
+            Build build = createBuild(
+                params.getBuckConfig(),
+                actionGraphAndResolver.getActionGraph(),
+                actionGraphAndResolver.getResolver(),
+                params.getCell(),
+                params.getAndroidPlatformTargetSupplier(),
+                cachingBuildEngine,
+                params.getArtifactCacheFactory().newInstance(),
+                params.getConsole(),
+                params.getBuckEventBus(),
+                getTargetDeviceOptional(),
+                params.getPersistentWorkerPools(),
+                params.getPlatform(),
+                params.getEnvironment(),
+                params.getClock(),
+                Optional.of(getAdbOptions(params.getBuckConfig())),
+                Optional.of(getTargetDeviceOptions()),
+                params.getExecutors())) {
 
           // Build all of the test rules.
           int exitCode = build.executeAndPrintFailuresToEventBus(

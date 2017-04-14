@@ -39,7 +39,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -73,7 +73,7 @@ public class CxxPythonExtensionDescriptionTest {
       BuildTargetFactory.newInstance("//:python2_dep");
   private static final PythonPlatform PY2 =
       PythonPlatform.of(
-          ImmutableFlavor.of("py2"),
+          InternalFlavor.of("py2"),
           new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
           Optional.empty());
 
@@ -81,7 +81,7 @@ public class CxxPythonExtensionDescriptionTest {
       BuildTargetFactory.newInstance("//:python3_dep");
   private static final PythonPlatform PY3 =
       PythonPlatform.of(
-          ImmutableFlavor.of("py3"),
+          InternalFlavor.of("py3"),
           new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
           Optional.empty());
 
@@ -186,7 +186,7 @@ public class CxxPythonExtensionDescriptionTest {
             PY2.getFlavor(),
             CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()));
     assertThat(
-        rule.getDeps(),
+        rule.getBuildDeps(),
         Matchers.hasItems(
             FluentIterable.from(depInput.getArgs())
                 .transformAndConcat(arg -> arg.getDeps(ruleFinder))
@@ -252,11 +252,14 @@ public class CxxPythonExtensionDescriptionTest {
             .build()
             .getDescription();
     CxxPythonExtensionDescription.Arg constructorArg = desc.createUnpopulatedConstructorArg();
-    Iterable<BuildTarget> res = desc.findDepsForTargetFromConstructorArgs(
+    ImmutableSortedSet.Builder<BuildTarget> builder = ImmutableSortedSet.naturalOrder();
+    desc.findDepsForTargetFromConstructorArgs(
         BuildTargetFactory.newInstance("//foo:bar"),
         createCellRoots(filesystem),
-        constructorArg);
-    assertThat(res, Matchers.contains(PYTHON2_DEP_TARGET, PYTHON3_DEP_TARGET));
+        constructorArg,
+        builder,
+        ImmutableSortedSet.naturalOrder());
+    assertThat(builder.build(), Matchers.contains(PYTHON2_DEP_TARGET, PYTHON3_DEP_TARGET));
   }
 
   @Test

@@ -22,15 +22,16 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.network.ScribeLogger;
 import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -49,10 +50,13 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.ThreadSafe;
 
 /**
  * This logger uses files-related operations (for offline logging i.e. storing and delayed logging
@@ -67,7 +71,7 @@ public class OfflineScribeLogger extends ScribeLogger {
   protected static final String LOGFILE_SUFFIX = ".log";
 
   private static final int BUFFER_SIZE = 1024 * 1024;
-  private static final int CLUSTER_DISPATCH_SIZE = 1024 * 1024;
+  private static final long CLUSTER_DISPATCH_SIZE = 1024 * 1024;
   private static final int KILO = 1024;
   private static final Logger LOG = Logger.get(OfflineScribeLogger.class);
   // Timeout used when submitting data read from offline logs.
@@ -79,7 +83,6 @@ public class OfflineScribeLogger extends ScribeLogger {
   private final ImmutableList<String> blacklistCategories;
   private final int maxScribeOfflineLogsBytes;
   private final ProjectFilesystem filesystem;
-  private final ObjectMapper objectMapper;
 
   @Nullable
   private BufferedOutputStream logFileStoreStream;
@@ -94,19 +97,20 @@ public class OfflineScribeLogger extends ScribeLogger {
   private final IntegerCounter totalBytesResent;
   private final IntegerCounter logfilesResent;
 
+  // A set of categories that have reported an error so we do not double-report it.
+  private Set<String> categoriesReportedAnError;
+
   public OfflineScribeLogger(
       ScribeLogger scribeLogger,
       ImmutableList<String> blacklistCategories,
       int maxScribeOfflineLogsKB,
       ProjectFilesystem projectFilesystem,
-      ObjectMapper objectMapper,
       BuckEventBus buckEventBus,
       BuildId buildId) {
     Preconditions.checkNotNull(scribeLogger);
     Preconditions.checkNotNull(blacklistCategories);
     Preconditions.checkArgument(maxScribeOfflineLogsKB > 0);
     Preconditions.checkNotNull(projectFilesystem);
-    Preconditions.checkNotNull(objectMapper);
     Preconditions.checkNotNull(buckEventBus);
     Preconditions.checkNotNull(buildId);
 
@@ -114,7 +118,6 @@ public class OfflineScribeLogger extends ScribeLogger {
     this.blacklistCategories = blacklistCategories;
     this.maxScribeOfflineLogsBytes = KILO * maxScribeOfflineLogsKB;
     this.filesystem = projectFilesystem;
-    this.objectMapper = objectMapper;
 
     this.logFileStoreStream = null;
     this.storingAvailable = true;
@@ -124,6 +127,7 @@ public class OfflineScribeLogger extends ScribeLogger {
     this.logDir = projectFilesystem.getBuckPaths().getOfflineLogDir();
     this.newLogPath =
         projectFilesystem.resolve(logDir.resolve(LOGFILE_PREFIX + buildId + LOGFILE_SUFFIX));
+    this.categoriesReportedAnError = Sets.newConcurrentHashSet();
 
     this.startedSendingStored = new AtomicBoolean(false);
     this.totalLinesResent = new IntegerCounter(
@@ -166,7 +170,7 @@ public class OfflineScribeLogger extends ScribeLogger {
               // Get data to store.
               byte[] scribeData;
               try {
-                scribeData = objectMapper
+                scribeData = ObjectMappers.WRITER
                     .writeValueAsString(
                         ScribeData.builder()
                             .setCategory(category)
@@ -174,7 +178,12 @@ public class OfflineScribeLogger extends ScribeLogger {
                             .build())
                     .getBytes(Charsets.UTF_8);
               } catch (Exception e) {
-                LOG.error("Failed generating JSON to store for category: %s.", category);
+                if (categoriesReportedAnError.add(category)) {
+                  LOG.error(
+                      "Failed generating JSON to store for category: %s: %s.",
+                      category,
+                      e.getMessage());
+                }
                 return;
               }
 
@@ -309,7 +318,7 @@ public class OfflineScribeLogger extends ScribeLogger {
           continue;
         }
 
-        it = new ObjectMapper().readValues(
+        it = ObjectMappers.READER.readValues(
             new JsonFactory().createParser(logFileStream),
             ScribeData.class);
       } catch (Exception e) {
@@ -337,9 +346,10 @@ public class OfflineScribeLogger extends ScribeLogger {
             logReadData.put(newData.getCategory(), new CategoryData());
           }
           CategoryData categoryData = logReadData.get(newData.getCategory());
-          if (categoryData.getLinesBytes() > CLUSTER_DISPATCH_SIZE) {
-            logFutures.add(scribeLogger.log(newData.getCategory(), categoryData.getLines()));
-            categoryData.clearData();
+          List<String> linesToLog =
+              categoryData.getLinesAndReset(Optional.of(CLUSTER_DISPATCH_SIZE));
+          if (!linesToLog.isEmpty()) {
+            logFutures.add(scribeLogger.log(newData.getCategory(), linesToLog));
           }
           // Add new data to the cluster for the category.
           for (String line : newData.getLines()) {
@@ -356,7 +366,8 @@ public class OfflineScribeLogger extends ScribeLogger {
               break;
             }
 
-            List<String> categoryLines = logReadDataEntry.getValue().getLines();
+            List<String> categoryLines =
+                logReadDataEntry.getValue().getLinesAndReset(Optional.empty());
             if (categoryLines.size() > 0) {
               logFutures.add(scribeLogger.log(logReadDataEntry.getKey(), categoryLines));
             }
@@ -403,29 +414,22 @@ public class OfflineScribeLogger extends ScribeLogger {
     }
   }
 
+  @ThreadSafe
   private class CategoryData {
-    private long linesBytes;
-    private List<String> lines;
+    private long linesBytes = 0;
+    private List<String> lines = new LinkedList<>();
 
-    public CategoryData() {
-      this.linesBytes = 0;
-      this.lines = new LinkedList<>();
-    }
-
-    public long getLinesBytes() {
-      return linesBytes;
-    }
-
-    public List<String> getLines() {
-      return lines;
-    }
-
-    public void clearData() {
-      lines.clear();
+    public synchronized List<String> getLinesAndReset(Optional<Long> minimumSize) {
+      if (minimumSize.isPresent() && linesBytes < minimumSize.get()) {
+        return new LinkedList<>();
+      }
+      List<String> toReturn = lines;
+      lines = new LinkedList<>();
       linesBytes = 0;
+      return toReturn;
     }
 
-    public void addLine(String line) {
+    public synchronized void addLine(String line) {
       lines.add(line);
       linesBytes += line.getBytes(Charsets.UTF_8).length;
     }

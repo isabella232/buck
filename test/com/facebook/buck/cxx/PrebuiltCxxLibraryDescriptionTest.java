@@ -27,7 +27,7 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -58,7 +58,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -291,7 +290,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     CxxPlatform platform =
         CxxPlatformUtils.DEFAULT_PLATFORM
-            .withFlavor(ImmutableFlavor.of("PLATFORM1"));
+            .withFlavor(InternalFlavor.of("PLATFORM1"));
 
     Path path = pathResolver.getAbsolutePath(
         Preconditions.checkNotNull(genRule.getSourcePathToOutput()));
@@ -319,7 +318,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     CxxPlatform platform =
         CxxPlatformUtils.DEFAULT_PLATFORM
-            .withFlavor(ImmutableFlavor.of("PLATFORM1"));
+            .withFlavor(InternalFlavor.of("PLATFORM1"));
 
     final SourcePath staticLibraryPath = PrebuiltCxxLibraryDescription.getStaticLibraryPath(
         TARGET_TWO,
@@ -358,12 +357,11 @@ public class PrebuiltCxxLibraryDescriptionTest {
     BuildRule genrule = genruleBuilder.build(resolver, filesystem, targetGraph);
     PrebuiltCxxLibrary lib = (PrebuiltCxxLibrary) builder.build(resolver, filesystem, targetGraph);
 
-    Iterable<BuildTarget> implicit = builder.findImplicitDeps();
-    assertEquals(1, Iterables.size(implicit));
-    assertTrue(Iterables.contains(implicit, genTarget));
+    ImmutableSortedSet<BuildTarget> implicit = builder.findImplicitDeps();
+    assertEquals(ImmutableSortedSet.of(genTarget), implicit);
 
     assertThat(
-        lib.getDeps(),
+        lib.getBuildDeps(),
         Matchers.contains(genrule));
   }
 
@@ -372,7 +370,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
     PrebuiltCxxLibraryBuilder builder = new PrebuiltCxxLibraryBuilder(TARGET);
     builder.setSoname("test");
     builder.setLibDir("lib");
-    assertEquals(0, Iterables.size(builder.findImplicitDeps()));
+    assertThat(builder.findImplicitDeps(), empty());
   }
 
   @Test
@@ -380,7 +378,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
     PrebuiltCxxLibraryBuilder builder = new PrebuiltCxxLibraryBuilder(TARGET);
     builder.setSoname("test");
     builder.setLibDir("$(platform)");
-    assertEquals(0, Iterables.size(builder.findImplicitDeps()));
+    assertThat(builder.findImplicitDeps(), empty());
   }
 
   @Test
@@ -399,10 +397,10 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     CxxPlatform platform1 =
         CxxPlatformUtils.DEFAULT_PLATFORM
-            .withFlavor(ImmutableFlavor.of("PLATFORM1"));
+            .withFlavor(InternalFlavor.of("PLATFORM1"));
     CxxPlatform platform2 =
         CxxPlatformUtils.DEFAULT_PLATFORM
-            .withFlavor(ImmutableFlavor.of("PLATFORM2"));
+            .withFlavor(InternalFlavor.of("PLATFORM2"));
 
     assertEquals(
         filesystem.resolve(
@@ -556,7 +554,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
 
     CxxLink lib = (CxxLink) builder.build(resolver, filesystem, targetGraph);
     assertNotNull(lib);
-    assertThat(lib.getDeps(), Matchers.contains(genSrc));
+    assertThat(lib.getBuildDeps(), Matchers.contains(genSrc));
   }
 
   @Test

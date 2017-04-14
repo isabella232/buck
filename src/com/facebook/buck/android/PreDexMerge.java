@@ -102,6 +102,7 @@ public class PreDexMerge extends AbstractBuildRule
   private final ListeningExecutorService dxExecutorService;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
   private final Optional<Integer> xzCompressionLevel;
+  private final Optional<String> dxMaxHeapSize;
 
   public PreDexMerge(
       BuildRuleParams params,
@@ -111,7 +112,8 @@ public class PreDexMerge extends AbstractBuildRule
       ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps,
       DexProducedFromJavaLibrary dexForUberRDotJava,
       ListeningExecutorService dxExecutorService,
-      Optional<Integer> xzCompressionLevel) {
+      Optional<Integer> xzCompressionLevel,
+      Optional<String> dxMaxHeapSize) {
     super(params);
     this.primaryDexPath = primaryDexPath;
     this.dexSplitMode = dexSplitMode;
@@ -121,6 +123,7 @@ public class PreDexMerge extends AbstractBuildRule
     this.dxExecutorService = dxExecutorService;
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
     this.xzCompressionLevel = xzCompressionLevel;
+    this.dxMaxHeapSize = dxMaxHeapSize;
   }
 
   @Override
@@ -129,7 +132,7 @@ public class PreDexMerge extends AbstractBuildRule
       BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MkdirStep(getProjectFilesystem(), primaryDexPath.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), primaryDexPath.getParent()));
 
     if (dexSplitMode.isShouldSplitDex()) {
       addStepsForSplitDex(steps, buildableContext);
@@ -203,12 +206,12 @@ public class PreDexMerge extends AbstractBuildRule
 
     // Do not clear existing directory which might contain secondary dex files that are not
     // re-merged (since their contents did not change).
-    steps.add(new MkdirStep(getProjectFilesystem(), paths.jarfilesSubdir));
-    steps.add(new MkdirStep(getProjectFilesystem(), paths.additionalJarfilesSubdir));
-    steps.add(new MkdirStep(getProjectFilesystem(), paths.successDir));
+    steps.add(MkdirStep.of(getProjectFilesystem(), paths.jarfilesSubdir));
+    steps.add(MkdirStep.of(getProjectFilesystem(), paths.additionalJarfilesSubdir));
+    steps.add(MkdirStep.of(getProjectFilesystem(), paths.successDir));
 
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), paths.metadataSubdir));
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), paths.scratchDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), paths.metadataSubdir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), paths.scratchDir));
 
     buildableContext.addMetadata(
         SECONDARY_DEX_DIRECTORIES_KEY,
@@ -252,7 +255,7 @@ public class PreDexMerge extends AbstractBuildRule
       if (!result.apkModule.equals(apkModuleGraph.getRootAPKModule())) {
         Path dexOutputPath = paths.additionalJarfilesSubdir.resolve(result.apkModule.getName());
         steps.add(
-            new MkdirStep(
+            MkdirStep.of(
                 getProjectFilesystem(),
                 dexOutputPath));
       }
@@ -272,7 +275,8 @@ public class PreDexMerge extends AbstractBuildRule
             paths.successDir,
             DX_MERGE_OPTIONS,
             dxExecutorService,
-            xzCompressionLevel));
+            xzCompressionLevel,
+            dxMaxHeapSize));
 
     // Record the primary dex SHA1 so exopackage apks can use it to compute their ABI keys.
     // Single dex apks cannot be exopackages, so they will never need ABI keys.

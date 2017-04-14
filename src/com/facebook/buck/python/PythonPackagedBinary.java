@@ -113,7 +113,7 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
       boolean cache,
       boolean legacyOutputPath) {
     return new PythonPackagedBinary(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(components.getDeps(ruleFinder))
@@ -156,19 +156,16 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
     Path binPath = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
 
     // Make sure the parent directory exists.
-    steps.add(new MkdirStep(getProjectFilesystem(), binPath.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), binPath.getParent()));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(new RmStep(
-        getProjectFilesystem(),
-        binPath,
-        RmStep.Mode.RECURSIVE));
+    steps.add(RmStep.of(getProjectFilesystem(), binPath).withRecursive(true));
 
     Path workingDirectory = BuildTargets.getGenPath(
         getProjectFilesystem(),
         getBuildTarget(),
         "__%s__working_directory");
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), workingDirectory));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), workingDirectory));
 
     SourcePathResolver resolver = context.getSourcePathResolver();
 

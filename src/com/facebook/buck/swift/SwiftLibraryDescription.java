@@ -32,12 +32,13 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -67,8 +68,8 @@ public class SwiftLibraryDescription implements
     Description<SwiftLibraryDescription.Arg>,
     Flavored {
 
-  static final Flavor SWIFT_COMPANION_FLAVOR = ImmutableFlavor.of("swift-companion");
-  static final Flavor SWIFT_COMPILE_FLAVOR = ImmutableFlavor.of("swift-compile");
+  static final Flavor SWIFT_COMPANION_FLAVOR = InternalFlavor.of("swift-companion");
+  static final Flavor SWIFT_COMPILE_FLAVOR = InternalFlavor.of("swift-compile");
 
   private static final Set<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       SWIFT_COMPANION_FLAVOR,
@@ -144,6 +145,7 @@ public class SwiftLibraryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
 
     Optional<LinkerMapMode> flavoredLinkerMapMode =
@@ -165,7 +167,7 @@ public class SwiftLibraryDescription implements
                     .getUnflavoredBuildTarget()
                     .equals(buildTarget.getUnflavoredBuildTarget()))
             .collect(MoreCollectors.toImmutableSortedSet());
-    params = params.copyWithExtraDeps(Suppliers.ofInstance(filteredExtraDeps));
+    params = params.copyReplacingExtraDeps(Suppliers.ofInstance(filteredExtraDeps));
 
     if (!buildFlavors.contains(SWIFT_COMPANION_FLAVOR) && platform.isPresent()) {
       final CxxPlatform cxxPlatform = platform.get().getValue();
@@ -187,11 +189,7 @@ public class SwiftLibraryDescription implements
         if (flavoredLinkerMapMode.isPresent()) {
           target = target.withAppendedFlavors(flavoredLinkerMapMode.get().getFlavor());
         }
-        BuildRuleParams typeParams =
-            params.copyWithChanges(
-                target,
-                params.getDeclaredDeps(),
-                params.getExtraDeps());
+        BuildRuleParams typeParams = params.withBuildTarget(target);
 
         switch (type.get().getValue()) {
           case SHARED:
@@ -221,14 +219,14 @@ public class SwiftLibraryDescription implements
               "Could not find SwiftCompile with target %s", buildTarget);
         }
       };
-      params = params.appendExtraDeps(
-          params.getDeps().stream()
+      params = params.copyAppendingExtraDeps(
+          params.getBuildDeps().stream()
               .filter(SwiftLibrary.class::isInstance)
               .map(requireSwiftCompile)
               .collect(MoreCollectors.toImmutableSet()));
 
-      params = params.appendExtraDeps(
-          params.getDeps().stream()
+      params = params.copyAppendingExtraDeps(
+          params.getBuildDeps().stream()
               .filter(CxxLibrary.class::isInstance)
               .map(input -> {
                 BuildTarget companionTarget = input.getBuildTarget().withAppendedFlavors(
@@ -244,7 +242,7 @@ public class SwiftLibraryDescription implements
           cxxPlatform,
           swiftBuckConfig,
           params,
-          swiftPlatform.get().getSwift(),
+          swiftPlatform.get().getSwiftc(),
           args.frameworks,
           args.moduleName.orElse(buildTarget.getShortName()),
           BuildTargets.getGenPath(
@@ -316,7 +314,8 @@ public class SwiftLibraryDescription implements
         Optional.of(sharedLibrarySoname),
         sharedLibOutput,
         Linker.LinkableDepType.SHARED,
-        RichStream.from(params.getDeps())
+        /* thinLto */ false,
+        RichStream.from(params.getBuildDeps())
             .filter(NativeLinkable.class)
             .concat(RichStream.of(swiftRuntimeLinkable))
             .collect(MoreCollectors.toImmutableSet()),
@@ -330,6 +329,7 @@ public class SwiftLibraryDescription implements
       final TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     BuildTarget buildTarget = params.getBuildTarget();
     if (!isSwiftTarget(buildTarget)) {
@@ -350,7 +350,7 @@ public class SwiftLibraryDescription implements
     if (!delegateArgs.srcs.isEmpty()) {
       return Optional.of(
           resolver.addToIndex(
-              createBuildRule(targetGraph, params, resolver, delegateArgs)));
+              createBuildRule(targetGraph, params, resolver, cellRoots, delegateArgs)));
     } else {
       return Optional.empty();
     }

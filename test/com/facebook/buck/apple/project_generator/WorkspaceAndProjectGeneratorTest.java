@@ -127,7 +127,7 @@ public class WorkspaceAndProjectGeneratorTest {
     halideBuckConfig = HalideLibraryBuilder.createDefaultHalideConfig(projectFilesystem);
     cxxBuckConfig = CxxLibraryBuilder.createDefaultConfig();
     BuckConfig fakeBuckConfig = FakeBuckConfig.builder().build();
-    appleConfig = new AppleConfig(fakeBuckConfig);
+    appleConfig = fakeBuckConfig.getView(AppleConfig.class);
     swiftBuckConfig = new SwiftBuckConfig(fakeBuckConfig);
     setUpWorkspaceAndProjects();
   }
@@ -252,7 +252,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -328,7 +328,7 @@ public class WorkspaceAndProjectGeneratorTest {
         true /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -388,7 +388,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -454,7 +454,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -529,7 +529,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -586,7 +586,7 @@ public class WorkspaceAndProjectGeneratorTest {
         true /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -625,7 +625,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         true /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -694,7 +694,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         true /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.of(ImmutableSet.of(
+        FocusedModuleTargetMatcher.focusedOn(ImmutableSet.of(
             BuildTargetFactory.newInstance(fooLib).getUnflavoredBuildTarget())),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
@@ -854,7 +854,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1013,7 +1013,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         false /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1110,7 +1110,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         true /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),
@@ -1173,7 +1173,7 @@ public class WorkspaceAndProjectGeneratorTest {
         false /* combinedProject */,
         false /* buildWithBuck */,
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         true /* parallelizeBuild */,
         new AlwaysFoundExecutableFinder(),
         ImmutableMap.of(),

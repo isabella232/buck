@@ -21,14 +21,14 @@ import static com.facebook.buck.zip.ZipOutputStreams.HandleDuplicates.APPEND_TO_
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Pair;
-import com.facebook.buck.zip.CustomZipOutputStream;
+import com.facebook.buck.zip.CustomJarOutputStream;
+import com.facebook.buck.zip.DeterministicManifest;
 import com.facebook.buck.zip.ZipConstants;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteStreams;
 
@@ -46,6 +46,7 @@ import java.util.Enumeration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -63,7 +64,7 @@ public class JarDirectoryStepHelper {
   public static int createJarFile(
       ProjectFilesystem filesystem,
       Path pathToOutputFile,
-      CustomZipOutputStream outputFile,
+      CustomJarOutputStream outputFile,
       ImmutableSortedSet<Path> entriesToJar,
       ImmutableSet<String> alreadyAddedEntriesToOutputFile,
       Optional<String> mainClass,
@@ -76,26 +77,13 @@ public class JarDirectoryStepHelper {
     Set<String> alreadyAddedEntries = Sets.newHashSet(alreadyAddedEntriesToOutputFile);
 
     // Write the manifest first.
-    JarEntry metaInf = new JarEntry("META-INF/");
-    // We want deterministic JARs, so avoid mtimes. -1 is timzeone independent, 0 is not.
-    metaInf.setTime(ZipConstants.getFakeTime());
-    outputFile.putNextEntry(metaInf);
-    outputFile.closeEntry();
-    alreadyAddedEntries.add("META-INF/");
-
-    Manifest manifest = createManifest(
+    writeManifest(
+        outputFile,
         filesystem,
         entriesToJar,
         mainClass,
         manifestFile,
         mergeManifests);
-    JarEntry manifestEntry = new JarEntry(JarFile.MANIFEST_NAME);
-    // We want deterministic JARs, so avoid mtimes. -1 is timzeone independent, 0 is not.
-    manifestEntry.setTime(ZipConstants.getFakeTime());
-    outputFile.putNextEntry(manifestEntry);
-    manifest.write(outputFile);
-    outputFile.closeEntry();
-    alreadyAddedEntries.add(JarFile.MANIFEST_NAME);
 
     Path absoluteOutputPath = filesystem.getPathForRelativePath(pathToOutputFile);
 
@@ -150,8 +138,9 @@ public class JarDirectoryStepHelper {
       PrintStream stdErr) throws IOException {
 
     Path absoluteOutputPath = filesystem.getPathForRelativePath(pathToOutputFile);
-    try (CustomZipOutputStream outputFile = ZipOutputStreams.newOutputStream(
-        absoluteOutputPath, APPEND_TO_ZIP)) {
+    try (CustomJarOutputStream outputFile = ZipOutputStreams.newJarOutputStream(
+        absoluteOutputPath,
+        APPEND_TO_ZIP)) {
       return createJarFile(filesystem,
           pathToOutputFile,
           outputFile,
@@ -183,13 +172,14 @@ public class JarDirectoryStepHelper {
         stdErr);
   }
 
-  private static Manifest createManifest(
+  private static void writeManifest(
+      CustomJarOutputStream jar,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> entriesToJar,
       Optional<String> mainClass,
       Optional<Path> manifestFile,
       boolean mergeManifests) throws IOException {
-    Manifest manifest = new Manifest();
+    DeterministicManifest manifest = jar.getManifest();
     manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
 
     if (mergeManifests) {
@@ -235,7 +225,7 @@ public class JarDirectoryStepHelper {
       manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass.get());
     }
 
-    return manifest;
+    jar.writeManifest();
   }
 
   private static boolean mainClassPresent(
@@ -259,7 +249,7 @@ public class JarDirectoryStepHelper {
   private static void copyZipEntriesToJar(
       Path inputFile,
       Path outputFile,
-      final CustomZipOutputStream jar,
+      final CustomJarOutputStream jar,
       Set<String> alreadyAddedEntries,
       JavacEventSink eventSink,
       Iterable<Pattern> blacklist) throws IOException {
@@ -334,14 +324,14 @@ public class JarDirectoryStepHelper {
   private static void addFilesInDirectoryToJar(
       final ProjectFilesystem filesystem,
       final Path directory,
-      CustomZipOutputStream jar,
+      CustomJarOutputStream jar,
       final Set<String> alreadyAddedEntries,
       final Iterable<Pattern> blacklist,
       final JavacEventSink eventSink) throws IOException {
 
     // Since filesystem traversals can be non-deterministic, sort the entries we find into
     // a tree map before writing them out.
-    final Map<String, Pair<JarEntry, Optional<Path>>> entries = Maps.newTreeMap();
+    final Map<String, Pair<JarEntry, Optional<Path>>> entries = new TreeMap<>();
 
     filesystem.walkFileTree(
         directory,

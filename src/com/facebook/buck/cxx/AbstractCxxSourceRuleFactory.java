@@ -20,7 +20,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -50,13 +50,13 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
 
 import org.immutables.value.Value;
 
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,7 +71,7 @@ abstract class AbstractCxxSourceRuleFactory {
   private static final Logger LOG = Logger.get(AbstractCxxSourceRuleFactory.class);
   private static final String COMPILE_FLAVOR_PREFIX = "compile-";
   private static final Flavor AGGREGATED_PREPROCESS_DEPS_FLAVOR =
-      ImmutableFlavor.of("preprocessor-deps");
+      InternalFlavor.of("preprocessor-deps");
 
   @Value.Parameter
   protected abstract BuildRuleParams getParams();
@@ -173,10 +173,11 @@ abstract class AbstractCxxSourceRuleFactory {
     if (existingRule.isPresent()) {
       return existingRule.get();
     } else {
-      BuildRuleParams params = getParams().copyWithChanges(
-          target,
-          Suppliers.ofInstance(getPreprocessDeps()),
-          Suppliers.ofInstance(ImmutableSortedSet.of()));
+      BuildRuleParams params = getParams()
+          .withBuildTarget(target)
+          .copyReplacingDeclaredAndExtraDeps(
+              Suppliers.ofInstance(getPreprocessDeps()),
+              Suppliers.ofInstance(ImmutableSortedSet.of()));
       DependencyAggregation rule = new DependencyAggregation(params);
       getResolver().addToIndex(rule);
       return rule;
@@ -191,7 +192,7 @@ abstract class AbstractCxxSourceRuleFactory {
   }
 
   private String getOutputName(String name) {
-    List<String> parts = Lists.newArrayList();
+    List<String> parts = new ArrayList<>();
     for (String part : Splitter.on(File.separator).omitEmptyStrings().split(name)) {
       // TODO(#7877540): Remove once we prevent disabling package boundary checks.
       parts.add(part.equals("..") ? "__PAR__" : part);
@@ -232,7 +233,7 @@ abstract class AbstractCxxSourceRuleFactory {
         .builder(getParams().getBuildTarget())
         .addFlavors(getCxxPlatform().getFlavor())
         .addFlavors(
-            ImmutableFlavor.of(
+            InternalFlavor.of(
                 String.format(
                     COMPILE_FLAVOR_PREFIX + "%s%s",
                     getPicType() == PicType.PIC ? "pic-" : "",
@@ -246,7 +247,7 @@ abstract class AbstractCxxSourceRuleFactory {
         .builder(getParams().getBuildTarget())
         .addAllFlavors(getParams().getBuildTarget().getFlavors())
         .addFlavors(getCxxPlatform().getFlavor())
-        .addFlavors(ImmutableFlavor.of(String.format("%s-%s",
+        .addFlavors(InternalFlavor.of(String.format("%s-%s",
                     CxxInferEnhancer.InferFlavors.INFER_CAPTURE.get().toString(),
                     outputName)))
         .build();
@@ -265,7 +266,7 @@ abstract class AbstractCxxSourceRuleFactory {
 
     // These source types require assembling, so add in platform-specific assembler flags.
     //
-    // TODO(andrewjcg): We shouldn't care about lower-level assembling.  If the user has assembler
+    // TODO(agallagher): We shouldn't care about lower-level assembling.  If the user has assembler
     // flags in mind which they want to propagate to other languages, they should pass them in via
     // some other means (e.g. `.buckconfig`).
     if (type == CxxSource.Type.C_CPP_OUTPUT ||
@@ -325,10 +326,11 @@ abstract class AbstractCxxSourceRuleFactory {
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.compile(
-        getParams().copyWithChanges(
-            target,
-            Suppliers.ofInstance(depsBuilder.build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        getParams()
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(depsBuilder.build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         compilerDelegate,
         getCompileOutputPath(target, name),
         source.getPath(),
@@ -433,10 +435,11 @@ abstract class AbstractCxxSourceRuleFactory {
     depsBuilder.add(source);
 
     CxxInferCapture result = new CxxInferCapture(
-        getParams().copyWithChanges(
-            target,
-            Suppliers.ofInstance(depsBuilder.build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        getParams()
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(depsBuilder.build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         ppFlags,
         cFlags,
         source.getPath(),
@@ -520,10 +523,11 @@ abstract class AbstractCxxSourceRuleFactory {
 
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     CxxPreprocessAndCompile result = CxxPreprocessAndCompile.preprocessAndCompile(
-        getParams().copyWithChanges(
-            target,
-            Suppliers.ofInstance(depsBuilder.build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        getParams()
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(depsBuilder.build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         preprocessorDelegate,
         compilerDelegate,
         getCompileOutputPath(target, name),
@@ -631,7 +635,7 @@ abstract class AbstractCxxSourceRuleFactory {
         getParams().getBuildTarget().getUnflavoredBuildTarget(),
         ImmutableSortedSet.of(
             getCxxPlatform().getFlavor(),
-            ImmutableFlavor.of(Flavor.replaceInvalidCharacters(pchFullID))));
+            InternalFlavor.of(Flavor.replaceInvalidCharacters(pchFullID))));
   }
 
   /**
@@ -685,7 +689,7 @@ abstract class AbstractCxxSourceRuleFactory {
     final String pchBaseID =
         "pch-" + langCode + "-" + preprocessorDelegateCacheValue.getBaseHash(compilerFlags);
 
-    for (BuildRule rule : pchTemplate.getDeps()) {
+    for (BuildRule rule : pchTemplate.getBuildDeps()) {
       depsBuilder.add(rule);
     }
 
@@ -701,7 +705,7 @@ abstract class AbstractCxxSourceRuleFactory {
         pchTemplateTarget.getUnflavoredBuildTarget(),
         ImmutableSortedSet.of(
             getCxxPlatform().getFlavor(),
-            ImmutableFlavor.of(Flavor.replaceInvalidCharacters(pchBaseID))));
+            InternalFlavor.of(Flavor.replaceInvalidCharacters(pchBaseID))));
   }
 
   /**
@@ -754,10 +758,11 @@ abstract class AbstractCxxSourceRuleFactory {
     depsBuilder.add(headerPath);
 
     BuildRuleParams params =
-        getParams().copyWithChanges(
-            target,
-            Suppliers.ofInstance(depsBuilder.build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of()));
+        getParams()
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(depsBuilder.build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of()));
 
     CxxPrecompiledHeader rule = new CxxPrecompiledHeader(
         params,

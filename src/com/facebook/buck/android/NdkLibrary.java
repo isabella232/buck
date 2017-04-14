@@ -145,8 +145,8 @@ public class NdkLibrary extends AbstractBuildRule
     // .so files are written to the libs/ subdirectory of the output directory.
     // All of them should be recorded via the BuildableContext.
     Path binDirectory = buildArtifactsDirectory.resolve("libs");
-    steps.add(new RmStep(getProjectFilesystem(), makefile));
-    steps.add(new MkdirStep(getProjectFilesystem(), makefile.getParent()));
+    steps.add(RmStep.of(getProjectFilesystem(), makefile));
+    steps.add(MkdirStep.of(getProjectFilesystem(), makefile.getParent()));
     steps.add(new WriteFileStep(getProjectFilesystem(), makefileContents, makefile, false));
     steps.add(
         new NdkBuildStep(
@@ -158,7 +158,7 @@ public class NdkLibrary extends AbstractBuildRule
             flags,
             macroExpander));
 
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), genDirectory));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), genDirectory));
     steps.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -211,7 +211,7 @@ public class NdkLibrary extends AbstractBuildRule
 
   @Override
   public Iterable<AndroidPackageable> getRequiredPackageables() {
-    return AndroidPackageableCollector.getPackageableRules(getDeps());
+    return AndroidPackageableCollector.getPackageableRules(getBuildDeps());
   }
 
   @Override

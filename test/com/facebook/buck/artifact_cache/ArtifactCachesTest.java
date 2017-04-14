@@ -102,11 +102,15 @@ public class ArtifactCachesTest {
 
     DirArtifactCache dir1 = (DirArtifactCache) c1;
     assertThat(dir1.getCacheDir(), Matchers.equalTo(Paths.get("dir1").toAbsolutePath()));
-    assertThat(dir1.isStoreSupported(), Matchers.equalTo(true));
+    assertThat(
+        dir1.getCacheReadMode(),
+        Matchers.equalTo(CacheReadMode.READWRITE));
 
     DirArtifactCache dir2 = (DirArtifactCache) c2;
     assertThat(dir2.getCacheDir(), Matchers.equalTo(Paths.get("dir2").toAbsolutePath()));
-    assertThat(dir2.isStoreSupported(), Matchers.equalTo(false));
+    assertThat(
+        dir2.getCacheReadMode(),
+        Matchers.equalTo(CacheReadMode.READONLY));
   }
 
   @Test
@@ -168,17 +172,19 @@ public class ArtifactCachesTest {
     RemoteArtifactsInLocalCacheArtifactCache experimentalCache =
         (RemoteArtifactsInLocalCacheArtifactCache) result;
 
-    assertThat(experimentalCache.getLocalCaches(), Matchers.instanceOf(MultiArtifactCache.class));
-    assertThat(
-        experimentalCache.getLocalCaches().getArtifactCaches().get(0),
-        Matchers.instanceOf(CacheDecorator.class));
+    assertThat(experimentalCache.getLocalCache(), Matchers.instanceOf(MultiArtifactCache.class));
+    MultiArtifactCache localCache = (MultiArtifactCache) experimentalCache.getLocalCache();
+
+    assertThat(localCache.getArtifactCaches().get(0), Matchers.instanceOf(CacheDecorator.class));
     CacheDecorator decorator =
-        (CacheDecorator) experimentalCache.getLocalCaches().getArtifactCaches().get(0);
+        (CacheDecorator) localCache.getArtifactCaches().get(0);
+
     assertThat(decorator.getDelegate(), Matchers.instanceOf(DirArtifactCache.class));
 
-    assertThat(experimentalCache.getRemoteCaches(), Matchers.instanceOf(MultiArtifactCache.class));
+    assertThat(experimentalCache.getRemoteCache(), Matchers.instanceOf(MultiArtifactCache.class));
+    MultiArtifactCache remoteCache = (MultiArtifactCache) experimentalCache.getRemoteCache();
     assertThat(
-        experimentalCache.getRemoteCaches().getArtifactCaches().get(0),
+        remoteCache.getArtifactCaches().get(0),
         Matchers.instanceOf(HttpArtifactCache.class));
   }
 

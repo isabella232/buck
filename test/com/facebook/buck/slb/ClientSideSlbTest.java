@@ -30,12 +30,14 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.Dispatcher;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Protocol;
@@ -56,6 +58,7 @@ public class ClientSideSlbTest extends EasyMockSupport {
   private OkHttpClient mockClient;
   private ScheduledExecutorService mockScheduler;
   private ClientSideSlbConfig config;
+  private Dispatcher dispatcher;
 
   // Apparently EasyMock does not deal very well with Generic Types using wildcard ?.
   // Several workarounds can be found on StackOverflow this one being the list intrusive.
@@ -67,13 +70,14 @@ public class ClientSideSlbTest extends EasyMockSupport {
     mockBus = createNiceMock(BuckEventBus.class);
     mockFuture = createMock(ScheduledFuture.class);
     mockClient = createNiceMock(OkHttpClient.class);
+    dispatcher = new Dispatcher(createMock(ExecutorService.class));
+    EasyMock.expect(mockClient.dispatcher()).andReturn(dispatcher).anyTimes();
     mockScheduler = createMock(ScheduledExecutorService.class);
     mockClock = createMock(Clock.class);
     EasyMock.expect(mockClock.currentTimeMillis()).andReturn(42L).anyTimes();
 
     config = ClientSideSlbConfig.builder()
         .setClock(mockClock)
-        .setSchedulerService(mockScheduler)
         .setServerPool(SERVERS)
         .setEventBus(mockBus)
         .build();
@@ -91,10 +95,13 @@ public class ClientSideSlbTest extends EasyMockSupport {
         .andReturn(mockFuture)
         .once();
     EasyMock.expect(mockFuture.cancel(true)).andReturn(true).once();
+    EasyMock.expect(mockScheduler.shutdownNow()).andReturn(ImmutableList.of()).once();
+    EasyMock.expect(dispatcher.executorService().shutdownNow())
+        .andReturn(ImmutableList.of()).once();
 
     replayAll();
 
-    try (ClientSideSlb slb = new ClientSideSlb(config, mockClient)) {
+    try (ClientSideSlb slb = new ClientSideSlb(config, mockScheduler, mockClient)) {
       Assert.assertTrue(capture.hasCaptured());
     }
 
@@ -137,10 +144,13 @@ public class ClientSideSlbTest extends EasyMockSupport {
     mockBus.post(EasyMock.anyObject(LoadBalancerPingEvent.class));
     EasyMock.expectLastCall();
     EasyMock.expect(mockFuture.cancel(true)).andReturn(true).once();
+    EasyMock.expect(mockScheduler.shutdownNow()).andReturn(ImmutableList.of()).once();
+    EasyMock.expect(dispatcher.executorService().shutdownNow())
+        .andReturn(ImmutableList.of()).once();
 
     replayAll();
 
-    try (ClientSideSlb slb = new ClientSideSlb(config, mockClient)) {
+    try (ClientSideSlb slb = new ClientSideSlb(config, mockScheduler, mockClient)) {
       Runnable healthCheckLoop = capture.getValue();
       healthCheckLoop.run();
     }

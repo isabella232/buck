@@ -37,7 +37,6 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.io.IOException;
@@ -46,6 +45,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -163,7 +163,7 @@ public class FilterResourcesStep implements Step {
   @VisibleForTesting
   Predicate<Path> getFilteringPredicate(
       ExecutionContext context) throws IOException {
-    List<Predicate<Path>> pathPredicates = Lists.newArrayList();
+    List<Predicate<Path>> pathPredicates = new ArrayList<>();
 
     if (filterByDensity) {
       Preconditions.checkNotNull(targetDensities);
@@ -251,6 +251,10 @@ public class FilterResourcesStep implements Step {
       }
       if (drawable.toString().endsWith(".9.png")) {
         // Skip nine-patch for now.
+        continue;
+      }
+      if (drawable.toString().endsWith(".webp")) {
+        // Skip webp for now.
         continue;
       }
 

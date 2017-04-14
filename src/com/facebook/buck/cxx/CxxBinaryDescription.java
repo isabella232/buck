@@ -38,6 +38,7 @@ import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -101,13 +102,50 @@ public class CxxBinaryDescription implements
     return new Arg();
   }
 
-  @SuppressWarnings("PMD.PrematureDeclaration")
+  private CxxPlatform getCxxPlatform(
+      BuildTarget target,
+      Optional<Flavor> defaultCxxPlatformFlavor) {
+
+    // First check if the build target is setting a particular target.
+    Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
+    if (targetPlatform.isPresent()) {
+      return targetPlatform.get();
+    }
+
+    // Next, check for a constructor arg level default platform.
+    if (defaultCxxPlatformFlavor.isPresent()) {
+      return cxxPlatforms.getValue(defaultCxxPlatformFlavor.get());
+    }
+
+    // Otherwise, fallback to the description-level default platform.
+    return defaultCxxPlatform;
+  }
+
   @Override
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) throws NoSuchBuildTargetException {
+      CellPathResolver cellRoots,
+      A args)
+      throws NoSuchBuildTargetException {
+    return createBuildRule(targetGraph, params, resolver, cellRoots, args, ImmutableSortedSet.of());
+  }
+
+  @SuppressWarnings("PMD.PrematureDeclaration")
+  public BuildRule createBuildRule(
+      TargetGraph targetGraph,
+      BuildRuleParams metadataRuleParams,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
+      Arg args,
+      ImmutableSortedSet<BuildTarget> extraDeps)
+      throws NoSuchBuildTargetException {
+
+    // Create a copy of the metadata-rule params with the deps removed to pass around into library
+    // code.  This should prevent this code from using the over-specified deps when constructing
+    // build rules.
+    BuildRuleParams params = metadataRuleParams.copyInvalidatingDeps();
 
     // We explicitly remove some flavors below from params to make sure rule
     // has the same output regardless if we will strip or not.
@@ -121,8 +159,7 @@ public class CxxBinaryDescription implements
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
     ImmutableSet<Flavor> flavors = ImmutableSet.copyOf(params.getBuildTarget().getFlavors());
-    CxxPlatform cxxPlatform = cxxPlatforms
-        .getValue(flavors).orElse(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = getCxxPlatform(params.getBuildTarget(), args.defaultPlatform);
     if (flavors.contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)) {
       flavors = ImmutableSet.copyOf(
           Sets.difference(
@@ -132,11 +169,7 @@ public class CxxBinaryDescription implements
           .builder(params.getBuildTarget().getUnflavoredBuildTarget())
           .addAllFlavors(flavors)
           .build();
-      BuildRuleParams typeParams =
-          params.copyWithChanges(
-              target,
-              params.getDeclaredDeps(),
-              params.getExtraDeps());
+      BuildRuleParams typeParams = params.withBuildTarget(target);
 
       return createHeaderSymlinkTreeBuildRule(
           typeParams,
@@ -153,9 +186,11 @@ public class CxxBinaryDescription implements
               targetGraph,
               paramsWithoutFlavor,
               resolver,
+              cellRoots,
               cxxBuckConfig,
               cxxPlatform,
               args,
+              ImmutableSet.of(),
               flavoredStripStyle,
               flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
@@ -167,7 +202,7 @@ public class CxxBinaryDescription implements
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
           cxxPlatforms.getValue(flavors).isPresent() ?
               params :
-              params.withFlavor(defaultCxxPlatform.getFlavor()),
+              params.withAppendedFlavor(defaultCxxPlatform.getFlavor()),
           resolver);
     }
 
@@ -228,9 +263,11 @@ public class CxxBinaryDescription implements
             targetGraph,
             params,
             resolver,
+            cellRoots,
             cxxBuckConfig,
             cxxPlatform,
             args,
+            extraDeps,
             flavoredStripStyle,
             flavoredLinkerMapMode);
 
@@ -250,10 +287,12 @@ public class CxxBinaryDescription implements
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     CxxBinary cxxBinary = new CxxBinary(
         params
-            .copyWithDeps(() -> cxxLinkAndCompileRules.deps, params.getExtraDeps())
-            .appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
+            .copyReplacingDeclaredAndExtraDeps(
+                () -> cxxLinkAndCompileRules.deps, metadataRuleParams.getExtraDeps())
+            .copyAppendingExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
         resolver,
         ruleFinder,
+        cxxPlatform,
         cxxLinkAndCompileRules.getBinaryRule(),
         cxxLinkAndCompileRules.executable,
         args.frameworks,
@@ -264,30 +303,28 @@ public class CxxBinaryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-
-    deps.addAll(findDepsForTargetFromConstructorArgs(buildTarget));
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(
+        findDepsForTargetFromConstructorArgs(buildTarget, constructorArg.defaultPlatform));
     constructorArg.depsQuery.ifPresent(
         depsQuery ->
             QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
-                .forEach(deps::add));
-
-    return deps.build();
+                .forEach(extraDepsBuilder::add));
   }
 
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(BuildTarget buildTarget) {
+  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      Optional<Flavor> defaultCxxPlatformFlavor) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
     // Get any parse time deps from the C/C++ platforms.
     deps.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            cxxPlatforms
-                .getValue(buildTarget.getFlavors()).orElse(defaultCxxPlatform)));
+        CxxPlatforms.getParseTimeDeps(getCxxPlatform(buildTarget, defaultCxxPlatformFlavor)));
 
     return deps.build();
   }
@@ -396,6 +433,8 @@ public class CxxBinaryDescription implements
   @SuppressFieldNotInitialized
   public static class Arg extends LinkableCxxConstructorArg {
     public Optional<Query> depsQuery = Optional.empty();
+    public Optional<String> versionUniverse;
+    public Optional<Flavor> defaultPlatform;
   }
 
 }

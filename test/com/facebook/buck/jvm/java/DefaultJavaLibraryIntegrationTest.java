@@ -18,7 +18,6 @@ package com.facebook.buck.jvm.java;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardOpenOption.WRITE;
-import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
@@ -49,8 +48,6 @@ import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -122,7 +119,7 @@ public class DefaultJavaLibraryIntegrationTest {
             "lib__%s__output/" + target.getShortName() + ".jar");
     Path outputFile = workspace.getPath(outputPath);
     assertTrue(Files.exists(outputFile));
-    // TODO(bolinfest): When we produce byte-for-byte identical JAR files across builds, do:
+    // TODO(mbolin): When we produce byte-for-byte identical JAR files across builds, do:
     //
     //   HashCode hashOfOriginalJar = Files.hash(outputFile, Hashing.sha1());
     //
@@ -236,33 +233,6 @@ public class DefaultJavaLibraryIntegrationTest {
   }
 
   @Test
-  public void testBuildJavaLibraryShouldSuggestTransitiveImportsToInclude() throws IOException {
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "warn_on_transitive", tmp);
-    workspace.setUp();
-
-    // Run `buck build`.
-    ProcessResult buildResult = workspace.runBuckCommand("build",
-        "//:raz");
-
-    String expectedWarning = Joiner.on("\n").join(
-      "Rule //:raz has failed to build.",
-      "Blargh",
-      "Meh",
-      "Try adding the following deps:",
-      "//:blargh",
-      "//:foo");
-
-    buildResult.assertFailure("Build should have failed with warnings.");
-
-    assertThat(
-        buildResult.getStderr(),
-        containsString(expectedWarning));
-
-    workspace.verify();
-  }
-
-  @Test
   public void testBuildJavaLibraryExportsDirectoryEntries() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "export_directory_entries", tmp);
@@ -291,7 +261,6 @@ public class DefaultJavaLibraryIntegrationTest {
     assertEquals(
         jarContents.build(),
         ImmutableSet.of(
-            "META-INF/",
             "META-INF/MANIFEST.MF",
             "swag.txt",
             "yolo.txt"));
@@ -337,7 +306,7 @@ public class DefaultJavaLibraryIntegrationTest {
         "lib__%s__output/" + bizTarget.getShortName() + ".jar");
     FileTime bizJarLastModified = Files.getLastModifiedTime(workspace.getPath(bizOutputPath));
 
-    // TODO(bolinfest): Run uber-biz.jar and verify it prints "Hello World!\n".
+    // TODO(mbolin): Run uber-biz.jar and verify it prints "Hello World!\n".
 
     // Edit Util.java in a way that does not affect its ABI.
     workspace.replaceFileContents("Util.java", "Hello World", "Hola Mundo");
@@ -364,9 +333,9 @@ public class DefaultJavaLibraryIntegrationTest {
         bizJarLastModified,
         Files.getLastModifiedTime(workspace.getPath(bizOutputPath)));
 
-    // TODO(bolinfest): Run uber-biz.jar and verify it prints "Hola Mundo!\n".
+    // TODO(mbolin): Run uber-biz.jar and verify it prints "Hola Mundo!\n".
 
-    // TODO(bolinfest): This last scenario that is being tested would be better as a unit test.
+    // TODO(mbolin): This last scenario that is being tested would be better as a unit test.
     // Run `buck build` one last time. This ensures that a dependency java_library() rule (:util)
     // that is built via BuildRuleSuccess.Type.MATCHING_INPUT_BASED_RULE_KEY does not
     // explode when its dependent rule (:biz) invokes the dependency's getAbiKey() method as part of
@@ -610,9 +579,10 @@ public class DefaultJavaLibraryIntegrationTest {
   }
 
   @Test
-  public void testClassUsageFileOutputProperly() throws IOException {
+  public void testClassUsageFileOutputWhenCompilingAgainstFullJars() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "class_usage_file", tmp);
     workspace.setUp();
+    workspace.addBuckConfigLocalOption(JavaBuckConfig.SECTION, "compile_against_abis", "false");
 
     // Run `buck build`.
     BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
@@ -635,11 +605,46 @@ public class DefaultJavaLibraryIntegrationTest {
     final String utilClassPath =
         MorePaths.pathWithPlatformSeparators("com/example/Util.class");
 
-    ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
-    JsonNode jsonNode = objectMapper.readTree(lines.get(0));
+    JsonNode jsonNode = ObjectMappers.READER.readTree(lines.get(0));
     assertThat(jsonNode,
-        new HasJsonField(objectMapper, utilJarPath,
-            Matchers.equalTo(objectMapper.valueToTree(new String[]{utilClassPath}))));
+        new HasJsonField(
+            utilJarPath,
+            Matchers.equalTo(
+                ObjectMappers.legacyCreate().valueToTree(new String[]{utilClassPath}))));
+  }
+
+  @Test
+  public void testClassUsageFileOutputWhenCompilingAgainstAbiJars() throws IOException {
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "class_usage_file", tmp);
+    workspace.setUp();
+    workspace.addBuckConfigLocalOption(JavaBuckConfig.SECTION, "compile_against_abis", "true");
+
+    // Run `buck build`.
+    BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", bizTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    Path bizClassUsageFilePath = BuildTargets.getGenPath(
+        filesystem,
+        bizTarget,
+        "lib__%s__output/used-classes.json");
+
+    final List<String> lines = Files.readAllLines(
+        workspace.getPath(bizClassUsageFilePath), UTF_8);
+
+    assertEquals("Expected just one line of JSON", 1, lines.size());
+
+    final String utilJarPath =
+        MorePaths.pathWithPlatformSeparators("buck-out/gen/util#class-abi/util-abi.jar");
+    final String utilClassPath =
+        MorePaths.pathWithPlatformSeparators("com/example/Util.class");
+
+    JsonNode jsonNode = ObjectMappers.READER.readTree(lines.get(0));
+    assertThat(jsonNode,
+        new HasJsonField(utilJarPath,
+            Matchers.equalTo(
+                ObjectMappers.legacyCreate().valueToTree(new String[]{utilClassPath}))));
   }
 
   @Test

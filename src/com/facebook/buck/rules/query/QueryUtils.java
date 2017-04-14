@@ -17,6 +17,8 @@
 
 package com.facebook.buck.rules.query;
 
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -25,7 +27,6 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -38,7 +39,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -52,24 +52,23 @@ public final class QueryUtils {
   }
 
   public static Stream<BuildRule> resolveDepQuery(
-      BuildRuleParams params,
+      BuildTarget target,
       Query query,
       BuildRuleResolver resolver,
-      TargetGraph targetGraph) {
-    BuildTarget target = params.getBuildTarget();
-    Set<BuildTarget> declaredDeps = params.getDeclaredDeps()
-        .get()
-        .stream()
-        .map(BuildRule::getBuildTarget)
-        .collect(Collectors.toSet());
+      CellPathResolver cellRoots,
+      TargetGraph targetGraph,
+      ImmutableSet<BuildTarget> declaredDeps) {
     GraphEnhancementQueryEnvironment env = new GraphEnhancementQueryEnvironment(
         Optional.of(resolver),
         Optional.of(targetGraph),
-        params.getCellRoots(),
+        cellRoots,
         BuildTargetPatternParser.forBaseName(target.getBaseName()),
         declaredDeps);
     ListeningExecutorService executorService = MoreExecutors.newDirectExecutorService();
-    try {
+    try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(
+        Optional.ofNullable(resolver.getEventBus()),
+        PerfEventId.of("resolve_dep_query"),
+        "target", target.toString())) {
       QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
       Set<QueryTarget> queryTargets = parsedExp.eval(env, executorService);
       return queryTargets.stream()

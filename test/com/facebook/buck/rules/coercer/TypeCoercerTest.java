@@ -37,13 +37,11 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
 
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
@@ -55,6 +53,7 @@ import java.io.IOException;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +62,7 @@ import java.util.Set;
 
 public class TypeCoercerTest {
   private final TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-      ObjectMappers.newDefaultInstance());
+  );
   private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
   private final CellPathResolver cellRoots = new FakeCellPathResolver(filesystem);
 
@@ -313,7 +312,7 @@ public class TypeCoercerTest {
   }
 
   static class TestTraversal implements TypeCoercer.Traversal {
-    private List<Object> objects = Lists.newArrayList();
+    private List<Object> objects = new ArrayList<>();
 
     public List<Object> getObjects() {
       return objects;

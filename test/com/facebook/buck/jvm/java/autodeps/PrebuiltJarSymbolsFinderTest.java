@@ -38,14 +38,12 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Function;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
@@ -140,10 +138,7 @@ public class PrebuiltJarSymbolsFinderTest {
             javaSymbolsRule = new JavaSymbolsRule(
                 BuildTargetFactory.newInstance("//foo:rule"),
                 finder,
-                /* generatedSymbols */ ImmutableSortedSet.of(),
-                ObjectMappers.newDefaultInstance(),
-                new ProjectFilesystem(tmp.getRoot())
-            );
+                new ProjectFilesystem(tmp.getRoot()));
           } catch (IOException e) {
             throw new RuntimeException(e);
           }
@@ -188,10 +183,7 @@ public class PrebuiltJarSymbolsFinderTest {
     JavaSymbolsRule javaSymbolsRule1 = new JavaSymbolsRule(
         BuildTargetFactory.newInstance("//foo:rule"),
         createFinderForGeneratedJar("//foo:jar_genrule1"),
-        /* generatedSymbols */ ImmutableSortedSet.of(),
-        ObjectMappers.newDefaultInstance(),
-        new ProjectFilesystem(tmp.getRoot())
-    );
+        new ProjectFilesystem(tmp.getRoot()));
 
     RuleKey key1 = new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder)
         .build(javaSymbolsRule1);
@@ -199,10 +191,7 @@ public class PrebuiltJarSymbolsFinderTest {
     JavaSymbolsRule javaSymbolsRule2 = new JavaSymbolsRule(
         BuildTargetFactory.newInstance("//foo:rule"),
         createFinderForGeneratedJar("//foo:jar_genrule2"),
-        /* generatedSymbols */ ImmutableSortedSet.of(),
-        ObjectMappers.newDefaultInstance(),
-        new ProjectFilesystem(tmp.getRoot())
-    );
+        new ProjectFilesystem(tmp.getRoot()));
     RuleKey key2 = new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder)
         .build(javaSymbolsRule2);
 

@@ -1,16 +1,13 @@
 from __future__ import print_function
-import glob
 import os
-import platform
 import subprocess
 import sys
-import tempfile
 import textwrap
 
-from timing import monotonic_time_nanos
 from tracing import Tracing
-from buck_tool import BuckTool, check_output, JAVA_MAX_HEAP_SIZE_MB
+from buck_tool import BuckTool, JAVA_MAX_HEAP_SIZE_MB, platform_path
 from buck_tool import BuckToolException, RestartBuck
+from subprocess import check_output
 from subprocutils import which
 import buck_version
 
@@ -53,7 +50,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/httpcomponents/httpclient-4.4.1.jar",
     "third-party/java/httpcomponents/httpcore-4.4.1.jar",
     "third-party/java/icu4j/icu4j-54.1.1.jar",
-    "third-party/java/infer-annotations/infer-annotations-1.5.jar",
+    "third-party/java/infer-annotations/infer-annotations-4.1.jar",
     "third-party/java/ini4j/ini4j-0.5.2.jar",
     "third-party/java/jackson/jackson-annotations-2.7.8.jar",
     "third-party/java/jackson/jackson-core-2.7.8.jar",
@@ -72,6 +69,7 @@ JAVA_CLASSPATHS = [
     "third-party/java/okhttp/okhttp-3.6.0.jar",
     "third-party/java/okio/okio-1.11.0.jar",
     "third-party/java/oshi/oshi-core-3.3-SNAPSHOT.jar",
+    "third-party/java/rocksdbjni/rocksdbjni-5.1.2.jar",
     "third-party/java/servlet-api/javax.servlet-api-3.1.0.jar",
     "third-party/java/slf4j/slf4j-jdk14-1.7.5.jar",
     "third-party/java/stringtemplate/ST-4.0.8.jar",
@@ -108,7 +106,7 @@ RESOURCES = {
     "native_exopackage_fake_path": "assets/android/native-exopackage-fakes.apk",
     "path_to_asm_jar": "third-party/java/asm/asm-debug-all-5.0.3.jar",
     "path_to_rawmanifest_py": "src/com/facebook/buck/util/versioncontrol/rawmanifest.py",
-    "path_to_intellij_py": "src/com/facebook/buck/command/intellij.py",
+    "path_to_intellij_py": "src/com/facebook/buck/ide/intellij/deprecated/intellij.py",
     "path_to_pex": "src/com/facebook/buck/python/make_pex.py",
     "path_to_sh_binary_template": "src/com/facebook/buck/shell/sh_binary_template",
     "path_to_static_content": "webserver/static",
@@ -140,7 +138,7 @@ class BuckRepo(BuckTool):
     def __init__(self, buck_bin_dir, buck_project):
         super(BuckRepo, self).__init__(buck_project)
 
-        self._buck_dir = self._platform_path(os.path.dirname(buck_bin_dir))
+        self._buck_dir = platform_path(os.path.dirname(buck_bin_dir))
         self._build_success_file = os.path.join(
             self._buck_dir, "build", "successful-build")
 

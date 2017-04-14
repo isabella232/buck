@@ -32,6 +32,7 @@ import com.facebook.buck.rules.coercer.OcamlSource;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -62,13 +63,14 @@ public class OcamlLibraryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
 
     ImmutableList<OcamlSource> srcs = args.srcs;
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> flags = ImmutableList.builder();
     flags.addAll(OcamlDescriptionEnhancer.toStringWithMacrosArgs(
             params.getBuildTarget(),
-            params.getCellRoots(),
+            cellRoots,
             resolver,
             args.compilerFlags));
     if (ocamlBuckConfig.getWarningsFlags().isPresent() ||
@@ -96,11 +98,13 @@ public class OcamlLibraryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      OcamlLibraryDescription.Arg constructorArg) {
-    return CxxPlatforms.getParseTimeDeps(ocamlBuckConfig.getCxxPlatform());
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(ocamlBuckConfig.getCxxPlatform()));
   }
 
   @SuppressFieldNotInitialized

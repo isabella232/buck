@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
+import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.FakeBuckConfig;
@@ -37,6 +38,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -124,12 +126,19 @@ public class AndroidInstrumentationApkTest {
         .build();
     AndroidInstrumentationApk androidInstrumentationApk = (AndroidInstrumentationApk)
         new AndroidInstrumentationApkDescription(
+            DEFAULT_JAVA_CONFIG,
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             DEFAULT_JAVAC_OPTIONS,
             ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
-            CxxPlatformUtils.DEFAULT_CONFIG)
-            .createBuildRule(TargetGraph.EMPTY, params, ruleResolver, arg);
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new DxConfig(FakeBuckConfig.builder().build()))
+            .createBuildRule(
+                TargetGraph.EMPTY,
+                params,
+                ruleResolver,
+                TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+                arg);
 
     assertEquals(
         "//apps:app should have three JAR files to dex.",

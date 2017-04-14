@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
+import com.facebook.buck.apple.project_generator.FocusedModuleTargetMatcher;
 import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBusFactory;
@@ -29,7 +30,6 @@ import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.SettableFakeClock;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,11 +74,11 @@ public class ProjectCommandTests {
 
     ImmutableSet<BuildTarget> explicitTests;
     if (withTests) {
-      explicitTests = TargetGraphAndTargets.getExplicitTestTargets(
+      explicitTests = ProjectCommand.getExplicitTestTargets(
           graphRootsOrSourceTargets,
           projectGraph,
           withDependenciesTests,
-          Optional.empty());
+          FocusedModuleTargetMatcher.noFocus());
     } else {
       explicitTests = ImmutableSet.of();
     }
@@ -121,7 +121,7 @@ public class ProjectCommandTests {
             false /* shouldMergeHeaderMaps */,
             false /* shouldGenerateHeaderSymlinkTreeOnly */),
         ImmutableList.of(),
-        Optional.empty(),
+        FocusedModuleTargetMatcher.noFocus(),
         projectGenerators,
         isBuildWithBuck,
         isCombinedProjects);
@@ -143,7 +143,6 @@ public class ProjectCommandTests {
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
         new FakeJavaPackageFinder(),
-        ObjectMappers.newDefaultInstance(),
         Optional.empty());
   }
 }

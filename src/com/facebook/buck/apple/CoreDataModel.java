@@ -18,7 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -40,7 +40,7 @@ import java.nio.file.Paths;
 
 public class CoreDataModel extends AbstractBuildRule {
 
-  public static final Flavor FLAVOR = ImmutableFlavor.of("core-data-model");
+  public static final Flavor FLAVOR = InternalFlavor.of("core-data-model");
 
   @AddToRuleKey
   private final String moduleName;
@@ -83,7 +83,7 @@ public class CoreDataModel extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
-    stepsBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
+    stepsBuilder.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
     for (SourcePath dataModelPath : dataModelPaths) {
       stepsBuilder.add(
           new ShellStep(getProjectFilesystem().getRootPath()) {

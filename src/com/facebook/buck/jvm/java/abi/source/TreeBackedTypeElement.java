@@ -19,18 +19,17 @@ package com.facebook.buck.jvm.java.abi.source;
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.ClassTree;
-import com.sun.source.tree.Tree;
+import com.sun.source.tree.ModifiersTree;
+import com.sun.source.util.TreePath;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
-import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.Name;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.TypeMirror;
 
 /**
@@ -38,44 +37,26 @@ import javax.lang.model.type.TypeMirror;
  * {@link ClassTree}. This results in an incomplete implementation; see documentation for individual
  * methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedTypeElement extends TreeBackedElement implements TypeElement {
+class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeElement {
+  private final TypeElement underlyingElement;
+  @Nullable
   private final ClassTree tree;
-  private final Name qualifiedName;
-  private final List<TreeBackedTypeParameterElement> typeParameters = new ArrayList<>();
+  @Nullable
   private StandaloneDeclaredType typeMirror;
   @Nullable
   private TypeMirror superclass;
+  @Nullable
+  private List<? extends TypeMirror> interfaces;
 
   TreeBackedTypeElement(
+      TypeElement underlyingElement,
       TreeBackedElement enclosingElement,
-      ClassTree tree,
-      Name qualifiedName,
-      TypeResolverFactory resolverFactory) {
-    super(getElementKind(tree), tree.getSimpleName(), enclosingElement, resolverFactory);
-    this.tree = tree;
-    this.qualifiedName = qualifiedName;
-    typeMirror = new StandaloneDeclaredType(this);
+      @Nullable TreePath path,
+      TreeBackedElementResolver resolver) {
+    super(underlyingElement, enclosingElement, path, resolver);
+    this.underlyingElement = underlyingElement;
+    tree = path != null ? (ClassTree) path.getLeaf() : null;
     enclosingElement.addEnclosedElement(this);
-  }
-
-  /* package */ void addTypeParameter(TreeBackedTypeParameterElement typeParameter) {
-    typeParameters.add(typeParameter);
-  }
-
-  private static ElementKind getElementKind(ClassTree tree) {
-    switch (tree.getKind()) {
-      case ANNOTATION_TYPE:
-        return ElementKind.ANNOTATION_TYPE;
-      case CLASS:
-        return ElementKind.CLASS;
-      case ENUM:
-        return ElementKind.ENUM;
-      case INTERFACE:
-        return ElementKind.INTERFACE;
-      // $CASES-OMITTED$
-      default:
-        throw new IllegalArgumentException(String.format("Unexpected kind: %s", tree.getKind()));
-    }
   }
 
   @Override
@@ -85,38 +66,32 @@ class TreeBackedTypeElement extends TreeBackedElement implements TypeElement {
 
   @Override
   public NestingKind getNestingKind() {
-    if (getEnclosingElement().getKind() == ElementKind.PACKAGE) {
-      return NestingKind.TOP_LEVEL;
-    }
-
-    // Note that anonymous and local classes do not appear in tree-backed elements
-    return NestingKind.MEMBER;
+    return underlyingElement.getNestingKind();
   }
 
   @Override
   public Name getQualifiedName() {
-    return qualifiedName;
+    return underlyingElement.getQualifiedName();
   }
 
   @Override
   public StandaloneDeclaredType asType() {
+    if (typeMirror == null) {
+      typeMirror = getResolver().createType(this);
+    }
     return typeMirror;
+  }
+
+  @Override
+  @Nullable
+  protected ModifiersTree getModifiersTree() {
+    return tree != null ? tree.getModifiers() : null;
   }
 
   @Override
   public TypeMirror getSuperclass() {
     if (superclass == null) {
-      TypeResolver resolver = getResolver();
-      final Tree extendsClause = tree.getExtendsClause();
-      if (extendsClause == null) {
-        if (tree.getKind() == Tree.Kind.INTERFACE) {
-          superclass = StandaloneNoType.KIND_NONE;
-        } else {
-          superclass = resolver.getJavaLangObject();
-        }
-      } else {
-        superclass = resolver.resolveType(extendsClause);
-      }
+      superclass = getResolver().getCanonicalType(underlyingElement.getSuperclass());
     }
 
     return superclass;
@@ -124,21 +99,17 @@ class TreeBackedTypeElement extends TreeBackedElement implements TypeElement {
 
   @Override
   public List<? extends TypeMirror> getInterfaces() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public List<? extends TypeParameterElement> getTypeParameters() {
-    return Collections.unmodifiableList(typeParameters);
+    if (interfaces == null) {
+      interfaces = Collections.unmodifiableList(
+          underlyingElement.getInterfaces().stream()
+              .map(getResolver()::getCanonicalType)
+              .collect(Collectors.toList()));
+    }
+    return interfaces;
   }
 
   @Override
   public <R, P> R accept(ElementVisitor<R, P> v, P p) {
     return v.visitType(this, p);
-  }
-
-  @Override
-  public String toString() {
-    return getQualifiedName().toString();
   }
 }

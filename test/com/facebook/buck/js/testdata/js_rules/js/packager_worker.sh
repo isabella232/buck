@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+ROOT="$PWD"
+
 message_id () {
   echo "$1" | sed 's/.*"id":\([0-9]*\).*/\1/'
 }
@@ -36,11 +38,37 @@ concat() {
   echo $@
 }
 
+write_asset() {
+  local dir="$1"
+  if [[ "$2" == android ]]; then
+    dir="$dir/drawable-mdpi"
+    mkdir -p "$dir"
+  elif [[ "$2" == ios ]]; then
+    dir="$dir/assets"
+    mkdir -p "$dir"
+  fi
+  cp "$(dirname "$0")/pixel.gif" "$dir/"
+}
+
+write_sourcemap() {
+    echo '{"version": 3, "mappings": "ABCDE;"}' > "$1"
+}
+
+replace_root() {
+  if [[ "$1" == "$ROOT" ]]; then
+    echo @
+  else
+    echo "${1/$ROOT\//@/}"
+  fi
+}
+
 run_command() {
   local args=
   local infiles=
   local outfile=
   local message_id="$1"
+  local platform=
+  local assets_dir=
 
   set -- $2
 
@@ -50,13 +78,25 @@ run_command() {
         outfile="$2"
         shift
         ;;
+      --assets|--root|--sourcemap)
+        args=$(concat $args "$1" "$(replace_root "$2")")
+        if [[ "$1" == "--assets" ]]; then
+          assets_dir="$2"
+        elif [[ "$1" == "--sourcemap" ]]; then
+          write_sourcemap "$2"
+        fi
+        shift
+        ;;
       --lib)
-        args=$(concat $args "$1" "${2/\/*\/buck-out\//@/buck-out/}")
+        args=$(concat $args "$1" "$(replace_root "$2")")
         infiles=$(concat $infiles "$2")
         shift
         ;;
       --*)
         args=$(concat $args "$1")
+        if [[ "$1" == "--platform" ]]; then
+          platform="$2"
+        fi
         if [[ "$2" != --* ]]; then
           args=$(concat $args "$2")
           shift
@@ -71,6 +111,10 @@ run_command() {
     esac
     shift
   done
+
+  if [[ -n "$assets_dir" ]]; then
+    write_asset "$assets_dir" "$platform"
+  fi
 
   if [[ -z "$outfile" ]]; then
     echo "No output file given" >&2

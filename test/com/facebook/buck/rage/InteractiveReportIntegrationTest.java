@@ -31,9 +31,7 @@ import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 
 import org.hamcrest.Matchers;
@@ -137,6 +135,20 @@ public class InteractiveReportIntegrationTest {
   }
 
   @Test
+  public void testLocalConfigurationReport() throws Exception {
+    DefectSubmitResult report = createDefectReport(
+        traceWorkspace,
+        new ByteArrayInputStream("0,1\nreport text\n\n".getBytes("UTF-8")));
+    Path reportFile = traceWorkspace.asCell().getFilesystem().resolve(
+        report.getReportSubmitLocation().get());
+
+    ZipInspector zipInspector = new ZipInspector(reportFile);
+    assertThat(
+        zipInspector.getZipFileEntries(),
+        Matchers.hasItems("buckconfig.local", "bucklogging.local.properties"));
+  }
+
+  @Test
   public void testWatchmanDiagReport() throws Exception {
     DefectSubmitResult report = createDefectReport(
         traceWorkspace,
@@ -167,13 +179,11 @@ public class InteractiveReportIntegrationTest {
       ByteArrayInputStream inputStream)
     throws IOException, InterruptedException {
     ProjectFilesystem filesystem = workspace.asCell().getFilesystem();
-    ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
     RageConfig rageConfig = RageConfig.of(workspace.asCell().getBuckConfig());
     Clock clock = new DefaultClock();
     ExtraInfoCollector extraInfoCollector = Optional::empty;
     TestConsole console = new TestConsole();
     DefectReporter defectReporter = new DefaultDefectReporter(filesystem,
-        objectMapper,
         rageConfig,
         BuckEventBusFactory.newInstance(clock),
         clock);
@@ -185,7 +195,6 @@ public class InteractiveReportIntegrationTest {
         new InteractiveReport(
             defectReporter,
             filesystem,
-            objectMapper,
             console,
             inputStream,
             TestBuildEnvironmentDescription.INSTANCE,

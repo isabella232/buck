@@ -34,7 +34,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -69,8 +68,7 @@ public class IntraCellIntegrationTest {
     // We don't need to do a build. It's enough to just parse these things.
     Cell cell = workspace.asCell();
 
-    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
     Parser parser = new Parser(
         new BroadcastEventListener(),
         cell.getBuckConfig().getView(ParserConfig.class),
@@ -84,7 +82,7 @@ public class IntraCellIntegrationTest {
         false,
         MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
         ImmutableSet.of(BuildTargetFactory.newInstance(
-            cell.getFilesystem(),
+            cell.getFilesystem().getRootPath(),
             "//just-a-directory:rule")));
 
     Cell childCell = cell.getCell(BuildTargetFactory.newInstance(
@@ -99,8 +97,8 @@ public class IntraCellIntegrationTest {
           false,
           MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
           ImmutableSet.of(BuildTargetFactory.newInstance(
-              childCell.getFilesystem(),
-              "//:child-target")));
+              childCell.getFilesystem().getRootPath(),
+              "child//:child-target")));
       fail("Didn't expect parsing to work because of visibility");
     } catch (HumanReadableException e) {
       // This is expected

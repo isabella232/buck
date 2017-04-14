@@ -38,7 +38,6 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -61,10 +60,10 @@ public class GenruleDescriptionTest {
         "cmd", "$(exe //bin:executable) $(location :arg)");
     ProjectFilesystem projectFilesystem = new AllExistingProjectFilesystem();
     ConstructorArgMarshaller marshaller =
-        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
-            ObjectMappers.newDefaultInstance()));
+        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory());
     ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
     ImmutableSet.Builder<VisibilityPattern> visibilityPatterns = ImmutableSet.builder();
+    ImmutableSet.Builder<VisibilityPattern> withinViewPatterns = ImmutableSet.builder();
     GenruleDescription.Arg constructorArg = genruleDescription.createUnpopulatedConstructorArg();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     marshaller.populate(
@@ -74,9 +73,10 @@ public class GenruleDescriptionTest {
         constructorArg,
         declaredDeps,
         visibilityPatterns,
+        withinViewPatterns,
         instance);
     TargetNode<GenruleDescription.Arg, ?> targetNode =
-        new TargetNodeFactory(new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance()))
+        new TargetNodeFactory(new DefaultTypeCoercerFactory())
             .create(
                 Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
                 genruleDescription,
@@ -85,6 +85,7 @@ public class GenruleDescriptionTest {
                 buildTarget,
                 declaredDeps.build(),
                 visibilityPatterns.build(),
+                withinViewPatterns.build(),
                 createCellRoots(projectFilesystem));
     assertEquals(
         "SourcePaths and targets from cmd string should be extracted as extra deps.",
@@ -124,7 +125,7 @@ public class GenruleDescriptionTest {
     BuildRule transitiveDep = resolver.requireRule(transitiveDepNode.getBuildTarget());
     BuildRule genrule = resolver.requireRule(genruleNode.getBuildTarget());
 
-    assertThat(genrule.getDeps(), Matchers.containsInAnyOrder(dep, transitiveDep));
+    assertThat(genrule.getBuildDeps(), Matchers.containsInAnyOrder(dep, transitiveDep));
   }
 
 

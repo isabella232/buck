@@ -23,7 +23,9 @@ import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -31,6 +33,7 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -54,23 +57,29 @@ import java.util.Optional;
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
 
+  private final JavaBuckConfig javaBuckConfig;
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
   private final ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms;
   private final ListeningExecutorService dxExecutorService;
   private final CxxBuckConfig cxxBuckConfig;
+  private final DxConfig dxConfig;
 
   public AndroidInstrumentationApkDescription(
+      JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       JavacOptions androidJavacOptions,
       ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ListeningExecutorService dxExecutorService,
-      CxxBuckConfig cxxBuckConfig) {
+      CxxBuckConfig cxxBuckConfig,
+      DxConfig dxConfig) {
+    this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.javacOptions = androidJavacOptions;
     this.nativePlatforms = nativePlatforms;
     this.dxExecutorService = dxExecutorService;
     this.cxxBuckConfig = cxxBuckConfig;
+    this.dxConfig = dxConfig;
   }
 
   @Override
@@ -83,6 +92,7 @@ public class AndroidInstrumentationApkDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     BuildRule installableApk = resolver.getRule(args.apk);
     if (!(installableApk instanceof HasInstallableApk)) {
@@ -111,9 +121,11 @@ public class AndroidInstrumentationApkDescription
 
     Path primaryDexPath =
         AndroidBinary.getPrimaryDexPath(params.getBuildTarget(), params.getProjectFilesystem());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     AndroidBinaryGraphEnhancer graphEnhancer = new AndroidBinaryGraphEnhancer(
         params,
         resolver,
+        AndroidBinary.AaptMode.AAPT1,
         ResourceCompressionMode.DISABLED,
         FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
         /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -132,6 +144,8 @@ public class AndroidInstrumentationApkDescription
         resourcesToExclude,
         /* skipCrunchPngs */ false,
         args.includesVectorDrawables.orElse(false),
+        javaBuckConfig,
+        JavacFactory.create(ruleFinder, javaBuckConfig, null),
         javacOptions,
         EnumSet.noneOf(ExopackageMode.class),
         /* buildConfigValues */ BuildConfigFields.empty(),
@@ -143,6 +157,7 @@ public class AndroidInstrumentationApkDescription
         /* nativeLibraryMergeMap */ Optional.empty(),
         /* nativeLibraryMergeGlue */ Optional.empty(),
         /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
+        /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
         AndroidBinary.RelinkerMode.DISABLED,
         dxExecutorService,
         apkUnderTest.getManifestEntries(),
@@ -150,16 +165,17 @@ public class AndroidInstrumentationApkDescription
         new APKModuleGraph(
             targetGraph,
             params.getBuildTarget(),
-            Optional.empty()));
+            Optional.empty()),
+        dxConfig,
+        /* postFilterResourcesCommands */ Optional.empty());
 
     AndroidGraphEnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new AndroidInstrumentationApk(
         params
-            .copyWithExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps()))
-            .appendExtraDeps(rulesToExcludeFromDex),
+            .copyReplacingExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps()))
+            .copyAppendingExtraDeps(rulesToExcludeFromDex),
         ruleFinder,
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),

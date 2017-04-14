@@ -16,35 +16,30 @@
 
 package com.facebook.buck.jvm.groovy;
 
-import com.facebook.buck.jvm.common.ResourceValidator;
-import com.facebook.buck.jvm.java.CalculateAbi;
-import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
 import com.facebook.buck.jvm.java.ForkMode;
+import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibrary;
-import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 
 import java.util.Optional;
 import java.util.logging.Level;
@@ -77,74 +72,36 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-
-    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
-      BuildTarget testTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
-      BuildRule testRule = resolver.requireRule(testTarget);
-      return CalculateAbi.of(
-          params.getBuildTarget(),
-          ruleFinder,
-          params,
-          Preconditions.checkNotNull(testRule.getSourcePathToOutput()));
-    }
-
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-
     JavacOptions javacOptions = JavacOptionsFactory
         .create(
           defaultJavacOptions,
           params,
           resolver,
-          ruleFinder,
           args
-        )
-        // groovyc may or may not play nice with generating ABIs from source, so disabling for now
-        .withAbiGenerationMode(JavacOptions.AbiGenerationMode.CLASS);
-    GroovycToJarStepFactory stepFactory = new GroovycToJarStepFactory(
-        groovyBuckConfig.getGroovyCompiler().get(),
-        Optional.of(args.extraGroovycArguments),
-        javacOptions);
+        );
 
     BuildRuleParams testsLibraryParams =
-        params.appendExtraDeps(
-            Iterables.concat(
-                BuildRules.getExportedRules(
-                    Iterables.concat(
-                        params.getDeclaredDeps().get(),
-                        resolver.getAllRules(args.providedDeps))),
-                ruleFinder.filterBuildRuleInputs(
-                    defaultJavacOptions.getInputs(ruleFinder))))
-            .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
-    JavaLibrary testsLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                testsLibraryParams,
-                pathResolver,
-                ruleFinder,
-                args.srcs,
-                ResourceValidator.validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                defaultJavacOptions.getGeneratedSourceFolderName(),
-                /* proguardConfig */ Optional.empty(),
-                /* postprocessClassesCommands */ ImmutableList.of(),
-                /* exportDeps */ ImmutableSortedSet.of(),
-                /* providedDeps */ ImmutableSortedSet.of(),
-                JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                stepFactory,
-                args.resourcesRoot,
-                args.manifestFile,
-                args.mavenCoords,
-                args.tests,
-                args.removeClasses));
+        params.withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder = new DefaultGroovyLibraryBuilder(
+        testsLibraryParams,
+        resolver,
+        javacOptions,
+        groovyBuckConfig)
+        .setArgs(args)
+        .setGeneratedSourceFolder(defaultJavacOptions.getGeneratedSourceFolderName());
 
+    if (HasJavaAbi.isAbiTarget(params.getBuildTarget())) {
+      return defaultJavaLibraryBuilder.buildAbi();
+    }
+
+    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryBuilder.build());
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new JavaTest(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,

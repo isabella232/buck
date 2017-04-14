@@ -32,6 +32,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import javax.annotation.concurrent.ThreadSafe;
@@ -76,7 +77,8 @@ public class TargetNodeParsePipeline
       ParserTargetNodeFactory<TargetNode<?, ?>> targetNodeDelegate,
       ListeningExecutorService executorService,
       BuckEventBus eventBus,
-      boolean speculativeDepsTraversal, RawNodeParsePipeline rawNodeParsePipeline) {
+      boolean speculativeDepsTraversal,
+      RawNodeParsePipeline rawNodeParsePipeline) {
     super(executorService, cache);
 
     this.delegate = targetNodeDelegate;
@@ -89,8 +91,12 @@ public class TargetNodeParsePipeline
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Path buildFile, Map<String, Object> from) {
-    return BuildTarget.of(RawNodeParsePipeline.parseBuildTargetFromRawRule(root, from, buildFile));
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      Map<String, Object> from) {
+    return BuildTarget.of(
+        RawNodeParsePipeline.parseBuildTargetFromRawRule(root, cellName, from, buildFile));
   }
 
   @Override
@@ -121,21 +127,16 @@ public class TargetNodeParsePipeline
 
       if (speculativeDepsTraversal) {
         executorService.submit(() -> {
-          for (BuildTarget depTarget : targetNode.getDeps()) {
-            Path depCellPath = depTarget.getCellPath();
-            // TODO(marcinkosiba): Support crossing cell boundary from within the pipeline.
-            // Currently the cell name->Cell object mapping is held by the PerBuildState in a
-            // non-threadsafe way making it inconvenient to access from the pipeline.
-            if (depCellPath.equals(cell.getRoot())) {
-              try {
-                if (depTarget.isFlavored()) {
-                  getNodeJob(cell, BuildTarget.of(depTarget.getUnflavoredBuildTarget()));
-                }
-                getNodeJob(cell, depTarget);
-              } catch (BuildTargetException e) {
-                // No biggie, we'll hit the error again in the non-speculative path.
-                LOG.info(e, "Could not schedule speculative parsing for %s", depTarget);
+          for (BuildTarget depTarget : targetNode.getParseDeps()) {
+            Cell depCell = cell.getCellIgnoringVisibilityCheck(depTarget.getCellPath());
+            try {
+              if (depTarget.isFlavored()) {
+                getNodeJob(depCell, BuildTarget.of(depTarget.getUnflavoredBuildTarget()));
               }
+              getNodeJob(depCell, depTarget);
+            } catch (BuildTargetException e) {
+              // No biggie, we'll hit the error again in the non-speculative path.
+              LOG.info(e, "Could not schedule speculative parsing for %s", depTarget);
             }
           }
         });
@@ -157,11 +158,6 @@ public class TargetNodeParsePipeline
       Cell cell,
       BuildTarget buildTarget) throws BuildTargetException {
     return rawNodeParsePipeline.getNodeJob(cell, buildTarget);
-  }
-
-  @Override
-  protected boolean isValid(Map<String, Object> from) {
-    return super.isValid(from) && !TargetGroupParsePipeline.isTargetGroup(from);
   }
 
   @Override

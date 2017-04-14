@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  *
  * with specified string values.
  */
-class InfoPlistSubstitution {
+public class InfoPlistSubstitution {
 
   // Utility class, do not instantiate.
   private InfoPlistSubstitution() { }
@@ -155,7 +155,7 @@ class InfoPlistSubstitution {
           variablesToExpand,
           new ImmutableList.Builder<String>().addAll(maskedVariables).add(variableName).build());
 
-      // TODO(bhamiltoncx): Add support for "rfc1034identifier" modifier and sanitize
+      // TODO(beng): Add support for "rfc1034identifier" modifier and sanitize
       // expansion so it's a legal hostname (a-zA-Z0-9, dash, period).
 
       variableMatcher.appendReplacement(

@@ -35,7 +35,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -58,6 +58,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -92,7 +93,7 @@ public class AppleLibraryDescription implements
       StripStyle.ALL_SYMBOLS.getFlavor(),
       StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
       LinkerMapMode.NO_LINKER_MAP.getFlavor(),
-      ImmutableFlavor.of("default"));
+      InternalFlavor.of("default"));
 
   private enum Type implements FlavorConvertible {
     HEADERS(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -183,6 +184,7 @@ public class AppleLibraryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     Optional<Map.Entry<Flavor, Type>> type = LIBRARY_TYPE.getFlavorAndValue(
         params.getBuildTarget());
@@ -193,10 +195,12 @@ public class AppleLibraryDescription implements
           targetGraph,
           params,
           resolver,
+          cellRoots,
           args,
           args.linkStyle,
           Optional.empty(),
-          ImmutableSet.of());
+          ImmutableSet.of(),
+          ImmutableSortedSet.of());
     }
   }
 
@@ -247,17 +251,20 @@ public class AppleLibraryDescription implements
 
   /**
    * @param targetGraph The target graph.
+   * @param cellRoots The roots of known cells.
    * @param bundleLoader The binary in which the current library will be (dynamically) loaded into.
-   *                     Only valid when building a shared library with MACH_O_BUNDLE link type.
    */
   public <A extends AppleNativeTargetDescriptionArg> BuildRule createLibraryBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args,
       Optional<Linker.LinkableDepType> linkableDepType,
       Optional<SourcePath> bundleLoader,
-      ImmutableSet<BuildTarget> blacklist) throws NoSuchBuildTargetException {
+      ImmutableSet<BuildTarget> blacklist,
+      ImmutableSortedSet<BuildTarget> extraCxxDeps)
+      throws NoSuchBuildTargetException {
     // We explicitly remove flavors from params to make sure rule
     // has the same output regardless if we will strip or not.
     Optional<StripStyle> flavoredStripStyle =
@@ -269,12 +276,14 @@ public class AppleLibraryDescription implements
     BuildRule unstrippedBinaryRule = requireUnstrippedBuildRule(
         params,
         resolver,
+        cellRoots,
         targetGraph,
         args,
         linkableDepType,
         bundleLoader,
         blacklist,
-        pathResolver);
+        pathResolver,
+        extraCxxDeps);
 
     if (!shouldWrapIntoDebuggableBinary(params.getBuildTarget(), unstrippedBinaryRule)) {
         return unstrippedBinaryRule;
@@ -315,12 +324,15 @@ public class AppleLibraryDescription implements
   private <A extends AppleNativeTargetDescriptionArg> BuildRule requireUnstrippedBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       TargetGraph targetGraph,
       A args,
       Optional<Linker.LinkableDepType> linkableDepType,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
-      SourcePathResolver pathResolver) throws NoSuchBuildTargetException {
+      SourcePathResolver pathResolver,
+      ImmutableSortedSet<BuildTarget> extraCxxDeps)
+      throws NoSuchBuildTargetException {
     Optional<MultiarchFileInfo> multiarchFileInfo =
         MultiarchFileInfos.create(appleCxxPlatformFlavorDomain, params.getBuildTarget());
     if (multiarchFileInfo.isPresent()) {
@@ -328,19 +340,21 @@ public class AppleLibraryDescription implements
       for (BuildTarget thinTarget : multiarchFileInfo.get().getThinTargets()) {
         thinRules.add(
             requireSingleArchUnstrippedBuildRule(
-                params.copyWithBuildTarget(thinTarget),
+                params.withBuildTarget(thinTarget),
                 resolver,
+                cellRoots,
                 targetGraph,
                 args,
                 linkableDepType,
                 bundleLoader,
                 blacklist,
-                pathResolver));
+                pathResolver,
+                extraCxxDeps));
       }
       return MultiarchFileInfos.requireMultiarchRule(
           // In the same manner that debug flavors are omitted from single-arch constituents, they
           // are omitted here as well.
-          params.copyWithBuildTarget(
+          params.withBuildTarget(
               params.getBuildTarget().withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())),
           resolver,
           multiarchFileInfo.get(),
@@ -349,12 +363,14 @@ public class AppleLibraryDescription implements
       return requireSingleArchUnstrippedBuildRule(
           params,
           resolver,
+          cellRoots,
           targetGraph,
           args,
           linkableDepType,
           bundleLoader,
           blacklist,
-          pathResolver);
+          pathResolver,
+          extraCxxDeps);
     }
   }
 
@@ -362,15 +378,18 @@ public class AppleLibraryDescription implements
   requireSingleArchUnstrippedBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       TargetGraph targetGraph,
       A args,
       Optional<Linker.LinkableDepType> linkableDepType,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
-      SourcePathResolver pathResolver) throws NoSuchBuildTargetException {
+      SourcePathResolver pathResolver,
+      ImmutableSortedSet<BuildTarget> extraCxxDeps)
+      throws NoSuchBuildTargetException {
 
     Optional<BuildRule> swiftCompanionBuildRule = swiftDelegate.createCompanionBuildRule(
-        targetGraph, params, resolver, args);
+        targetGraph, params, resolver, cellRoots, args);
     if (swiftCompanionBuildRule.isPresent()) {
       // when creating a swift target, there is no need to proceed with apple binary rules,
       // otherwise, add this swift rule as a dependency.
@@ -381,7 +400,12 @@ public class AppleLibraryDescription implements
             .addAll(args.exportedDeps)
             .add(swiftCompanionBuildRule.get().getBuildTarget())
             .build();
-        params = params.appendExtraDeps(ImmutableSet.of(swiftCompanionBuildRule.get()));
+        params = params.copyAppendingExtraDeps(ImmutableSet.of(swiftCompanionBuildRule.get()));
+        extraCxxDeps =
+            ImmutableSortedSet.<BuildTarget>naturalOrder()
+                .addAll(extraCxxDeps)
+                .add(swiftCompanionBuildRule.get().getBuildTarget())
+                .build();
       }
     }
 
@@ -403,13 +427,16 @@ public class AppleLibraryDescription implements
     if (existingRule.isPresent()) {
       return existingRule.get();
     } else {
-      BuildRule rule = delegate.createBuildRule(
-          params.copyWithBuildTarget(unstrippedTarget),
-          resolver,
-          delegateArg,
-          linkableDepType,
-          bundleLoader,
-          blacklist);
+      BuildRule rule =
+          delegate.createBuildRule(
+              params.withBuildTarget(unstrippedTarget),
+              resolver,
+              cellRoots,
+              delegateArg,
+              linkableDepType,
+              bundleLoader,
+              blacklist,
+              extraCxxDeps);
       return resolver.addToIndex(rule);
     }
   }
@@ -502,30 +529,40 @@ public class AppleLibraryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       final BuildTarget buildTarget,
       final CellPathResolver cellRoots,
-      final AppleLibraryDescription.Arg constructorArg) {
-    return findDepsForTargetFromConstructorArgs(
+      final Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    findDepsForTargetFromConstructorArgs(
         buildTarget,
         cellRoots,
-        (AppleNativeTargetDescriptionArg) constructorArg);
+        (AppleNativeTargetDescriptionArg) constructorArg,
+        extraDepsBuilder,
+        targetGraphOnlyDepsBuilder);
   }
 
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       final BuildTarget buildTarget,
       final CellPathResolver cellRoots,
-      final AppleNativeTargetDescriptionArg constructorArg) {
-    return delegate.findDepsForTargetFromConstructorArgs(
-            buildTarget,
-            cellRoots,
-            constructorArg);
+      final AppleNativeTargetDescriptionArg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    delegate.findDepsForTargetFromConstructorArgs(
+        buildTarget,
+        cellRoots,
+        constructorArg,
+        extraDepsBuilder,
+        targetGraphOnlyDepsBuilder);
   }
 
-  public static boolean isSharedLibraryNode(TargetNode<CxxLibraryDescription.Arg, ?> node) {
+  public static boolean isNotStaticallyLinkedLibraryNode(
+      TargetNode<CxxLibraryDescription.Arg, ?> node) {
     SortedSet<Flavor> flavors = node.getBuildTarget().getFlavors();
     if (LIBRARY_TYPE.getFlavor(flavors).isPresent()) {
-      return flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
+      return flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR) ||
+             flavors.contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR);
     } else {
       return node.getConstructorArg().preferredLinkage.equals(Optional.of(Linkage.SHARED));
     }

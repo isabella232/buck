@@ -54,11 +54,11 @@ import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -71,8 +71,6 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -87,6 +85,7 @@ import java.io.PrintStream;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -99,7 +98,7 @@ public class TargetsCommand extends AbstractCommand {
 
   private static final Logger LOG = Logger.get(TargetsCommand.class);
 
-  // TODO(bolinfest): Use org.kohsuke.args4j.spi.PathOptionHandler. Currently, we resolve paths
+  // TODO(mbolin): Use org.kohsuke.args4j.spi.PathOptionHandler. Currently, we resolve paths
   // manually, which is likely the path to madness.
   @Option(name = "--referenced-file",
       aliases = {"--referenced_file"},
@@ -185,7 +184,7 @@ public class TargetsCommand extends AbstractCommand {
   private Supplier<ImmutableSet<String>> outputAttributes;
 
   @Argument
-  private List<String> arguments = Lists.newArrayList();
+  private List<String> arguments = new ArrayList<>();
 
   public List<String> getArguments() {
     return arguments;
@@ -697,7 +696,6 @@ public class TargetsCommand extends AbstractCommand {
     // Print the JSON representation of the build node for the specified target(s).
     params.getConsole().getStdOut().println("[");
 
-    ObjectMapper mapper = params.getObjectMapper();
     Iterator<TargetNode<?, ?>> targetNodeIterator = targetNodes.iterator();
 
     while (targetNodeIterator.hasNext()) {
@@ -752,7 +750,7 @@ public class TargetsCommand extends AbstractCommand {
       // Print the build rule information as JSON.
       StringWriter stringWriter = new StringWriter();
       try {
-        mapper.writerWithDefaultPrettyPrinter().writeValue(stringWriter, sortedTargetRule);
+        ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, sortedTargetRule);
       } catch (IOException e) {
         // Shouldn't be possible while writing to a StringWriter...
         throw new RuntimeException(e);
@@ -899,7 +897,8 @@ public class TargetsCommand extends AbstractCommand {
               targetGraphAndTargetNodes
                   .getTargetGraph()
                   .getSubgraph(targetGraphAndTargetNodes.getTargetNodes())
-                  .getNodes());
+                  .getNodes()
+                  .iterator());
       LOG.debug("Got explicit test targets: %s", explicitTestTargets);
 
       Iterable<BuildTarget> matchingBuildTargetsWithTests =
@@ -999,9 +998,9 @@ public class TargetsCommand extends AbstractCommand {
 
     AcyclicDepthFirstPostOrderTraversal<TargetNode<?, ?>> traversal =
         new AcyclicDepthFirstPostOrderTraversal<>(
-            node -> targetGraphWithTests.getAll(node.getDeps()).iterator());
+            node -> targetGraphWithTests.getAll(node.getParseDeps()).iterator());
 
-    Map<BuildTarget, HashCode> hashesWithTests = Maps.newHashMap();
+    Map<BuildTarget, HashCode> hashesWithTests = new HashMap<>();
 
     for (TargetNode<?, ?> node : traversal.traverse(inputTargets)) {
       hashNodeWithDependencies(
@@ -1022,7 +1021,7 @@ public class TargetsCommand extends AbstractCommand {
     Hasher hasher = Hashing.sha1().newHasher();
     hasher.putBytes(nodeHashCode.asBytes());
 
-    Iterable<BuildTarget> dependentTargets = node.getDeps();
+    Iterable<BuildTarget> dependentTargets = node.getParseDeps();
     LOG.debug("Hashing target %s with dependent nodes %s", node, dependentTargets);
     for (BuildTarget targetToHash : dependentTargets) {
       HashCode dependencyHash = getHashCodeOrThrow(hashesWithTests, targetToHash);

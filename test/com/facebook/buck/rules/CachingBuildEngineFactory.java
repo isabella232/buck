@@ -16,19 +16,14 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
-import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
 import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Function;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -40,13 +35,13 @@ import java.util.Optional;
 public class CachingBuildEngineFactory {
 
   private CachingBuildEngine.BuildMode buildMode = CachingBuildEngine.BuildMode.SHALLOW;
+  private CachingBuildEngine.MetadataStorage metadataStorage =
+      CachingBuildEngine.MetadataStorage.FILESYSTEM;
   private CachingBuildEngine.DepFiles depFiles = CachingBuildEngine.DepFiles.ENABLED;
   private long maxDepFileCacheEntries = 256L;
   private Optional<Long> artifactCacheSizeLimit = Optional.empty();
   private long inputFileSizeLimit = Long.MAX_VALUE;
-  private ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
-  private Optional<Function<? super ProjectFilesystem, RuleKeyFactories>>
-      ruleKeyFactoriesFunction = Optional.empty();
+  private Optional<RuleKeyFactories> ruleKeyFactories = Optional.empty();
   private CachingBuildEngineDelegate cachingBuildEngineDelegate;
   private WeightedListeningExecutorService executorService;
   private BuildRuleResolver buildRuleResolver;
@@ -99,29 +94,27 @@ public class CachingBuildEngineFactory {
     return this;
   }
 
-  public CachingBuildEngineFactory setRuleKeyFactoriesFunction(
-      Function<? super ProjectFilesystem, RuleKeyFactories> ruleKeyFactoriesFunction) {
-    this.ruleKeyFactoriesFunction =
-        Optional.of(
-            ruleKeyFactoriesFunction);
+  public CachingBuildEngineFactory setRuleKeyFactories(RuleKeyFactories ruleKeyFactories) {
+    this.ruleKeyFactories = Optional.of(ruleKeyFactories);
     return this;
   }
 
   public CachingBuildEngine build() {
-    if (ruleKeyFactoriesFunction.isPresent()) {
+    if (ruleKeyFactories.isPresent()) {
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
       return new CachingBuildEngine(
           cachingBuildEngineDelegate,
           executorService,
           new DefaultStepRunner(),
           buildMode,
+          metadataStorage,
           depFiles,
           maxDepFileCacheEntries,
           artifactCacheSizeLimit,
           buildRuleResolver,
           ruleFinder,
           new SourcePathResolver(ruleFinder),
-          ruleKeyFactoriesFunction.get(),
+          ruleKeyFactories.get(),
           resourceAwareSchedulingInfo);
     }
 
@@ -131,15 +124,15 @@ public class CachingBuildEngineFactory {
         executorService,
         new DefaultStepRunner(),
         buildMode,
+        metadataStorage,
         depFiles,
         maxDepFileCacheEntries,
         artifactCacheSizeLimit,
-        objectMapper,
         buildRuleResolver,
         resourceAwareSchedulingInfo,
-        new RuleKeyFactoryManager(
+        RuleKeyFactories.of(
             0,
-            cachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
+            cachingBuildEngineDelegate.getFileHashCache(),
             buildRuleResolver,
             inputFileSizeLimit,
             new DefaultRuleKeyCache<>()));

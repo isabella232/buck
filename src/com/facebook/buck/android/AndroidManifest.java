@@ -90,10 +90,10 @@ public class AndroidManifest extends AbstractBuildRule {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
-    commands.add(new RmStep(getProjectFilesystem(), pathToOutputFile));
+    commands.add(RmStep.of(getProjectFilesystem(), pathToOutputFile));
 
     // Make sure the directory for the output file exists.
-    commands.add(new MkdirStep(getProjectFilesystem(), pathToOutputFile.getParent()));
+    commands.add(MkdirStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
 
     commands.add(
         new GenerateManifestStep(

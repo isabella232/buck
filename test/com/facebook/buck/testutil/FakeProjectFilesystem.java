@@ -79,8 +79,6 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarInputStream;
 import java.util.jar.Manifest;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 import javax.annotation.Nullable;
 
@@ -383,7 +381,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public boolean isFile(Path path) {
+  public boolean isFile(Path path, LinkOption... options) {
     return fileContents.containsKey(MorePaths.normalize(path));
   }
 
@@ -423,22 +421,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public ImmutableCollection<Path> getZipMembers(Path archivePath) throws IOException {
-    // We can't use ZipFile here because it won't work with streams. We don't use ZipInputStream
-    // in the real ProjectFilesystem because it reads the entire zip file to list entries, whereas
-    // ZipFile just looks at the directory if it exists.
-    try (ZipInputStream zipInputStream = new ZipInputStream(newFileInputStream(archivePath))) {
-      ImmutableList.Builder<Path> resultBuilder = ImmutableList.builder();
-      ZipEntry zipEntry;
-      while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-        resultBuilder.add(Paths.get(zipEntry.getName()));
-      }
-
-      return resultBuilder.build();
-    }
-  }
-
-  @Override
   public ImmutableSortedSet<Path> getMtimeSortedMatchingDirectoryContents(
       final Path pathRelativeToProjectRoot,
       String globPattern)
@@ -467,12 +449,12 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public long getLastModifiedTime(Path path) throws IOException {
+  public FileTime getLastModifiedTime(Path path) throws IOException {
     Path normalizedPath = MorePaths.normalize(path);
     if (!exists(normalizedPath)) {
       throw new NoSuchFileException(path.toString());
     }
-    return Preconditions.checkNotNull(fileLastModifiedTimes.get(normalizedPath)).toMillis();
+    return Preconditions.checkNotNull(fileLastModifiedTimes.get(normalizedPath));
   }
 
   @Override

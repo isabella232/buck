@@ -37,10 +37,8 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.network.FakeFailingScribeLogger;
 import com.facebook.buck.util.network.ScribeLogger;
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonParser;
 import com.google.common.base.Charsets;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.ObjectArrays;
@@ -68,6 +66,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.ParametersAreNonnullByDefault;
+
 public class OfflineScribeLoggerTest {
 
   @Rule
@@ -83,7 +83,6 @@ public class OfflineScribeLoggerTest {
     final int maxScribeOfflineLogsKB = 7;
     final ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     final Path logDir = filesystem.getBuckPaths().getOfflineLogDir();
-    final ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
     String[] ids = {"test1", "test2", "test3", "test4"};
 
     char[] longLineBytes = new char[1000];
@@ -108,7 +107,6 @@ public class OfflineScribeLoggerTest {
           maxScribeOfflineLogsKB,
           filesystem,
           logDir,
-          objectMapper,
           new BuildId(id));
 
       // Simulate network issues occurring for some of sending attempts (all after first one).
@@ -147,11 +145,9 @@ public class OfflineScribeLoggerTest {
     }
 
     // Check correct logs are in the directory (1st log removed).
-    Path[] expectedLogPaths = FluentIterable
-        .from(ImmutableList.copyOf(ids))
-        .transform(
-            id -> filesystem.resolve(logDir.resolve(LOGFILE_PREFIX + id + LOGFILE_SUFFIX)))
-        .toArray(Path.class);
+    Path[] expectedLogPaths = Arrays.stream(ids)
+        .map(id -> filesystem.resolve(logDir.resolve(LOGFILE_PREFIX + id + LOGFILE_SUFFIX)))
+        .toArray(Path[]::new);
 
     ImmutableSortedSet<Path> logs =
         filesystem.getMtimeSortedMatchingDirectoryContents(logDir, LOGFILE_PATTERN);
@@ -169,35 +165,32 @@ public class OfflineScribeLoggerTest {
     String[] whitelistedCategories = {whitelistedCategory, whitelistedCategory2};
     String[][] whitelistedLines = {{"hello world 3", "hello world 4"}, {longLine, longLine}};
 
-    Iterator<ScribeData> it = null;
-    try {
-      it = new ObjectMapper().readValues(
-          new JsonFactory().createParser(logFile), ScribeData.class);
+    try (JsonParser jsonParser = ObjectMappers.createParser(logFile)) {
+      Iterator<ScribeData> it = ObjectMappers.READER.readValues(jsonParser, ScribeData.class);
+      int dataNum = 0;
+      try {
+        while (it.hasNext()) {
+          assertTrue(dataNum < 2);
+
+          ScribeData data = it.next();
+          assertThat(data.getCategory(), is(whitelistedCategories[dataNum]));
+          assertThat(data.getLines(), Matchers.allOf(
+              hasItem(whitelistedLines[dataNum][0]),
+              hasItem(whitelistedLines[dataNum][1]),
+              IsIterableWithSize.<String>iterableWithSize(2)
+          ));
+
+          dataNum++;
+        }
+      } catch (Exception e) {
+        fail("Reading stored offline log failed.");
+      }
+
+      logFile.close();
+      assertEquals(2, dataNum);
     } catch (Exception e) {
       fail("Obtaining iterator for reading the log failed.");
     }
-
-    int dataNum = 0;
-    try {
-      while (it.hasNext()) {
-        assertTrue(dataNum < 2);
-
-        ScribeData data = it.next();
-        assertThat(data.getCategory(), is(whitelistedCategories[dataNum]));
-        assertThat(data.getLines(), Matchers.allOf(
-            hasItem(whitelistedLines[dataNum][0]),
-            hasItem(whitelistedLines[dataNum][1]),
-            IsIterableWithSize.<String>iterableWithSize(2)
-        ));
-
-        dataNum++;
-      }
-    } catch (Exception e) {
-      fail("Reading stored offline log failed.");
-    }
-
-    logFile.close();
-    assertEquals(2, dataNum);
   }
 
   @Test
@@ -206,7 +199,6 @@ public class OfflineScribeLoggerTest {
     final int maxScribeOfflineLogsKB = 2;
     final ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     final Path logDir = filesystem.getBuckPaths().getOfflineLogDir();
-    final ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
     final String[] ids = {"test1", "test2", "test3"};
     final String[] uniqueCategories = {"cat1", "cat2"};
     final String[] categories = {uniqueCategories[0], uniqueCategories[1], uniqueCategories[0]};
@@ -236,7 +228,7 @@ public class OfflineScribeLoggerTest {
       BufferedOutputStream logFileStoreStream =
           new BufferedOutputStream(new FileOutputStream(log));
       for (String category : categories) {
-        byte[] scribeData = objectMapper
+        byte[] scribeData = ObjectMappers.WRITER
             .writeValueAsString(
                 ScribeData.builder()
                     .setCategory(category)
@@ -254,7 +246,6 @@ public class OfflineScribeLoggerTest {
         blacklistCategories,
         maxScribeOfflineLogsKB,
         filesystem,
-        objectMapper,
         BuckEventBusFactory.newInstance(),
         new BuildId("sendingLogger"));
     offlineLogger.log(testCategory, ImmutableList.of("line1", "line2"));
@@ -300,13 +291,11 @@ public class OfflineScribeLoggerTest {
     private final OfflineScribeLogger offlineScribeLogger;
     private final AtomicInteger storedCategoriesWithLines;
 
-
-    public FakeFailingOfflineScribeLogger(
+    FakeFailingOfflineScribeLogger(
         ImmutableList<String> blacklistCategories,
         int maxScribeOfflineLogs,
         ProjectFilesystem filesystem,
         Path logDir,
-        ObjectMapper objectMapper,
         BuildId id) throws IOException {
       this.blacklistCategories = blacklistCategories;
       this.id = id;
@@ -317,7 +306,6 @@ public class OfflineScribeLoggerTest {
           blacklistCategories,
           maxScribeOfflineLogs,
           filesystem,
-          objectMapper,
           BuckEventBusFactory.newInstance(),
           id);
       this.storedCategoriesWithLines = new AtomicInteger(0);
@@ -334,6 +322,7 @@ public class OfflineScribeLoggerTest {
             }
 
             @Override
+            @ParametersAreNonnullByDefault
             public void onFailure(Throwable t) {
               if (!blacklistCategories.contains(category)) {
                 storedCategoriesWithLines.incrementAndGet();
@@ -348,11 +337,11 @@ public class OfflineScribeLoggerTest {
       offlineScribeLogger.close();
     }
 
-    public int getAttemptStoringCategoriesWithLinesCount() {
+    int getAttemptStoringCategoriesWithLinesCount() {
       return storedCategoriesWithLines.get();
     }
 
-    public BufferedInputStream getStoredLog() throws FileNotFoundException {
+    BufferedInputStream getStoredLog() throws FileNotFoundException {
       return new BufferedInputStream(
           new FileInputStream(
               filesystem

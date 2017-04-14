@@ -21,7 +21,7 @@ import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -40,6 +40,7 @@ import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -50,7 +51,7 @@ public class DBinaryDescription implements
     ImplicitDepsInferringDescription<DBinaryDescription.Arg>,
     VersionRoot<DBinaryDescription.Arg> {
 
-  public static final Flavor BINARY_FLAVOR = ImmutableFlavor.of("binary");
+  public static final Flavor BINARY_FLAVOR = InternalFlavor.of("binary");
 
   private final DBuckConfig dBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
@@ -75,6 +76,7 @@ public class DBinaryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
       A args)
       throws NoSuchBuildTargetException {
 
@@ -94,7 +96,7 @@ public class DBinaryDescription implements
     // rule to the index.
     CxxLink nativeLinkable =
         DDescriptionUtils.createNativeLinkable(
-            params.copyWithBuildTarget(params.getBuildTarget().withAppendedFlavors(BINARY_FLAVOR)),
+            params.withAppendedFlavor(BINARY_FLAVOR),
             buildRuleResolver,
             cxxPlatform,
             dBuckConfig,
@@ -117,7 +119,7 @@ public class DBinaryDescription implements
     // Return a BinaryBuildRule implementation, so that this works
     // with buck run etc.
     return new DBinary(
-        params.copyWithExtraDeps(
+        params.copyReplacingExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
         ruleFinder,
         executableBuilder.build(),
@@ -125,11 +127,13 @@ public class DBinaryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    return cxxPlatform.getLd().getParseTimeDeps();
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(cxxPlatform.getLd().getParseTimeDeps());
   }
 
   @Override

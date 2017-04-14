@@ -22,7 +22,7 @@ import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -105,7 +105,7 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<Arg> args) {
-    return params.appendExtraDeps(
+    return params.copyAppendingExtraDeps(
         Iterables.concat(Iterables.transform(args, arg -> arg.getDeps(ruleFinder))));
   }
 
@@ -162,22 +162,23 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
       relinkerSteps.addAll(
           new CxxLink(
               buildRuleParams
-                  .withFlavor(ImmutableFlavor.of("cxx-link"))
+                  .withAppendedFlavor(InternalFlavor.of("cxx-link"))
                   .withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
               linker,
               getLibFilePath(),
               args,
               cxxBuckConfig.getLinkScheduleInfo(),
-              cxxBuckConfig.shouldCacheLinks())
+              cxxBuckConfig.shouldCacheLinks(),
+              /* thinLto */ false)
               .getBuildSteps(context, buildableContext));
       buildableContext.recordArtifact(getRelativeVersionFilePath());
     }
 
     buildableContext.recordArtifact(getSymbolsNeededOutPath());
 
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getScratchDirPath()),
-        new AbstractExecutionStep("xdso-dce relinker") {
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getScratchDirPath()))
+        .add(new AbstractExecutionStep("xdso-dce relinker") {
           @Override
           public StepExecutionResult execute(ExecutionContext context)
               throws IOException, InterruptedException {
@@ -201,7 +202,8 @@ class RelinkerRule extends AbstractBuildRuleWithResolver implements OverrideSche
                     getSymbols(context.getProcessExecutor(), getLibFilePath()).undefined));
             return StepExecutionResult.SUCCESS;
           }
-        });
+        })
+        .build();
   }
 
   @Override

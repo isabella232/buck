@@ -17,6 +17,7 @@
 package com.facebook.buck.slb;
 
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
@@ -31,12 +32,14 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Callback;
+import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -64,15 +67,24 @@ public class ClientSideSlb implements HttpLoadBalancer {
 
   // Use the Builder.
   public ClientSideSlb(ClientSideSlbConfig config) {
-    this(config, new OkHttpClient.Builder()
-        .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-        .readTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-        .writeTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
-        .build());
+    this(config,
+        Executors.newSingleThreadScheduledExecutor(
+            new CommandThreadFactory("ClientSideSlb", Thread.MAX_PRIORITY)),
+        new OkHttpClient.Builder()
+            .dispatcher(new Dispatcher(Executors.newCachedThreadPool(new CommandThreadFactory(
+                "ClientSideSlb/OkHttpClient",
+                Thread.MAX_PRIORITY))))
+            .connectTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+            .readTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+            .writeTimeout(config.getConnectionTimeoutMillis(), TimeUnit.MILLISECONDS)
+            .build());
   }
 
   @VisibleForTesting
-  ClientSideSlb(ClientSideSlbConfig config, OkHttpClient pingClient) {
+  ClientSideSlb(
+      ClientSideSlbConfig config,
+      ScheduledExecutorService executor,
+      OkHttpClient pingClient) {
     this.clock = config.getClock();
     this.pingEndpoint = Preconditions.checkNotNull(config.getPingEndpoint());
     this.serverPool = Preconditions.checkNotNull(config.getServerPool());
@@ -88,7 +100,7 @@ public class ClientSideSlb implements HttpLoadBalancer {
         config.getEventBus(),
         this.clock);
     this.pingClient = pingClient;
-    this.schedulerService = config.getSchedulerService();
+    this.schedulerService = executor;
     backgroundHealthChecker = this.schedulerService.scheduleWithFixedDelay(
         this::backgroundThreadCallForHealthCheck,
         0,
@@ -114,6 +126,8 @@ public class ClientSideSlb implements HttpLoadBalancer {
   @Override
   public void close() {
     backgroundHealthChecker.cancel(true);
+    schedulerService.shutdownNow();
+    pingClient.dispatcher().executorService().shutdownNow();
   }
 
   // TODO(ruibm): Register for BuildStart events in the EventBus and force a health check then.

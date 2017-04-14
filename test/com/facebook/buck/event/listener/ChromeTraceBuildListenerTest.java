@@ -63,7 +63,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -139,7 +138,6 @@ public class ChromeTraceBuildListenerTest {
         projectFilesystem,
         invocationInfo,
         new FakeClock(TIMESTAMP_NANOS),
-        ObjectMappers.newDefaultInstance(),
         Locale.US,
         TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 3,
@@ -166,14 +164,11 @@ public class ChromeTraceBuildListenerTest {
   public void testBuildJson() throws IOException {
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmpDir.getRoot().toPath());
 
-    ObjectMapper mapper = ObjectMappers.newDefaultInstance();
-
     BuildId buildId = new BuildId("ChromeTraceBuildListenerTestBuildId");
     ChromeTraceBuildListener listener = new ChromeTraceBuildListener(
         projectFilesystem,
         invocationInfo,
         new FakeClock(TIMESTAMP_NANOS),
-        mapper,
         Locale.US,
         TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 42,
@@ -209,6 +204,7 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(new PerfStatsTracking.MemoryPerfStatsEvent(
         /* freeMemoryBytes */ 1024 * 1024L,
         /* totalMemoryBytes */ 3 * 1024 * 1024L,
+        /* maxMemoryBytes */ 4 * 1024 * 1024L,
         /* timeSpentInGcMs */ -1,
         /* currentMemoryBytesUsageByPool */ ImmutableMap.of("flower", 42L * 1024 * 1024)));
     ArtifactCacheConnectEvent.Started artifactCacheConnectEventStarted =
@@ -298,7 +294,7 @@ public class ChromeTraceBuildListenerTest {
             CacheResult.miss(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             Optional.empty(),
-            Optional.empty()));
+            Optional.empty(), Optional.empty()));
 
     try (final SimplePerfEvent.Scope scope1 = SimplePerfEvent.scope(
         eventBus,
@@ -317,7 +313,7 @@ public class ChromeTraceBuildListenerTest {
 
     File resultFile = new File(tmpDir.getRoot(), "buck-out/log/build.trace");
 
-    List<ChromeTraceEvent> originalResultList = mapper.readValue(
+    List<ChromeTraceEvent> originalResultList = ObjectMappers.readValue(
         resultFile,
         new TypeReference<List<ChromeTraceEvent>>() {});
     List<ChromeTraceEvent> resultListCopy = new ArrayList<>();
@@ -340,12 +336,14 @@ public class ChromeTraceBuildListenerTest {
         resultListCopy,
         "memory",
         ChromeTraceEvent.Phase.COUNTER,
-        ImmutableMap.of(
-            "used_memory_mb", "2",
-            "free_memory_mb", "1",
-            "total_memory_mb", "3",
-            "time_spent_in_gc_sec", "0",
-            "pool_flower_mb", "42"));
+        ImmutableMap.<String, String>builder()
+            .put("used_memory_mb", "2")
+            .put("free_memory_mb", "1")
+            .put("total_memory_mb", "3")
+            .put("max_memory_mb", "4")
+            .put("time_spent_in_gc_sec", "0")
+            .put("pool_flower_mb", "42")
+            .build());
 
     assertNextResult(
         resultListCopy,
@@ -535,7 +533,6 @@ public class ChromeTraceBuildListenerTest {
           projectFilesystem,
           invocationInfo,
           new FakeClock(TIMESTAMP_NANOS),
-          ObjectMappers.newDefaultInstance(),
           Locale.US,
           TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 3,
@@ -560,7 +557,6 @@ public class ChromeTraceBuildListenerTest {
         projectFilesystem,
         invocationInfo,
         new FakeClock(TIMESTAMP_NANOS),
-        ObjectMappers.newDefaultInstance(),
         Locale.US,
         TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 1,
@@ -579,7 +575,6 @@ public class ChromeTraceBuildListenerTest {
         projectFilesystem,
         invocationInfo,
         new FakeClock(TIMESTAMP_NANOS),
-        ObjectMappers.newDefaultInstance(),
         Locale.US,
         TimeZone.getTimeZone("America/Los_Angeles"),
         /* tracesToKeep */ 1,

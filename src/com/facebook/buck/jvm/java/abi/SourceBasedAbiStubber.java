@@ -17,35 +17,34 @@
 package com.facebook.buck.jvm.java.abi;
 
 import com.facebook.buck.jvm.java.abi.source.api.BootClasspathOracle;
-import com.facebook.buck.jvm.java.plugin.PluginLoader;
-import com.facebook.buck.util.ClassLoaderCache;
+import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskListener;
+import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskProxy;
+import com.facebook.buck.jvm.java.plugin.api.PluginClassLoader;
 import com.facebook.buck.util.HumanReadableException;
 
 import java.lang.reflect.Constructor;
 
 import javax.tools.Diagnostic;
-import javax.tools.JavaCompiler;
 
 public final class SourceBasedAbiStubber {
-  public static Object newValidatingTaskListener(
-      ClassLoaderCache classLoaderCache,
-      JavaCompiler.CompilationTask task,
+  public static BuckJavacTaskListener newValidatingTaskListener(
+      PluginClassLoader pluginLoader,
+      BuckJavacTaskProxy task,
       BootClasspathOracle bootClasspathOracle,
       Diagnostic.Kind messageKind) {
     try {
-      final ClassLoader pluginClassLoader =
-          PluginLoader.getPluginClassLoader(classLoaderCache, task);
-      final Class<?> validatingTaskListenerClass = Class.forName(
+      Class<?> validatingTaskListenerClass = pluginLoader.loadClass(
           "com.facebook.buck.jvm.java.abi.source.ValidatingTaskListener",
-          false,
-          pluginClassLoader);
+          Object.class);
       final Constructor<?> constructor =
           validatingTaskListenerClass.getConstructor(
-              JavaCompiler.CompilationTask.class,
+              BuckJavacTaskProxy.class,
               BootClasspathOracle.class,
               Diagnostic.Kind.class);
 
-      return constructor.newInstance(task, bootClasspathOracle, messageKind);
+      return BuckJavacTaskListener.wrapRealTaskListener(
+          pluginLoader,
+          constructor.newInstance(task, bootClasspathOracle, messageKind));
     } catch (ReflectiveOperationException e) {
       throw new HumanReadableException(
           e,

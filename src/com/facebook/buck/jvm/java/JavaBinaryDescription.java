@@ -21,7 +21,7 @@ import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
@@ -29,7 +29,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -38,6 +38,7 @@ import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -52,7 +53,7 @@ public class JavaBinaryDescription implements
     ImplicitDepsInferringDescription<JavaBinaryDescription.Args>,
     VersionRoot<JavaBinaryDescription.Args> {
 
-  private static final Flavor FAT_JAR_INNER_JAR_FLAVOR = ImmutableFlavor.of("inner-jar");
+  private static final Flavor FAT_JAR_INNER_JAR_FLAVOR = InternalFlavor.of("inner-jar");
 
   private final JavacOptions javacOptions;
   private final CxxPlatform cxxPlatform;
@@ -80,29 +81,27 @@ public class JavaBinaryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableMap<String, SourcePath> nativeLibraries =
-        JavaLibraryRules.getNativeLibraries(params.getDeps(), cxxPlatform);
+        JavaLibraryRules.getNativeLibraries(params.getBuildDeps(), cxxPlatform);
     BuildRuleParams binaryParams = params;
 
     // If we're packaging native libraries, we'll build the binary JAR in a separate rule and
     // package it into the final fat JAR, so adjust it's params to use a flavored target.
     if (!nativeLibraries.isEmpty()) {
-      binaryParams = params.copyWithChanges(
-          params.getBuildTarget().withAppendedFlavors(FAT_JAR_INNER_JAR_FLAVOR),
-          params.getDeclaredDeps(),
-          params.getExtraDeps());
+      binaryParams = params.withAppendedFlavor(FAT_JAR_INNER_JAR_FLAVOR);
     }
 
     // Construct the build rule to build the binary JAR.
     ImmutableSet<JavaLibrary> transitiveClasspathDeps =
-        JavaLibraryClasspathProvider.getClasspathDeps(binaryParams.getDeps());
+        JavaLibraryClasspathProvider.getClasspathDeps(binaryParams.getBuildDeps());
     ImmutableSet<SourcePath> transitiveClasspaths =
         JavaLibraryClasspathProvider.getClasspathsFromLibraries(transitiveClasspathDeps);
     BuildRule rule = new JavaBinary(
-        binaryParams.appendExtraDeps(transitiveClasspathDeps),
+        binaryParams.copyAppendingExtraDeps(transitiveClasspathDeps),
         javaOptions.getJavaRuntimeLauncher(),
         args.mainClass.orElse(null),
         args.manifestFile.orElse(null),
@@ -120,7 +119,7 @@ public class JavaBinaryDescription implements
       resolver.addToIndex(innerJarRule);
       SourcePath innerJar = innerJarRule.getSourcePathToOutput();
       rule = new JarFattener(
-          params.appendExtraDeps(
+          params.copyAppendingExtraDeps(
               Suppliers.<Iterable<BuildRule>>ofInstance(
                   ruleFinder.filterBuildRuleInputs(
                       ImmutableList.<SourcePath>builder()
@@ -128,6 +127,7 @@ public class JavaBinaryDescription implements
                           .addAll(nativeLibraries.values())
                           .build()))),
           ruleFinder,
+          JavacFactory.create(ruleFinder, javaBuckConfig, null),
           javacOptions,
           innerJar,
           nativeLibraries,
@@ -138,11 +138,13 @@ public class JavaBinaryDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Args constructorArg) {
-    return CxxPlatforms.getParseTimeDeps(cxxPlatform);
+      Args constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
   }
 
   @Override

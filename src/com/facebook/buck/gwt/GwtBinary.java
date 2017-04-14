@@ -145,11 +145,11 @@ public class GwtBinary extends AbstractBuildRule {
     Path workingDirectory =
         context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()).getParent();
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
-    steps.add(new MakeCleanDirectoryStep(projectFilesystem, workingDirectory));
+    steps.addAll(MakeCleanDirectoryStep.of(projectFilesystem, workingDirectory));
 
     // Write the deploy files into a separate directory so that the generated .zip is smaller.
     final Path deployDirectory = workingDirectory.resolve("deploy");
-    steps.add(new MkdirStep(projectFilesystem, deployDirectory));
+    steps.add(MkdirStep.of(projectFilesystem, deployDirectory));
 
     Step javaStep = new ShellStep(projectFilesystem.getRootPath()) {
       @Override

@@ -73,6 +73,9 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
   private final SourcePathRuleFinder ruleFinder;
+  @AddToRuleKey
+  private final Javac javac;
+  @AddToRuleKey
   private final JavacOptions javacOptions;
   @AddToRuleKey
   private final SourcePath innerJar;
@@ -85,17 +88,20 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
   public JarFattener(
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
+      Javac javac,
       JavacOptions javacOptions,
       SourcePath innerJar,
       ImmutableMap<String, SourcePath> nativeLibraries,
       JavaRuntimeLauncher javaRuntimeLauncher) {
     super(params);
     this.ruleFinder = ruleFinder;
+    this.javac = javac;
     this.javacOptions = javacOptions;
     this.innerJar = innerJar;
     this.nativeLibraries = nativeLibraries;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
-    this.output = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s")
+    this.output = BuildTargets
+        .getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
         .resolve(getBuildTarget().getShortName() + ".jar");
   }
 
@@ -108,20 +114,20 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     Path outputDir = getOutputDirectory();
     Path fatJarDir = outputDir.resolve("fat-jar-directory");
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
 
     // Map of the system-specific shared library name to it's resource name as a string.
     ImmutableMap.Builder<String, String> sonameToResourceMapBuilder = ImmutableMap.builder();
     for (Map.Entry<String, SourcePath> entry : nativeLibraries.entrySet()) {
       String resource = FAT_JAR_NATIVE_LIBRARY_RESOURCE_ROOT + "/" + entry.getKey();
       sonameToResourceMapBuilder.put(entry.getKey(), resource);
-      steps.add(new MkdirStep(getProjectFilesystem(), fatJarDir.resolve(resource).getParent()));
+      steps.add(MkdirStep.of(getProjectFilesystem(), fatJarDir.resolve(resource).getParent()));
       steps.add(
-          new SymlinkFileStep(
-              getProjectFilesystem(),
-              context.getSourcePathResolver().getAbsolutePath(entry.getValue()),
-              fatJarDir.resolve(resource),
-              /* useAbsolutePaths */ true));
+          SymlinkFileStep.builder()
+              .setFilesystem(getProjectFilesystem())
+              .setExistingFile(context.getSourcePathResolver().getAbsolutePath(entry.getValue()))
+              .setDesiredLink(fatJarDir.resolve(resource))
+              .build());
     }
     ImmutableMap<String, String> sonameToResourceMap = sonameToResourceMapBuilder.build();
 
@@ -142,15 +148,15 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     // Symlink the inner JAR into it's place in the fat JAR.
     steps.add(
-        new MkdirStep(
+        MkdirStep.of(
             getProjectFilesystem(),
             fatJarDir.resolve(FAT_JAR_INNER_JAR).getParent()));
     steps.add(
-        new SymlinkFileStep(
-            getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(innerJar),
-            fatJarDir.resolve(FAT_JAR_INNER_JAR),
-            /* useAbsolutePaths */ true));
+        SymlinkFileStep.builder()
+            .setFilesystem(getProjectFilesystem())
+            .setExistingFile(context.getSourcePathResolver().getAbsolutePath(innerJar))
+            .setDesiredLink(fatJarDir.resolve(FAT_JAR_INNER_JAR))
+            .build());
 
     // Build the final fat JAR from the structure we've layed out above.  We first package the
     // fat jar resources (e.g. native libs) using the "stored" compression level, to avoid
@@ -167,10 +173,13 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     Path pathToSrcsList =
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__srcs");
-    steps.add(new MkdirStep(getProjectFilesystem(), pathToSrcsList.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), pathToSrcsList.getParent()));
 
     CompileToJarStepFactory compileStepFactory =
-        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY);
+        new JavacToJarStepFactory(
+            javac,
+            javacOptions,
+            JavacOptionsAmender.IDENTITY);
 
     compileStepFactory.createCompileStep(
         context,
@@ -183,7 +192,6 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
         fatJarDir,
         /* workingDir */ Optional.empty(),
         pathToSrcsList,
-        /* suggestBuildRule */ Optional.empty(),
         NoOpClassUsageFileWriter.instance(),
         steps,
         buildableContext);
@@ -197,6 +205,7 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
             /* mainClass */ FatJarMain.class.getName(),
             /* manifestFile */ null));
 
+    buildableContext.recordArtifact(output);
 
     return steps.build();
   }

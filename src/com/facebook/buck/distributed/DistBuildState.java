@@ -29,22 +29,16 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.rules.DistBuildCellParams;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
-import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableBiMap;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -55,8 +49,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
-import javax.annotation.Nonnull;
-
 /**
  * Saves and restores the state of a build to/from a thrift data structure.
  */
@@ -65,8 +57,6 @@ public class DistBuildState {
   private final BuildJobState remoteState;
   private final ImmutableBiMap<Integer, Cell> cells;
   private final Map<ProjectFilesystem, BuildJobStateFileHashes> fileHashes;
-  private final LoadingCache<ProjectFilesystem, ImmutableList<ProjectFileHashCache>>
-      directFileHashCacheLoder;
 
 
   private DistBuildState(
@@ -83,19 +73,6 @@ public class DistBuildState {
               "Unknown cell index %s. Distributed build state dump corrupt?",
               cellIndex);
           return cell.getFilesystem();
-        });
-
-    this.directFileHashCacheLoder = CacheBuilder.newBuilder()
-        .build(new CacheLoader<ProjectFilesystem, ImmutableList<ProjectFileHashCache>>() {
-          @Override
-          public ImmutableList<ProjectFileHashCache> load(@Nonnull ProjectFilesystem filesystem) {
-            ProjectFileHashCache cellCache =
-                DefaultFileHashCache.createDefaultFileHashCache(filesystem);
-            ProjectFileHashCache buckOutCache = DefaultFileHashCache.createBuckOutFileHashCache(
-                filesystem.replaceBlacklistedPaths(ImmutableSet.of()),
-                filesystem.getBuckPaths().getBuckOut());
-            return ImmutableList.of(cellCache, buckOutCache);
-          }
         });
   }
 
@@ -127,8 +104,7 @@ public class DistBuildState {
       KnownBuildRuleTypesFactory knownBuildRuleTypesFactory) throws IOException {
     ProjectFilesystem rootCellFilesystem = rootCell.getFilesystem();
 
-    ImmutableMap.Builder<Path, BuckConfig> cellConfigs = ImmutableMap.builder();
-    ImmutableMap.Builder<Path, ProjectFilesystem> cellFilesystems = ImmutableMap.builder();
+    ImmutableMap.Builder<Path, DistBuildCellParams> cellParams = ImmutableMap.builder();
     ImmutableMap.Builder<Integer, Path> cellIndex = ImmutableMap.builder();
 
     Path sandboxPath = rootCellFilesystem.getRootPath().resolve(
@@ -147,16 +123,18 @@ public class DistBuildState {
       Config config = createConfig(remoteCell.getConfig(), localBuckConfig);
       ProjectFilesystem projectFilesystem = new ProjectFilesystem(cellRoot, config);
       BuckConfig buckConfig = createBuckConfig(config, projectFilesystem, remoteCell.getConfig());
-      cellConfigs.put(cellRoot, buckConfig);
-      cellFilesystems.put(cellRoot, projectFilesystem);
+      Optional<String> cellName =
+          remoteCell.getCanonicalName().isEmpty()
+              ? Optional.empty()
+              : Optional.of(remoteCell.getCanonicalName());
+      cellParams.put(
+          cellRoot,
+          DistBuildCellParams.of(buckConfig, projectFilesystem, cellName));
       cellIndex.put(remoteCellEntry.getKey(), cellRoot);
     }
 
     CellProvider cellProvider =
-        CellProvider.createForDistributedBuild(
-            cellConfigs.build(),
-            cellFilesystems.build(),
-            knownBuildRuleTypesFactory);
+        CellProvider.createForDistributedBuild(cellParams.build(), knownBuildRuleTypesFactory);
 
     ImmutableBiMap<Integer, Cell> cells = ImmutableBiMap.copyOf(
         Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -235,38 +213,38 @@ public class DistBuildState {
         Functions.forMap(cells));
   }
 
-  private ImmutableList<ProjectFileHashCache> loadDirectFileHashCache(
-      ProjectFilesystem filesystem) {
-    return directFileHashCacheLoder.getUnchecked(filesystem);
-  }
-
-  public FileHashCache createRemoteFileHashCache(ProjectFilesystem filesystem) {
-    BuildJobStateFileHashes remoteFileHashes = Preconditions.checkNotNull(
-        fileHashes.get(filesystem),
-        "Don't have file hashes for filesystem %s.",
-        filesystem);
+  public ProjectFileHashCache createRemoteFileHashCache(ProjectFileHashCache decoratedCache) {
+    BuildJobStateFileHashes remoteFileHashes = fileHashes.get(decoratedCache.getFilesystem());
+    if (remoteFileHashes == null) {
+      // Roots that have no BuildJobStateFileHashes are deemed as not being Cells and don't get
+      // decorated.
+      return decoratedCache;
+    }
 
     ProjectFileHashCache remoteCache =
-        DistBuildFileHashes.createFileHashCache(filesystem, remoteFileHashes);
-
-    return new StackedFileHashCache(
-        ImmutableList.<ProjectFileHashCache>builder()
-            .add(remoteCache)
-            .addAll(loadDirectFileHashCache(filesystem))
-            .build());
+        DistBuildFileHashes.createFileHashCache(decoratedCache, remoteFileHashes);
+    return remoteCache;
   }
 
-  public DistBuildFileMaterializer createMaterializingLoader(
-      ProjectFilesystem projectFilesystem,
-      FileContentsProvider provider) {
-    BuildJobStateFileHashes remoteFileHashes = Preconditions.checkNotNull(
-        fileHashes.get(projectFilesystem),
-        "Don't have file hashes for filesystem %s.",
-        projectFilesystem);
-    return new DistBuildFileMaterializer(
-        projectFilesystem,
+  public ProjectFileHashCache createMaterializerAndPreload(
+      ProjectFileHashCache decoratedCache,
+      FileContentsProvider provider) throws IOException {
+    BuildJobStateFileHashes remoteFileHashes = fileHashes.get(decoratedCache.getFilesystem());
+    if (remoteFileHashes == null) {
+      // Roots that have no BuildJobStateFileHashes are deemed as not being Cells and don't get
+      // decorated.
+      return decoratedCache;
+    }
+
+    MaterializerProjectFileHashCache materializer = new MaterializerProjectFileHashCache(
+        decoratedCache,
         remoteFileHashes,
-        provider,
-        new StackedFileHashCache(loadDirectFileHashCache(projectFilesystem)));
+        provider);
+
+    // Create all symlinks and touch all other files.
+    // TODO(alisdair): remove this once action graph doesn't read from file system.
+    materializer.preloadAllFiles();
+
+    return materializer;
   }
 }

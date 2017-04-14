@@ -17,10 +17,8 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -40,14 +38,13 @@ public class JavacDirectToJarStep implements Step {
   private final ImmutableSortedSet<Path> sourceFilePaths;
   private final BuildTarget invokingRule;
   private final SourcePathResolver resolver;
-  private final SourcePathRuleFinder ruleFinder;
   private final ProjectFilesystem filesystem;
   private final ImmutableSortedSet<Path> declaredClasspathEntries;
   private final Path outputDirectory;
+  private final Javac javac;
   private final JavacOptions buildTimeOptions;
   private final Optional<Path> workingDirectory;
   private final Path pathToSrcsList;
-  private final Optional<SuggestBuildRules> suggestBuildRules;
   private final ImmutableSortedSet<Path> entriesToJar;
   private final Optional<String> mainClass;
   private final Optional<Path> manifestFile;
@@ -58,14 +55,13 @@ public class JavacDirectToJarStep implements Step {
       ImmutableSortedSet<Path> sourceFilePaths,
       BuildTarget invokingRule,
       SourcePathResolver resolver,
-      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
+      Javac javac,
       JavacOptions buildTimeOptions,
       Path outputDirectory,
       Optional<Path> workingDirectory,
       Path pathToSrcsList,
-      Optional<SuggestBuildRules> suggestBuildRules,
       ImmutableSortedSet<Path> entriesToJar,
       Optional<String> mainClass,
       Optional<Path> manifestFile,
@@ -74,14 +70,13 @@ public class JavacDirectToJarStep implements Step {
     this.sourceFilePaths = sourceFilePaths;
     this.invokingRule = invokingRule;
     this.resolver = resolver;
-    this.ruleFinder = ruleFinder;
     this.filesystem = filesystem;
     this.declaredClasspathEntries = declaredClasspathEntries;
+    this.javac = javac;
     this.buildTimeOptions = buildTimeOptions;
     this.outputDirectory = outputDirectory;
     this.workingDirectory = workingDirectory;
     this.pathToSrcsList = pathToSrcsList;
-    this.suggestBuildRules = suggestBuildRules;
     this.entriesToJar = entriesToJar;
     this.mainClass = mainClass;
     this.manifestFile = manifestFile;
@@ -109,7 +104,7 @@ public class JavacDirectToJarStep implements Step {
         outputDirectory,
         context,
         declaredClasspathEntries);
-    String javacDescription = buildTimeOptions.getJavac().getDescription(
+    String javacDescription = javac.getDescription(
         javacStepOptions,
         sourceFilePaths,
         pathToSrcsList);
@@ -145,12 +140,10 @@ public class JavacDirectToJarStep implements Step {
         sourceFilePaths,
         pathToSrcsList,
         declaredClasspathEntries,
-        buildTimeOptions.getJavac(),
+        javac,
         buildTimeOptions,
         invokingRule,
-        suggestBuildRules,
         resolver,
-        ruleFinder,
         filesystem,
         new ClasspathChecker(),
         Optional.of(directToJarOutputSettings));

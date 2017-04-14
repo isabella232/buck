@@ -44,7 +44,6 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
@@ -613,8 +612,7 @@ public class ProjectBuildFileParserTest {
                 .setDescriptions(buildRuleTypes.getAllDescriptions())
                 .setBuildFileImportWhitelist(ImmutableList.of())
                 .build(),
-            new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
-                ObjectMappers.newDefaultInstance())),
+            new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
             ImmutableMap.of(),
             buckEventBus,
             processExecutor,

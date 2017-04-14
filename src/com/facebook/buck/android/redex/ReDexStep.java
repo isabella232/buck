@@ -16,9 +16,9 @@
 
 package com.facebook.buck.android.redex;
 
-import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.KeystoreProperties;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
@@ -87,7 +87,7 @@ public class ReDexStep extends ShellStep {
       Path outputApkPath,
       Supplier<KeystoreProperties> keystorePropertiesSupplier,
       Path proguardConfigDir,
-      SourcePathResolver pathResolver) {
+      BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     Tool redexBinary = redexOptions.getRedex();
@@ -103,8 +103,11 @@ public class ReDexStep extends ShellStep {
         proguardConfigDir.resolve("mapping.txt"),
         proguardConfigDir.resolve("command-line.txt"),
         proguardConfigDir.resolve("seeds.txt"),
-        pathResolver);
+        resolver);
     steps.add(redexStep);
+
+    Path outputDir = outputApkPath.getParent();
+    buildableContext.recordArtifact(outputDir);
 
     return steps.build();
   }
@@ -152,14 +155,8 @@ public class ReDexStep extends ShellStep {
 
   @Override
   public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-    AndroidPlatformTarget platformTarget = context.getAndroidPlatformTarget();
-    Optional<Path> sdkDirectory = platformTarget.getSdkDirectory();
-    if (!sdkDirectory.isPresent()) {
-      throw new RuntimeException("Could not find ANDROID_SDK directory for ReDexStep");
-    }
-
     return ImmutableMap.<String, String>builder()
-        .put("ANDROID_SDK", sdkDirectory.get().toString())
+        .put("ANDROID_SDK", context.getAndroidPlatformTarget().checkSdkDirectory().toString())
         .putAll(redexEnvironmentVariables)
         .build();
   }

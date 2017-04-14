@@ -1,1 +1,9 @@
-standard_java_library()
+standard_java_library(
+    name = "common",
+    deps = [
+        "//src/com/facebook/buck/io:io",
+        "//src/com/facebook/buck/rules:build_rule",
+        "//src/com/facebook/buck/util:exceptions",
+        "//third-party/java/guava:guava",
+    ],
+)

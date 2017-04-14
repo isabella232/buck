@@ -95,7 +95,7 @@ public class CsharpLibrary extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new MakeCleanDirectoryStep(filesystem, output.getParent()));
+    steps.addAll(MakeCleanDirectoryStep.of(filesystem, output.getParent()));
     steps.add(
         new CsharpLibraryCompile(
             filesystem.resolve(output),
@@ -114,7 +114,7 @@ public class CsharpLibrary extends AbstractBuildRule {
 
     for (Either<BuildRule, String> ref : refs) {
       if (ref.isLeft()) {
-        // TODO(shs96c): Do this in the constructor? Or the Description?
+        // TODO(simons): Do this in the constructor? Or the Description?
         BuildRule rule = ref.getLeft();
         Preconditions.checkArgument(
             rule instanceof CsharpLibrary ||

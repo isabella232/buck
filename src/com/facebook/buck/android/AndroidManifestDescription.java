@@ -21,6 +21,7 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -45,6 +46,7 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
@@ -59,7 +61,7 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
     // If the skeleton is a BuildTargetSourcePath, then its build rule must also be in the deps.
     // The skeleton does not appear to be in either params.getDeclaredDeps() or
     // params.getExtraDeps(), even though the type of Arg.skeleton is SourcePath.
-    // TODO(shs96c): t4744625 This should happen automagically.
+    // TODO(simons): t4744625 This should happen automagically.
     ImmutableSortedSet<BuildRule> newDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
         .addAll(
             ruleFinder.filterBuildRuleInputs(
@@ -67,7 +69,7 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
         .build();
 
     return new AndroidManifest(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(newDeps),
             params.getExtraDeps()),
         args.skeleton,

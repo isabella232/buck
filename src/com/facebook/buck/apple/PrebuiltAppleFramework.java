@@ -20,7 +20,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
@@ -74,6 +73,8 @@ public class PrebuiltAppleFramework
   private final NativeLinkable.Linkage preferredLinkage;
 
   private final BuildRuleResolver ruleResolver;
+
+  @AddToRuleKey
   private final SourcePath frameworkPath;
   private final String frameworkName;
   private final Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags;
@@ -123,8 +124,8 @@ public class PrebuiltAppleFramework
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
-    builder.add(new MkdirStep(getProjectFilesystem(), out.getParent()));
-    builder.add(new RmStep(getProjectFilesystem(), out, RmStep.Mode.RECURSIVE));
+    builder.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
+    builder.add(RmStep.of(getProjectFilesystem(), out).withRecursive(true));
     builder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -151,7 +152,7 @@ public class PrebuiltAppleFramework
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(getDeps())
+    return FluentIterable.from(getBuildDeps())
         .filter(CxxPreprocessorDep.class);
   }
 
@@ -175,11 +176,6 @@ public class PrebuiltAppleFramework
     }
 
     throw new RuntimeException("Invalid header visibility: " + headerVisibility);
-  }
-
-  @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-    return Optional.empty();
   }
 
   @Override

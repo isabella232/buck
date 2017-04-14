@@ -22,14 +22,15 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasTests;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.python.PythonLibraryDescription.Arg;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -40,6 +41,7 @@ import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -74,6 +76,7 @@ public class PythonLibraryDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
     return new PythonLibrary(params, resolver);
   }
@@ -91,6 +94,7 @@ public class PythonLibraryDescription
         METADATA_TYPE.getFlavorAndValue(buildTarget).orElseThrow(IllegalArgumentException::new);
     BuildTarget baseTarget = buildTarget.withoutFlavors(type.getKey());
     switch (type.getValue()) {
+
       case PACKAGE_COMPONENTS: {
         Map.Entry<Flavor, PythonPlatform> pythonPlatform =
             pythonPlatforms.getFlavorAndValue(baseTarget)
@@ -137,6 +141,24 @@ public class PythonLibraryDescription
 
         return Optional.of(components).map(metadataClass::cast);
       }
+
+      case PACKAGE_DEPS: {
+        Map.Entry<Flavor, PythonPlatform> pythonPlatform =
+            pythonPlatforms.getFlavorAndValue(baseTarget)
+                .orElseThrow(IllegalArgumentException::new);
+        Map.Entry<Flavor, CxxPlatform> cxxPlatform =
+            cxxPlatforms.getFlavorAndValue(baseTarget)
+                .orElseThrow(IllegalArgumentException::new);
+        baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
+        ImmutableList<BuildTarget> depTargets =
+            PythonUtil.getDeps(
+                pythonPlatform.getValue(),
+                cxxPlatform.getValue(),
+                args.deps,
+                args.platformDeps);
+        return Optional.of(resolver.getAllRules(depTargets)).map(metadataClass::cast);
+      }
+
     }
 
     throw new IllegalStateException();
@@ -144,7 +166,8 @@ public class PythonLibraryDescription
 
   enum MetadataType implements FlavorConvertible {
 
-    PACKAGE_COMPONENTS(ImmutableFlavor.of("package-components")),
+    PACKAGE_COMPONENTS(InternalFlavor.of("package-components")),
+    PACKAGE_DEPS(InternalFlavor.of("package-deps")),
     ;
 
     private final Flavor flavor;
@@ -170,6 +193,8 @@ public class PythonLibraryDescription
     public Optional<VersionMatchedCollection<SourceList>> versionedResources;
     public PatternMatchedCollection<SourceList> platformResources = PatternMatchedCollection.of();
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
+        PatternMatchedCollection.of();
     public Optional<String> baseModule = Optional.empty();
     public Optional<Boolean> zipSafe = Optional.empty();
     @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();

@@ -28,8 +28,8 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.timing.Clock;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.FileHashCache;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -38,7 +38,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
@@ -83,9 +82,9 @@ public class BuildInfoRecorder {
   private final BuildTarget buildTarget;
   private final Path pathToMetadataDirectory;
   private final ProjectFilesystem projectFilesystem;
+  private final BuildInfoStore buildInfoStore;
   private final Clock clock;
   private final BuildId buildId;
-  private final ObjectMapper objectMapper;
   private final ImmutableMap<String, String> artifactExtraData;
   private final Map<String, String> metadataToWrite;
   private final Map<String, String> buildMetadata;
@@ -96,19 +95,20 @@ public class BuildInfoRecorder {
    */
   private final Set<Path> pathsToOutputs;
 
-  BuildInfoRecorder(BuildTarget buildTarget,
+  BuildInfoRecorder(
+      BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      BuildInfoStore buildInfoStore,
       Clock clock,
       BuildId buildId,
-      ObjectMapper objectMapper,
       ImmutableMap<String, String> environment) {
     this.buildTarget = buildTarget;
     this.pathToMetadataDirectory =
         BuildInfo.getPathToMetadataDirectory(buildTarget, projectFilesystem);
     this.projectFilesystem = projectFilesystem;
+    this.buildInfoStore = buildInfoStore;
     this.clock = clock;
     this.buildId = buildId;
-    this.objectMapper = objectMapper;
 
     this.artifactExtraData =
         ImmutableMap.<String, String>builder()
@@ -125,7 +125,7 @@ public class BuildInfoRecorder {
 
   private String toJson(Object value) {
     try {
-      return objectMapper.writeValueAsString(value);
+      return ObjectMappers.WRITER.writeValueAsString(value);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
@@ -166,11 +166,12 @@ public class BuildInfoRecorder {
   public void writeMetadataToDisk(boolean clearExistingMetadata) throws IOException {
     if (clearExistingMetadata) {
       projectFilesystem.deleteRecursivelyIfExists(pathToMetadataDirectory);
+      buildInfoStore.deleteMetadata(buildTarget);
     }
     projectFilesystem.mkdirs(pathToMetadataDirectory);
 
-    for (Map.Entry<String, String> entry :
-         Iterables.concat(metadataToWrite.entrySet(), getBuildMetadata().entrySet())) {
+    buildInfoStore.updateMetadata(buildTarget, getBuildMetadata());
+    for (Map.Entry<String, String> entry : metadataToWrite.entrySet()) {
       projectFilesystem.writeContentsToPath(
           entry.getValue(),
           pathToMetadataDirectory.resolve(entry.getKey()));
@@ -288,7 +289,7 @@ public class BuildInfoRecorder {
 
     // Skip all of this if caching is disabled. Although artifactCache.store() will be a noop,
     // building up the zip is wasted I/O.
-    if (!artifactCache.isStoreSupported()) {
+    if (!artifactCache.getCacheReadMode().isWritable()) {
       return;
     }
 

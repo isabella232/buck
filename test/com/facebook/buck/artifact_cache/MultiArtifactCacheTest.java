@@ -67,7 +67,7 @@ public class MultiArtifactCacheTest {
     DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache();
     DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
     MultiArtifactCache multiArtifactCache = new MultiArtifactCache(ImmutableList.of(
-        (ArtifactCache) dummyArtifactCache1,
+        dummyArtifactCache1,
         dummyArtifactCache2));
 
     assertEquals(
@@ -91,6 +91,69 @@ public class MultiArtifactCacheTest {
     assertEquals("Fetch should succeed after store",
         CacheResultType.HIT,
         multiArtifactCache.fetch(dummyRuleKey, dummyFile).getType());
+
+    multiArtifactCache.close();
+  }
+
+  @Test
+  public void testPropagateOnlyCacheStore() throws InterruptedException, IOException,
+      ExecutionException {
+    DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache() {
+      @Override
+      public CacheReadMode getCacheReadMode() {
+        return CacheReadMode.PASSTHROUGH;
+      }
+    };
+    DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
+    MultiArtifactCache multiArtifactCache = new MultiArtifactCache(ImmutableList.of(
+        dummyArtifactCache1,
+        dummyArtifactCache2));
+
+    assertEquals(
+        CacheReadMode.READWRITE,
+        multiArtifactCache.getCacheReadMode());
+
+    multiArtifactCache.store(
+        ArtifactInfo.builder().addRuleKeys(dummyRuleKey).build(),
+        BorrowablePath.notBorrowablePath(dummyFile.get())).get();
+
+    assertEquals(
+        "This cache is PASSTHROUGH, store on the mulit-cache should not write to it",
+        CacheResultType.MISS,
+        dummyArtifactCache1.fetch(dummyRuleKey, dummyFile).getType());
+    assertEquals(
+        CacheResultType.HIT,
+        dummyArtifactCache2.fetch(dummyRuleKey, dummyFile).getType());
+
+    multiArtifactCache.close();
+  }
+
+  @Test
+  public void testPropagateOnlyCacheGet() throws InterruptedException, IOException,
+      ExecutionException {
+    DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache() {
+      @Override
+      public CacheReadMode getCacheReadMode() {
+        return CacheReadMode.PASSTHROUGH;
+      }
+    };
+    DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
+    MultiArtifactCache multiArtifactCache = new MultiArtifactCache(ImmutableList.of(
+        dummyArtifactCache1,
+        dummyArtifactCache2));
+
+    dummyArtifactCache2.store(
+        ArtifactInfo.builder().addRuleKeys(dummyRuleKey).build(),
+        BorrowablePath.notBorrowablePath(dummyFile.get())).get();
+
+    assertEquals(
+        "Fetch should find artifact that's present in one of the caches.",
+        CacheResultType.HIT,
+        multiArtifactCache.fetch(dummyRuleKey, dummyFile).getType());
+    assertEquals(
+        "Fetch should have propagated the artifact.",
+        CacheResultType.HIT,
+        dummyArtifactCache1.fetch(dummyRuleKey, dummyFile).getType());
 
     multiArtifactCache.close();
   }
@@ -157,8 +220,8 @@ public class MultiArtifactCacheTest {
     }
 
     @Override
-    public boolean isStoreSupported() {
-      return true;
+    public CacheReadMode getCacheReadMode() {
+      return CacheReadMode.READWRITE;
     }
 
     @Override
@@ -175,8 +238,8 @@ public class MultiArtifactCacheTest {
     SimpleArtifactCache fakeDirCache = new SimpleArtifactCache(filesystem);
     SimpleArtifactCache fakeReadOnlyCache = new SimpleArtifactCache(filesystem) {
       @Override
-      public boolean isStoreSupported() {
-        return false;
+      public CacheReadMode getCacheReadMode() {
+        return CacheReadMode.READONLY;
       }
     };
     MultiArtifactCache multiArtifactCache = new MultiArtifactCache(ImmutableList.of(

@@ -1,1 +1,7 @@
-standard_java_library()
+standard_java_library(
+    name = "randomizedtrial",
+    deps = [
+        "//src/com/facebook/buck/log:api",
+        "//third-party/java/guava:guava",
+    ],
+)

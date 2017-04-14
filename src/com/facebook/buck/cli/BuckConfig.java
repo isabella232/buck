@@ -37,6 +37,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
@@ -48,6 +49,7 @@ import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
+import com.facebook.infer.annotation.PropagatesNullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -66,14 +68,13 @@ import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
-
-import javax.annotation.Nullable;
 
 /**
  * Structured representation of data read from a {@code .buckconfig} file.
@@ -119,7 +120,7 @@ public class BuckConfig implements ConfigPathGetter {
         ImmutableMap.builder();
     ignoreFieldsForDaemonRestartBuilder.put(
         "apple", ImmutableSet.of("generate_header_symlink_tree_only"));
-    ignoreFieldsForDaemonRestartBuilder.put("build", ImmutableSet.of("threads", "load_limit"));
+    ignoreFieldsForDaemonRestartBuilder.put("build", ImmutableSet.of("threads"));
     ignoreFieldsForDaemonRestartBuilder.put("cache", ImmutableSet.of(
         "dir", "dir_mode", "http_mode", "http_url", "mode", "slb_server_pool"));
     ignoreFieldsForDaemonRestartBuilder.put("client",
@@ -437,7 +438,7 @@ public class BuckConfig implements ConfigPathGetter {
 
     // Build up the Map with an ordinary HashMap because we need to be able to check whether the Map
     // already contains the key before inserting.
-    Map<Path, String> basePathToAlias = Maps.newHashMap();
+    Map<Path, String> basePathToAlias = new HashMap<>();
     for (Map.Entry<String, BuildTarget> entry : aliasToBuildTargetMap.entries()) {
       String alias = entry.getKey();
       BuildTarget buildTarget = entry.getValue();
@@ -482,6 +483,11 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isRuleKeyLoggerEnabled() {
     return getBooleanValue(LOG_SECTION, "rule_key_logger_enabled", false);
+  }
+
+  public RuleKeyDiagnosticsMode getRuleKeyDiagnosticsMode() {
+    return getEnum(LOG_SECTION, "rule_key_diagnostics_mode", RuleKeyDiagnosticsMode.class)
+        .orElse(RuleKeyDiagnosticsMode.NEVER);
   }
 
   public boolean isMachineReadableLoggerEnabled() {
@@ -544,8 +550,7 @@ public class BuckConfig implements ConfigPathGetter {
     }
   }
 
-  @Nullable
-  public Path resolvePathThatMayBeOutsideTheProjectFilesystem(@Nullable Path path) {
+  public Path resolvePathThatMayBeOutsideTheProjectFilesystem(@PropagatesNullable Path path) {
     if (path == null) {
       return path;
     }
@@ -604,8 +609,20 @@ public class BuckConfig implements ConfigPathGetter {
     return values.isEmpty() ? Optional.empty() : Optional.of(values);
   }
 
+  /**
+   * @return the string value for the config settings, where present empty values are
+   *         {@code Optional.empty()}.
+   */
   public Optional<String> getValue(String sectionName, String propertyName) {
     return config.getValue(sectionName, propertyName);
+  }
+
+  /**
+   * @return the string value for the config settings, where present empty values are
+   *         {@code Optional[]}.
+   */
+  public Optional<String> getRawValue(String sectionName, String propertyName) {
+    return config.get(sectionName, propertyName);
   }
 
   public Optional<Integer> getInteger(String sectionName, String propertyName) {
@@ -842,13 +859,6 @@ public class BuckConfig implements ConfigPathGetter {
     return getOptionalListWithoutComments("project", "allowed_java_specification_versions");
   }
 
-  /**
-   * @return the maximum load limit that Buck should stay under on the system.
-   */
-  public float getLoadLimit() {
-    return config.getFloat("build", "load_limit").orElse(Float.POSITIVE_INFINITY);
-  }
-
   public long getCountersFirstFlushIntervalMillis() {
     return config.getLong("counters", "first_flush_interval_millis").orElse(5000L);
   }
@@ -1079,6 +1089,10 @@ public class BuckConfig implements ConfigPathGetter {
    */
   public boolean getRuleKeyCaching() {
     return getBooleanValue("build", "rule_key_caching", false);
+  }
+
+  public ImmutableList<String> getCleanAdditionalPaths() {
+    return getListWithoutComments("clean", "additional_paths");
   }
 
   public Config getConfig() {

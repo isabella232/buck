@@ -58,4 +58,5 @@ public class GroovyBuckConfig {
 
     return Suppliers.ofInstance(new HashedFileTool(compiler));
   }
+
 }

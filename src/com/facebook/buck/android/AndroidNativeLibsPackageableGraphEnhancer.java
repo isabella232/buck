@@ -23,7 +23,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -189,7 +189,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMap.Builder<Pair<NdkCxxPlatforms.TargetCpuType, String>, SourcePath>
           nativeLinkableLibsAssetsBuilder = ImmutableMap.builder();
 
-      // TODO(andrewjcg): We currently treat an empty set of filters to mean to allow everything.
+      // TODO(agallagher): We currently treat an empty set of filters to mean to allow everything.
       // We should fix this by assigning a default list of CPU filters in the descriptions, but
       // until we do, if the set of filters is empty, just build for all available platforms.
       ImmutableSet<NdkCxxPlatforms.TargetCpuType> filters =
@@ -251,7 +251,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           (!nativeLinkableLibs.isEmpty() || !nativeLinkableLibsAssets.isEmpty())) {
         NativeRelinker relinker =
             new NativeRelinker(
-                buildRuleParams.copyWithExtraDeps(
+                buildRuleParams.copyReplacingExtraDeps(
                     Suppliers.ofInstance(
                         ImmutableSortedSet.<BuildRule>naturalOrder()
                             .addAll(
@@ -291,25 +291,23 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               nativePlatforms,
               nativeLinkableLibsAssets);
 
-      BuildTarget targetForCopyNativeLibraries = BuildTarget.builder(originalBuildTarget)
-          .addFlavors(ImmutableFlavor.of(COPY_NATIVE_LIBS + "_" + module.getName()))
-          .build();
       ImmutableSortedSet<BuildRule> nativeLibsRules = BuildRules.toBuildRulesFor(
           originalBuildTarget,
           ruleResolver,
           packageableCollection.getNativeLibsTargets().get(module));
-      BuildRuleParams paramsForCopyNativeLibraries = buildRuleParams.copyWithChanges(
-          targetForCopyNativeLibraries,
-          Suppliers.ofInstance(
-              ImmutableSortedSet.<BuildRule>naturalOrder()
-                  .addAll(nativeLibsRules)
-                  .addAll(
-                      ruleFinder.filterBuildRuleInputs(
-                          packageableCollection.getNativeLibsDirectories().get(module)))
-                  .addAll(strippedLibsMap.keySet())
-                  .addAll(strippedLibsAssetsMap.keySet())
-                  .build()),
-            /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+      BuildRuleParams paramsForCopyNativeLibraries = buildRuleParams
+          .withAppendedFlavor(InternalFlavor.of(COPY_NATIVE_LIBS + "_" + module.getName()))
+          .copyReplacingDeclaredAndExtraDeps(
+              Suppliers.ofInstance(
+                  ImmutableSortedSet.<BuildRule>naturalOrder()
+                      .addAll(nativeLibsRules)
+                      .addAll(
+                          ruleFinder.filterBuildRuleInputs(
+                              packageableCollection.getNativeLibsDirectories().get(module)))
+                      .addAll(strippedLibsMap.keySet())
+                      .addAll(strippedLibsAssetsMap.keySet())
+                      .build()),
+              Suppliers.ofInstance(ImmutableSortedSet.of()));
       moduleMappedCopyNativeLibriesBuilder.put(
           module,
           new CopyNativeLibraries(
@@ -361,9 +359,9 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
       String sharedLibrarySoName = entry.getKey().getSecond();
       BuildTarget targetForStripRule = BuildTarget.builder(baseBuildTarget)
-          .addFlavors(ImmutableFlavor.of("android-strip"))
-          .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(sharedLibrarySoName)))
-          .addFlavors(ImmutableFlavor.of(Flavor.replaceInvalidCharacters(targetCpuType.name())))
+          .addFlavors(InternalFlavor.of("android-strip"))
+          .addFlavors(InternalFlavor.of(Flavor.replaceInvalidCharacters(sharedLibrarySoName)))
+          .addFlavors(InternalFlavor.of(Flavor.replaceInvalidCharacters(targetCpuType.name())))
           .build();
 
       Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(targetForStripRule);
@@ -371,13 +369,14 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       if (previouslyCreated.isPresent()) {
         stripLinkable = (StripLinkable) previouslyCreated.get();
       } else {
-        BuildRuleParams paramsForStripLinkable = buildRuleParams.copyWithChanges(
-            targetForStripRule,
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(sourcePath)))
-                    .build()),
-            /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+        BuildRuleParams paramsForStripLinkable = buildRuleParams
+            .withBuildTarget(targetForStripRule)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(sourcePath)))
+                        .build()),
+                Suppliers.ofInstance(ImmutableSortedSet.of()));
 
         stripLinkable = new StripLinkable(
             paramsForStripLinkable,

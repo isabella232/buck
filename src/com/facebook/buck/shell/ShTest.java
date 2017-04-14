@@ -43,7 +43,7 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.MoreCollectors;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -125,22 +125,19 @@ public class ShTest
       TestRunningOptions options,
       SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
-    Step mkdirClean = new MakeCleanDirectoryStep(
-        getProjectFilesystem(),
-        getPathToTestOutputDirectory());
-
-    // Return a single command that runs an .sh file with no arguments.
-    Step runTest =
-        new RunShTestAndRecordResultStep(
-            getProjectFilesystem(),
-            pathResolver.getAbsolutePath(test),
-            Arg.stringify(args, pathResolver),
-            Arg.stringify(env, pathResolver),
-            testRuleTimeoutMs,
-            getBuildTarget().getFullyQualifiedName(),
-            getPathToTestOutputResult());
-
-    return ImmutableList.of(mkdirClean, runTest);
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
+        .add(
+            // Return a single command that runs an .sh file with no arguments.
+            new RunShTestAndRecordResultStep(
+                getProjectFilesystem(),
+                pathResolver.getAbsolutePath(test),
+                Arg.stringify(args, pathResolver),
+                Arg.stringify(env, pathResolver),
+                testRuleTimeoutMs,
+                getBuildTarget().getFullyQualifiedName(),
+                getPathToTestOutputResult()))
+        .build();
   }
 
   @Override
@@ -163,8 +160,8 @@ public class ShTest
     return () -> {
       Optional<String> resultsFileContents =
           getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
-      ObjectMapper mapper = context.getObjectMapper();
-      TestResultSummary testResultSummary = mapper.readValue(resultsFileContents.get(),
+      TestResultSummary testResultSummary = ObjectMappers.readValue(
+          resultsFileContents.get(),
           TestResultSummary.class);
       TestCaseSummary testCaseSummary = new TestCaseSummary(
           getBuildTarget().getFullyQualifiedName(),
@@ -188,7 +185,7 @@ public class ShTest
   // dependencies, as these are always components that the shell test needs available to run.
   @Override
   public Stream<BuildTarget> getRuntimeDeps() {
-    return getDeps().stream().map(BuildRule::getBuildTarget);
+    return getBuildDeps().stream().map(BuildRule::getBuildTarget);
   }
 
   @Override

@@ -21,7 +21,6 @@ import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ClassLoaderCache;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -46,6 +45,11 @@ public class TestExecutionContext {
     public ImmutableMap<String, Path> getCellPaths() {
       return ImmutableMap.of();
     }
+
+    @Override
+    public Optional<String> getCanonicalCellName(Path cellPath) {
+      return Optional.empty();
+    }
   };
 
   private TestExecutionContext() {
@@ -66,7 +70,6 @@ public class TestExecutionContext {
         .setPlatform(Platform.detect())
         .setEnvironment(ImmutableMap.copyOf(System.getenv()))
         .setJavaPackageFinder(new FakeJavaPackageFinder())
-        .setObjectMapper(ObjectMappers.newDefaultInstance())
         .setClassLoaderCache(testClassLoaderCache)
         .setExecutors(executors)
         .setCellPathResolver(FAKE_CELL_PATH_RESOLVER);

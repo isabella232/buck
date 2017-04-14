@@ -17,7 +17,6 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.NoAndroidSdkException;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -37,7 +36,8 @@ import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
@@ -197,12 +197,12 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
     environmentVariablesBuilder.put("SRCDIR", absolutePathToSrcDirectory.toString());
     environmentVariablesBuilder.put("TMP", absolutePathToTmpDirectory.toString());
 
-    // TODO(bolinfest): This entire hack needs to be removed. The [tools] section of .buckconfig
+    // TODO(mbolin): This entire hack needs to be removed. The [tools] section of .buckconfig
     // should be generalized to specify local paths to tools that can be used in genrules.
     AndroidPlatformTarget android;
     try {
       android = context.getAndroidPlatformTarget();
-    } catch (NoAndroidSdkException e) {
+    } catch (HumanReadableException e) {
       android = null;
     }
 
@@ -327,11 +327,11 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
     // Make sure that the directory to contain the output file exists, deleting any pre-existing
     // ones. Rules get output to a directory named after the base path, so we don't want to nuke
     // the entire directory.
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToOutDirectory));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToOutDirectory));
     // Delete the old temp directory
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTmpDirectory));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToTmpDirectory));
     // Create a directory to hold all the source files.
-    commands.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToSrcDirectory));
+    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToSrcDirectory));
 
     addSymlinkCommands(context, commands);
 
@@ -343,7 +343,9 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
     }
 
     if (MorePaths.getFileExtension(pathToOutFile).equals("zip")) {
-      commands.add(new ZipScrubberStep(getProjectFilesystem(), pathToOutFile));
+      commands.add(
+          ZipScrubberStep.of(
+              context.getSourcePathResolver().getAbsolutePath(getSourcePathToOutput())));
     }
 
     buildableContext.recordArtifact(pathToOutFile);
@@ -375,8 +377,13 @@ public class Genrule extends AbstractBuildRule implements HasOutputName, Support
       }
 
       Path destination = pathToSrcDirectory.resolve(localPath);
+      commands.add(MkdirStep.of(getProjectFilesystem(), destination.getParent()));
       commands.add(
-          new MkdirAndSymlinkFileStep(getProjectFilesystem(), relativePath, destination));
+          SymlinkFileStep.builder()
+              .setFilesystem(getProjectFilesystem())
+              .setExistingFile(relativePath)
+              .setDesiredLink(destination)
+              .build());
     }
   }
 

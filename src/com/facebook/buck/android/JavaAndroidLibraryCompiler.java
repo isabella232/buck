@@ -17,11 +17,20 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.Javac;
+import com.facebook.buck.jvm.java.JavacFactory;
+import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 
 public class JavaAndroidLibraryCompiler extends AndroidLibraryCompiler {
+  private final JavaBuckConfig javaBuckConfig;
+
+  public JavaAndroidLibraryCompiler(JavaBuckConfig javaBuckConfig) {
+    this.javaBuckConfig = javaBuckConfig;
+  }
 
   @Override
   public CompileToJarStepFactory compileToJar(
@@ -29,6 +38,13 @@ public class JavaAndroidLibraryCompiler extends AndroidLibraryCompiler {
       JavacOptions javacOptions,
       BuildRuleResolver resolver) {
 
-    return new JavacToJarStepFactory(javacOptions, new BootClasspathAppender());
+    return new JavacToJarStepFactory(
+        getJavac(resolver, arg),
+        javacOptions,
+        new BootClasspathAppender());
+  }
+
+  private Javac getJavac(BuildRuleResolver resolver, AndroidLibraryDescription.Arg arg) {
+    return JavacFactory.create(new SourcePathRuleFinder(resolver), javaBuckConfig, arg);
   }
 }

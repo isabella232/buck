@@ -35,7 +35,6 @@ import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -44,7 +43,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Iterators;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -60,7 +58,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
-import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
@@ -132,9 +129,20 @@ class DaemonicParserState {
     @Override
     public T putComputedNodeIfNotPresent(Cell cell, BuildTarget target, T targetNode)
         throws BuildTargetException {
-      invalidateIfProjectBuildFileParserStateChanged(cell);
+
+      // Verify we don't invalidate the build file at this point, as, at this point, we should have
+      // already called `lookupComputedNode` which should have done any invalidation.
+      Preconditions.checkState(
+          !invalidateIfProjectBuildFileParserStateChanged(cell),
+          "Unexpected invalidation due to build file parser state change for %s %s",
+          cell.getRoot(),
+          target);
       final Path buildFile = cell.getAbsolutePathToBuildFileUnsafe(target);
-      invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile);
+      Preconditions.checkState(
+          !invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile),
+          "Unexpected invalidation due to config/env change for %s %s",
+          cell.getRoot(),
+          target);
 
       return getOrCreateCache(cell).putComputedNodeIfNotPresent(cell, target, targetNode);
     }
@@ -437,7 +445,7 @@ class DaemonicParserState {
 
             // Added or removed files can affect globs, so invalidate the package build file
             // "containing" {@code path} unless its filename matches a temp file pattern.
-            if (!isTempFile(cell, path)) {
+            if (!cell.getFilesystem().isIgnored(path)) {
               invalidateContainingBuildFile(cell, buildFiles, path);
             } else {
               LOG.debug(
@@ -477,7 +485,7 @@ class DaemonicParserState {
    * @param path A {@link Path}, relative to the project root and "contained"
    *             within the build file to find and invalidate.
    */
-  private synchronized void invalidateContainingBuildFile(
+  private void invalidateContainingBuildFile(
       Cell cell,
       BuildFileTree buildFiles,
       Path path) {
@@ -510,12 +518,13 @@ class DaemonicParserState {
     buildFilesInvalidatedByFileAddOrRemoveCounter.inc(packageBuildFiles.size());
     pathsAddedOrRemovedInvalidatingBuildFiles.add(path.toString());
 
+    DaemonicCellState state;
     try (AutoCloseableLock readLock = cellStateLock.readLock()) {
-      DaemonicCellState state = cellPathToDaemonicState.get(cell.getRoot());
-      // Invalidate all the packages we found.
-      for (Path buildFile : packageBuildFiles) {
-        invalidatePath(state, buildFile.resolve(cell.getBuildFileName()));
-      }
+      state = cellPathToDaemonicState.get(cell.getRoot());
+    }
+    // Invalidate all the packages we found.
+    for (Path buildFile : packageBuildFiles) {
+      invalidatePath(state, buildFile.resolve(cell.getBuildFileName()));
     }
   }
 
@@ -538,27 +547,25 @@ class DaemonicParserState {
         event.kind() == StandardWatchEventKinds.ENTRY_DELETE;
   }
 
-  /**
-   * @param path The {@link Path} to test.
-   * @return true if {@code path} is a temporary or backup file.
-   */
-  private boolean isTempFile(Cell cell, Path path) {
-    final String fileName = path.getFileName().toString();
-    Predicate<Pattern> patternMatches = pattern -> pattern.matcher(fileName).matches();
-    return Iterators.any(cell.getTempFilePatterns().iterator(), patternMatches);
-  }
 
-  private synchronized void invalidateIfBuckConfigOrEnvHasChanged(Cell cell, Path buildFile) {
+  private boolean invalidateIfBuckConfigOrEnvHasChanged(Cell cell, Path buildFile) {
     try (AutoCloseableLock readLock = cellStateLock.readLock()) {
       DaemonicCellState state = cellPathToDaemonicState.get(cell.getRoot());
       if (state == null) {
-        return;
+        return false;
       }
-      // Invalidates and also keeps the state cell up-to-date
-      state.invalidateIfBuckConfigHasChanged(cell, buildFile);
+
+      // Keep track of any invalidations.
+      boolean hasInvalidated = false;
+
+      // Invalidate based on config.
+      hasInvalidated |= state.invalidateIfBuckConfigHasChanged(cell, buildFile);
+
+      // Invalidate based on env vars.
       Optional<MapDifference<String, String>> envDiff =
           state.invalidateIfEnvHasChanged(cell, buildFile);
       if (envDiff.isPresent()) {
+        hasInvalidated = true;
         MapDifference<String, String> diff = envDiff.get();
         LOG.warn("Invalidating cache on environment change (%s)", diff);
         Set<String> environmentChanges = new HashSet<>();
@@ -569,10 +576,12 @@ class DaemonicParserState {
         broadcastEventListener.broadcast(
             ParsingEvent.environmentalChange(environmentChanges.toString()));
       }
+
+      return hasInvalidated;
     }
   }
 
-  private void invalidateIfProjectBuildFileParserStateChanged(Cell cell) {
+  private boolean invalidateIfProjectBuildFileParserStateChanged(Cell cell) {
     Iterable<String> defaultIncludes = cell.getBuckConfig().getView(ParserConfig.class)
         .getDefaultIncludes();
 
@@ -588,21 +597,20 @@ class DaemonicParserState {
       }
 
       if (!invalidatedByDefaultIncludesChange) {
-        return;
+        return false;
       }
     }
     try (AutoCloseableLock writeLock = cachedStateLock.writeLock()) {
       cachedIncludes.put(cell.getRoot(), defaultIncludes);
     }
-    synchronized (this) {
-      if (invalidateCellCaches(cell) && invalidatedByDefaultIncludesChange) {
-        LOG.warn(
-            "Invalidating cache on default includes change (%s != %s)",
-            expected,
-            defaultIncludes);
-        cacheInvalidatedByDefaultIncludesChangeCounter.inc();
-      }
+    if (invalidateCellCaches(cell) && invalidatedByDefaultIncludesChange) {
+      LOG.warn(
+          "Invalidating cache on default includes change (%s != %s)",
+          expected,
+          defaultIncludes);
+      cacheInvalidatedByDefaultIncludesChangeCounter.inc();
     }
+    return true;
   }
 
   public boolean invalidateCellCaches(Cell cell) {

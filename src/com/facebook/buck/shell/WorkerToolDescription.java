@@ -41,9 +41,9 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
@@ -78,6 +78,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
 
     BuildRule rule = resolver.requireRule(args.exe);
@@ -92,7 +93,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
         MacroArg.toMacroArgFunction(
             MACRO_HANDLER,
             params.getBuildTarget(),
-            params.getCellRoots(),
+            cellRoots,
             resolver);
     final ImmutableList<com.facebook.buck.rules.args.Arg> workerToolArgs =
         args.getStartupArgs().stream()
@@ -107,7 +108,7 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
                     input.getKey(),
                     MACRO_HANDLER.expand(
                         params.getBuildTarget(),
-                        params.getCellRoots(),
+                        cellRoots,
                         resolver,
                         input.getValue()));
               } catch (MacroException e) {
@@ -136,27 +137,24 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      WorkerToolDescription.Arg constructorArg) {
-    ImmutableSortedSet.Builder<BuildTarget> targets = ImmutableSortedSet.naturalOrder();
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     try {
       for (String arg : constructorArg.getStartupArgs()) {
-        targets.addAll(
-            MACRO_HANDLER.extractParseTimeDeps(
-                buildTarget, cellRoots, arg));
+        MACRO_HANDLER.extractParseTimeDeps(
+            buildTarget, cellRoots, arg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
       }
       for (Map.Entry<String, String> env : constructorArg.env.entrySet()) {
-        targets.addAll(
-            MACRO_HANDLER.extractParseTimeDeps(
-                buildTarget, cellRoots, env.getValue()));
+        MACRO_HANDLER.extractParseTimeDeps(
+            buildTarget, cellRoots, env.getValue(), extraDepsBuilder, targetGraphOnlyDepsBuilder);
       }
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
     }
-
-    return targets.build();
   }
 
   @SuppressFieldNotInitialized

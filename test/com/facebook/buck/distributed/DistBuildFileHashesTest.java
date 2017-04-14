@@ -19,14 +19,12 @@ package com.facebook.buck.distributed;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
+import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -36,32 +34,35 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.slb.ThriftUtil;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
+import com.facebook.buck.zip.CustomJarOutputStream;
+import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
-import com.google.common.collect.ImmutableBiMap;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.MoreExecutors;
 
 import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -70,11 +71,8 @@ import java.io.ByteArrayInputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.jar.JarOutputStream;
 
 public class DistBuildFileHashesTest {
   @Rule
@@ -104,7 +102,8 @@ public class DistBuildFileHashesTest {
       writtenHashCode = Hashing.sha1().hashString(writtenContents, Charsets.UTF_8);
 
       JavaLibraryBuilder.createBuilder(
-          BuildTargetFactory.newInstance(projectFilesystem, "//:java_lib"), projectFilesystem)
+          BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:java_lib"),
+          projectFilesystem)
           .addSrc(javaSrcPath)
           .build(resolver, projectFilesystem);
     }
@@ -116,10 +115,10 @@ public class DistBuildFileHashesTest {
 
     List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
 
-    assertThat(recordedHashes, Matchers.hasSize(1));
-    BuildJobStateFileHashes hashes = recordedHashes.get(0);
-    assertThat(hashes.entries, Matchers.hasSize(1));
-    BuildJobStateFileHashEntry fileHashEntry = hashes.entries.get(0);
+    assertThat(toDebugStringForAssert(recordedHashes), recordedHashes, Matchers.hasSize(1));
+    BuildJobStateFileHashes rootCellHashes = getRootCellHashes(recordedHashes);
+    assertThat(rootCellHashes.entries, Matchers.hasSize(1));
+    BuildJobStateFileHashEntry fileHashEntry = rootCellHashes.entries.get(0);
     // It's intentional that we hardcode the path as a string here as we expect the thrift data
     // to contain unix-formated paths.
     assertThat(fileHashEntry.getPath().getPath(), Matchers.equalTo("src/A.java"));
@@ -135,8 +134,11 @@ public class DistBuildFileHashesTest {
 
     ProjectFilesystem readProjectFilesystem =
         new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
+    ProjectFileHashCache mockCache = EasyMock.createMock(ProjectFileHashCache.class);
+    EasyMock.expect(mockCache.getFilesystem()).andReturn(readProjectFilesystem).anyTimes();
+    EasyMock.replay(mockCache);
     ProjectFileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
-        readProjectFilesystem,
+        mockCache,
         fileHashes.get(0));
 
     assertThat(
@@ -157,13 +159,17 @@ public class DistBuildFileHashesTest {
     ProjectFilesystem materializeProjectFilesystem =
         new ProjectFilesystem(tempDir.newFolder("read_hashes").getCanonicalFile().toPath());
 
-    FileHashCache fileHashLoader = EasyMock.createMock(FileHashCache.class);
-    DistBuildFileMaterializer materializer =
-        new DistBuildFileMaterializer(
-            materializeProjectFilesystem,
+    ProjectFileHashCache mockCache = EasyMock.createMock(ProjectFileHashCache.class);
+    EasyMock.expect(mockCache.getFilesystem())
+        .andReturn(materializeProjectFilesystem)
+        .atLeastOnce();
+    EasyMock.expect(mockCache.get(EasyMock.<Path>notNull())).andReturn(HashCode.fromInt(42)).once();
+    EasyMock.replay(mockCache);
+    MaterializerProjectFileHashCache materializer =
+        new MaterializerProjectFileHashCache(
+            mockCache,
             fileHashes.get(0),
-            new FileContentsProviders.InlineContentsProvider(),
-            fileHashLoader);
+            new InlineContentsProvider());
 
     materializer.get(materializeProjectFilesystem.resolve(f.javaSrcPath));
     assertThat(
@@ -179,8 +185,11 @@ public class DistBuildFileHashesTest {
 
     ProjectFilesystem readProjectFilesystem =
         new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
+    ProjectFileHashCache mockCache = EasyMock.createMock(ProjectFileHashCache.class);
+    EasyMock.expect(mockCache.getFilesystem()).andReturn(readProjectFilesystem).anyTimes();
+    EasyMock.replay(mockCache);
     ProjectFileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
-        readProjectFilesystem,
+        mockCache,
         fileHashes.get(0));
 
     assertThat(
@@ -223,10 +232,10 @@ public class DistBuildFileHashesTest {
       archiveMemberPath = getPath("Archive.class");
 
       projectFilesystem.createParentDirs(archivePath);
-      try (HashingDeterministicJarWriter jarWriter =
-               new HashingDeterministicJarWriter(
-                   new JarOutputStream(
-                       projectFilesystem.newFileOutputStream(archivePath)))) {
+      try (CustomJarOutputStream jarWriter =
+               ZipOutputStreams.newJarOutputStream(
+                   projectFilesystem.newFileOutputStream(archivePath))) {
+        jarWriter.setEntryHashingEnabled(true);
         byte[] archiveMemberData = "data".getBytes(Charsets.UTF_8);
         archiveMemberHash = Hashing.murmur3_128().hashBytes(archiveMemberData);
         jarWriter.writeEntry("Archive.class", new ByteArrayInputStream(archiveMemberData));
@@ -254,8 +263,8 @@ public class DistBuildFileHashesTest {
     try (ArchiveFilesFixture f = ArchiveFilesFixture.create(archiveTempDir)) {
       List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
 
-      assertThat(recordedHashes, Matchers.hasSize(1));
-      BuildJobStateFileHashes hashes = recordedHashes.get(0);
+      assertThat(toDebugStringForAssert(recordedHashes), recordedHashes, Matchers.hasSize(1));
+      BuildJobStateFileHashes hashes = getRootCellHashes(recordedHashes);
       assertThat(hashes.entries, Matchers.hasSize(1));
       BuildJobStateFileHashEntry fileHashEntry = hashes.entries.get(0);
       assertThat(fileHashEntry.getPath().getPath(), Matchers.equalTo("src/archive.jar"));
@@ -273,8 +282,11 @@ public class DistBuildFileHashesTest {
 
       ProjectFilesystem readProjectFilesystem =
           new ProjectFilesystem(tempDir.newFolder("read_hashes").toPath().toRealPath());
+      ProjectFileHashCache mockCache = EasyMock.createMock(ProjectFileHashCache.class);
+      EasyMock.expect(mockCache.getFilesystem()).andReturn(readProjectFilesystem).anyTimes();
+      EasyMock.replay(mockCache);
       ProjectFileHashCache fileHashCache = DistBuildFileHashes.createFileHashCache(
-          readProjectFilesystem,
+          mockCache,
           recordedHashes.get(0));
 
       ArchiveMemberPath archiveMemberPath = ArchiveMemberPath.of(
@@ -283,52 +295,10 @@ public class DistBuildFileHashesTest {
       assertThat(
           fileHashCache.willGet(archiveMemberPath),
           Matchers.is(true));
+
       assertThat(
           fileHashCache.get(archiveMemberPath),
           Matchers.is(f.archiveMemberHash));
-    }
-  }
-
-  @Test
-  public void recordsAbsoluteFileHashes() throws Exception {
-    Fixture f = new Fixture(tempDir) {
-      @Override
-      protected void setUpRules(
-          BuildRuleResolver resolver,
-          SourcePathResolver sourcePathResolver) throws Exception {
-        Path hashedFileToolPath = projectFilesystem.resolve("../tool").toAbsolutePath();
-        Path directoryPath = getPath("directory");
-        projectFilesystem.writeContentsToPath("it's a tool, I promise", hashedFileToolPath);
-        projectFilesystem.mkdirs(directoryPath);
-
-        resolver.addToIndex(new BuildRuleWithToolAndPath(
-            new FakeBuildRuleParamsBuilder("//:with_tool")
-                .setProjectFilesystem(projectFilesystem)
-                .build(),
-            new HashedFileTool(hashedFileToolPath),
-            new PathSourcePath(projectFilesystem, directoryPath)
-        ));
-      }
-    };
-
-    List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
-
-    assertThat(recordedHashes, Matchers.hasSize(1));
-    BuildJobStateFileHashes hashes = recordedHashes.get(0);
-    assertThat(hashes.entries, Matchers.hasSize(2));
-
-    for (BuildJobStateFileHashEntry entry : hashes.entries) {
-      if (entry.getPath().getPath().toString().endsWith("tool")) {
-        assertThat(entry, Matchers.notNullValue());
-        assertTrue(entry.isPathIsAbsolute());
-        assertFalse(entry.isIsDirectory());
-      } else if (entry.getPath().equals(new PathWithUnixSeparators("directory"))) {
-        assertThat(entry, Matchers.notNullValue());
-        assertFalse(entry.isPathIsAbsolute());
-        assertTrue(entry.isIsDirectory());
-      } else {
-        fail("Unknown path: " + entry.getPath().getPath());
-      }
     }
   }
 
@@ -349,65 +319,40 @@ public class DistBuildFileHashesTest {
         secondProjectFilesystem.writeContentsToPath("public class B {}", secondPath);
 
         JavaLibraryBuilder.createBuilder(
-            BuildTargetFactory.newInstance(projectFilesystem, "//:java_lib"), projectFilesystem)
+            BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:java_lib_at_root"),
+            projectFilesystem)
             .addSrc(firstPath)
             .build(resolver, projectFilesystem);
 
         JavaLibraryBuilder.createBuilder(
-            BuildTargetFactory.newInstance(secondProjectFilesystem, "//:other_cell"),
+            BuildTargetFactory.newInstance(
+                secondProjectFilesystem.getRootPath(),
+                "//:java_lib_at_secondary"),
             secondProjectFilesystem)
             .addSrc(secondPath)
             .build(resolver, secondProjectFilesystem);
       }
+
+      @Override
+      protected BuckConfig createBuckConfig() {
+        return FakeBuckConfig.builder()
+            .setSections(
+                "[repositories]",
+                "second_repo = " + secondProjectFilesystem.getRootPath().toAbsolutePath())
+            .build();
+      }
     };
 
     List<BuildJobStateFileHashes> recordedHashes = f.distributedBuildFileHashes.getFileHashes();
-    ImmutableBiMap<Path, Integer> cellIndex = f.cellIndexer.getIndex();
+    assertThat(toDebugStringForAssert(recordedHashes), recordedHashes, Matchers.hasSize(2));
 
-    assertThat(recordedHashes, Matchers.hasSize(2));
-    for (BuildJobStateFileHashes hashes : recordedHashes) {
-      Path cellPath = cellIndex.inverse().get(hashes.getCellIndex());
-      if (cellPath.equals(f.projectFilesystem.getRootPath())) {
-        assertThat(
-            toFileHashEntryIndex(hashes),
-            Matchers.hasKey(new PathWithUnixSeparators("src/A.java")));
-      } else if (cellPath.equals(f.secondProjectFilesystem.getRootPath())) {
-        assertThat(
-            toFileHashEntryIndex(hashes),
-            Matchers.hasKey(new PathWithUnixSeparators("B.java")));
-      } else {
-        fail("Unknown filesystem root:" + cellPath);
-      }
-    }
-  }
+    BuildJobStateFileHashes rootCellHash = getRootCellHashes(recordedHashes);
+    Assert.assertEquals(1, rootCellHash.getEntriesSize());
+    Assert.assertEquals("src/A.java", rootCellHash.getEntries().get(0).getPath().getPath());
 
-  private static ImmutableMap<PathWithUnixSeparators, BuildJobStateFileHashEntry>
-  toFileHashEntryIndex(BuildJobStateFileHashes hashes) {
-    return Maps.uniqueIndex(
-        hashes.getEntries(),
-        BuildJobStateFileHashEntry::getPath);
-  }
-
-  private static class FakeIndexer implements Function<Path, Integer> {
-    private final Map<Path, Integer> cache;
-
-    private FakeIndexer() {
-      cache = new HashMap<>();
-    }
-
-    public ImmutableBiMap<Path, Integer> getIndex() {
-      return ImmutableBiMap.copyOf(cache);
-    }
-
-    @Override
-    public Integer apply(Path input) {
-      Integer result = cache.get(input);
-      if (result == null) {
-        result = cache.size();
-        cache.put(input, result);
-      }
-      return result;
-    }
+    BuildJobStateFileHashes secondaryCellHashes = getCellHashesByIndex(recordedHashes, 1);
+    Assert.assertEquals(1, secondaryCellHashes.getEntriesSize());
+    Assert.assertEquals("B.java", secondaryCellHashes.getEntries().get(0).getPath().getPath());
   }
 
   private abstract static class Fixture {
@@ -422,7 +367,6 @@ public class DistBuildFileHashesTest {
     protected final BuildRuleResolver buildRuleResolver;
     protected final SourcePathRuleFinder ruleFinder;
     protected final SourcePathResolver sourcePathResolver;
-    protected final FakeIndexer cellIndexer;
     protected final DistBuildFileHashes distributedBuildFileHashes;
 
     public Fixture(ProjectFilesystem first, ProjectFilesystem second) throws Exception {
@@ -439,22 +383,31 @@ public class DistBuildFileHashesTest {
       sourcePathResolver = new SourcePathResolver(ruleFinder);
       setUpRules(buildRuleResolver, sourcePathResolver);
       actionGraph = new ActionGraph(buildRuleResolver.getBuildRules());
-      cellIndexer = new FakeIndexer();
+      BuckConfig buckConfig = createBuckConfig();
+      Cell rootCell = new TestCellBuilder()
+          .setFilesystem(projectFilesystem)
+          .setBuckConfig(buckConfig)
+          .build();
 
       distributedBuildFileHashes = new DistBuildFileHashes(
           actionGraph,
           sourcePathResolver,
           ruleFinder,
-          createFileHashCache().getCaches(),
-          cellIndexer,
+          createFileHashCache(),
+          new DistBuildCellIndexer(rootCell),
           MoreExecutors.newDirectExecutorService(),
           /* keySeed */ 0,
-          FakeBuckConfig.builder().build());
+          rootCell);
     }
 
     public Fixture(TemporaryFolder tempDir) throws Exception {
-      this(new ProjectFilesystem(tempDir.newFolder("first").toPath().toRealPath()),
+      this(
+          new ProjectFilesystem(tempDir.newFolder("first").toPath().toRealPath()),
           new ProjectFilesystem(tempDir.newFolder("second").toPath().toRealPath()));
+    }
+
+    protected BuckConfig createBuckConfig() {
+      return FakeBuckConfig.builder().build();
     }
 
     protected abstract void setUpRules(
@@ -463,14 +416,14 @@ public class DistBuildFileHashesTest {
 
     private StackedFileHashCache createFileHashCache() {
       ImmutableList.Builder<ProjectFileHashCache> cacheList = ImmutableList.builder();
+      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem));
+      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(secondProjectFilesystem));
       for (Path path : javaFs.getRootDirectories()) {
         if (Files.isDirectory(path)) {
           cacheList.add(
               DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(path)));
         }
       }
-      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem));
-      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(secondProjectFilesystem));
       return new StackedFileHashCache(cacheList.build());
     }
 
@@ -495,5 +448,29 @@ public class DistBuildFileHashesTest {
       this.tool = tool;
       this.sourcePath = sourcePath;
     }
+  }
+
+  private static BuildJobStateFileHashes getCellHashesByIndex(
+      List<BuildJobStateFileHashes> recordedHashes,
+      int index) {
+    Preconditions.checkArgument(index >= 0);
+    Preconditions.checkArgument(index < recordedHashes.size());
+    return recordedHashes.stream()
+        .filter(hashes -> hashes.getCellIndex() == index)
+        .findFirst()
+        .get();
+  }
+
+  private static BuildJobStateFileHashes getRootCellHashes(
+      List<BuildJobStateFileHashes> recordedHashes) {
+    return getCellHashesByIndex(recordedHashes, DistBuildCellIndexer.ROOT_CELL_INDEX);
+  }
+
+  private static String toDebugStringForAssert(List<BuildJobStateFileHashes> recordedHashes) {
+    return Joiner
+        .on("\n")
+        .join(recordedHashes.stream()
+            .map(ThriftUtil::thriftToDebugJson)
+            .collect(MoreCollectors.toImmutableList()));
   }
 }

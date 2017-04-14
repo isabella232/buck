@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
+import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_OPTIONS;
 
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
@@ -42,13 +43,15 @@ public class AndroidBinaryBuilder extends
   private AndroidBinaryBuilder(BuildTarget target) {
     super(
         new AndroidBinaryDescription(
+            DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
             FakeBuckConfig.builder().build(),
-            CxxPlatformUtils.DEFAULT_CONFIG),
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new DxConfig(FakeBuckConfig.builder().build())),
         target);
   }
 
@@ -142,6 +145,11 @@ public class AndroidBinaryBuilder extends
 
   public AndroidBinaryBuilder setAllowedDuplicateResourceTypes(Set<RDotTxtEntry.RType> value) {
     arg.allowedDuplicateResourceTypes = value;
+    return this;
+  }
+
+  public AndroidBinaryBuilder setPostFilterResourcesCmd(Optional<String> command) {
+    arg.postFilterResourcesCmd = command;
     return this;
   }
 }

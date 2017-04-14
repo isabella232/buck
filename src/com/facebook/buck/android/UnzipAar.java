@@ -86,7 +86,7 @@ public class UnzipAar extends AbstractBuildRule
       BuildContext context,
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), unpackDirectory));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), unpackDirectory));
     steps.add(
         new UnzipStep(
             getProjectFilesystem(),
@@ -94,10 +94,10 @@ public class UnzipAar extends AbstractBuildRule
             unpackDirectory));
     steps.add(new TouchStep(getProjectFilesystem(), getProguardConfig()));
     steps.add(
-        new MkdirStep(
+        MkdirStep.of(
             getProjectFilesystem(),
             context.getSourcePathResolver().getAbsolutePath(getAssetsDirectory())));
-    steps.add(new MkdirStep(getProjectFilesystem(), getNativeLibsDirectory()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), getNativeLibsDirectory()));
     steps.add(new TouchStep(getProjectFilesystem(), getTextSymbolsFile()));
 
     // We take the classes.jar file that is required to exist in an .aar and merge it with any
@@ -106,7 +106,7 @@ public class UnzipAar extends AbstractBuildRule
     // that all of the .class files in the .aar get packaged. As it is implemented today, an
     // android_library that depends on an android_prebuilt_aar can compile against anything in the
     // .aar's classes.jar or libs/.
-    steps.add(new MkdirStep(getProjectFilesystem(), uberClassesJar.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), uberClassesJar.getParent()));
     steps.add(new AbstractExecutionStep("create_uber_classes_jar") {
       @Override
       public StepExecutionResult execute(ExecutionContext context) {
@@ -183,7 +183,7 @@ public class UnzipAar extends AbstractBuildRule
       }
     });
 
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTextSymbolsDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToTextSymbolsDir));
     steps.add(
         new ExtractFromAndroidManifestStep(
             getAndroidManifest(),

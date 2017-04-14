@@ -49,8 +49,9 @@ import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -157,57 +158,70 @@ public class GenruleTest {
     List<Step> steps = genrule.getBuildSteps(
         buildContext,
         new FakeBuildableContext());
-    assertEquals(6, steps.size());
+    assertEquals(11, steps.size());
 
     ExecutionContext executionContext = newEmptyExecutionContext();
 
-    Step firstStep = steps.get(0);
-    assertTrue(firstStep instanceof MakeCleanDirectoryStep);
-    MakeCleanDirectoryStep mkdirCommand = (MakeCleanDirectoryStep) firstStep;
-    Path pathToOutDir = filesystem.getBuckPaths().getGenDir().resolve(
-        "src/com/facebook/katana/katana_manifest");
     assertEquals(
-        "First command should make sure the output directory exists and is empty.",
-        pathToOutDir,
-        mkdirCommand.getPath());
+        RmStep.of(
+            filesystem,
+            filesystem.getBuckPaths().getGenDir()
+                .resolve("src/com/facebook/katana/katana_manifest"))
+            .withRecursive(true),
+        steps.get(0));
+    assertEquals(
+        MkdirStep.of(
+            filesystem,
+            filesystem.getBuckPaths().getGenDir()
+                .resolve("src/com/facebook/katana/katana_manifest")),
+        steps.get(1));
 
-    Step mkTmpDir = steps.get(1);
-    assertTrue(mkTmpDir instanceof MakeCleanDirectoryStep);
-    MakeCleanDirectoryStep secondMkdirCommand = (MakeCleanDirectoryStep) mkTmpDir;
-    Path pathToTmpDir = filesystem.getBuckPaths().getGenDir().resolve(
-        "src/com/facebook/katana/katana_manifest__tmp");
     assertEquals(
-        "Second command should create the temp directory to be written by the genrule.",
-        pathToTmpDir,
-        secondMkdirCommand.getPath());
+        RmStep.of(
+            filesystem,
+            filesystem.getBuckPaths().getGenDir()
+                .resolve("src/com/facebook/katana/katana_manifest__tmp"))
+            .withRecursive(true),
+        steps.get(2));
+    assertEquals(
+        MkdirStep.of(
+            filesystem,
+            filesystem.getBuckPaths().getGenDir()
+                .resolve("src/com/facebook/katana/katana_manifest__tmp")),
+        steps.get(3));
 
-    Step mkSrcDir = steps.get(2);
-    assertTrue(mkSrcDir instanceof MakeCleanDirectoryStep);
-    MakeCleanDirectoryStep thirdMkdirCommand = (MakeCleanDirectoryStep) mkTmpDir;
-    Path pathToSrcDir = filesystem.getBuckPaths().getGenDir().resolve(
-        "src/com/facebook/katana/katana_manifest__srcs");
+    Path pathToSrcDir = filesystem.getBuckPaths().getGenDir()
+        .resolve("src/com/facebook/katana/katana_manifest__srcs");
     assertEquals(
-        "Third command should create the temp source directory to be written by the genrule.",
-        pathToTmpDir,
-        thirdMkdirCommand.getPath());
+        RmStep.of(filesystem, pathToSrcDir).withRecursive(true),
+        steps.get(4));
+    assertEquals(
+        MkdirStep.of(filesystem, pathToSrcDir),
+        steps.get(5));
 
-    MkdirAndSymlinkFileStep linkSource1 = (MkdirAndSymlinkFileStep) steps.get(3);
     assertEquals(
-        filesystem.getPath("src/com/facebook/katana/convert_to_katana.py"),
-        linkSource1.getSource());
+        MkdirStep.of(filesystem, pathToSrcDir),
+        steps.get(6));
     assertEquals(
-        filesystem.getPath(pathToSrcDir + "/convert_to_katana.py"),
-        linkSource1.getTarget());
+        SymlinkFileStep.builder()
+            .setFilesystem(filesystem)
+            .setExistingFile(filesystem.getPath("src/com/facebook/katana/convert_to_katana.py"))
+            .setDesiredLink(filesystem.getPath(pathToSrcDir + "/convert_to_katana.py"))
+            .build(),
+        steps.get(7));
 
-    MkdirAndSymlinkFileStep linkSource2 = (MkdirAndSymlinkFileStep) steps.get(4);
     assertEquals(
-        filesystem.getPath("src/com/facebook/katana/AndroidManifest.xml"),
-        linkSource2.getSource());
+        MkdirStep.of(filesystem, pathToSrcDir),
+        steps.get(8));
     assertEquals(
-        filesystem.getPath(pathToSrcDir + "/AndroidManifest.xml"),
-        linkSource2.getTarget());
+        SymlinkFileStep.builder()
+            .setFilesystem(filesystem)
+            .setExistingFile(filesystem.getPath("src/com/facebook/katana/AndroidManifest.xml"))
+            .setDesiredLink(filesystem.getPath(pathToSrcDir + "/AndroidManifest.xml"))
+            .build(),
+        steps.get(9));
 
-    Step sixthStep = steps.get(5);
+    Step sixthStep = steps.get(10);
     assertTrue(sixthStep instanceof AbstractGenruleStep);
     AbstractGenruleStep genruleCommand = (AbstractGenruleStep) sixthStep;
     assertEquals("genrule", genruleCommand.getShortName());
@@ -316,8 +330,8 @@ public class GenruleTest {
 
     ExecutionContext executionContext = newEmptyExecutionContext(Platform.LINUX);
 
-    assertEquals(4, steps.size());
-    Step step = steps.get(3);
+    assertEquals(7, steps.size());
+    Step step = steps.get(6);
     assertTrue(step instanceof WorkerShellStep);
     WorkerShellStep workerShellStep = (WorkerShellStep) step;
     assertThat(workerShellStep.getShortName(), Matchers.equalTo("worker"));
@@ -390,7 +404,7 @@ public class GenruleTest {
         .setOut("output.txt")
         .build(ruleResolver);
 
-    assertThat(genrule.getDeps(), Matchers.hasItems(shBinaryRule, workerToolRule));
+    assertThat(genrule.getBuildDeps(), Matchers.hasItems(shBinaryRule, workerToolRule));
   }
 
   private ExecutionContext newEmptyExecutionContext(Platform platform) {
@@ -407,19 +421,18 @@ public class GenruleTest {
 
   @Test
   public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() throws Exception {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    BuildTarget target = BuildTargetFactory.newInstance("//:example");
+    BuildTarget target = BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:example");
     BuildRule rule = GenruleBuilder
-        .newGenruleBuilder(target)
+        .newGenruleBuilder(target, filesystem)
         .setBash("ignored")
         .setSrcs(
             ImmutableList.of(
-                new PathSourcePath(projectFilesystem, Paths.get("in-dir.txt")),
-                new PathSourcePath(projectFilesystem, Paths.get("foo/bar.html")),
-                new PathSourcePath(projectFilesystem, Paths.get("other/place.txt"))))
+                new PathSourcePath(filesystem, filesystem.getPath("in-dir.txt")),
+                new PathSourcePath(filesystem, filesystem.getPath("foo/bar.html")),
+                new PathSourcePath(filesystem, filesystem.getPath("other/place.txt"))))
         .setOut("example-file")
         .build(resolver);
 
@@ -428,21 +441,41 @@ public class GenruleTest {
         FakeBuildContext.withSourcePathResolver(pathResolver), builder);
     ImmutableList<Step> commands = builder.build();
 
-    String baseTmpPath =
-        projectFilesystem.getBuckPaths().getGenDir().toString() + "/example__srcs/";
+    Path baseTmpPath = filesystem.getBuckPaths().getGenDir().resolve("example__srcs");
 
-    assertEquals(3, commands.size());
-    MkdirAndSymlinkFileStep linkCmd = (MkdirAndSymlinkFileStep) commands.get(0);
-    assertEquals(Paths.get("in-dir.txt"), linkCmd.getSource());
-    assertEquals(Paths.get(baseTmpPath + "in-dir.txt"), linkCmd.getTarget());
+    assertEquals(6, commands.size());
+    assertEquals(
+        MkdirStep.of(filesystem, baseTmpPath),
+        commands.get(0));
+    assertEquals(
+        SymlinkFileStep.builder()
+            .setFilesystem(filesystem)
+            .setExistingFile(filesystem.getPath("in-dir.txt"))
+            .setDesiredLink(baseTmpPath.resolve("in-dir.txt"))
+            .build(),
+        commands.get(1));
 
-    linkCmd = (MkdirAndSymlinkFileStep) commands.get(1);
-    assertEquals(Paths.get("foo/bar.html"), linkCmd.getSource());
-    assertEquals(Paths.get(baseTmpPath + "foo/bar.html"), linkCmd.getTarget());
+    assertEquals(
+        MkdirStep.of(filesystem, baseTmpPath.resolve("foo")),
+        commands.get(2));
+    assertEquals(
+        SymlinkFileStep.builder()
+            .setFilesystem(filesystem)
+            .setExistingFile(filesystem.getPath("foo", "bar.html"))
+            .setDesiredLink(baseTmpPath.resolve("foo").resolve("bar.html"))
+            .build(),
+        commands.get(3));
 
-    linkCmd = (MkdirAndSymlinkFileStep) commands.get(2);
-    assertEquals(Paths.get("other/place.txt"), linkCmd.getSource());
-    assertEquals(Paths.get(baseTmpPath + "other/place.txt"), linkCmd.getTarget());
+    assertEquals(
+        MkdirStep.of(filesystem, baseTmpPath.resolve("other")),
+        commands.get(4));
+    assertEquals(
+        SymlinkFileStep.builder()
+            .setFilesystem(filesystem)
+            .setExistingFile(filesystem.getPath("other", "place.txt"))
+            .setDesiredLink(baseTmpPath.resolve("other").resolve("place.txt"))
+            .build(),
+        commands.get(5));
   }
 
   private BuildRule createSampleJavaBinaryRule(BuildRuleResolver ruleResolver)

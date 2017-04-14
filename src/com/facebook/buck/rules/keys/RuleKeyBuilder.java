@@ -35,6 +35,7 @@ import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -56,6 +57,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import javax.annotation.Nullable;
@@ -65,7 +67,7 @@ import javax.annotation.Nullable;
  *
  * {@link RuleKeyFactory} classes create concrete instances of this class and use them to produce
  * rule keys. Concrete implementations may tweak behavior of the builder, and at the very minimum
- * should implement {@link #build()}, {@link #setAppendableRuleKey(RuleKeyAppendable)}, and
+ * should implement {@link #setAppendableRuleKey(RuleKeyAppendable)}, and
  * {@link #setBuildRule(BuildRule)}.
  *
  * This class implements {@link RuleKeyObjectSink} interface which is the primary mechanism of how
@@ -82,7 +84,7 @@ import javax.annotation.Nullable;
  * concrete rule key builders that ignore some elements, or handle them differently. For example,
  * several concrete builders handle {@link SourcePath} elements in a special way.
  *
- * @param <RULE_KEY> - the actual type that the concrete builder produces (e.g. {@code RuleKey}).
+ * @param <RULE_KEY> - the actual type that the builder produces (e.g. {@code HashCode}).
  */
 public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
 
@@ -91,15 +93,14 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
   private final SourcePathRuleFinder ruleFinder;
   private final SourcePathResolver resolver;
   private final FileHashLoader hashLoader;
-  private final CountingRuleKeyHasher<HashCode> hasher;
-  private final RuleKeyScopedHasher<HashCode> scopedHasher;
+  private final CountingRuleKeyHasher<RULE_KEY> hasher;
+  private final RuleKeyScopedHasher<RULE_KEY> scopedHasher;
 
-  @VisibleForTesting
-  protected RuleKeyBuilder(
+  public RuleKeyBuilder(
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver resolver,
       FileHashLoader hashLoader,
-      RuleKeyHasher<HashCode> hasher) {
+      RuleKeyHasher<RULE_KEY> hasher) {
     this.ruleFinder = ruleFinder;
     this.resolver = resolver;
     this.hashLoader = hashLoader;
@@ -108,18 +109,11 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
   }
 
   @VisibleForTesting
-  RuleKeyScopedHasher<HashCode> getScopedHasher() {
+  RuleKeyScopedHasher<RULE_KEY> getScopedHasher() {
     return this.scopedHasher;
   }
 
-  public RuleKeyBuilder(
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver resolver,
-      FileHashLoader hashLoader) {
-    this(ruleFinder, resolver, hashLoader, createHasher());
-  }
-
-  private static RuleKeyHasher<HashCode> createHasher() {
+  public static RuleKeyHasher<HashCode> createDefaultHasher() {
     RuleKeyHasher<HashCode> hasher = new GuavaRuleKeyHasher(Hashing.sha1().newHasher());
     if (logger.isVerboseEnabled()) {
       hasher = new ForwardingRuleKeyHasher<HashCode, String>(hasher, new StringRuleKeyHasher()) {
@@ -134,15 +128,15 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
 
   @Override
   public final RuleKeyBuilder<RULE_KEY> setReflectively(String key, @Nullable Object val) {
-    try (Scope keyScope = scopedHasher.keyScope(key)) {
-      return setReflectively(val);
-    }
+    return setReflectively(key, val, RuleKeyFieldCategory.UNKNOWN);
   }
 
   @Override
-  public final RuleKeyObjectSink setAppendableRuleKey(String key, RuleKeyAppendable appendable) {
+  public final RuleKeyBuilder<RULE_KEY> setReflectively(
+      String key, @Nullable Object val, RuleKeyFieldCategory category) {
+    hasher.selectCategory(category);
     try (Scope keyScope = scopedHasher.keyScope(key)) {
-      return setAppendableRuleKey(appendable);
+      return setReflectively(val);
     }
   }
 
@@ -248,12 +242,16 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
 
     if (val instanceof SourceWithFlags) {
       SourceWithFlags source = (SourceWithFlags) val;
-      try {
-        setSourcePath(source.getSourcePath());
-      } catch (IOException e) {
-        throw new RuntimeException(e);
+      try (ContainerScope containerScope = scopedHasher.containerScope(Container.TUPLE)) {
+        try (Scope elementScope = containerScope.elementScope()) {
+          setSourcePath(source.getSourcePath());
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+        try (Scope elementScope = containerScope.elementScope()) {
+          setReflectively(source.getFlags());
+        }
       }
-      setReflectively(source.getFlags());
       return this;
     }
 
@@ -335,8 +333,15 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
    */
   protected final RuleKeyBuilder<RULE_KEY> setSourcePathAsRule(
       BuildTargetSourcePath<?> sourcePath) {
-    hasher.putBuildTargetSourcePath(sourcePath);
-    return setBuildRule(ruleFinder.getRuleOrThrow(sourcePath));
+    try (ContainerScope containerScope = scopedHasher.containerScope(Container.TUPLE)) {
+      try (Scope elementScope = containerScope.elementScope()) {
+        hasher.putBuildTargetSourcePath(sourcePath);
+      }
+      try (Scope elementScope = containerScope.elementScope()) {
+        setBuildRule(ruleFinder.getRuleOrThrow(sourcePath));
+      }
+    }
+    return this;
   }
 
   // Paths get added as a combination of the file name and file hash. If the path is absolute
@@ -348,7 +353,7 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
   public RuleKeyBuilder<RULE_KEY> setPath(
       Path absolutePath,
       Path ideallyRelative) throws IOException {
-    // TODO(shs96c): Enable this precondition once setPath(Path) has been removed.
+    // TODO(simons): Enable this precondition once setPath(Path) has been removed.
     // Preconditions.checkState(absolutePath.isAbsolute());
     if (ideallyRelative.isAbsolute()) {
       logger.warn(
@@ -430,11 +435,14 @@ public abstract class RuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
     return this;
   }
 
-  /** A convenience method for implementations that build {@link RuleKey}. */
-  protected final RuleKey buildRuleKey() {
-    return new RuleKey(hasher.hash());
+  /** Builds the rule key hash. */
+  public final RULE_KEY build() {
+    return hasher.hash();
   }
 
-  public abstract RULE_KEY build();
+  /** A convenience method that builds the rule key hash and transforms it with a mapper. */
+  public final <RESULT> RESULT build(Function<RULE_KEY, RESULT> mapper) {
+    return mapper.apply(build());
+  }
 
 }

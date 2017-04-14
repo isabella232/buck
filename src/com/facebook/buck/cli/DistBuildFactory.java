@@ -24,12 +24,11 @@ import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.DistBuildState;
-import com.facebook.buck.distributed.FileContentsProviders;
 import com.facebook.buck.distributed.FrontendService;
+import com.facebook.buck.distributed.MultiSourceContentsProvider;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.slb.ClientSideSlb;
 import com.facebook.buck.slb.LoadBalancedService;
@@ -44,8 +43,6 @@ import java.util.Optional;
 import okhttp3.OkHttpClient;
 
 public abstract class DistBuildFactory {
-  private static final int SLB_THREAD_PRIORITY = Thread.MAX_PRIORITY;
-
   private DistBuildFactory() {
     // Do not instantiate.
   }
@@ -65,8 +62,7 @@ public abstract class DistBuildFactory {
     DistBuildConfig config = new DistBuildConfig(params.getBuckConfig());
     ClientSideSlb slb = config.getFrontendConfig().createClientSideSlb(
         params.getClock(),
-        params.getBuckEventBus(),
-        new CommandThreadFactory("StampedeNetworkThreadPool", SLB_THREAD_PRIORITY));
+        params.getBuckEventBus());
     OkHttpClient client = config.createOkHttpClient();
 
     return new FrontendService(
@@ -83,7 +79,8 @@ public abstract class DistBuildFactory {
       DistBuildService service,
       DistBuildMode mode,
       int coordinatorPort,
-      Optional<StampedeId> stampedeId) throws IOException {
+      Optional<StampedeId> stampedeId,
+      Optional<Path> globalCacheDir) throws IOException {
     DistBuildState state = DistBuildState.load(
         Optional.of(params.getBuckConfig()),
         jobState,
@@ -105,14 +102,13 @@ public abstract class DistBuildFactory {
             .setClock(params.getClock())
             .setArtifactCache(distBuildArtifactCacheFactory.newInstance(true))
             .setState(state)
-            .setObjectMapper(params.getObjectMapper())
             .setRootCell(params.getCell())
             .setParser(params.getParser())
             .setExecutorService(executorService)
             .setActionGraphCache(params.getActionGraphCache())
             .setCacheKeySeed(params.getBuckConfig().getKeySeed())
             .setConsole(params.getConsole())
-            .setProvider(FileContentsProviders.createDefaultProvider(service))
+            .setProvider(new MultiSourceContentsProvider(service, globalCacheDir))
             .setExecutors(params.getExecutors())
             .setDistBuildMode(mode)
             .setCoordinatorPort(coordinatorPort)

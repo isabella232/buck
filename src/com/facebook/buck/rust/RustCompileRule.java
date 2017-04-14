@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.cxx.CxxPrepareForLinkStep;
+import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -55,7 +57,7 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
   private final Tool compiler;
 
   @AddToRuleKey
-  private final Tool linker;
+  private final Linker linker;
 
   @AddToRuleKey
   private final ImmutableList<Arg> args;
@@ -71,6 +73,8 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
 
   private final Path scratchDir;
   private final String filename;
+  @AddToRuleKey
+  private final boolean hasOutput;
 
   /**
    * Work out how to invoke the Rust compiler, rustc.
@@ -93,11 +97,12 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
       BuildRuleParams buildRuleParams,
       String filename,
       Tool compiler,
-      Tool linker,
+      Linker linker,
       ImmutableList<Arg> args,
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> srcs,
-      SourcePath rootModule) {
+      SourcePath rootModule,
+      boolean hasOutput) {
     super(buildRuleParams);
 
     this.filename = filename;
@@ -109,6 +114,7 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
     this.srcs = srcs;
     this.scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-container");
+    this.hasOutput = hasOutput;
   }
 
   public static RustCompileRule from(
@@ -116,13 +122,14 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
       BuildRuleParams params,
       String filename,
       Tool compiler,
-      Tool linker,
+      Linker linker,
       ImmutableList<Arg> args,
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> sources,
-      SourcePath rootModule) {
+      SourcePath rootModule,
+      boolean hasOutput) {
     return new RustCompileRule(
-        params.copyWithExtraDeps(
+        params.copyReplacingExtraDeps(
             Suppliers.memoize(
                 () -> ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(compiler.getDeps(ruleFinder))
@@ -142,7 +149,8 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
         args,
         linkerArgs,
         sources,
-        rootModule);
+        rootModule,
+        hasOutput);
   }
 
   protected static Path getOutputDir(BuildTarget target, ProjectFilesystem filesystem) {
@@ -153,107 +161,96 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
     return getOutputDir(getBuildTarget(), getProjectFilesystem()).resolve(filename);
   }
 
-  // Wrap args for the linker with the appropriate `-C link-arg` or `-C link-args`.
-  // Use `link-args` for collections of "simple" args, and `link-arg` for ones containing
-  // spaces (or singletons).
-  static ImmutableList<String> processLinkerArgs(Iterable<String> linkerArgs) {
-    ImmutableList.Builder<ImmutableList<String>> grouper = ImmutableList.builder();
-    ImmutableList.Builder<String> accum = ImmutableList.builder();
-
-    for (String arg : linkerArgs) {
-      if (!arg.contains(" ")) {
-        accum.add(arg);
-      } else {
-        grouper.add(accum.build());
-        accum = ImmutableList.builder();
-        grouper.add(ImmutableList.of(arg));
-      }
-    }
-    grouper.add(accum.build());
-
-    return grouper.build().stream()
-        .filter(g -> g.size() > 0)
-        .map(
-            g -> {
-              if (g.size() == 1) {
-                return String.format("-Clink-arg=%s", g.get(0));
-              } else {
-                return String.format("-Clink-args=%s", String.join(" ", g));
-              }
-            })
-        .collect(MoreCollectors.toImmutableList());
-  }
-
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext buildContext, BuildableContext buildableContext) {
 
     Path output = getOutput();
 
-    buildableContext.recordArtifact(output);
+    if (hasOutput) {
+      buildableContext.recordArtifact(output);
+    }
 
     SourcePathResolver resolver = buildContext.getSourcePathResolver();
 
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        new SymlinkFilesIntoDirectoryStep(
-            getProjectFilesystem(),
-            getProjectFilesystem().getRootPath(),
-            srcs.stream()
-                .map(resolver::getRelativePath)
-                .collect(MoreCollectors.toImmutableList()),
-            scratchDir),
-        new MakeCleanDirectoryStep(
-            getProjectFilesystem(),
-            getOutputDir(getBuildTarget(), getProjectFilesystem())),
-        new ShellStep(getProjectFilesystem().getRootPath()) {
+    Path argFilePath = getProjectFilesystem().getRootPath().resolve(
+        BuildTargets.getScratchPath(
+            getProjectFilesystem(), getBuildTarget(),
+            "%s.argsfile"));
+    Path fileListPath = getProjectFilesystem().getRootPath().resolve(
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt"));
 
-          @Override
-          protected ImmutableList<String> getShellCommandInternal(
-              ExecutionContext executionContext) {
-            ImmutableList<String> linkerCmd = linker.getCommandPrefix(resolver);
-            ImmutableList.Builder<String> cmd = ImmutableList.builder();
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir))
+        .add(
+            new SymlinkFilesIntoDirectoryStep(
+                getProjectFilesystem(),
+                getProjectFilesystem().getRootPath(),
+                srcs.stream()
+                    .map(resolver::getRelativePath)
+                    .collect(MoreCollectors.toImmutableList()),
+                scratchDir))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                getProjectFilesystem(),
+                getOutputDir(getBuildTarget(), getProjectFilesystem())))
+        .addAll(
+            CxxPrepareForLinkStep.create(
+                argFilePath,
+                fileListPath,
+                linker.fileList(fileListPath),
+                output,
+                linkerArgs,
+                linker,
+                getBuildTarget().getCellPath(),
+                resolver))
+        .add(
+            new ShellStep(getProjectFilesystem().getRootPath()) {
 
-            Path src = scratchDir.resolve(resolver.getRelativePath(rootModule));
+              @Override
+              protected ImmutableList<String> getShellCommandInternal(
+                  ExecutionContext executionContext) {
+                ImmutableList<String> linkerCmd = linker.getCommandPrefix(resolver);
+                ImmutableList.Builder<String> cmd = ImmutableList.builder();
 
-            cmd
-                .addAll(compiler.getCommandPrefix(resolver))
-                .addAll(
-                    executionContext.getAnsi().isAnsiTerminal() ?
-                        ImmutableList.of("--color=always") : ImmutableList.of())
-                .add(String.format("-Clinker=%s", linkerCmd.get(0)))
-                .addAll(processLinkerArgs(linkerCmd.subList(1, linkerCmd.size())))
-                .addAll(
-                    processLinkerArgs(
-                        Arg.stringify(linkerArgs, buildContext.getSourcePathResolver())))
-                .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
-                .add("-o", output.toString())
-                .add(src.toString());
+                Path src = scratchDir.resolve(resolver.getRelativePath(rootModule));
+                cmd
+                    .addAll(compiler.getCommandPrefix(resolver))
+                    .addAll(
+                        executionContext.getAnsi().isAnsiTerminal() ?
+                            ImmutableList.of("--color=always") : ImmutableList.of())
+                    .add(String.format("-Clinker=%s", linkerCmd.get(0)))
+                    .add(String.format("-Clink-arg=@%s", argFilePath))
+                    .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
+                    .add("-o", output.toString())
+                    .add(src.toString());
 
-            return cmd.build();
-          }
+                return cmd.build();
+              }
 
-          /*
-           * Make sure all stderr output from rustc is emitted, since its either a warning or an
-           * error. In general Rust code should have zero warnings, or all warnings as errors.
-           * Regardless, respect requests for silence.
-           */
-          @Override
-          protected boolean shouldPrintStderr(Verbosity verbosity) {
-            return !verbosity.isSilent();
-          }
+              /*
+               * Make sure all stderr output from rustc is emitted, since its either a warning or an
+               * error. In general Rust code should have zero warnings, or all warnings as errors.
+               * Regardless, respect requests for silence.
+               */
+              @Override
+              protected boolean shouldPrintStderr(Verbosity verbosity) {
+                return !verbosity.isSilent();
+              }
 
-          @Override
-          public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-            return compiler.getEnvironment(buildContext.getSourcePathResolver());
-          }
+              @Override
+              public ImmutableMap<String, String> getEnvironmentVariables(
+                  ExecutionContext context) {
+                return compiler.getEnvironment(buildContext.getSourcePathResolver());
+              }
 
-          @Override
-          public String getShortName() {
-            return "rust-build";
-          }
+              @Override
+              public String getShortName() {
+                return "rust-build";
+              }
 
-        });
+            })
+        .build();
   }
 
   @Override

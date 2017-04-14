@@ -27,6 +27,7 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
@@ -167,6 +168,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       final A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new CustomPrebuiltCxxLibrary(params) {
@@ -179,7 +181,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
 
       @Override
       public Iterable<AndroidPackageable> getRequiredPackageables() {
-        return AndroidPackageableCollector.getPackageableRules(params.getDeps());
+        return AndroidPackageableCollector.getPackageableRules(params.getBuildDeps());
       }
 
       @Override
@@ -193,13 +195,8 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return FluentIterable.from(getDeps())
+        return FluentIterable.from(getBuildDeps())
             .filter(CxxPreprocessorDep.class);
-      }
-
-      @Override
-      public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-        return Optional.empty();
       }
 
       @Override

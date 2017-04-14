@@ -67,7 +67,7 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
     steps.add(
         new StringTemplateStep(
             context.getSourcePathResolver().getAbsolutePath(template),
@@ -106,11 +106,12 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
       ImmutableMap<String, String> values,
       boolean executable) {
     return new WriteStringTemplateRule(
-        baseParams.copyWithChanges(
-            target,
-            Suppliers.ofInstance(
-                ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(template))),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        baseParams
+            .withBuildTarget(target)
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(
+                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(template))),
+                Suppliers.ofInstance(ImmutableSortedSet.of())),
         output,
         template,
         values,

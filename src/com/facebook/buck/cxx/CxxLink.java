@@ -56,6 +56,8 @@ public class CxxLink
   private final ImmutableList<Arg> args;
   private final Optional<RuleScheduleInfo> ruleScheduleInfo;
   private final boolean cacheable;
+  @AddToRuleKey
+  private boolean thinLto;
 
   public CxxLink(
       BuildRuleParams params,
@@ -63,13 +65,15 @@ public class CxxLink
       Path output,
       ImmutableList<Arg> args,
       Optional<RuleScheduleInfo> ruleScheduleInfo,
-      boolean cacheable) {
+      boolean cacheable,
+      boolean thinLto) {
     super(params);
     this.linker = linker;
     this.output = output;
     this.args = args;
     this.ruleScheduleInfo = ruleScheduleInfo;
     this.cacheable = cacheable;
+    this.thinLto = thinLto;
     performChecks(params);
   }
 
@@ -90,6 +94,9 @@ public class CxxLink
         LinkerMapMode.isLinkerMapEnabledForBuildTarget(getBuildTarget())) {
       buildableContext.recordArtifact(linkerMapPath.get());
     }
+    if (linker instanceof HasThinLTO && thinLto) {
+      buildableContext.recordArtifact(((HasThinLTO) linker).thinLTOPath(output));
+    }
     Path scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
     Path argFilePath = getProjectFilesystem().getRootPath().resolve(
@@ -102,16 +109,16 @@ public class CxxLink
     // One way that we know would work is exposing every known cell root paths, since the only rules
     // that we built (and therefore need to scrub) will be in one of those roots.
     ImmutableSet.Builder<Path> cellRoots = ImmutableSet.builder();
-    for (BuildRule dep : getDeps()) {
+    for (BuildRule dep : getBuildDeps()) {
       cellRoots.add(dep.getProjectFilesystem().getRootPath());
     }
 
-    return ImmutableList.of(
-        new MkdirStep(getProjectFilesystem(), output.getParent()),
-        new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        new RmStep(getProjectFilesystem(), argFilePath),
-        new RmStep(getProjectFilesystem(), fileListPath),
-        CxxPrepareForLinkStep.create(
+    return new ImmutableList.Builder<Step>()
+        .add(MkdirStep.of(getProjectFilesystem(), output.getParent()))
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir))
+        .add(RmStep.of(getProjectFilesystem(), argFilePath))
+        .add(RmStep.of(getProjectFilesystem(), fileListPath))
+        .addAll(CxxPrepareForLinkStep.create(
             argFilePath,
             fileListPath,
             linker.fileList(fileListPath),
@@ -119,32 +126,35 @@ public class CxxLink
             args,
             linker,
             getBuildTarget().getCellPath(),
-            context.getSourcePathResolver()),
-        new CxxLinkStep(
+            context.getSourcePathResolver()))
+        .add(new CxxLinkStep(
             getProjectFilesystem().getRootPath(),
             linker.getEnvironment(context.getSourcePathResolver()),
             linker.getCommandPrefix(context.getSourcePathResolver()),
             argFilePath,
-            getProjectFilesystem().getRootPath().resolve(scratchDir)),
-        new FileScrubberStep(
+            getProjectFilesystem().getRootPath().resolve(scratchDir)))
+        .add(new FileScrubberStep(
             getProjectFilesystem(),
             output,
-            linker.getScrubbers(cellRoots.build())),
-        new LogContentsOfFileStep(getProjectFilesystem().resolve(argFilePath), Level.FINEST),
-        new RmStep(getProjectFilesystem(), argFilePath),
-        new LogContentsOfFileStep(getProjectFilesystem().resolve(fileListPath), Level.FINEST),
-        new RmStep(getProjectFilesystem(), fileListPath),
-        new RmStep(getProjectFilesystem(), scratchDir, RmStep.Mode.RECURSIVE));
+            linker.getScrubbers(cellRoots.build())))
+        .add(new LogContentsOfFileStep(getProjectFilesystem().resolve(argFilePath), Level.FINEST))
+        .add(RmStep.of(getProjectFilesystem(), argFilePath))
+        .add(new LogContentsOfFileStep(getProjectFilesystem().resolve(fileListPath), Level.FINEST))
+        .add(RmStep.of(getProjectFilesystem(), fileListPath))
+        .add(RmStep.of(getProjectFilesystem(), scratchDir).withRecursive(true))
+        .build();
   }
 
   @Override
   public ImmutableSet<BuildRule> getStaticLibraryDeps() {
-    return FluentIterable.from(getDeps()).filter(Archive.class::isInstance).toSet();
+    return FluentIterable.from(getBuildDeps()).filter(Archive.class::isInstance).toSet();
   }
 
   @Override
   public ImmutableSet<BuildRule> getCompileDeps() {
-    return FluentIterable.from(getDeps()).filter(CxxPreprocessAndCompile.class::isInstance).toSet();
+    return FluentIterable.from(getBuildDeps())
+        .filter(CxxPreprocessAndCompile.class::isInstance)
+        .toSet();
   }
 
   @Override

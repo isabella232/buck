@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -53,6 +54,19 @@ public class JavaBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "fat_jar", tmp);
     workspace.setUp();
     workspace.runBuckCommand("run", "//:bin-fat").assertSuccess();
+  }
+
+  @Test
+  public void fatJarOutputIsRecorded() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "fat_jar", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+    workspace.runBuckCommand("build", "//:bin-fat").assertSuccess();
+    workspace.runBuckCommand("clean");
+    Path path = workspace.buildAndReturnOutput("//:bin-fat");
+    workspace.getBuildLog().assertTargetWasFetchedFromCache("//:bin-fat");
+    assertTrue(workspace.asCell().getFilesystem().exists(path));
   }
 
   @Test
@@ -123,7 +137,6 @@ public class JavaBinaryIntegrationTest {
     Path binaryJarWithoutBlacklist = workspace.buildAndReturnOutput("//:bin-no-blacklist");
 
     ImmutableSet<String> commonEntries = ImmutableSet.of(
-        "META-INF/",
         "META-INF/MANIFEST.MF",
         "com/",
         "com/example/",

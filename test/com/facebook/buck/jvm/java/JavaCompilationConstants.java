@@ -16,7 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.cli.FakeBuckConfig;
+
 public class JavaCompilationConstants {
+
+  public static final JavaBuckConfig DEFAULT_JAVA_CONFIG =
+      JavaBuckConfig.of(FakeBuckConfig.builder().build());
 
   public static final JavaOptions DEFAULT_JAVA_OPTIONS =
       JavaOptions.builder()
@@ -33,6 +38,8 @@ public class JavaCompilationConstants {
           .setSourceLevel("7")
           .setTargetLevel("6")
           .build();
+
+  public static final Javac DEFAULT_JAVAC = new JdkProvidedInMemoryJavac();
 
   private JavaCompilationConstants() {
     // Thou shalt not instantiate utility classes.

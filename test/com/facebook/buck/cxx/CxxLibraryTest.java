@@ -37,7 +37,6 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Functions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -182,8 +181,8 @@ public class CxxLibraryTest {
     CxxLibrary cxxLibrary = new CxxLibrary(
         params,
         ruleResolver,
-        FluentIterable.from(params.getDeclaredDeps().get()),
-        /* hasExportedHeaders */ x -> true,
+        CxxDeps.EMPTY,
+        CxxDeps.EMPTY,
         /* headerOnly */ x -> true,
         Functions.constant(StringArg.from("-ldl")),
         /* linkTargetInput */ Functions.constant(NativeLinkableInput.of()),

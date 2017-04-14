@@ -110,7 +110,7 @@ class SwiftCompile extends AbstractBuildRule {
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
     this.cxxPreprocessorInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, params.getDeps());
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, params.getBuildDeps());
     this.swiftCompiler = swiftCompiler;
     this.outputPath = outputPath;
     this.headerPath = outputPath.resolve(SwiftDescriptions.toSwiftHeaderName(moduleName) + ".h");
@@ -161,7 +161,7 @@ class SwiftCompile extends AbstractBuildRule {
             getSwiftIncludeArgs(resolver)));
     compilerCommand.addAll(MoreIterables.zipAndConcat(
         Iterables.cycle(INCLUDE_FLAG),
-        getDeps().stream()
+        getBuildDeps().stream()
             .filter(SwiftCompile.class::isInstance)
             .map(BuildRule::getSourcePathToOutput)
             .map(input -> resolver.getAbsolutePath(input).toString())
@@ -206,7 +206,7 @@ class SwiftCompile extends AbstractBuildRule {
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(outputPath);
     return ImmutableList.of(
-        new MkdirStep(getProjectFilesystem(), outputPath),
+        MkdirStep.of(getProjectFilesystem(), outputPath),
         makeCompileStep(context.getSourcePathResolver()));
   }
 

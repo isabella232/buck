@@ -29,7 +29,6 @@ import com.facebook.buck.timing.SettableFakeClock;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.io.CharStreams;
 
 import org.junit.Rule;
@@ -47,8 +46,10 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -114,7 +115,7 @@ public class FakeProjectFilesystemTest {
     filesystem.touch(Paths.get("root/A/B/C.txt"));
     filesystem.touch(Paths.get("root/A/B.txt"));
 
-    final List<Path> filesVisited = Lists.newArrayList();
+    final List<Path> filesVisited = new ArrayList<>();
 
     FileVisitor<Path> fileVisitor = new SimpleFileVisitor<Path>() {
       @Override
@@ -144,7 +145,7 @@ public class FakeProjectFilesystemTest {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     filesystem.touch(Paths.get("A.txt"));
 
-    final List<Path> filesVisited = Lists.newArrayList();
+    final List<Path> filesVisited = new ArrayList<>();
 
     FileVisitor<Path> fileVisitor = new SimpleFileVisitor<Path>() {
       @Override
@@ -279,7 +280,7 @@ public class FakeProjectFilesystemTest {
     SettableFakeClock clock = new SettableFakeClock(49152, 0);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
     filesystem.touch(Paths.get("foo"));
-    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 49152);
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), FileTime.fromMillis(49152));
   }
 
   @Test
@@ -289,7 +290,7 @@ public class FakeProjectFilesystemTest {
     filesystem.touch(Paths.get("foo"));
     clock.setCurrentTimeMillis(64738);
     filesystem.touch(Paths.get("foo"));
-    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 64738);
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), FileTime.fromMillis(64738));
   }
 
   @Test
@@ -297,9 +298,11 @@ public class FakeProjectFilesystemTest {
     SettableFakeClock clock = new SettableFakeClock(49152, 0);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem(clock);
     filesystem.mkdirs(Paths.get("foo/bar/baz"));
-    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), 49152);
-    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo/bar")), 49152);
-    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo/bar/baz")), 49152);
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo")), FileTime.fromMillis(49152));
+    assertEquals(filesystem.getLastModifiedTime(Paths.get("foo/bar")), FileTime.fromMillis(49152));
+    assertEquals(filesystem.getLastModifiedTime(
+        Paths.get("foo/bar/baz")),
+        FileTime.fromMillis(49152));
   }
 
   @Test
@@ -468,7 +471,7 @@ public class FakeProjectFilesystemTest {
 
   private static class AccumulatingFileVisitor implements FileVisitor<Path> {
 
-    private final List<Path> seen = Lists.newArrayList();
+    private final List<Path> seen = new ArrayList<>();
 
     public ImmutableList<Path> getSeen() {
       return ImmutableList.copyOf(seen);

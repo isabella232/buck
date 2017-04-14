@@ -170,6 +170,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -185,7 +186,7 @@ public class CxxLinkableEnhancerTest {
     // SourcePath inputs.
     assertEquals(
         ImmutableSortedSet.<BuildRule>of(genrule1, genrule2),
-        cxxLink.getDeps());
+        cxxLink.getBuildDeps());
   }
 
   @Test
@@ -219,6 +220,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -228,7 +230,7 @@ public class CxxLinkableEnhancerTest {
             .build());
 
     // Verify that the archive rules dependencies are empty.
-    assertEquals(cxxLink.getDeps(), ImmutableSortedSet.<BuildRule>of());
+    assertEquals(cxxLink.getBuildDeps(), ImmutableSortedSet.<BuildRule>of());
   }
 
   @Test
@@ -272,6 +274,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         ImmutableList.<NativeLinkable>of(nativeLinkable),
         Optional.empty(),
         Optional.empty(),
@@ -281,7 +284,7 @@ public class CxxLinkableEnhancerTest {
             .build());
 
     // Verify that the fake build rule made it in as a dep.
-    assertTrue(cxxLink.getDeps().contains(fakeBuildRule));
+    assertTrue(cxxLink.getBuildDeps().contains(fakeBuildRule));
   }
 
   @Test
@@ -310,6 +313,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -333,6 +337,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -356,6 +361,7 @@ public class CxxLinkableEnhancerTest {
         Optional.of("soname"),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -408,6 +414,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         ImmutableList.<NativeLinkable>of(nativeLinkable),
         Optional.empty(),
         Optional.empty(),
@@ -434,6 +441,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.SHARED,
+        /* thinLto */ false,
         ImmutableList.<NativeLinkable>of(nativeLinkable),
         Optional.empty(),
         Optional.empty(),
@@ -481,6 +489,7 @@ public class CxxLinkableEnhancerTest {
               Optional.empty(),
               DEFAULT_OUTPUT,
               ent.getKey(),
+              /* thinLto */ false,
               EMPTY_DEPS,
               Optional.empty(),
               Optional.empty(),
@@ -557,6 +566,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.of(new FakeSourcePath(filesystem, "path/to/MyBundleLoader")),
@@ -595,6 +605,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.empty(),
@@ -619,6 +630,7 @@ public class CxxLinkableEnhancerTest {
         Optional.empty(),
         DEFAULT_OUTPUT,
         Linker.LinkableDepType.STATIC,
+        /* thinLto */ false,
         EMPTY_DEPS,
         Optional.empty(),
         Optional.of(bundleLoaderRule.getSourcePathToOutput()),
@@ -630,7 +642,7 @@ public class CxxLinkableEnhancerTest {
 
     // Ensure the bundle depends on the bundle loader rule.
     assertThat(
-        bundleRule.getDeps(),
+        bundleRule.getBuildDeps(),
         hasItem(bundleLoaderRule));
   }
 

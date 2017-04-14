@@ -21,14 +21,13 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
 import com.facebook.buck.artifact_cache.TestArtifactCaches;
-import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -65,7 +64,7 @@ public class BuildInfoRecorderIntegrationTest {
     buildInfoRecorder.performUploadToArtifactCache(
         ImmutableSet.of(new RuleKey(RULE_KEY)),
         artifactCache,
-        new BuckEventBus(new DefaultClock(), new BuildId()));
+        new DefaultBuckEventBus(new DefaultClock(), new BuildId()));
     assertTrue(
         cacheDir.resolve(
             DirArtifactCacheTestUtil
@@ -81,9 +80,9 @@ public class BuildInfoRecorderIntegrationTest {
     return new BuildInfoRecorder(
         BUILD_TARGET,
         filesystem,
+        new FilesystemBuildInfoStore(filesystem),
         new DefaultClock(),
         new BuildId(),
-        ObjectMappers.newDefaultInstance(),
         ImmutableMap.of());
   }
 }

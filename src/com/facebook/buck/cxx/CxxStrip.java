@@ -17,7 +17,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -47,7 +47,7 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
    * Appending it in other places is does nothing except adds a unnecessary flavor that will skew
    * output paths of other build rules.
    */
-  public static final Flavor RULE_FLAVOR = ImmutableFlavor.of("stripped");
+  public static final Flavor RULE_FLAVOR = InternalFlavor.of("stripped");
 
   @AddToRuleKey
   private final StripStyle stripStyle;
@@ -98,7 +98,7 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
     if (flavoredStripStyle.isPresent()) {
       // we should not append CxxStrip.RULE_FLAVOR here because it must be appended
       // to CxxStrip rule only. Other users of CxxStrip flavors must not append it.
-      params = params.withFlavor(flavoredStripStyle.get().getFlavor());
+      params = params.withAppendedFlavor(flavoredStripStyle.get().getFlavor());
     }
     return params;
   }

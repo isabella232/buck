@@ -123,7 +123,7 @@ public class GoCompile extends AbstractBuildRule {
     ImmutableList<Path> asmSrcs = asmSrcListBuilder.build();
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
 
     Optional<Path> asmHeaderPath;
 
@@ -134,7 +134,7 @@ public class GoCompile extends AbstractBuildRule {
           "%s/" + getBuildTarget().getShortName() + "__asm_hdr")
           .resolve("go_asm.h"));
 
-      steps.add(new MkdirStep(getProjectFilesystem(), asmHeaderPath.get().getParent()));
+      steps.add(MkdirStep.of(getProjectFilesystem(), asmHeaderPath.get().getParent()));
     } else {
       asmHeaderPath = Optional.empty();
     }
@@ -164,16 +164,17 @@ public class GoCompile extends AbstractBuildRule {
           getProjectFilesystem(),
           getBuildTarget(),
           "%s/" + getBuildTarget().getShortName() + "__asm_includes");
-      steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), asmIncludeDir));
+      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), asmIncludeDir));
 
       if (!headerSrcs.isEmpty()) {
         // TODO(mikekap): Allow header-map style input.
         for (Path header : FluentIterable.from(headerSrcs).append(asmSrcs)) {
-          steps.add(new SymlinkFileStep(
-              getProjectFilesystem(),
-              header,
-              asmIncludeDir.resolve(header.getFileName()),
-              /* useAbsolutePaths */ true));
+          steps.add(
+              SymlinkFileStep.builder()
+                  .setFilesystem(getProjectFilesystem())
+                  .setExistingFile(header)
+                  .setDesiredLink(asmIncludeDir.resolve(header.getFileName()))
+                  .build());
         }
       }
 
@@ -181,7 +182,7 @@ public class GoCompile extends AbstractBuildRule {
           getProjectFilesystem(),
           getBuildTarget(),
           "%s/" + getBuildTarget().getShortName() + "__asm_compile");
-      steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), asmOutputDir));
+      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), asmOutputDir));
 
       ImmutableList.Builder<Path> asmOutputs = ImmutableList.builder();
       for (Path asmSrc : asmSrcs) {

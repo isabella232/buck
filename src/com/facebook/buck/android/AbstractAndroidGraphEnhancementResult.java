@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
@@ -34,12 +33,16 @@ import java.util.Optional;
 @BuckStyleImmutable
 interface AbstractAndroidGraphEnhancementResult {
   AndroidPackageableCollection getPackageableCollection();
-  AaptPackageResources getAaptPackageResources();
   Optional<ImmutableMap<APKModule, CopyNativeLibraries>> getCopyNativeLibraries();
   Optional<PackageStringAssets> getPackageStringAssets();
   Optional<PreDexMerge> getPreDexMerge();
   Optional<ComputeExopackageDepsAbi> getComputeExopackageDepsAbi();
+  ImmutableList<SourcePath> getProguardConfigs();
+
   Optional<Boolean> getPackageAssetLibraries();
+  SourcePath getPrimaryResourcesApkPath();
+  ImmutableList<SourcePath> getPrimaryApkAssetZips();
+  ImmutableList<SourcePath> getExoResources();
 
   /**
    * Compiled R.java for use by ProGuard.  This should go away if/when
@@ -54,32 +57,11 @@ interface AbstractAndroidGraphEnhancementResult {
    */
   ImmutableSet<SourcePath> getClasspathEntriesToDex();
 
-  default SourcePath getPrimaryResourcesApkPath() {
-    return new ExplicitBuildTargetSourcePath(
-        getAaptPackageResources().getBuildTarget(),
-        getAaptPackageResources().getResourceApkPath());
-  }
+  SourcePath getAndroidManifestPath();
 
-  default SourcePath getAndroidManifestPath() {
-    return getAaptPackageResources().getAndroidManifestXmlSourcePath();
-  }
-
-  default SourcePath getSourcePathToAaptGeneratedProguardConfigFile() {
-    return getAaptPackageResources().getSourcePathToGeneratedProguardConfigFile();
-  }
+  SourcePath getSourcePathToAaptGeneratedProguardConfigFile();
 
   ImmutableSortedSet<BuildRule> getFinalDeps();
 
   APKModuleGraph getAPKModuleGraph();
-
-  default ImmutableList<SourcePath> getPrimaryApkAssetZips() {
-    if (!getPackageStringAssets().isPresent()) {
-      return ImmutableList.of();
-    }
-    PackageStringAssets stringAssets = getPackageStringAssets().get();
-    return ImmutableList.of(
-        new ExplicitBuildTargetSourcePath(
-            stringAssets.getBuildTarget(), stringAssets.getPathToStringAssetsZip())
-    );
-  }
 }

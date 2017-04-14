@@ -21,7 +21,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasDefaultFlavors;
 import com.facebook.buck.model.HasTests;
 import com.facebook.buck.rules.AbstractDescriptionArg;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -38,7 +38,7 @@ import java.util.Optional;
 
 @SuppressFieldNotInitialized
 public class CxxConstructorArg extends AbstractDescriptionArg
-    implements HasDefaultFlavors, HasTests {
+    implements HasDefaultFlavors, HasTests, HasSystemFrameworkAndLibraries {
 
   public ImmutableSortedSet<SourceWithFlags> srcs = ImmutableSortedSet.of();
   public PatternMatchedCollection<ImmutableSortedSet<SourceWithFlags>> platformSrcs =
@@ -62,6 +62,8 @@ public class CxxConstructorArg extends AbstractDescriptionArg
   public ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
   public ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();
   public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+  public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
+      PatternMatchedCollection.of();
   public Optional<String> headerNamespace;
   public Optional<Linker.CxxRuntimeType> cxxRuntimeType;
   public ImmutableList<String> includeDirs = ImmutableList.of();
@@ -80,4 +82,26 @@ public class CxxConstructorArg extends AbstractDescriptionArg
     // plan to eventually support key-value flavors.
     return ImmutableSortedSet.copyOf(defaults.values());
   }
+
+  @Override
+  public ImmutableSortedSet<FrameworkPath> getFrameworks() {
+    return frameworks;
+  }
+
+  @Override
+  public ImmutableSortedSet<FrameworkPath> getLibraries() {
+    return libraries;
+  }
+
+  /**
+   * @return the C/C++ deps this rule builds against.
+   */
+  public CxxDeps getCxxDeps() {
+    return CxxDeps.builder()
+        .addDeps(deps)
+        .addPlatformDeps(platformDeps)
+        .addDep(precompiledHeader)
+        .build();
+  }
+
 }

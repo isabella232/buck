@@ -26,6 +26,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
@@ -111,6 +112,10 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     return getBinPath();
   }
 
+  public SourcePath getSourcePathToAllLibsDir() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToAllLibsDir());
+  }
+
   public Path getPathToMetadataTxt() {
     return getBinPath().resolve("metadata.txt");
   }
@@ -151,7 +156,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
               .resolve(abiDirectoryComponent.get())
               .resolve(strippedObject.getStrippedObjectName());
 
-      steps.add(new MkdirStep(getProjectFilesystem(), destination.getParent()));
+      steps.add(MkdirStep.of(getProjectFilesystem(), destination.getParent()));
       steps.add(
           CopyStep.forFile(
               filesystem,
@@ -166,13 +171,13 @@ public class CopyNativeLibraries extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), getBinPath()));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getBinPath()));
 
     final Path pathToNativeLibs = getPathToNativeLibsDir();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToNativeLibs));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToNativeLibs));
 
     final Path pathToNativeLibsAssets = getPathToNativeLibsAssetsDir();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToNativeLibsAssets));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToNativeLibsAssets));
 
     for (SourcePath nativeLibDir : nativeLibDirectories.asList().reverse()) {
       copyNativeLibrary(
@@ -198,32 +203,41 @@ public class CopyNativeLibraries extends AbstractBuildRule {
         steps);
 
     final Path pathToMetadataTxt = getPathToMetadataTxt();
-    steps.add(
-        new AbstractExecutionStep("hash_native_libs") {
-          @Override
-          public StepExecutionResult execute(ExecutionContext context) {
-            ProjectFilesystem filesystem = getProjectFilesystem();
-            ImmutableList.Builder<String> metadataLines = ImmutableList.builder();
-            try {
-              for (Path nativeLib : filesystem.getFilesUnderPath(getPathToAllLibsDir())) {
-                Sha1HashCode filesha1 = filesystem.computeSha1(nativeLib);
-                Path relativePath = getPathToAllLibsDir().relativize(nativeLib);
-                metadataLines.add(String.format("%s %s", relativePath, filesha1));
-              }
-              filesystem.writeLinesToPath(metadataLines.build(), pathToMetadataTxt);
-            } catch (IOException e) {
-              context.logError(e, "There was an error hashing native libraries.");
-              return StepExecutionResult.ERROR;
-            }
-            return StepExecutionResult.SUCCESS;
-          }
-        });
+    steps.add(createMetadataStep(
+        getProjectFilesystem(),
+        getPathToMetadataTxt(),
+        getPathToAllLibsDir()));
 
     buildableContext.recordArtifact(pathToNativeLibs);
     buildableContext.recordArtifact(pathToNativeLibsAssets);
     buildableContext.recordArtifact(pathToMetadataTxt);
 
     return steps.build();
+  }
+
+  public static Step createMetadataStep(
+      ProjectFilesystem filesystem,
+      Path pathToMetadataTxt,
+      Path pathToAllLibsDir) {
+    return new AbstractExecutionStep("hash_native_libs") {
+      @Override
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
+        ImmutableList.Builder<String> metadataLines = ImmutableList.builder();
+        try {
+          for (Path nativeLib : filesystem.getFilesUnderPath(pathToAllLibsDir)) {
+            Sha1HashCode filesha1 = filesystem.computeSha1(nativeLib);
+            Path relativePath = pathToAllLibsDir.relativize(nativeLib);
+            metadataLines.add(String.format("%s %s", relativePath, filesha1));
+          }
+          filesystem.writeLinesToPath(metadataLines.build(), pathToMetadataTxt);
+        } catch (IOException e) {
+          context.logError(e, "There was an error hashing native libraries.");
+          return StepExecutionResult.ERROR;
+        }
+        return StepExecutionResult.SUCCESS;
+      }
+    };
   }
 
   @Nullable
@@ -254,7 +268,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
         final Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
         Path libDestinationDir = destinationDir.resolve(abiDirectoryComponent.get());
 
-        final MkdirStep mkDirStep = new MkdirStep(filesystem, libDestinationDir);
+        final MkdirStep mkDirStep = MkdirStep.of(filesystem, libDestinationDir);
         final CopyStep copyStep = CopyStep.forDirectory(
             filesystem,
             libSourceDir,
@@ -264,7 +278,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
             new Step() {
               @Override
               public StepExecutionResult execute(ExecutionContext context) {
-                // TODO(shs96c): Using a projectfilesystem here is almost definitely wrong.
+                // TODO(simons): Using a projectfilesystem here is almost definitely wrong.
                 // This is because each library may come from different build rules, which may be in
                 // different cells --- this check works by coincidence.
                 if (!filesystem.exists(libSourceDir)) {

@@ -52,6 +52,7 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -72,7 +73,6 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.martiansoftware.nailgun.NGContext;
 
 import org.hamcrest.Matchers;
@@ -147,7 +147,7 @@ public class ProjectWorkspace {
 
   private boolean isSetUp = false;
   private boolean manageLocalConfigs = false;
-  private final Map<String, Map<String, String>> localConfigs = Maps.newHashMap();
+  private final Map<String, Map<String, String>> localConfigs = new HashMap<>();
   private final Path templatePath;
   private final Path destPath;
   private final Supplier<ProjectFilesystemAndConfig> projectFilesystemAndConfig;
@@ -256,7 +256,7 @@ public class ProjectWorkspace {
   }
 
   private Map<String, String> getBuckConfigLocalSection(String section) {
-    Map<String, String> newValue = Maps.newHashMap();
+    Map<String, String> newValue = new HashMap<>();
     Map<String, String> oldValue = localConfigs.putIfAbsent(section, newValue);
     if (oldValue != null) {
       return oldValue;
@@ -311,7 +311,8 @@ public class ProjectWorkspace {
     return runBuckCommand(totalArgs);
   }
 
-  public Map<String, Path> buildMultipleAndReturnOutputs(String... args) throws IOException {
+  private ImmutableMap<String, String> buildMultipleAndReturnStringOutputs(String... args)
+      throws IOException {
     // Add in `--show-output` to the build, so we can parse the output paths after the fact.
     ImmutableList<String> buildArgs =
         ImmutableList.<String>builder()
@@ -334,18 +335,55 @@ public class ProjectWorkspace {
     lines = lines.subList(1, lines.size());
 
     Splitter lineSplitter = Splitter.on(' ').trimResults();
-    ImmutableMap.Builder<String, Path> builder = ImmutableMap.builder();
+    ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
     for (String line : lines) {
       List<String> fields = lineSplitter.splitToList(line);
       assertThat(fields, Matchers.hasSize(2));
-      builder.put(fields.get(0), getPath(fields.get(1)));
+      builder.put(fields.get(0), fields.get(1));
     }
 
     return builder.build();
   }
 
+  public ImmutableMap<String, Path> buildMultipleAndReturnOutputs(String... args)
+        throws IOException {
+    return buildMultipleAndReturnStringOutputs(args)
+      .entrySet()
+      .stream()
+      .collect(
+          MoreCollectors.toImmutableMap(
+              entry -> entry.getKey(),
+              entry -> getPath(entry.getValue())));
+  }
+
   public Path buildAndReturnOutput(String... args) throws IOException {
-    Map<String, Path> outputs = buildMultipleAndReturnOutputs(args);
+    ImmutableMap<String, Path> outputs = buildMultipleAndReturnOutputs(args);
+
+    // Verify we only have a single output.
+    assertThat(
+        String.format(
+            "expected only a single build target in command `%s`: %s",
+            ImmutableList.copyOf(args),
+            outputs),
+        outputs.entrySet(),
+        Matchers.hasSize(1));
+
+    return outputs.values().iterator().next();
+  }
+
+  public ImmutableMap<String, Path> buildMultipleAndReturnRelativeOutputs(String... args)
+      throws IOException {
+    return buildMultipleAndReturnStringOutputs(args)
+      .entrySet()
+      .stream()
+      .collect(
+          MoreCollectors.toImmutableMap(
+              entry -> entry.getKey(),
+              entry -> Paths.get(entry.getValue())));
+  }
+
+  public Path buildAndReturnRelativeOutput(String... args) throws IOException {
+    ImmutableMap<String, Path> outputs = buildMultipleAndReturnRelativeOutputs(args);
 
     // Verify we only have a single output.
     assertThat(
@@ -390,15 +428,10 @@ public class ProjectWorkspace {
       throws IOException, InterruptedException {
     ProcessExecutorParams params = ProcessExecutorParams.builder()
         .setCommand(command)
+        .setDirectory(destPath.toAbsolutePath())
         .build();
     ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
-    String currentDir = System.getProperty("user.dir");
-    try {
-      System.setProperty("user.dir", destPath.toAbsolutePath().toString());
-      return executor.launchAndExecute(params);
-    } finally {
-      System.setProperty("user.dir", currentDir);
-    }
+    return executor.launchAndExecute(params);
   }
 
   /**
@@ -712,7 +745,9 @@ public class ProjectWorkspace {
 
   public BuildTarget newBuildTarget(String fullyQualifiedName)
       throws IOException, InterruptedException {
-    return BuildTargetFactory.newInstance(asCell().getFilesystem(), fullyQualifiedName);
+    return BuildTargetFactory.newInstance(
+        asCell().getFilesystem().getRootPath(),
+        fullyQualifiedName);
   }
 
   /** The result of running {@code buck} from the command line. */
@@ -940,6 +975,10 @@ public class ProjectWorkspace {
   }
 
   public void verify(Path subdirectory) throws IOException {
+    Preconditions.checkArgument(
+        !subdirectory.isAbsolute(),
+        "'verify(subdirectory)' takes a relative path, but received '%s'",
+        subdirectory);
     assertPathsEqual(templatePath.resolve(subdirectory), destPath.resolve(subdirectory));
   }
 }

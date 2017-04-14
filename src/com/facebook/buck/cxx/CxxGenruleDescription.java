@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
@@ -62,6 +63,7 @@ import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -209,14 +211,15 @@ public class CxxGenruleDescription
 
   @Override
   protected <A extends Arg> MacroHandler getMacroHandler(
-      BuildRuleParams params,
+      BuildTarget buildTarget,
+      ProjectFilesystem filesystem,
       BuildRuleResolver resolver,
       TargetGraph targetGraph,
       A args) {
-    CxxPlatform cxxPlatform = cxxPlatforms.getRequiredValue(params.getBuildTarget());
+    CxxPlatform cxxPlatform = cxxPlatforms.getRequiredValue(buildTarget);
     ImmutableMap.Builder<String, MacroExpander> macros = ImmutableMap.builder();
     macros.put("exe", new ExecutableMacroExpander());
-    macros.put("location", new LocationMacroExpander());
+    macros.put("location", new CxxLocationMacroExpander(cxxPlatform));
     macros.put("platform-name", new StringExpander(cxxPlatform.getFlavor().toString()));
     macros.put(
         "location-platform",
@@ -254,7 +257,8 @@ public class CxxGenruleDescription
                 depType.toString().toLowerCase().replace('_', '-'),
                 filter == Filter.PARAM ? "-filter" : ""),
             new CxxLinkerFlagsExpander(
-                params,
+                buildTarget,
+                filesystem,
                 cxxPlatform,
                 depType,
                 args.out,
@@ -269,37 +273,38 @@ public class CxxGenruleDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args)
       throws NoSuchBuildTargetException {
     Optional<CxxPlatform> cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget());
     if (cxxPlatform.isPresent()) {
       return super.createBuildRule(
           targetGraph,
-          params.copyWithBuildTarget(
-              params.getBuildTarget().withAppendedFlavors(cxxPlatform.get().getFlavor())),
+          params.withAppendedFlavor(cxxPlatform.get().getFlavor()),
           resolver,
-          args);
+          cellRoots, args);
     }
     return new CxxGenrule(params, resolver, args.out);
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add in all parse time deps from the C/C++ platforms.
     for (CxxPlatform cxxPlatform : cxxPlatforms.getValues()) {
-      targets.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
+      extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
     }
 
     // Add in parse time deps from parent.
-    targets.addAll(
-        super.findDepsForTargetFromConstructorArgs(buildTarget, cellRoots, constructorArg));
-
-    return targets.build();
+    super.findDepsForTargetFromConstructorArgs(
+        buildTarget,
+        cellRoots,
+        constructorArg,
+        extraDepsBuilder, targetGraphOnlyDepsBuilder);
   }
 
   private ImmutableMap<String, MacroReplacer> getMacroReplacersForTargetTranslation(
@@ -446,14 +451,15 @@ public class CxxGenruleDescription
     }
 
     @Override
-    public ImmutableList<BuildTarget> extractParseTimeDeps(
+    public void extractParseTimeDeps(
         BuildTarget target,
         CellPathResolver cellNames,
-        ImmutableList<String> input)
+        ImmutableList<String> input,
+        ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+        ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder)
         throws MacroException {
       // We already return all platform-specific parse-time deps from
       // `findDepsForTargetFromConstructorArgs`.
-      return ImmutableList.of();
     }
 
     @Override
@@ -556,11 +562,13 @@ public class CxxGenruleDescription
     }
 
     @Override
-    public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
+    public void extractParseTimeDepsFrom(
         BuildTarget target,
         CellPathResolver cellNames,
-        FilterAndTargets input) {
-      return input.targets;
+        FilterAndTargets input,
+        ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+        ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+      buildDepsBuilder.addAll(input.targets);
     }
 
     @Override
@@ -710,19 +718,22 @@ public class CxxGenruleDescription
    */
   private static class CxxLinkerFlagsExpander extends FilterAndTargetsExpander {
 
-    private final BuildRuleParams params;
+    private final BuildTarget buildTarget;
+    private final ProjectFilesystem filesystem;
     private final CxxPlatform cxxPlatform;
     private final Linker.LinkableDepType depType;
     private final String out;
 
     public CxxLinkerFlagsExpander(
-        BuildRuleParams params,
+        BuildTarget buildTarget,
+        ProjectFilesystem filesystem,
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType depType,
         String out,
         Filter filter) {
       super(filter);
-      this.params = params;
+      this.buildTarget = buildTarget;
+      this.filesystem = filesystem;
       this.cxxPlatform = cxxPlatform;
       this.depType = depType;
       this.out = out;
@@ -743,7 +754,7 @@ public class CxxGenruleDescription
         throws MacroException {
       BuildTarget symlinkTreeTarget =
           CxxDescriptionEnhancer.createSharedLibrarySymlinkTreeTarget(
-              params.getBuildTarget(),
+              buildTarget,
               cxxPlatform.getFlavor());
       SymlinkTree symlinkTree =
           resolver.getRuleOptionalWithType(symlinkTreeTarget, SymlinkTree.class).orElse(null);
@@ -753,7 +764,8 @@ public class CxxGenruleDescription
               resolver.addToIndex(
                   CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
                       new SourcePathRuleFinder(resolver),
-                      params,
+                      buildTarget,
+                      filesystem,
                       cxxPlatform,
                       rules,
                       NativeLinkable.class::isInstance));
@@ -778,9 +790,9 @@ public class CxxGenruleDescription
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
       Path linkOutput =
-          BuildTargets.getGenPath(params.getProjectFilesystem(), params.getBuildTarget(), "%s")
+          BuildTargets.getGenPath(filesystem, buildTarget, "%s")
               .resolve(out);
-      Path absLinkOut = params.getBuildTarget().getCellPath().resolve(linkOutput);
+      Path absLinkOut = buildTarget.getCellPath().resolve(linkOutput);
       SymlinkTree symlinkTree = requireSymlinkTree(resolver, rules);
       return ImmutableList.copyOf(
           StringArg.from(
@@ -910,14 +922,16 @@ public class CxxGenruleDescription
     }
 
     @Override
-    public ImmutableList<BuildTarget> extractParseTimeDeps(
+    public void extractParseTimeDeps(
         BuildTarget target,
         CellPathResolver cellNames,
-        ImmutableList<String> input) throws MacroException {
+        ImmutableList<String> input,
+        ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+        ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) throws MacroException {
       Optional<CxxPlatform> platform = cxxPlatforms.getValue(target.getFlavors());
-      return platform.isPresent() ?
-          ImmutableList.copyOf(CxxPlatforms.getParseTimeDeps(platform.get())) :
-          ImmutableList.<BuildTarget>of();
+      if (platform.isPresent()) {
+        buildDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(platform.get()));
+      }
     }
   }
 

@@ -19,7 +19,6 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +34,7 @@ import java.util.Optional;
  * A java-specific "view" of BuckConfig.
  */
 public class JavaBuckConfig implements ConfigView<BuckConfig> {
-  private static final String SECTION = "java";
+  public static final String SECTION = "java";
 
   private final BuckConfig delegate;
 
@@ -84,14 +83,6 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       builder.setTargetLevel(targetLevel.get());
     }
 
-    Optional<JavacOptions.JavacLocation> location = delegate.getEnum(
-        SECTION,
-        "location",
-        JavacOptions.JavacLocation.class);
-    if (location.isPresent()) {
-      builder.setJavacLocation(location.get());
-    }
-
     ImmutableList<String> extraArguments = delegate.getListWithoutComments(
         SECTION,
         "extra_arguments");
@@ -106,18 +97,20 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       builder.setSpoolMode(spoolMode.get());
     }
 
-    // This is just to make it possible to turn off dep-based rulekeys in case anything goes wrong
-    // and can be removed when we're sure class usage tracking and dep-based keys for Java
-    // work fine.
-    Optional<Boolean> trackClassUsage = delegate.getBoolean(SECTION, "track_class_usage");
-    if (trackClassUsage.isPresent()) {
-      builder.setTrackClassUsageNotDisabled(trackClassUsage.get());
-    }
+    builder.setTrackClassUsage(trackClassUsage());
 
-    Optional<JavacOptions.AbiGenerationMode> abiGenerationMode =
-        delegate.getEnum(SECTION, "abi_generation_mode", JavacOptions.AbiGenerationMode.class);
-    if (abiGenerationMode.isPresent()) {
-      builder.setAbiGenerationMode(abiGenerationMode.get());
+    AbiGenerationMode abiGenerationMode = getAbiGenerationMode();
+    switch (abiGenerationMode) {
+      case CLASS:
+      case SOURCE_WITH_DEPS:
+        builder.setCompilationMode(Javac.CompilationMode.FULL);
+        break;
+      case MIGRATING_TO_SOURCE:
+        builder.setCompilationMode(Javac.CompilationMode.FULL_CHECKING_REFERENCES);
+        break;
+      case SOURCE:
+        builder.setCompilationMode(Javac.CompilationMode.FULL_ENFORCING_REFERENCES);
+        break;
     }
 
     ImmutableMap<String, String> allEntries = delegate.getEntriesForSection(SECTION);
@@ -129,14 +122,15 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     }
 
     return builder
-        .setJavacPath(
-            getJavacPath().map(Either::ofLeft))
-        .setJavacJarPath(getJavacJarPath())
-        .setCompilerClassName(getCompilerClassName())
         .putAllSourceToBootclasspath(bootclasspaths.build())
         .addAllExtraArguments(extraArguments)
         .setSafeAnnotationProcessors(safeAnnotationProcessors)
         .build();
+  }
+
+  public AbiGenerationMode getAbiGenerationMode() {
+    return delegate.getEnum(SECTION, "abi_generation_mode", AbiGenerationMode.class)
+        .orElse(AbiGenerationMode.CLASS);
   }
 
   public ImmutableSet<String> getSrcRoots() {
@@ -145,6 +139,33 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
 
   public DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
     return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(getSrcRoots());
+  }
+
+  public boolean trackClassUsage() {
+    // This is just to make it possible to turn off dep-based rulekeys in case anything goes wrong
+    // and can be removed when we're sure class usage tracking and dep-based keys for Java
+    // work fine.
+    Optional<Boolean> trackClassUsage = delegate.getBoolean(SECTION, "track_class_usage");
+    if (trackClassUsage.isPresent() && !trackClassUsage.get()) {
+      return false;
+    }
+
+    final Javac.Source javacSource = getJavacSpec().getJavacSource();
+    return (javacSource == Javac.Source.JAR || javacSource == Javac.Source.JDK);
+  }
+
+  public JavacSpec getJavacSpec() {
+    return JavacSpec.builder()
+        .setJavacPath(
+            getJavacPath().isPresent()
+                ? Optional.of(Either.ofLeft(getJavacPath().get()))
+                : Optional.empty())
+        .setJavacJarPath(delegate.getSourcePath("tools", "javac_jar"))
+        .setJavacLocation(
+            delegate.getEnum(SECTION, "location", Javac.Location.class)
+                .orElse(Javac.Location.IN_PROCESS))
+        .setCompilerClassName(delegate.getValue("tools", "compiler_class_name"))
+        .build();
   }
 
   @VisibleForTesting
@@ -164,23 +185,39 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return Optional.empty();
   }
 
-  Optional<SourcePath> getJavacJarPath() {
-    return delegate.getSourcePath("tools", "javac_jar");
-  }
-
-  Optional<String> getCompilerClassName() {
-    return delegate.getValue("tools", "compiler_class_name");
-  }
-
   public boolean shouldCacheBinaries() {
     return delegate.getBooleanValue(SECTION, "cache_binaries", true);
   }
 
-  public boolean getSkipCheckingMissingDeps() {
-    return delegate.getBooleanValue(SECTION, "skip_checking_missing_deps", true);
-  }
-
   public Optional<Integer> getDxThreadCount() {
     return delegate.getInteger(SECTION, "dx_threads");
+  }
+
+  /**
+   * Enables a special validation mode that generates ABIs both from source and from class files
+   * and diffs them. This is a test hook for use during development of the source ABI feature.
+   */
+  public boolean shouldValidateAbisGeneratedFromSource() {
+    return delegate.getBooleanValue(SECTION, "validate_abis_from_source", false);
+  }
+
+  public boolean shouldCompileAgainstAbis() {
+    return delegate.getBooleanValue(SECTION, "compile_against_abis", false);
+  }
+
+  public enum AbiGenerationMode {
+    /** Generate ABIs by stripping .class files */
+    CLASS,
+    /** Generate ABIs by parsing .java files with dependency ABIs available */
+    SOURCE_WITH_DEPS,
+    /**
+     * Output warnings for things that aren't legal when generating ABIs from source without
+     * dependency ABIs
+     */
+    MIGRATING_TO_SOURCE,
+    /**
+     * Generate ABIs by parsing .java files without dependency ABIs available (has some limitations)
+     */
+    SOURCE,
   }
 }

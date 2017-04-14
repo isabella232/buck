@@ -172,9 +172,11 @@ public class APKModuleGraph {
                     return;
                   }
 
+                  String classpath = entry.getRelativePath().replaceAll("\\.class$", "");
+
                   builder.put(
                       dexStore,
-                      translatorFunction.apply(entry.getRelativePath()));
+                      translatorFunction.apply(classpath));
                 }
               });
         }
@@ -218,7 +220,7 @@ public class APKModuleGraph {
         public ImmutableSet<TargetNode<?, ?>> visit(TargetNode<?, ?> node) {
 
           ImmutableSet.Builder<TargetNode<?, ?>> depsBuilder = ImmutableSet.builder();
-          for (BuildTarget depTarget : node.getDeps()) {
+          for (BuildTarget depTarget : node.getBuildDeps()) {
             if (!isSeedTarget(depTarget)) {
               depsBuilder.add(targetGraph.get(depTarget));
               rootTargets.add(depTarget);
@@ -251,7 +253,7 @@ public class APKModuleGraph {
         public ImmutableSet<TargetNode<?, ?>> visit(TargetNode<?, ?> node) {
 
           ImmutableSet.Builder<TargetNode<?, ?>> depsBuilder = ImmutableSet.builder();
-          for (BuildTarget depTarget : node.getDeps()) {
+          for (BuildTarget depTarget : node.getBuildDeps()) {
             if (!isInRootModule(depTarget) &&
                 !isSeedTarget(depTarget)) {
               depsBuilder.add(targetGraph.get(depTarget));

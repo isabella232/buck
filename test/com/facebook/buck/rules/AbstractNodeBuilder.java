@@ -22,8 +22,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -46,7 +46,7 @@ public abstract class AbstractNodeBuilder<
     TDescription extends Description<TArg>,
     TBuildRule extends BuildRule> {
   private static final DefaultTypeCoercerFactory TYPE_COERCER_FACTORY =
-      new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance());
+      new DefaultTypeCoercerFactory();
   private static final VisibilityPatternParser VISIBILITY_PATTERN_PARSER =
       new VisibilityPatternParser();
 
@@ -112,7 +112,7 @@ public abstract class AbstractNodeBuilder<
 
     @SuppressWarnings("unchecked")
     TBuildRule rule =
-        (TBuildRule) description.createBuildRule(targetGraph, params, resolver, arg);
+        (TBuildRule) description.createBuildRule(targetGraph, params, resolver, cellRoots, arg);
     resolver.addToIndex(rule);
     return rule;
   }
@@ -136,6 +136,7 @@ public abstract class AbstractNodeBuilder<
                   VISIBILITY_PATTERN_PARSER.parse(
                       null,
                       VisibilityPatternParser.VISIBILITY_PUBLIC)),
+              ImmutableSet.of(),
               cellRoots);
       if (selectedVersions.isPresent()) {
         node =
@@ -144,6 +145,7 @@ public abstract class AbstractNodeBuilder<
                 node.getConstructorArg(),
                 node.getDeclaredDeps(),
                 node.getExtraDeps(),
+                node.getTargetGraphOnlyDeps(),
                 selectedVersions);
       }
       return node;
@@ -220,10 +222,17 @@ public abstract class AbstractNodeBuilder<
   }
 
   @SuppressWarnings("unchecked")
-  public Iterable<BuildTarget> findImplicitDeps() {
+  public ImmutableSortedSet<BuildTarget> findImplicitDeps() {
     ImplicitDepsInferringDescription<TArg> desc =
         (ImplicitDepsInferringDescription<TArg>) description;
-    return desc.findDepsForTargetFromConstructorArgs(target, cellRoots, arg);
+    ImmutableSortedSet.Builder<BuildTarget> builder = ImmutableSortedSet.naturalOrder();
+    desc.findDepsForTargetFromConstructorArgs(
+        target,
+        cellRoots,
+        arg,
+        builder,
+        ImmutableSortedSet.naturalOrder());
+    return builder.build();
   }
 
   public BuildTarget getTarget() {

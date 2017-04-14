@@ -1,6 +1,15 @@
 standard_java_library(
-  immutable_types = [
-    'CellConfig',
-    'RawConfig',
-  ]
+    name = "config",
+    immutable_types = [
+        "CellConfig",
+        "RawConfig",
+    ],
+    deps = [
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/model:macros",
+        "//src/com/facebook/buck/rules:relative_cell_name",
+        "//src/com/facebook/buck/util:exceptions",
+        "//src/com/facebook/buck/util:util",
+        "//third-party/java/ini4j:ini4j",
+    ],
 )

@@ -16,168 +16,36 @@
 
 package com.facebook.buck.jvm.java.abi;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.jvm.java.testutil.CompilerTreeApiTest;
 import com.facebook.buck.jvm.java.testutil.CompilerTreeApiTestRunner;
+import com.google.common.base.Joiner;
 
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
-
-import javax.lang.model.type.TypeKind;
+import java.util.List;
 
 @RunWith(CompilerTreeApiTestRunner.class)
-public class DescriptorFactoryTest extends CompilerTreeApiTest {
+public class DescriptorFactoryTest extends DescriptorAndSignatureFactoryTestBase {
 
   private DescriptorFactory descriptorFactory;
 
-  @Before
+  @Override
   public void setUp() throws IOException {
-    initCompiler();
+    super.setUp();
     descriptorFactory = new DescriptorFactory(elements);
   }
 
   @Test
-  public void testVoidDescriptor() {
-    assertEquals("V", descriptorFactory.getDescriptor(types.getNoType(TypeKind.VOID)));
-  }
+  public void testAllTheThings() throws IOException {
+    List<String> errors = getTestErrors(
+        field -> field.desc,
+        method -> method.desc,
+        (t) -> null,
+        descriptorFactory::getDescriptor);
 
-  @Test
-  public void testBooleanDescriptor() {
-    assertEquals("Z", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.BOOLEAN)));
-  }
-
-  @Test
-  public void testByteDescriptor() {
-    assertEquals("B", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.BYTE)));
-  }
-
-  @Test
-  public void testCharDescriptor() {
-    assertEquals("C", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.CHAR)));
-  }
-
-  @Test
-  public void testShortDescriptor() {
-    assertEquals("S", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.SHORT)));
-  }
-
-  @Test
-  public void testIntDescriptor() {
-    assertEquals("I", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.INT)));
-  }
-
-  @Test
-  public void testLongDescriptor() {
-    assertEquals("J", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.LONG)));
-  }
-
-  @Test
-  public void testFloatDescriptor() {
-    assertEquals("F", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.FLOAT)));
-  }
-
-  @Test
-  public void testDoubleDescriptor() {
-    assertEquals("D", descriptorFactory.getDescriptor(types.getPrimitiveType(TypeKind.DOUBLE)));
-  }
-
-  @Test
-  public void testPrimitiveArrayDescriptor() {
-    assertEquals(
-        "[D",
-        descriptorFactory.getDescriptor(
-            types.getArrayType(
-                types.getPrimitiveType(TypeKind.DOUBLE))));
-  }
-
-  @Test
-  public void testTopLevelClassDescriptor() {
-    assertEquals(
-        "Ljava/lang/String;",
-        descriptorFactory.getDescriptor(elements.getTypeElement("java.lang.String")));
-  }
-
-  @Test
-  public void testNestedClassDescriptor() {
-    assertEquals(
-        "Ljava/util/Map$Entry;",
-        descriptorFactory.getDescriptor(elements.getTypeElement("java.util.Map.Entry")));
-  }
-
-  @Test
-  public void testObjectArrayDescriptor() {
-    assertEquals(
-        "[Ljava/lang/Object;",
-        descriptorFactory.getDescriptor(
-            types.getArrayType(elements.getTypeElement("java.lang.Object").asType())));
-  }
-
-  @Test
-  public void testMultiDimObjectArrayDescriptor() {
-    assertEquals(
-        "[[Ljava/lang/Object;",
-        descriptorFactory.getDescriptor(
-            types.getArrayType(
-                types.getArrayType(
-                    elements.getTypeElement("java.lang.Object").asType()))));
-  }
-
-  @Test
-  public void testParameterlessMethodDescriptor() {
-    assertEquals(
-        "()Ljava/lang/String;",
-        descriptorFactory.getDescriptor(findMethod(
-            "toString",
-            elements.getTypeElement("java.lang.Object"))));
-  }
-
-  @Test
-  public void testMethodWithParametersDescriptor() {
-    assertEquals(
-        "(II)I",
-        descriptorFactory.getDescriptor(findMethod(
-            "codePointCount",
-            elements.getTypeElement("java.lang.String"))));
-  }
-
-  @Test
-  public void testMethodWithGenericParametersDescriptor() {
-    assertEquals(
-        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-        descriptorFactory.getDescriptor(findMethod(
-            "put",
-            elements.getTypeElement("java.util.Map"))));
-  }
-
-  @Test
-  public void testTypeVarWithMultipleBoundsDescriptor() throws IOException {
-    compile("class Foo <T extends Runnable & CharSequence> { }");
-
-    assertEquals(
-        "Ljava/lang/Runnable;",
-        descriptorFactory.getDescriptor(elements.getTypeElement("Foo").getTypeParameters().get(0)));
-  }
-
-  @Test
-  public void testTypeVarInternalName() throws IOException {
-    compile("class Foo<T extends java.util.List<U>, U> { }");
-
-    assertEquals(
-        "java/util/List",
-        descriptorFactory.getInternalName(
-            elements.getTypeElement("Foo").getTypeParameters().get(0).asType()));
-  }
-
-  @Test
-  public void testTypeVarWithMultipleBoundsInDifferentOrderDescriptor() throws IOException {
-    compile("class Foo <T extends CharSequence & Runnable> { }");
-
-    assertEquals(
-        "Ljava/lang/CharSequence;",
-        descriptorFactory.getDescriptor(elements.getTypeElement("Foo").getTypeParameters().get(0)));
+    assertTrue("Descriptor mismatch!\n\n" + Joiner.on('\n').join(errors), errors.isEmpty());
   }
 }

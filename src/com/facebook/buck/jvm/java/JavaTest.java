@@ -25,7 +25,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -93,7 +93,7 @@ public class JavaTest
     implements TestRule, HasClasspathEntries, HasRuntimeDeps, HasPostBuildSteps,
         ExternalTestRunnerRule, ExportDependencies {
 
-  public static final Flavor COMPILED_TESTS_LIBRARY_FLAVOR = ImmutableFlavor.of("testsjar");
+  public static final Flavor COMPILED_TESTS_LIBRARY_FLAVOR = InternalFlavor.of("testsjar");
 
   // TODO(#9027062): Migrate this to a PackagedResource so we don't make assumptions
   // about the ant build.
@@ -297,7 +297,7 @@ public class JavaTest
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     Path pathToTestOutput = getPathToTestOutputDirectory();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToTestOutput));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToTestOutput));
     if (forkMode() == ForkMode.PER_TEST) {
       ImmutableList.Builder<JUnitStep> junitsBuilder = ImmutableList.builder();
       for (String testClass: testClassNames) {
@@ -661,7 +661,7 @@ public class JavaTest
             // It's possible that the user added some tool as a dependency, so make sure we promote
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.
-            compiledTestsLibrary.getDeps().stream())
+            compiledTestsLibrary.getBuildDeps().stream())
         .map(BuildRule::getBuildTarget);
   }
 
@@ -697,7 +697,7 @@ public class JavaTest
   @Override
   public ImmutableList<Step> getPostBuildSteps(BuildContext buildContext) {
     return ImmutableList.<Step>builder()
-        .add(new MkdirStep(getProjectFilesystem(), getClassPathFile().getParent()))
+        .add(MkdirStep.of(getProjectFilesystem(), getClassPathFile().getParent()))
         .add(
             new AbstractExecutionStep("write classpath file") {
               @Override

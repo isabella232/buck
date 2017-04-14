@@ -19,11 +19,19 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.event.api.BuckTracing;
 import com.facebook.buck.jvm.java.abi.SourceBasedAbiStubber;
 import com.facebook.buck.jvm.java.abi.source.api.BootClasspathOracle;
+import com.facebook.buck.jvm.java.plugin.PluginLoader;
+import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskListener;
+import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskProxy;
+import com.facebook.buck.jvm.java.plugin.api.PluginClassLoader;
+import com.facebook.buck.jvm.java.plugin.api.PluginClassLoaderFactory;
+import com.facebook.buck.jvm.java.tracing.JavacPhaseEventLogger;
+import com.facebook.buck.jvm.java.tracing.TracingTaskListener;
 import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.zip.CustomJarOutputStream;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Function;
@@ -37,13 +45,13 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -116,9 +124,9 @@ public abstract class Jsr199Javac implements Javac {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
-      JavacOptions.AbiGenerationMode abiGenerationMode) {
+      CompilationMode compilationMode) {
     JavaCompiler compiler = createCompiler(context);
-    CustomZipOutputStream jarOutputStream = null;
+    CustomJarOutputStream jarOutputStream = null;
     StandardJavaFileManager fileManager = null;
     JavaInMemoryFileManager inMemoryFileManager = null;
     try {
@@ -128,7 +136,7 @@ public abstract class Jsr199Javac implements Javac {
       if (context.getDirectToJarOutputSettings().isPresent()) {
         Path path = context.getProjectFilesystem().getPathForRelativePath(
             context.getDirectToJarOutputSettings().get().getDirectToJarOutputPath());
-        jarOutputStream = ZipOutputStreams.newOutputStream(
+        jarOutputStream = ZipOutputStreams.newJarOutputStream(
             path,
             ZipOutputStreams.HandleDuplicates.APPEND_TO_ZIP);
         inMemoryFileManager = new JavaInMemoryFileManager(
@@ -162,7 +170,7 @@ public abstract class Jsr199Javac implements Javac {
             compiler,
             fileManager,
             compilationUnits,
-            abiGenerationMode);
+            compilationMode);
         if (result != 0 || !context.getDirectToJarOutputSettings().isPresent()) {
           return result;
         }
@@ -223,7 +231,7 @@ public abstract class Jsr199Javac implements Javac {
       JavaCompiler compiler,
       StandardJavaFileManager fileManager,
       Iterable<? extends JavaFileObject> compilationUnits,
-      JavacOptions.AbiGenerationMode abiGenerationMode) {
+      CompilationMode compilationMode) {
     // write javaSourceFilePaths to classes file
     // for buck user to have a list of all .java files to be compiled
     // since we do not print them out to console in case of error
@@ -244,7 +252,10 @@ public abstract class Jsr199Javac implements Javac {
     DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
     List<String> classNamesForAnnotationProcessing = ImmutableList.of();
     Writer compilerOutputWriter = new PrintWriter(context.getStdErr());
-    JavaCompiler.CompilationTask compilationTask = compiler.getTask(
+    PluginClassLoaderFactory loaderFactory = PluginLoader.newFactory(context.getClassLoaderCache());
+    BuckJavacTaskProxy javacTask = BuckJavacTaskProxy.getTask(
+        loaderFactory,
+        compiler,
         compilerOutputWriter,
         context.getUsedClassesFileWriter().wrapFileManager(fileManager),
         diagnostics,
@@ -252,16 +263,21 @@ public abstract class Jsr199Javac implements Javac {
         classNamesForAnnotationProcessing,
         compilationUnits);
 
+    PluginClassLoader pluginLoader = loaderFactory.getPluginClassLoader(javacTask);
+
     boolean isSuccess = false;
     BuckTracing.setCurrentThreadTracingInterfaceFromJsr199Javac(
         new Jsr199TracingBridge(context.getEventSink(), invokingRule));
-    Object abiValidatingTaskListener = null;
-    if (abiGenerationMode != JavacOptions.AbiGenerationMode.CLASS) {
-      abiValidatingTaskListener = SourceBasedAbiStubber.newValidatingTaskListener(
-          context.getClassLoaderCache(),
-          compilationTask,
+    BuckJavacTaskListener taskListener = null;
+    if (EnumSet.of(
+        CompilationMode.FULL_CHECKING_REFERENCES,
+        CompilationMode.FULL_ENFORCING_REFERENCES)
+        .contains(compilationMode)) {
+      taskListener = SourceBasedAbiStubber.newValidatingTaskListener(
+          pluginLoader,
+          javacTask,
           new FileManagerBootClasspathOracle(fileManager),
-          abiGenerationMode == JavacOptions.AbiGenerationMode.SOURCE ?
+          compilationMode == CompilationMode.FULL_ENFORCING_REFERENCES ?
               Diagnostic.Kind.ERROR :
               Diagnostic.Kind.WARNING);
     }
@@ -270,12 +286,8 @@ public abstract class Jsr199Javac implements Javac {
       try (
           // TranslatingJavacPhaseTracer is AutoCloseable so that it can detect the end of tracing
           // in some unusual situations
-          TranslatingJavacPhaseTracer tracer = TranslatingJavacPhaseTracer.setupTracing(
-              invokingRule,
-              context.getClassLoaderCache(),
-              context.getEventSink(),
-              compilationTask,
-              abiValidatingTaskListener);
+          TranslatingJavacPhaseTracer tracer = new TranslatingJavacPhaseTracer(
+              new JavacPhaseEventLogger(invokingRule, context.getEventSink()));
 
           // Ensure annotation processors are loaded from their own classloader. If we don't do
           // this, then the evidence suggests that they get one polluted with Buck's own classpath,
@@ -286,10 +298,13 @@ public abstract class Jsr199Javac implements Javac {
               compiler.getClass().getClassLoader(),
               context.getClassLoaderCache(),
               invokingRule)) {
-        compilationTask.setProcessors(processorFactory.createProcessors(annotationProcessors));
+        taskListener = new TracingTaskListener(tracer, taskListener);
+
+        javacTask.setTaskListener(taskListener);
+        javacTask.setProcessors(processorFactory.createProcessors(annotationProcessors));
 
         // Invoke the compilation and inspect the result.
-        isSuccess = compilationTask.call();
+        isSuccess = javacTask.call();
       } catch (IOException e) {
         LOG.warn(e, "Unable to close annotation processor class loader. We may be leaking memory.");
       }
@@ -308,8 +323,8 @@ public abstract class Jsr199Javac implements Javac {
 
     if (isSuccess) {
       context.getUsedClassesFileWriter().writeFile(
-          context.getProjectFilesystem(),
-          context.getObjectMapper());
+          context.getProjectFilesystem()
+      );
       return 0;
     } else {
       if (context.getVerbosity().shouldPrintStandardInformation()) {
@@ -319,7 +334,6 @@ public abstract class Jsr199Javac implements Javac {
           Diagnostic.Kind kind = diagnostic.getKind();
           if (kind == Diagnostic.Kind.ERROR) {
             ++numErrors;
-            handleMissingSymbolError(invokingRule, diagnostic, context);
           } else if (kind == Diagnostic.Kind.WARNING ||
               kind == Diagnostic.Kind.MANDATORY_WARNING) {
             ++numWarnings;
@@ -352,7 +366,7 @@ public abstract class Jsr199Javac implements Javac {
       StandardJavaFileManager fileManager,
       Function<Path, Path> absolutifier,
       Set<Path> javaSourceFilePaths) throws IOException {
-    List<JavaFileObject> compilationUnits = Lists.newArrayList();
+    List<JavaFileObject> compilationUnits = new ArrayList<>();
     for (Path path : javaSourceFilePaths) {
       String pathString = path.toString();
       if (pathString.endsWith(".java")) {
@@ -382,22 +396,6 @@ public abstract class Jsr199Javac implements Javac {
       }
     }
     return compilationUnits;
-  }
-
-  private void handleMissingSymbolError(
-      BuildTarget invokingRule,
-      Diagnostic<? extends JavaFileObject> diagnostic,
-      JavacExecutionContext context) {
-    JavacErrorParser javacErrorParser = new JavacErrorParser(
-        context.getProjectFilesystem(),
-        context.getJavaPackageFinder());
-    Optional<String> symbol = javacErrorParser.getMissingSymbolFromCompilerError(
-        DiagnosticPrettyPrinter.format(diagnostic));
-    if (!symbol.isPresent()) {
-      // This error wasn't related to a missing symbol, as far as we can tell.
-      return;
-    }
-    context.getEventSink().reportMissingJavaSymbol(invokingRule, symbol.get());
   }
 
   private static class FileManagerBootClasspathOracle implements BootClasspathOracle {

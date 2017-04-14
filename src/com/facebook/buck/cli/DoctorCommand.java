@@ -35,9 +35,9 @@ import com.facebook.buck.rage.VcsInfoCollector;
 import com.facebook.buck.rage.WatchmanDiagReportCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
-import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
+import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.BufferedReader;
@@ -51,7 +51,7 @@ public class DoctorCommand extends AbstractCommand {
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
-    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem, params.getObjectMapper());
+    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
 
     UserInput userInput = new UserInput(
         params.getConsole().getStdOut(),
@@ -60,7 +60,6 @@ public class DoctorCommand extends AbstractCommand {
         params.getCell().getFilesystem(),
         userInput,
         params.getConsole(),
-        params.getObjectMapper(),
         params.getBuckConfig().getView(DoctorConfig.class));
 
     Optional<BuildLogEntry> entry =
@@ -90,11 +89,11 @@ public class DoctorCommand extends AbstractCommand {
       UserInput userInput,
       BuildLogEntry entry) throws IOException, InterruptedException {
     RageConfig rageConfig = RageConfig.of(params.getBuckConfig());
-    VersionControlCmdLineInterfaceFactory vcsFactory =
-        new DefaultVersionControlCmdLineInterfaceFactory(
+    VersionControlCmdLineInterface versionControlCmdLineInterface =
+        new DelegatingVersionControlCmdLineInterface(
             params.getCell().getFilesystem().getRootPath(),
             new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(params.getBuckConfig()),
+            new VersionControlBuckConfig(params.getBuckConfig()).getHgCmd(),
             params.getBuckConfig().getEnvironment());
 
     Optional<WatchmanDiagReportCollector> watchmanDiagReportCollector =
@@ -108,7 +107,6 @@ public class DoctorCommand extends AbstractCommand {
     DoctorInteractiveReport report = new DoctorInteractiveReport(
         new DefaultDefectReporter(
             params.getCell().getFilesystem(),
-            params.getObjectMapper(),
             rageConfig,
             params.getBuckEventBus(),
             params.getClock()),
@@ -116,7 +114,7 @@ public class DoctorCommand extends AbstractCommand {
         params.getConsole(),
         userInput,
         params.getBuildEnvironmentDescription(),
-        VcsInfoCollector.create(vcsFactory.createCmdLineInterface()),
+        VcsInfoCollector.create(versionControlCmdLineInterface),
         rageConfig,
         new DefaultExtraInfoCollector(
             rageConfig,

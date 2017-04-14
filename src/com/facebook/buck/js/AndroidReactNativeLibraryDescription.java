@@ -24,14 +24,14 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Optional;
@@ -60,6 +60,7 @@ public class AndroidReactNativeLibraryDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
     return enhancer.enhanceForAndroid(params, resolver, args);
   }
@@ -70,14 +71,16 @@ public class AndroidReactNativeLibraryDescription
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Args constructorArg) {
-    return RichStream.of(packager.get())
+      Args constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    RichStream.of(packager.get())
         .filter(BuildTargetSourcePath.class)
         .map(BuildTargetSourcePath::getTarget)
-        .collect(MoreCollectors.toImmutableList());
+        .forEach(extraDepsBuilder::add);
   }
 
   @SuppressFieldNotInitialized

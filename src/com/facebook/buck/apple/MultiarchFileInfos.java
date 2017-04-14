@@ -135,13 +135,19 @@ public class MultiarchFileInfos {
       return existingRule.get();
     }
 
+    for (BuildRule rule : thinRules) {
+      if (rule.getSourcePathToOutput() == null) {
+        throw new HumanReadableException("%s: no output so it cannot be a multiarch input", rule);
+      }
+    }
+
     ImmutableSortedSet<SourcePath> inputs = FluentIterable
         .from(thinRules)
         .transform(BuildRule::getSourcePathToOutput)
         .toSortedSet(Ordering.natural());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     MultiarchFile multiarchFile = new MultiarchFile(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(thinRules)),
         ruleFinder,

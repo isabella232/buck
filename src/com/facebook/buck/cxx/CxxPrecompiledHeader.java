@@ -139,10 +139,11 @@ public class CxxPrecompiledHeader
       BuildableContext buildableContext) {
     Path scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s_tmp");
-    return ImmutableList.of(
-        new MkdirStep(getProjectFilesystem(), output.getParent()),
-        new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        makeMainStep(context.getSourcePathResolver(), scratchDir));
+    return new ImmutableList.Builder<Step>()
+        .add(MkdirStep.of(getProjectFilesystem(), output.getParent()))
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir))
+        .add(makeMainStep(context.getSourcePathResolver(), scratchDir))
+        .build();
   }
 
   public SourcePath getInput() {
@@ -160,7 +161,7 @@ public class CxxPrecompiledHeader
 
   public CxxIncludePaths getCxxIncludePaths() {
     return CxxIncludePaths.concat(
-        RichStream.from(this.getDeps())
+        RichStream.from(this.getBuildDeps())
             .filter(CxxPreprocessAndCompile.class)
             .map(CxxPreprocessAndCompile::getPreprocessorDelegate)
             .filter(Optional::isPresent)
@@ -286,7 +287,7 @@ public class CxxPrecompiledHeader
       ImmutableList.Builder<String> iSystemDirsBuilder,
       ImmutableList.Builder<String> nonIncludeFlagsBuilder) {
 
-    // TODO(elsteveogrande): unused?
+    // TODO(steveo): unused?
 
     Iterator<String> it = flags.iterator();
     while (it.hasNext()) {

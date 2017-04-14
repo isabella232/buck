@@ -201,7 +201,7 @@ public class JavaBuckConfigTest {
             "    javac_jar = " + invalidPath.replace("\\", "\\\\")));
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
     try {
-      config.getJavacJarPath();
+      config.getJavacSpec().getJavacJarPath();
       fail("Should throw exception as javac file does not exist.");
     } catch (HumanReadableException e) {
       assertEquals(
@@ -262,9 +262,8 @@ public class JavaBuckConfigTest {
       throws IOException, NoSuchBuildTargetException, InterruptedException {
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
-    JavacOptions javacOptions = javaConfig.getDefaultJavacOptions();
 
-    Javac javac = javacOptions.getJavac();
+    Javac javac = JavacFactory.create(null, javaConfig, null);
     assertTrue(javac.getClass().toString(), javac instanceof Jsr199Javac);
   }
 
@@ -281,28 +280,82 @@ public class JavaBuckConfigTest {
         .setSections(sections)
         .build();
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
-    JavacOptions javacOptions = javaConfig.getDefaultJavacOptions();
 
-    assertEquals(javac, ((ExternalJavac) javacOptions.getJavac()).getShortName());
+    assertEquals(
+        javac,
+        ((ExternalJavac) JavacFactory.create(null, javaConfig, null)).getShortName());
   }
 
   @Test
-  public void classUsageTracking()
-      throws IOException, NoSuchBuildTargetException, InterruptedException {
-    String jarPath = temporaryFolder.newFile("javac.jar").toString();
-    String config = Joiner.on('\n').join(
-        "[tools]",
-        "    javac_jar = " + jarPath.replace("\\", "\\\\"));
+  public void trackClassUsageCanBeDisabled() {
+    JavaBuckConfig config =
+        FakeBuckConfig
+            .builder()
+            .setSections(ImmutableMap.of(
+                "java",
+                ImmutableMap.of("track_class_usage", "false")))
+            .build()
+            .getView(JavaBuckConfig.class);
 
-    assertTrue(createWithDefaultFilesystem(
-        new StringReader(config))
-        .getDefaultJavacOptions()
-        .trackClassUsage());
+    assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.JDK));
+    assertFalse(config.trackClassUsage());
+  }
 
-    assertFalse(createWithDefaultFilesystem(
-        new StringReader(config + "\n[java]\ntrack_class_usage = false"))
-        .getDefaultJavacOptions()
-        .trackClassUsage());
+  @Test
+  public void doNotTrackClassUsageByDefaultForExternJavac() throws IOException {
+    JavaBuckConfig config = FakeBuckConfig.builder()
+        .setFilesystem(defaultFilesystem)
+        .setSections(ImmutableMap.of("tools",
+            ImmutableMap.of("javac", temporaryFolder.newExecutableFile().toString())))
+        .build()
+        .getView(JavaBuckConfig.class);
+
+    assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.EXTERNAL));
+
+    assertFalse(config.trackClassUsage());
+  }
+
+  @Test
+  public void doNotTrackClassUsageEvenIfAskedForExternJavac() throws IOException {
+    JavaBuckConfig config =
+        FakeBuckConfig
+            .builder()
+            .setFilesystem(defaultFilesystem)
+            .setSections(ImmutableMap.of(
+                "tools",
+                ImmutableMap.of("javac", temporaryFolder.newExecutableFile().toString()),
+                "java",
+                ImmutableMap.of("track_class_usage", "true")))
+            .build()
+            .getView(JavaBuckConfig.class);
+
+    assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.EXTERNAL));
+    assertFalse(config.trackClassUsage());
+  }
+
+  @Test
+  public void trackClassUsageByDefaultForJavacFromJar() throws IOException {
+    JavaBuckConfig config = FakeBuckConfig.builder()
+        .setFilesystem(defaultFilesystem)
+        .setSections(ImmutableMap.of("tools",
+            ImmutableMap.of("javac_jar", temporaryFolder.newExecutableFile().toString())))
+        .build()
+        .getView(JavaBuckConfig.class);
+
+    assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.JAR));
+
+    assertTrue(config.trackClassUsage());
+  }
+
+  @Test
+  public void trackClassUsageByDefaultForJavacFromJDK() {
+    JavaBuckConfig config = FakeBuckConfig.builder()
+        .build()
+        .getView(JavaBuckConfig.class);
+
+    assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.JDK));
+
+    assertTrue(config.trackClassUsage());
   }
 
   @Test
@@ -312,21 +365,18 @@ public class JavaBuckConfigTest {
         "[java]",
         "    location = OUT_OF_PROCESS");
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    JavacOptions options = config.getDefaultJavacOptions();
     assertThat(
-        options.getJavacLocation(),
-        Matchers.equalTo(JavacOptions.JavacLocation.OUT_OF_PROCESS));
+        config.getJavacSpec().getJavacLocation(),
+        Matchers.equalTo(Javac.Location.OUT_OF_PROCESS));
   }
 
   @Test
   public void testJavaLocationInProcessByDefault()
       throws IOException, NoSuchBuildTargetException, InterruptedException {
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
-
-    JavacOptions options = config.getDefaultJavacOptions();
     assertThat(
-        options.getJavacLocation(),
-        Matchers.equalTo(JavacOptions.JavacLocation.IN_PROCESS));
+        config.getJavacSpec().getJavacLocation(),
+        Matchers.equalTo(Javac.Location.IN_PROCESS));
   }
 
   @Test
@@ -336,31 +386,54 @@ public class JavaBuckConfigTest {
         "[java]",
         "    location = IN_PROCESS");
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    JavacOptions options = config.getDefaultJavacOptions();
     assertThat(
-        options.getJavacLocation(),
-        Matchers.equalTo(JavacOptions.JavacLocation.IN_PROCESS));
+        config.getJavacSpec().getJavacLocation(),
+        Matchers.equalTo(Javac.Location.IN_PROCESS));
   }
 
   @Test
-  public void testAbisGeneratedFromClassByDefault() throws IOException {
+  public void testCompileFullJarsByDefault() throws IOException {
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
     JavacOptions options = config.getDefaultJavacOptions();
     assertThat(
-        options.getAbiGenerationMode(),
-        Matchers.equalTo(JavacOptions.AbiGenerationMode.CLASS));
+        options.getCompilationMode(),
+        Matchers.equalTo(Javac.CompilationMode.FULL));
   }
 
   @Test
-  public void testAbisMigratingToSource() throws IOException {
+  public void testSourceWithDepsABI() throws IOException {
+    String content = Joiner.on('\n').join(
+        "[java]",
+        "    abi_generation_mode = source_with_deps");
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getCompilationMode(),
+        Matchers.equalTo(Javac.CompilationMode.FULL));
+  }
+
+  @Test
+  public void testMigratingToSourceABI() throws IOException {
     String content = Joiner.on('\n').join(
         "[java]",
         "    abi_generation_mode = migrating_to_source");
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
     JavacOptions options = config.getDefaultJavacOptions();
     assertThat(
-        options.getAbiGenerationMode(),
-        Matchers.equalTo(JavacOptions.AbiGenerationMode.MIGRATING_TO_SOURCE));
+        options.getCompilationMode(),
+        Matchers.equalTo(Javac.CompilationMode.FULL_CHECKING_REFERENCES));
+  }
+
+  @Test
+  public void testSourceABINoDeps() throws IOException {
+    String content = Joiner.on('\n').join(
+        "[java]",
+        "    abi_generation_mode = source");
+    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
+    JavacOptions options = config.getDefaultJavacOptions();
+    assertThat(
+        options.getCompilationMode(),
+        Matchers.equalTo(Javac.CompilationMode.FULL_ENFORCING_REFERENCES));
   }
 
   private void assertOptionKeyAbsent(JavacOptions options, String key) {

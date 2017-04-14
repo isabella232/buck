@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rules.macros;
 
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -31,6 +33,7 @@ import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -39,7 +42,6 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -78,7 +80,7 @@ public abstract class QueryMacroExpander<T extends QueryMacro> extends AbstractM
             } catch (Exception e) {
               throw new HumanReadableException(
                   e,
-                  "Error parsing target expression %s for target %",
+                  "Error parsing target expression %s for target %s",
                   pattern,
                   target);
             }
@@ -104,7 +106,10 @@ public abstract class QueryMacroExpander<T extends QueryMacro> extends AbstractM
             cellNames,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             ImmutableSet.of());
-    try {
+    try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(
+        Optional.ofNullable(resolver.getEventBus()),
+        PerfEventId.of("resolve_query_macro"),
+        "target", target.toString())) {
       QueryExpression parsedExp = QueryExpression.parse(queryExpression, env);
       Set<QueryTarget> queryTargets = parsedExp.eval(env, executorService);
       return queryTargets.stream();
@@ -129,13 +134,18 @@ public abstract class QueryMacroExpander<T extends QueryMacro> extends AbstractM
     return fromQuery(Query.of(input.get(0)));
   }
 
+  abstract boolean detectsTargetGraphOnlyDeps();
+
   @Override
-  public ImmutableList<BuildTarget> extractParseTimeDepsFrom(
+  public void extractParseTimeDepsFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      T input) {
-    return ImmutableList.copyOf(extractTargets(target, cellNames, Optional.empty(), input)
-        .collect(Collectors.toList()));
+      T input,
+      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    extractTargets(target, cellNames, Optional.empty(), input)
+        .forEach(
+            (detectsTargetGraphOnlyDeps() ? targetGraphOnlyDepsBuilder : buildDepsBuilder)::add);
   }
 
 }

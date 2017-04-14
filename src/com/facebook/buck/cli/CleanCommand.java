@@ -17,8 +17,8 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
+import com.facebook.buck.ide.intellij.IjAndroidHelper;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.intellij.Project;
 
 import org.kohsuke.args4j.Option;
 
@@ -53,12 +53,14 @@ public class CleanCommand extends AbstractCommand {
     // directories itself so we can blow away BuckConstant.ANNOTATION_DIR as part of `buck clean`.
     // This will also reduce how long `buck project` takes.
     //
+
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     if (isCleanBuckProjectFiles()) {
       // Delete directories that were created for the purpose of `buck project`.
-      // TODO(bolinfest): Unify these two directories under a single buck-ide directory,
+      // TODO(mbolin): Unify these two directories under a single buck-ide directory,
       // which is distinct from the buck-out directory.
-      projectFilesystem.deleteRecursivelyIfExists(Project.getAndroidGenPath(projectFilesystem));
+      projectFilesystem.deleteRecursivelyIfExists(
+          IjAndroidHelper.getAndroidGenPath(projectFilesystem));
       projectFilesystem.deleteRecursivelyIfExists(
           projectFilesystem.getBuckPaths().getAnnotationDir());
     } else {
@@ -71,6 +73,11 @@ public class CleanCommand extends AbstractCommand {
           projectFilesystem.getBuckPaths().getGenDir());
       projectFilesystem.deleteRecursivelyIfExists(
           projectFilesystem.getBuckPaths().getTrashDir());
+
+      // Clean out any additional directories specified via config setting.
+      for (String subPath : params.getBuckConfig().getCleanAdditionalPaths()) {
+        projectFilesystem.deleteRecursivelyIfExists(projectFilesystem.getPath(subPath));
+      }
     }
 
     return 0;

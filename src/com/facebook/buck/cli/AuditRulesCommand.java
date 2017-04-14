@@ -25,15 +25,13 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreStrings;
-import com.fasterxml.jackson.core.JsonFactory;
+import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -44,6 +42,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -80,7 +79,7 @@ public class AuditRulesCommand extends AbstractCommand {
   private boolean includeEmpties;
 
   @Argument
-  private List<String> arguments = Lists.newArrayList();
+  private List<String> arguments = new ArrayList<>();
 
   public List<String> getArguments() {
     return arguments;
@@ -99,8 +98,7 @@ public class AuditRulesCommand extends AbstractCommand {
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     try (ProjectBuildFileParser parser = params.getCell().createBuildFileParser(
-        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory(
-            params.getObjectMapper())),
+        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
         params.getConsole(),
         params.getBuckEventBus(),
         /* ignoreBuckAutodepsFiles */ false)) {
@@ -165,12 +163,10 @@ public class AuditRulesCommand extends AbstractCommand {
       }
 
       // We create a new JsonGenerator that does not close the stream.
-      ObjectMapper mapper = params.getObjectMapper();
-      JsonFactory factory = mapper.getFactory();
-      try (JsonGenerator generator = factory.createGenerator(stdOut)
+      try (JsonGenerator generator = ObjectMappers.createGenerator(stdOut)
           .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
           .useDefaultPrettyPrinter()) {
-        mapper.writeValue(generator, rulesKeyedByName);
+        ObjectMappers.WRITER.writeValue(generator, rulesKeyedByName);
       }
       stdOut.print('\n');
     } else {

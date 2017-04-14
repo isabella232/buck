@@ -33,6 +33,8 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.google.common.base.Function;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -125,7 +127,8 @@ public class MergeAndroidResourcesSourcesTest {
     assertThat(
         steps,
         Matchers.contains(
-            Matchers.hasProperty("shortName", Matchers.equalTo("rm_&&_mkdir")),
+            Matchers.instanceOf(RmStep.class),
+            Matchers.instanceOf(MkdirStep.class),
             Matchers.instanceOf(MergeAndroidResourceSourcesStep.class)
         ));
     String resIn1 = filesystem.getRootPath().resolve("res_in_1").toString();
@@ -134,7 +137,8 @@ public class MergeAndroidResourcesSourcesTest {
     assertThat(
         FluentIterable.from(steps).transform(stepDescriptionFunction),
         Matchers.contains(
-            Matchers.stringContainsInOrder("rm", "mkdir"),
+            Matchers.containsString("rm"),
+            Matchers.containsString("mkdir"),
             Matchers.startsWith(String.format("merge-resources %s,%s -> ", resIn1, resIn2))
         )
     );
@@ -146,11 +150,11 @@ public class MergeAndroidResourcesSourcesTest {
     File outFolder = tmp.newFolder("out");
     File tmpFolder = tmp.newFolder("tmp");
 
-    MergeAndroidResourceSourcesStep step = new MergeAndroidResourceSourcesStep(
-        ImmutableList.of(rootPath.resolve("res_in_1"), rootPath.resolve("res_in_2")),
-        outFolder.toPath(),
-        tmpFolder.toPath()
-    );
+    MergeAndroidResourceSourcesStep step = MergeAndroidResourceSourcesStep.builder()
+        .setResPaths(ImmutableList.of(rootPath.resolve("res_in_1"), rootPath.resolve("res_in_2")))
+        .setOutFolderPath(outFolder.toPath())
+        .setTmpFolderPath(tmpFolder.toPath())
+        .build();
     step.execute(context);
     assertThat(
         filesystem.getFilesUnderPath(outFolder.toPath()),

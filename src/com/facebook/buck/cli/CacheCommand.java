@@ -31,7 +31,6 @@ import com.facebook.buck.zip.Unzip;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
@@ -58,7 +57,7 @@ import javax.annotation.Nullable;
 public class CacheCommand extends AbstractCommand {
 
   @Argument
-  private List<String> arguments = Lists.newArrayList();
+  private List<String> arguments = new ArrayList<>();
 
   @Option(
       name = "--output-dir",
@@ -112,7 +111,7 @@ public class CacheCommand extends AbstractCommand {
 
     Path tmpDir = Files.createTempDirectory("buck-cache-command");
 
-    BuildEvent.Started started = BuildEvent.started(getArguments(), false);
+    BuildEvent.Started started = BuildEvent.started(getArguments());
 
     List<ArtifactRunner> results = null;
     try (CommandThreadManager pool = new CommandThreadManager(
@@ -297,7 +296,7 @@ public class CacheCommand extends AbstractCommand {
     @Override
     public ArtifactRunner call() throws Exception {
       statusString = "Fetching";
-      // TODO(skotchvail): don't use intermediate files, that just slows us down
+      // TODO(skotch): don't use intermediate files, that just slows us down
       // instead, unzip from the ~/buck-cache/ directly
       CacheResult success = cache.fetch(ruleKey, LazyPath.ofInstance(artifact));
       cacheResult = cacheResultToString(success);

@@ -30,6 +30,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -40,7 +41,6 @@ import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
@@ -68,6 +68,7 @@ public class OwnersReportTest {
         TargetGraph targetGraph,
         BuildRuleParams params,
         BuildRuleResolver resolver,
+        CellPathResolver cellRoots,
         A args) {
       return new FakeBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
     }
@@ -87,13 +88,14 @@ public class OwnersReportTest {
     arg.inputs = inputs;
     try {
       return
-          new TargetNodeFactory(new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance()))
+          new TargetNodeFactory(new DefaultTypeCoercerFactory())
               .create(
                   Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
                   description,
                   arg,
                   filesystem,
                   buildTarget,
+                  ImmutableSet.of(),
                   ImmutableSet.of(),
                   ImmutableSet.of(),
                   createCellRoots(filesystem));

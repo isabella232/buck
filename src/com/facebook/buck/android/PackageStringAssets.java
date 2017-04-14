@@ -56,21 +56,21 @@ public class PackageStringAssets extends AbstractBuildRule {
   public static final String STRING_ASSETS_DIR_FORMAT = "__strings_%s__";
 
   private final FilteredResourcesProvider filteredResourcesProvider;
-  private final AaptPackageResources aaptPackageResources;
+  private final SourcePath rDotTxtPath;
   private final ImmutableSet<String> locales;
 
   public PackageStringAssets(
       BuildRuleParams params,
       ImmutableSet<String> locales,
       FilteredResourcesProvider filteredResourcesProvider,
-      AaptPackageResources aaptPackageResources) {
+      SourcePath rDotTxtPath) {
     super(params);
     this.locales = locales;
     this.filteredResourcesProvider = filteredResourcesProvider;
-    this.aaptPackageResources = aaptPackageResources;
+    this.rDotTxtPath = rDotTxtPath;
   }
 
-  // TODO(russellporter): Add an integration test for packaging string assets
+  // TODO(russell): Add an integration test for packaging string assets
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
@@ -88,19 +88,19 @@ public class PackageStringAssets extends AbstractBuildRule {
     // We need to generate a zip file with the following dir structure:
     // /assets/strings/*.fbstr
     Path pathToBaseDir = getPathToStringAssetsDir();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToBaseDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToBaseDir));
     Path pathToDirContainingAssetsDir = pathToBaseDir.resolve("string_assets");
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToDirContainingAssetsDir));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToDirContainingAssetsDir));
     final Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
     Function<String, Path> assetPathBuilder =
         locale -> pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
     Path pathToAllLocalesStringAssetsZip = getPathToAllLocalesStringAssetsZip();
-    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), pathToStrings));
+    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToStrings));
     steps.add(new CompileStringsStep(
             getProjectFilesystem(),
             filteredResourcesProvider.getStringFiles(),
-            aaptPackageResources.getPathToRDotTxtDir(),
+            context.getSourcePathResolver().getIdeallyRelativePath(rDotTxtPath),
             assetPathBuilder));
     steps.add(new ZipStep(
             getProjectFilesystem(),
@@ -130,7 +130,7 @@ public class PackageStringAssets extends AbstractBuildRule {
     return steps.build();
   }
 
-  public Path getPathToStringAssetsZip() {
+  Path getPathToStringAssetsZip() {
     return getPathToStringAssetsDir().resolve("string_assets.zip");
   }
 
@@ -148,5 +148,9 @@ public class PackageStringAssets extends AbstractBuildRule {
         getProjectFilesystem(),
         getBuildTarget(),
         STRING_ASSETS_DIR_FORMAT);
+  }
+
+  public SourcePath getSourcePathToStringAssetsZip() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToStringAssetsZip());
   }
 }

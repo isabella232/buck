@@ -23,7 +23,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BinaryWrapperRule;
@@ -40,10 +40,12 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -76,13 +78,21 @@ public class RustTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
+    final BuildTarget buildTarget = params.getBuildTarget();
+
     BuildTarget exeTarget = params.getBuildTarget()
-        .withAppendedFlavors(ImmutableFlavor.of("unittest"));
+        .withAppendedFlavors(InternalFlavor.of("unittest"));
+
+    Optional<Map.Entry<Flavor, RustBinaryDescription.Type>> type =
+        RustBinaryDescription.BINARY_TYPE.getFlavorAndValue(buildTarget);
+
+    boolean isCheck = type.map(t -> t.getValue().isCheck()).orElse(false);
 
     BinaryWrapperRule testExeBuild = resolver.addToIndex(
         RustCompileUtils.createBinaryBuildRule(
-            params.copyWithBuildTarget(exeTarget),
+            params.withBuildTarget(exeTarget),
             resolver,
             rustBuckConfig,
             cxxPlatforms,
@@ -98,14 +108,15 @@ public class RustTestDescription implements
             RustCompileUtils.getLinkStyle(params.getBuildTarget(), args.linkStyle),
             args.rpath, args.srcs,
             args.crateRoot,
-            ImmutableSet.of("lib.rs", "main.rs")
+            ImmutableSet.of("lib.rs", "main.rs"),
+            isCheck
         ));
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     Tool testExe = testExeBuild.getExecutableCommand();
 
-    BuildRuleParams testParams = params.appendExtraDeps(
+    BuildRuleParams testParams = params.copyAppendingExtraDeps(
         testExe.getDeps(ruleFinder));
 
     return new RustTest(
@@ -117,23 +128,31 @@ public class RustTestDescription implements
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      RustTestDescription.Arg constructorArg) {
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     ToolProvider compiler = rustBuckConfig.getRustCompiler();
-    deps.addAll(compiler.getParseTimeDeps());
+    extraDepsBuilder.addAll(compiler.getParseTimeDeps());
 
-    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
-
-    return deps.build();
+    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
   }
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return cxxPlatforms.containsAnyOf(flavors);
+    if (cxxPlatforms.containsAnyOf(flavors)) {
+      return true;
+    }
+
+    for (RustBinaryDescription.Type type : RustBinaryDescription.Type.values()) {
+      if (flavors.contains(type.getFlavor())) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   @Override

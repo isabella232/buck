@@ -74,14 +74,9 @@ public class NdkBuildStep extends ShellStep {
 
   @Override
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-    Optional<Path> ndkRoot = context.getAndroidPlatformTarget().getNdkDirectory();
-    if (!ndkRoot.isPresent()) {
-      throw new HumanReadableException(
-          "Must set ANDROID_NDK to point to the absolute path of your Android NDK directory.");
-    }
     Optional<Path> ndkBuild = new ExecutableFinder().getOptionalExecutable(
         Paths.get("ndk-build"),
-        ndkRoot.get());
+        context.getAndroidPlatformTarget().checkNdkDirectory());
     if (!ndkBuild.isPresent()) {
       throw new HumanReadableException("Unable to find ndk-build");
     }
@@ -92,16 +87,12 @@ public class NdkBuildStep extends ShellStep {
     builder.add(
         ndkBuild.get().toAbsolutePath().toString(),
         "-j",
-        // TODO(dcolascione): using -j here is wrong.  It lets make run too many work when we do
+        // TODO(dancol): using -j here is wrong.  It lets make run too many work when we do
         // other work in parallel.  Instead, implement the GNU Make job server so make and Buck can
         // coordinate job concurrency.
         Integer.toString(concurrencyLimit.threadLimit),
         "-C",
         this.root.toString());
-
-    if (concurrencyLimit.loadLimit < Double.POSITIVE_INFINITY) {
-      builder.add("--load-average", Double.toString(concurrencyLimit.loadLimit));
-    }
 
     Iterable<String> flags = Iterables.transform(this.flags, macroExpander);
     builder.addAll(flags);

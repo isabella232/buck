@@ -29,6 +29,7 @@ import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.zip.Unzip;
 import com.facebook.buck.zip.ZipConstants;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -516,9 +517,10 @@ public class ProjectFilesystemTest {
         ImmutableList.of(Paths.get("foo/bar.txt"), Paths.get("foo/baz.txt")),
         output);
 
-    ImmutableCollection<Path> actualContents = filesystem.getZipMembers(output);
+    ImmutableCollection<Path> actualContents = ImmutableSortedSet.copyOf(
+        Unzip.getZipMembers(filesystem.resolve(output)));
     assertEquals(
-        ImmutableList.of(
+        ImmutableSortedSet.of(
             Paths.get("foo/bar.txt"),
             Paths.get("foo/baz.txt")),
         actualContents);

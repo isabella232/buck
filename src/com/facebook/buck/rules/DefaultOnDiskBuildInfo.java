@@ -19,9 +19,9 @@ package com.facebook.buck.rules;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -42,22 +42,29 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
 
   private static final Logger LOG = Logger.get(DefaultOnDiskBuildInfo.class);
 
+  private final BuildTarget buildTarget;
   private final ProjectFilesystem projectFilesystem;
+  private final BuildInfoStore buildInfoStore;
   private final Path metadataDirectory;
-  private final ObjectMapper objectMapper;
 
   public DefaultOnDiskBuildInfo(
       BuildTarget target,
       ProjectFilesystem projectFilesystem,
-      ObjectMapper objectMapper) {
+      BuildInfoStore buildInfoStore) {
+    this.buildTarget = target;
     this.projectFilesystem = projectFilesystem;
+    this.buildInfoStore = buildInfoStore;
     this.metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, projectFilesystem);
-    this.objectMapper = objectMapper;
   }
 
   @Override
   public Optional<String> getValue(String key) {
     return projectFilesystem.readFileIfItExists(metadataDirectory.resolve(key));
+  }
+
+  @Override
+  public Optional<String> getBuildValue(String key) {
+    return buildInfoStore.readMetadata(buildTarget, key);
   }
 
   @Override
@@ -68,7 +75,7 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
     }
     try {
       ImmutableList<String> list =
-          objectMapper.readValue(
+          ObjectMappers.readValue(
               value.get(),
               new TypeReference<ImmutableList<String>>() {});
       return Optional.of(list);
@@ -112,14 +119,14 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
   }
 
   @Override
-  public Optional<ImmutableMap<String, String>> getMap(String key) {
-    Optional<String> value = getValue(key);
+  public Optional<ImmutableMap<String, String>> getBuildMap(String key) {
+    Optional<String> value = getBuildValue(key);
     if (!value.isPresent()) {
       return Optional.empty();
     }
     try {
       ImmutableMap<String, String> map =
-          objectMapper.readValue(
+          ObjectMappers.readValue(
               value.get(),
               new TypeReference<ImmutableMap<String, String>>() {});
       return Optional.of(map);
@@ -152,7 +159,7 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
   @Override
   public Optional<RuleKey> getRuleKey(String key) {
     try {
-      return getValue(key).map(RuleKey::new);
+      return getBuildValue(key).map(RuleKey::new);
     } catch (IllegalArgumentException ignored) {
       return Optional.empty();
     }

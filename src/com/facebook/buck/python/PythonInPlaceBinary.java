@@ -55,7 +55,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
 
   private static final String RUN_INPLACE_RESOURCE = "com/facebook/buck/python/run_inplace.py.in";
 
-  // TODO(andrewjcg): Task #8098647: This rule has no steps, so it
+  // TODO(agallagher): Task #8098647: This rule has no steps, so it
   // really doesn't need a rule key.
   //
   // However, Python tests will never be re-run if the rule key
@@ -113,7 +113,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
       Tool python) {
     return new PythonInPlaceBinary(
         // The actual steps of a in-place binary doesn't actually have any build-time deps.
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         params.getDeclaredDeps(),
@@ -207,7 +207,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     Path binPath = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     buildableContext.recordArtifact(binPath);
     return ImmutableList.of(
-        new MkdirStep(getProjectFilesystem(), binPath.getParent()),
+        MkdirStep.of(getProjectFilesystem(), binPath.getParent()),
         new WriteFileStep(getProjectFilesystem(), script, binPath, /* executable */ true));
   }
 

@@ -17,12 +17,14 @@
 package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
+import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static org.easymock.EasyMock.createNiceMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -30,8 +32,8 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.io.HashingDeterministicJarWriter;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
@@ -76,6 +78,8 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
+import com.facebook.buck.zip.CustomJarOutputStream;
+import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Charsets;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
@@ -106,7 +110,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.zip.ZipOutputStream;
 
 import javax.annotation.Nullable;
 
@@ -368,44 +371,83 @@ public class DefaultJavaLibraryTest {
   }
 
   @Test
-  public void testClasspathForJavacCommand() throws Exception {
-    // libraryOne responds like an ordinary prebuilt_jar with no dependencies. We have to use a
-    // FakeJavaLibraryRule so that we can override the behavior of getAbiKey().
+  public void testClasspathForJavacCommandWhenCompilingAgainstAbiJars() throws Exception {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
-    FakeJavaLibrary libraryOne = new FakeJavaLibrary(libraryOneTarget, resolver) {
+    TargetNode<?, ?> libraryOne = JavaLibraryBuilder.createBuilder(libraryOneTarget)
+        .addSrc(Paths.get("java/src/com/libone/Bar.java"))
+        .build();
 
-      @Override
-      public Optional<BuildTarget> getAbiJar() {
-        return Optional.empty();
-      }
-
-      @Override
-      public ImmutableSet<SourcePath> getOutputClasspaths() {
-        return ImmutableSet.of(new FakeSourcePath("java/src/com/libone/bar.jar"));
-      }
-
-      @Override
-      public ImmutableSet<SourcePath> getTransitiveClasspaths() {
-        return ImmutableSet.of();
-      }
-
-      @Override
-      public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
-        return ImmutableSet.of();
-      }
-    };
-    ruleResolver.addToIndex(libraryOne);
+    JavaBuckConfig testConfig = JavaBuckConfig.of(
+        FakeBuckConfig.builder()
+            .setSections("[" + JavaBuckConfig.SECTION + "]", "compile_against_abis = true")
+            .build());
 
     BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
-    BuildRule libraryTwo = JavaLibraryBuilder
-        .createBuilder(libraryTwoTarget)
+    TargetNode<?, ?> libraryTwo = JavaLibraryBuilder
+        .createBuilder(libraryTwoTarget, testConfig)
         .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
         .addDep(libraryOne.getBuildTarget())
-        .build(ruleResolver);
+        .build();
 
-    List<Step> steps = libraryTwo.getBuildSteps(
-        FakeBuildContext.withSourcePathResolver(resolver), new FakeBuildableContext());
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(libraryOne, libraryTwo);
+    ruleResolver = new BuildRuleResolver(
+        targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+
+    JavaLibrary libraryOneRule = (JavaLibrary) ruleResolver.requireRule(libraryOneTarget);
+    BuildRule libraryTwoRule = ruleResolver.requireRule(libraryTwoTarget);
+
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+
+    List<Step> steps = libraryTwoRule.getBuildSteps(
+        FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
+
+    ImmutableList<JavacStep> javacSteps = FluentIterable
+        .from(steps)
+        .filter(JavacStep.class)
+        .toList();
+    assertEquals("There should be only one javac step.", 1, javacSteps.size());
+    JavacStep javacStep = javacSteps.get(0);
+    Path expectedPath =
+        pathResolver.getAbsolutePath(
+            ruleResolver.getRule(libraryOneRule.getAbiJar().get()).getSourcePathToOutput());
+    assertEquals(
+        "The classpath for the javac step to compile //:libtwo should contain only libone#abi.",
+        ImmutableSet.of(expectedPath),
+        javacStep.getClasspathEntries());
+  }
+
+  @Test
+  public void testClasspathForJavacCommandWhenCompilingAgainstFullJars() throws Exception {
+    BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
+    TargetNode<?, ?> libraryOne = JavaLibraryBuilder.createBuilder(libraryOneTarget)
+        .addSrc(Paths.get("java/src/com/libone/Bar.java"))
+        .build();
+
+    JavaBuckConfig testConfig = JavaBuckConfig.of(
+        FakeBuckConfig.builder()
+            .setSections("[" + JavaBuckConfig.SECTION + "]", "compile_against_abis = false")
+            .build());
+
+    BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
+    TargetNode<?, ?> libraryTwo = JavaLibraryBuilder
+        .createBuilder(libraryTwoTarget, testConfig)
+        .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
+        .addDep(libraryOne.getBuildTarget())
+        .build();
+
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(libraryOne, libraryTwo);
+    ruleResolver = new BuildRuleResolver(
+        targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+
+    JavaLibrary libraryOneRule = (JavaLibrary) ruleResolver.requireRule(libraryOneTarget);
+    BuildRule libraryTwoRule = ruleResolver.requireRule(libraryTwoTarget);
+
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+
+    List<Step> steps = libraryTwoRule.getBuildSteps(
+        FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
 
     ImmutableList<JavacStep> javacSteps = FluentIterable
         .from(steps)
@@ -414,9 +456,34 @@ public class DefaultJavaLibraryTest {
     assertEquals("There should be only one javac step.", 1, javacSteps.size());
     JavacStep javacStep = javacSteps.get(0);
     assertEquals(
-        "The classpath for the javac step to compile //:libtwo should contain only bar.jar.",
-        ImmutableSet.of(libraryOne.getProjectFilesystem().resolve("java/src/com/libone/bar.jar")),
+        "The classpath for the javac step to compile //:libtwo should contain only libone.",
+        ImmutableSet.of(pathResolver.getAbsolutePath(libraryOneRule.getSourcePathToOutput())),
         javacStep.getClasspathEntries());
+  }
+
+  @Test
+  public void testDepFilePredicateForNoAnnotationProcessorDeps() throws Exception {
+    BuildTarget annotationProcessorTarget = validJavaLibrary.createTarget();
+    BuildTarget annotationProcessorAbiTarget = validJavaLibraryAbi.createTarget();
+
+    BuildRule annotationProcessorRule = validJavaLibrary.createRule(annotationProcessorTarget);
+    BuildRule annotationProcessorAbiRule = validJavaLibraryAbi.createRule(
+        annotationProcessorAbiTarget);
+
+    ruleResolver.addToIndex(annotationProcessorRule);
+    ruleResolver.addToIndex(annotationProcessorAbiRule);
+
+    BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libone");
+
+    DefaultJavaLibrary libraryTwo = JavaLibraryBuilder
+        .createBuilder(libraryTwoTarget)
+        .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
+        .addAnnotationProcessorDep(annotationProcessorTarget)
+        .build(ruleResolver);
+    SourcePath sourcePath = annotationProcessorAbiRule.getSourcePathToOutput();
+    assertFalse(
+        "The predicate for dep file shouldn't contain annotation processor deps",
+        libraryTwo.getCoveredByDepFilePredicate().test(sourcePath));
   }
 
   /**
@@ -622,7 +689,7 @@ public class DefaultJavaLibraryTest {
   }
 
   @Test
-  public void testStepsPresenceForForDirectJarSpooling() {
+  public void testStepsPresenceForForDirectJarSpooling() throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
@@ -646,7 +713,8 @@ public class DefaultJavaLibraryTest {
   }
 
   @Test
-  public void testJavacDirectToJarStepIsNotPresentWhenPostprocessClassesCommandsPresent() {
+  public void testJavacDirectToJarStepIsNotPresentWhenPostprocessClassesCommandsPresent()
+      throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
@@ -670,7 +738,8 @@ public class DefaultJavaLibraryTest {
   }
 
   @Test
-  public void testStepsPresenceForIntermediateOutputToDiskSpooling() {
+  public void testStepsPresenceForIntermediateOutputToDiskSpooling()
+      throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
     BuildRule javaLibraryBuildRule = createDefaultJavaLibraryRuleWithAbiKey(
@@ -1142,11 +1211,12 @@ public class DefaultJavaLibraryTest {
       ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<BuildRule> exportedDeps,
       Optional<AbstractJavacOptions.SpoolMode> spoolMode,
-      ImmutableList<String> postprocessClassesCommands) {
+      ImmutableList<String> postprocessClassesCommands)
+      throws NoSuchBuildTargetException {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    ImmutableSortedSet<? extends SourcePath> srcsAsPaths = FluentIterable.from(srcs)
+    ImmutableSortedSet<SourcePath> srcsAsPaths = FluentIterable.from(srcs)
         .transform(Paths::get)
-        .transform(p -> new PathSourcePath(projectFilesystem, p))
+        .transform(p -> (SourcePath) new PathSourcePath(projectFilesystem, p))
         .toSortedSet(Ordering.natural());
 
     BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget)
@@ -1157,28 +1227,15 @@ public class DefaultJavaLibraryTest {
         ? JavacOptions.builder(DEFAULT_JAVAC_OPTIONS).setSpoolMode(spoolMode.get()).build()
         : DEFAULT_JAVAC_OPTIONS;
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    DefaultJavaLibrary defaultJavaLibrary = new DefaultJavaLibrary(
-        buildRuleParams,
-        new SourcePathResolver(ruleFinder),
-        ruleFinder,
-        srcsAsPaths,
-        /* resources */ ImmutableSet.of(),
-        javacOptions.getGeneratedSourceFolderName(),
-        /* proguardConfig */ Optional.empty(),
-        postprocessClassesCommands,
-        exportedDeps,
-        /* providedDeps */ ImmutableSortedSet.of(),
-        ImmutableSortedSet.of(),
-        javacOptions.trackClassUsage(),
-        /* additionalClasspathEntries */ ImmutableSet.of(),
-        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-        /* resourcesRoot */ Optional.empty(),
-        /* manifest file */ Optional.empty(),
-        /* mavenCoords */ Optional.empty(),
-        /* tests */ ImmutableSortedSet.of(),
-        /* classesToRemoveFromJar */ ImmutableSet.of()) {
-    };
+    DefaultJavaLibrary defaultJavaLibrary = DefaultJavaLibrary
+        .builder(buildRuleParams, ruleResolver, DEFAULT_JAVA_CONFIG)
+        .setJavacOptions(javacOptions)
+        .setSrcs(srcsAsPaths)
+        .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
+        .setPostprocessClassesCommands(postprocessClassesCommands)
+        .setExportedDepRules(exportedDeps)
+        .setTrackClassUsage(javacOptions.trackClassUsage())
+        .build();
 
     ruleResolver.addToIndex(defaultJavaLibrary);
     return defaultJavaLibrary;
@@ -1265,8 +1322,8 @@ public class DefaultJavaLibraryTest {
             new SourcePathResolver(new SourcePathRuleFinder(ruleResolver))),
         new FakeBuildableContext());
 
-    assertEquals(10, steps.size());
-    assertTrue(((JavacStep) steps.get(6)).getJavac() instanceof Jsr199Javac);
+    assertEquals(12, steps.size());
+    assertTrue(((JavacStep) steps.get(8)).getJavac() instanceof Jsr199Javac);
   }
 
   @Test
@@ -1296,8 +1353,8 @@ public class DefaultJavaLibraryTest {
         FakeBuildContext.withSourcePathResolver(
             new SourcePathResolver(new SourcePathRuleFinder(ruleResolver))),
         new FakeBuildableContext());
-    assertEquals(10, steps.size());
-    Javac javacStep = ((JavacStep) steps.get(6)).getJavac();
+    assertEquals(12, steps.size());
+    Javac javacStep = ((JavacStep) steps.get(8)).getJavac();
     assertTrue(javacStep instanceof Jsr199Javac);
     JarBackedJavac jsrJavac = ((JarBackedJavac) javacStep);
     assertEquals(
@@ -1318,8 +1375,9 @@ public class DefaultJavaLibraryTest {
       Path abiJarPath,
       String fileName,
       String fileContents) throws IOException {
-    try (HashingDeterministicJarWriter jar = new HashingDeterministicJarWriter(
-        new ZipOutputStream(filesystem.newFileOutputStream(abiJarPath)))) {
+    try (CustomJarOutputStream jar = ZipOutputStreams.newJarOutputStream(
+        filesystem.newFileOutputStream(abiJarPath))) {
+      jar.setEntryHashingEnabled(true);
       jar.writeEntry(
           fileName,
           new ByteArrayInputStream(fileContents.getBytes(StandardCharsets.UTF_8)));
@@ -1336,7 +1394,7 @@ public class DefaultJavaLibraryTest {
         .anyTimes();
     replay(platformTarget);
 
-    // TODO(bolinfest): Create a utility that populates a BuildContext.Builder with fakes.
+    // TODO(mbolin): Create a utility that populates a BuildContext.Builder with fakes.
     return BuildContext.builder()
         .setActionGraph(new ActionGraph(ImmutableList.of(javaLibrary)))
         .setSourcePathResolver(new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
@@ -1391,6 +1449,19 @@ public class DefaultJavaLibraryTest {
       }
     };
 
+  private AnnotationProcessorTarget validJavaLibraryAbi =
+      new AnnotationProcessorTarget("//tools/java/src/com/facebook/somejava:library#class-abi") {
+        @Override
+        public BuildRule createRule(BuildTarget target) throws NoSuchBuildTargetException {
+          return  CalculateAbiFromClasses.of(target,
+              new SourcePathRuleFinder(ruleResolver),
+              new FakeBuildRuleParamsBuilder(target)
+                  .setProjectFilesystem(new FakeProjectFilesystem())
+                  .build(),
+              new FakeSourcePath("java/src/com/facebook/somejava/library/library-abi.jar"));
+        }
+      };
+
   // Captures all the common code between the different annotation processing test scenarios.
   private class AnnotationProcessingScenario {
     private final AnnotationProcessingParams.Builder annotationProcessingParamsBuilder;
@@ -1412,7 +1483,8 @@ public class DefaultJavaLibraryTest {
       annotationProcessingParamsBuilder.addProcessorBuildTarget(rule);
     }
 
-    public ImmutableList<String> buildAndGetCompileParameters() throws IOException {
+    public ImmutableList<String> buildAndGetCompileParameters()
+        throws IOException, NoSuchBuildTargetException {
       ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
       BuildRule javaLibrary = createJavaLibraryRule(projectFilesystem);
       BuildContext buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null);
@@ -1432,9 +1504,9 @@ public class DefaultJavaLibraryTest {
       return options;
     }
 
-    // TODO(shs96c): Actually generate a java library rule, rather than an android one.
+    // TODO(simons): Actually generate a java library rule, rather than an android one.
     private BuildRule createJavaLibraryRule(ProjectFilesystem projectFilesystem)
-        throws IOException {
+        throws IOException, NoSuchBuildTargetException {
       BuildTarget buildTarget = BuildTargetFactory.newInstance(ANNOTATION_SCENARIO_TARGET);
       annotationProcessingParamsBuilder.setOwnerTarget(buildTarget);
       annotationProcessingParamsBuilder.setProjectFilesystem(projectFilesystem);
@@ -1452,27 +1524,23 @@ public class DefaultJavaLibraryTest {
           .setProjectFilesystem(projectFilesystem)
           .build();
 
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-      DefaultJavaLibrary javaLibrary = new DefaultJavaLibrary(
-          buildRuleParams,
-          new SourcePathResolver(ruleFinder),
-          ruleFinder,
-          ImmutableSet.of(new FakeSourcePath(src)),
-          /* resources */ ImmutableSet.of(),
-          options.getGeneratedSourceFolderName(),
-          /* proguardConfig */ Optional.empty(),
-          /* postprocessClassesCommands */ ImmutableList.of(),
-          /* exportedDeps */ ImmutableSortedSet.of(),
-          /* providedDeps */ ImmutableSortedSet.of(),
-          ImmutableSortedSet.of(),
-          options.trackClassUsage(),
-          /* additionalClasspathEntries */ ImmutableSet.of(),
-          new JavacToJarStepFactory(options, JavacOptionsAmender.IDENTITY),
-          /* resourcesRoot */ Optional.empty(),
-          /* manifestFile */ Optional.empty(),
-          /* mavenCoords */ Optional.empty(),
-          /* tests */ ImmutableSortedSet.of(),
-          options.getClassesToRemoveFromJar());
+      DefaultJavaLibrary javaLibrary = DefaultJavaLibrary
+          .builder(buildRuleParams, ruleResolver, DEFAULT_JAVA_CONFIG)
+          .setJavacOptions(options)
+          .setSrcs(ImmutableSortedSet.of(new FakeSourcePath(src)))
+          .setResources(ImmutableSortedSet.of())
+          .setGeneratedSourceFolder(options.getGeneratedSourceFolderName())
+          .setProguardConfig(Optional.empty())
+          .setPostprocessClassesCommands(ImmutableList.of())
+          .setExportedDeps(ImmutableSortedSet.of())
+          .setProvidedDeps(ImmutableSortedSet.of())
+          .setTrackClassUsage(options.trackClassUsage())
+          .setResourcesRoot(Optional.empty())
+          .setManifestFile(Optional.empty())
+          .setMavenCoords(Optional.empty())
+          .setTests(ImmutableSortedSet.of())
+          .setClassesToRemoveFromJar(options.getClassesToRemoveFromJar())
+          .build();
 
       ruleResolver.addToIndex(javaLibrary);
       return javaLibrary;

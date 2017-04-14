@@ -17,10 +17,9 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
-import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
-import com.facebook.buck.distributed.thrift.BuildStatus;
-import com.facebook.buck.distributed.thrift.LogRecord;
+import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
+import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
@@ -57,7 +56,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
@@ -66,10 +64,12 @@ import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
@@ -84,6 +84,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Console that provides rich, updating ansi output about the current build.
@@ -146,7 +147,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final int threadLineLimitOnError;
   private final boolean shouldAlwaysSortThreadsByTime;
 
-  private Optional<DistBuildStatus> distBuildStatus;
   private final DateFormat dateFormat;
   private int lastNumLinesPrinted;
 
@@ -154,6 +154,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   // Save if Watchman reported zero file changes in case we receive an ActionGraphCache hit. This
   // way the user can know that their changes, if they made any, were not picked up from Watchman.
   private boolean isZeroFileChanges = false;
+
+  private final Object distBuildSlaveTrackerLock = new Object();
+  @GuardedBy("distBuildSlaveTrackerLock")
+  private final Map<RunId, BuildSlaveStatus> distBuildSlaveTracker;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
@@ -192,10 +196,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.threadLineLimitOnWarning = config.getThreadLineLimitOnWarning();
     this.threadLineLimitOnError = config.getThreadLineLimitOnError();
     this.shouldAlwaysSortThreadsByTime = config.shouldAlwaysSortThreadsByTime();
-    this.distBuildStatus = Optional.empty();
 
     this.dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
     this.dateFormat.setTimeZone(timeZone);
+
+    // Using LinkedHashMap because we want a predictable iteration order.
+    this.distBuildSlaveTracker = new LinkedHashMap<>();
   }
 
   /**
@@ -273,11 +279,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   ImmutableList<String> createRenderLinesAtTime(long currentTimeMillis) {
     ImmutableList.Builder<String> lines = ImmutableList.builder();
 
-    // Print latest distributed build debug info lines
-    if (buildStarted != null && buildStarted.isDistributedBuild()) {
-      getDistBuildDebugInfo(lines);
-    }
-
     // If we have not yet started processing the BUCK files, show parse times
     if (parseStarted.isEmpty() && parseFinished.isEmpty()) {
       logEventPair(
@@ -320,144 +321,169 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     // If parsing has not finished, then there is no build rule information to print yet.
-    if (parseTime != UNFINISHED_EVENT_PAIR) {
-      lines.add(getNetworkStatsLine(buildFinished));
-      if (buildStarted != null && buildStarted.isDistributedBuild()) {
-        lines.add(getDistBuildStatusLine());
+    if (buildStarted == null || parseTime == UNFINISHED_EVENT_PAIR) {
+      return lines.build();
+    }
+
+    int maxThreadLines = defaultThreadLineLimit;
+    if (anyWarningsPrinted.get() && threadLineLimitOnWarning < maxThreadLines) {
+      maxThreadLines = threadLineLimitOnWarning;
+    }
+    if (anyErrorsPrinted.get() && threadLineLimitOnError < maxThreadLines) {
+      maxThreadLines = threadLineLimitOnError;
+    }
+
+    if (distBuildStarted != null) {
+      long distBuildMs = logEventPair(
+          "DISTBUILD",
+          getOptionalDistBuildLineSuffix(),
+          currentTimeMillis,
+          0,
+          this.distBuildStarted,
+          this.distBuildFinished,
+          getApproximateDistBuildProgress(),
+          lines);
+
+      if (distBuildMs == UNFINISHED_EVENT_PAIR) {
+        MultiStateRenderer renderer;
+        synchronized (distBuildSlaveTrackerLock) {
+          renderer = new DistBuildSlaveStateRenderer(
+              ansi,
+              currentTimeMillis,
+              ImmutableList.copyOf(distBuildSlaveTracker.values())
+          );
+        }
+        renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
+
+        // We don't want to print anything else while dist-build is going on.
+        return lines.build();
       }
-      // Log build time, excluding time spent in parsing.
-      String jobSummary = null;
-      if (ruleCount.isPresent()) {
-        List<String> columns = Lists.newArrayList();
-        columns.add(String.format(locale, "%d/%d JOBS", numRulesCompleted.get(), ruleCount.get()));
-        CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
-            cacheRateStatsKeeper.getStats();
-        columns.add(String.format(
-            locale,
-            "%d UPDATED",
-            cacheRateStats.getUpdatedRulesCount()));
-        if (ruleCount.orElse(0) > 0) {
+    }
+
+    // TODO(shivanker): Add a similar source file upload line for distributed build.
+    lines.add(getNetworkStatsLine(buildFinished));
+
+    // Check to see if the build encompasses the time spent parsing. This is true for runs of
+    // buck build but not so for runs of e.g. buck project. If so, subtract parse times
+    // from the build time.
+    long buildStartedTime = buildStarted.getTimestamp();
+    long buildFinishedTime = buildFinished != null
+        ? buildFinished.getTimestamp()
+        : currentTimeMillis;
+    Collection<EventPair> processingEvents = getEventsBetween(buildStartedTime,
+        buildFinishedTime,
+        buckFilesProcessing.values());
+    long offsetMs = getTotalCompletedTimeFromEventPairs(processingEvents);
+
+    long totalBuildMs = logEventPair(
+        "BUILDING",
+        getOptionalBuildLineSuffix(),
+        currentTimeMillis,
+        offsetMs, // parseTime,
+        this.buildStarted,
+        this.buildFinished,
+        getApproximateBuildProgress(),
+        lines);
+
+    // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
+    getBuildTraceURLLine(lines);
+
+    if (totalBuildMs == UNFINISHED_EVENT_PAIR) {
+      MultiStateRenderer renderer = new BuildThreadStateRenderer(
+          ansi,
+          formatTimeFunction,
+          currentTimeMillis,
+          threadsToRunningStep,
+          buildRuleThreadTracker);
+      renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
+    }
+
+    long testRunTime = logEventPair(
+        "TESTING",
+        renderTestSuffix(),
+        currentTimeMillis,
+        0, /* offsetMs */
+        testRunStarted.get(),
+        testRunFinished.get(),
+        Optional.empty(),
+        lines);
+
+    if (testRunTime == UNFINISHED_EVENT_PAIR) {
+      MultiStateRenderer renderer = new TestThreadStateRenderer(
+          ansi,
+          formatTimeFunction,
+          currentTimeMillis,
+          threadsToRunningTestSummaryEvent,
+          threadsToRunningTestStatusMessageEvent,
+          threadsToRunningStep,
+          buildRuleThreadTracker);
+      renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
+    }
+
+    logEventPair("INSTALLING",
+        /* suffix */ Optional.empty(),
+        currentTimeMillis,
+        0L,
+        installStarted,
+        installFinished,
+        Optional.empty(),
+        lines);
+
+    logHttpCacheUploads(lines);
+    return lines.build();
+  }
+
+  private Optional<String> getOptionalBuildLineSuffix() {
+    // Log build time, excluding time spent in parsing.
+    String jobSummary = null;
+    if (ruleCount.isPresent()) {
+      List<String> columns = new ArrayList<>();
+      columns.add(String.format(locale, "%d/%d JOBS", numRulesCompleted.get(), ruleCount.get()));
+      CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
+          cacheRateStatsKeeper.getStats();
+      columns.add(String.format(
+          locale,
+          "%d UPDATED",
+          cacheRateStats.getUpdatedRulesCount()));
+      if (ruleCount.orElse(0) > 0) {
+        columns.add(
+            String.format(
+                locale,
+                "%d [%.1f%%] CACHE MISS",
+                cacheRateStats.getCacheMissCount(),
+                cacheRateStats.getCacheMissRate()));
+        if (cacheRateStats.getCacheErrorCount() > 0) {
           columns.add(
               String.format(
                   locale,
-                  "%d [%.1f%%] CACHE MISS",
-                  cacheRateStats.getCacheMissCount(),
-                  cacheRateStats.getCacheMissRate()));
-          if (cacheRateStats.getCacheErrorCount() > 0) {
-            columns.add(
-                String.format(
-                    locale,
-                    "%d [%.1f%%] CACHE ERRORS",
-                    cacheRateStats.getCacheErrorCount(),
-                    cacheRateStats.getCacheErrorRate()));
-          }
-        }
-        jobSummary = "(" + Joiner.on(", ").join(columns) + ")";
-      }
-
-      // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
-      String buildTrace = null;
-      if (buildFinished != null && webServer.isPresent()) {
-        Optional<Integer> port = webServer.get().getPort();
-        if (port.isPresent()) {
-          buildTrace = String.format(
-              locale,
-              "    Details: http://localhost:%s/trace/%s",
-              port.get(),
-              buildFinished.getBuildId());
+                  "%d [%.1f%%] CACHE ERRORS",
+                  cacheRateStats.getCacheErrorCount(),
+                  cacheRateStats.getCacheErrorRate()));
         }
       }
-
-      if (buildStarted == null) {
-        // All steps past this point require a build.
-        return lines.build();
-      }
-
-      Optional<String> suffixOptional =
-          Strings.isNullOrEmpty(jobSummary) ? Optional.empty() : Optional.of(jobSummary);
-      // Check to see if the build encompasses the time spent parsing. This is true for runs of
-      // buck build but not so for runs of e.g. buck project. If so, subtract parse times
-      // from the build time.
-      long buildStartedTime = buildStarted.getTimestamp();
-      long buildFinishedTime = buildFinished != null
-          ? buildFinished.getTimestamp()
-          : currentTimeMillis;
-      Collection<EventPair> processingEvents = getEventsBetween(buildStartedTime,
-          buildFinishedTime,
-          buckFilesProcessing.values());
-      long offsetMs = getTotalCompletedTimeFromEventPairs(processingEvents);
-
-      long buildTime = logEventPair(
-          "BUILDING",
-          suffixOptional,
-          currentTimeMillis,
-          offsetMs, // parseTime,
-          this.buildStarted,
-          this.buildFinished,
-          getApproximateBuildProgress(),
-          lines);
-
-      if (buildTrace != null) {
-        lines.add(buildTrace);
-      }
-
-      int maxThreadLines = defaultThreadLineLimit;
-      if (anyWarningsPrinted.get() && threadLineLimitOnWarning < maxThreadLines) {
-        maxThreadLines = threadLineLimitOnWarning;
-      }
-      if (anyErrorsPrinted.get() && threadLineLimitOnError < maxThreadLines) {
-        maxThreadLines = threadLineLimitOnError;
-      }
-      if (buildTime == UNFINISHED_EVENT_PAIR) {
-        ThreadStateRenderer renderer = new BuildThreadStateRenderer(
-            ansi,
-            formatTimeFunction,
-            currentTimeMillis,
-            threadsToRunningStep,
-            buildRuleThreadTracker);
-        renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
-      }
-
-      long testRunTime = logEventPair(
-          "TESTING",
-          renderTestSuffix(),
-          currentTimeMillis,
-          0, /* offsetMs */
-          testRunStarted.get(),
-          testRunFinished.get(),
-          Optional.empty(),
-          lines);
-
-      if (testRunTime == UNFINISHED_EVENT_PAIR) {
-        ThreadStateRenderer renderer = new TestThreadStateRenderer(
-            ansi,
-            formatTimeFunction,
-            currentTimeMillis,
-            threadsToRunningTestSummaryEvent,
-            threadsToRunningTestStatusMessageEvent,
-            threadsToRunningStep,
-            buildRuleThreadTracker);
-        renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
-      }
-
-      logEventPair("INSTALLING",
-          /* suffix */ Optional.empty(),
-          currentTimeMillis,
-          0L,
-          installStarted,
-          installFinished,
-          Optional.empty(),
-          lines);
-
-      logHttpCacheUploads(lines);
+      jobSummary = "(" + Joiner.on(", ").join(columns) + ")";
     }
-    return lines.build();
+
+    return Strings.isNullOrEmpty(jobSummary) ? Optional.empty() : Optional.of(jobSummary);
+  }
+
+  private void getBuildTraceURLLine(ImmutableList.Builder<String> lines) {
+    if (buildFinished != null && webServer.isPresent()) {
+      Optional<Integer> port = webServer.get().getPort();
+      if (port.isPresent()) {
+        lines.add(String.format(
+            locale,
+            "    Details: http://localhost:%s/trace/%s",
+            port.get(),
+            buildFinished.getBuildId()));
+      }
+    }
   }
 
   private String getNetworkStatsLine(
       @Nullable BuildEvent.Finished finishedEvent) {
     String parseLine = (finishedEvent != null ? "[-] " : "[+] ") + "DOWNLOADING" + "...";
-    List<String> columns = Lists.newArrayList();
+    List<String> columns = new ArrayList<>();
     if (finishedEvent != null) {
       Pair<Double, SizeUnit> avgDownloadSpeed =
           networkStatsKeeper.getAverageDownloadSpeed();
@@ -504,42 +530,24 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     return parseLine + " " + "(" + Joiner.on(", ").join(columns) + ")";
   }
 
-  private String getDistBuildStatusLine()  {
-    // create a local reference to avoid inconsistencies
-    Optional<DistBuildStatus> distBuildStatus = this.distBuildStatus;
-    boolean finished = distBuildStatus.isPresent() &&
-        (distBuildStatus.get().getStatus() == BuildStatus.FINISHED_SUCCESSFULLY ||
-            distBuildStatus.get().getStatus() == BuildStatus.FAILED);
-    String parseLine = finished ? "[-] " : "[+] ";
+  private Optional<String> getOptionalDistBuildLineSuffix()  {
+    String parseLine;
+    List<String> columns = new ArrayList<>();
 
-    parseLine += "DISTBUILD STATUS: ";
+    synchronized (distBuildStatusLock) {
+      if (!distBuildStatus.isPresent()) {
+        columns.add("STATUS: INIT");
+      } else {
+        columns.add("STATUS: " + distBuildStatus.get().getStatus());
 
-    if (!distBuildStatus.isPresent()) {
-      parseLine += "INIT...";
-      return parseLine;
-    }
-    parseLine += distBuildStatus.get().getStatus().toString() + "...";
-
-    if (!finished) {
-      parseLine += " ETA: " + formatElapsedTime(distBuildStatus.get().getETAMillis());
-    }
-    if (distBuildStatus.get().getMessage().isPresent()) {
-      parseLine += " (" + distBuildStatus.get().getMessage().get() + ")";
-    }
-    return parseLine;
-  }
-
-  private void getDistBuildDebugInfo(ImmutableList.Builder<String> lines) {
-    // create a local reference to avoid inconsistencies
-    Optional<DistBuildStatus> distBuildStatus = this.distBuildStatus;
-    if (distBuildStatus.isPresent() && distBuildStatus.get().getLogBook().isPresent())  {
-      lines.add(ansi.asWarningText("Distributed build debug info:"));
-      for (LogRecord log : distBuildStatus.get().getLogBook().get()) {
-        String dateString = dateFormat.format(new Date(log.getTimestampMillis()));
-        lines.add(ansi.asWarningText(dateString + " " + log.getName()));
+        if (distBuildStatus.get().getMessage().isPresent()) {
+          columns.add("[" + distBuildStatus.get().getMessage().get() + "]");
+        }
       }
-      anyWarningsPrinted.set(true);
     }
+
+    parseLine = "(" + Joiner.on(", ").join(columns) + ")";
+    return Strings.isNullOrEmpty(parseLine) ? Optional.empty() : Optional.of(parseLine);
   }
 
   /**
@@ -561,11 +569,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   public void renderLines(
-      ThreadStateRenderer renderer,
+      MultiStateRenderer renderer,
       ImmutableList.Builder<String> lines,
       int maxLines,
       boolean alwaysSortByTime) {
-    int threadCount = renderer.getThreadCount();
+    int threadCount = renderer.getExecutorCount();
     int fullLines = threadCount;
     boolean useCompressedLine = false;
     if (threadCount > maxLines) {
@@ -575,10 +583,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
     int threadsWithShortStatus = threadCount - fullLines;
     boolean sortByTime = alwaysSortByTime || useCompressedLine;
-    ImmutableList<Long> threadIds = renderer.getSortedThreadIds(sortByTime);
+    ImmutableList<Long> threadIds = renderer.getSortedExecutorIds(sortByTime);
     StringBuilder lineBuilder = new StringBuilder(EXPECTED_MAXIMUM_RENDERED_LINE_LENGTH);
     for (int i = 0; i < fullLines; ++i) {
       long threadId = threadIds.get(i);
+      lineBuilder.delete(0, lineBuilder.length());
       lines.add(renderer.renderStatusLine(threadId, lineBuilder));
     }
     if (useCompressedLine) {
@@ -586,9 +595,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       lineBuilder.append(" |=> ");
       lineBuilder.append(threadsWithShortStatus);
       if (fullLines == 0) {
-        lineBuilder.append(" THREADS:");
+        lineBuilder.append(String.format(" %s:", renderer.getExecutorCollectionLabel()));
       } else {
-        lineBuilder.append(" MORE THREADS:");
+        lineBuilder.append(String.format(" MORE %s:", renderer.getExecutorCollectionLabel()));
       }
       for (int i = fullLines; i < threadIds.size(); ++i) {
         long threadId = threadIds.get(i);
@@ -668,6 +677,17 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
   }
 
+  @Override
+  @Subscribe
+  public void onDistBuildStatusEvent(DistBuildStatusEvent event) {
+    super.onDistBuildStatusEvent(event);
+    synchronized (distBuildSlaveTrackerLock) {
+      for (BuildSlaveStatus status : event.getStatus().getSlaveStatuses()) {
+        distBuildSlaveTracker.put(status.runId, status);
+      }
+    }
+  }
+
   @Subscribe
   public void artifactCacheStarted(ArtifactCacheEvent.Started started) {
     if (started.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
@@ -700,13 +720,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
     threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
-  }
-
-  @Override
-  @Subscribe
-  public void distributedBuildStatus(DistBuildStatusEvent event) {
-    super.distributedBuildStatus(event);
-    distBuildStatus = Optional.of(event.getStatus());
   }
 
   @Subscribe

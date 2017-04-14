@@ -20,23 +20,23 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import org.immutables.value.Value;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
@@ -56,13 +56,10 @@ public class BuildLogHelper {
   private static final String BUCK_LOG_FILE = BuckConstant.BUCK_LOG_FILE_NAME;
 
   private final ProjectFilesystem projectFilesystem;
-  private final ObjectMapper objectMapper;
 
   public BuildLogHelper(
-      ProjectFilesystem projectFilesystem,
-      ObjectMapper objectMapper) {
+      ProjectFilesystem projectFilesystem) {
     this.projectFilesystem = projectFilesystem;
-    this.objectMapper = objectMapper;
   }
 
   public ImmutableList<BuildLogEntry> getBuildLogs() throws IOException {
@@ -104,7 +101,7 @@ public class BuildLogHelper {
     return builder
         .setRelativePath(logFile)
         .setSize(projectFilesystem.getFileSize(logFile))
-        .setLastModifiedTime(new Date(projectFilesystem.getLastModifiedTime(logFile)))
+        .setLastModifiedTime(Date.from(projectFilesystem.getLastModifiedTime(logFile).toInstant()))
         .setTraceFile(traceFile)
         .build();
   }
@@ -138,8 +135,9 @@ public class BuildLogHelper {
 
       if (lines.size() == 1) {
         Map<String, Integer> exitCode =
-            objectMapper.readValue(
-                lines.get(0).substring("ExitCode ".length()).getBytes(Charsets.UTF_8),
+            ObjectMappers.READER.readValue(
+                ObjectMappers.createParser(
+                    lines.get(0).substring("ExitCode ".length()).getBytes(StandardCharsets.UTF_8)),
                 new TypeReference<Map<String, Integer>>(){});
         if (exitCode.containsKey("exitCode")) {
           return OptionalInt.of(exitCode.get("exitCode"));
@@ -152,7 +150,7 @@ public class BuildLogHelper {
   }
 
   public Collection<Path> getAllBuckLogFiles() throws IOException {
-    final List<Path> logfiles = Lists.newArrayList();
+    final List<Path> logfiles = new ArrayList<>();
     projectFilesystem.walkRelativeFileTree(
         projectFilesystem.getBuckPaths().getLogDir(),
         new FileVisitor<Path>() {

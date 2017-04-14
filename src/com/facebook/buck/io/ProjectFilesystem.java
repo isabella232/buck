@@ -17,8 +17,9 @@
 package com.facebook.buck.io;
 
 import com.facebook.buck.config.Config;
-import com.facebook.buck.event.EventBus;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.autosparse.AutoSparseConfig;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
@@ -40,7 +41,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Iterators;
 import com.google.common.collect.UnmodifiableIterator;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteStreams;
@@ -67,9 +67,7 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -90,8 +88,6 @@ import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 import javax.annotation.Nullable;
 
@@ -147,6 +143,21 @@ public class ProjectFilesystem {
 
   public ProjectFilesystem(Path root) {
     this(root, new Config());
+  }
+
+  public static ProjectFilesystem createNewOrThrowHumanReadableException(Path path) {
+    try {
+      // toRealPath() is necessary to resolve symlinks, allowing us to later
+      // check whether files are inside or outside of the project without issue.
+      return new ProjectFilesystem(path.toRealPath().normalize());
+    } catch (IOException e) {
+      throw new HumanReadableException(
+          String.format(
+              ("Failed to resolve project root [%s]." +
+                  "Check if it exists and has the right permissions."),
+              path.toAbsolutePath()),
+          e);
+    }
   }
 
   /**
@@ -339,7 +350,7 @@ public class ProjectFilesystem {
    * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
    * them past this point.
    */
-  public void ensureConcreteFilesExist(EventBus eventBus) {
+  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
     delegate.ensureConcreteFilesExist(eventBus);
   }
 
@@ -411,7 +422,7 @@ public class ProjectFilesystem {
       return file;
     }
 
-    // TODO(bolinfest): Eliminate this temporary exemption for symbolic links.
+    // TODO(mbolin): Eliminate this temporary exemption for symbolic links.
     if (isSymLink(file)) {
       return file;
     }
@@ -469,9 +480,9 @@ public class ProjectFilesystem {
   /**
    * Checks whether there is a normal file at the specified path.
    */
-  public boolean isFile(Path pathRelativeToProjectRoot) {
+  public boolean isFile(Path pathRelativeToProjectRoot, LinkOption... options) {
     return Files.isRegularFile(
-        getPathForRelativePath(pathRelativeToProjectRoot));
+        getPathForRelativePath(pathRelativeToProjectRoot), options);
   }
 
   public boolean isHidden(Path pathRelativeToProjectRoot) throws IOException {
@@ -616,20 +627,9 @@ public class ProjectFilesystem {
     }
   }
 
-  public ImmutableCollection<Path> getZipMembers(Path archivePath)
-      throws IOException {
-    Path archiveAbsolutePath = getPathForRelativePath(archivePath);
-    try (ZipFile zip = new ZipFile(archiveAbsolutePath.toFile())) {
-      return ImmutableList.copyOf(
-          Iterators.transform(
-              Iterators.forEnumeration(zip.entries()),
-              (Function<ZipEntry, Path>) input -> Paths.get(input.getName())));
-    }
-  }
-
   @VisibleForTesting
   protected PathListing.PathModifiedTimeFetcher getLastModifiedTimeFetcher() {
-    return path -> FileTime.fromMillis(ProjectFilesystem.this.getLastModifiedTime(path));
+    return path -> ProjectFilesystem.this.getLastModifiedTime(path);
   }
 
   /**
@@ -648,9 +648,9 @@ public class ProjectFilesystem {
         getLastModifiedTimeFetcher());
   }
 
-  public long getLastModifiedTime(Path pathRelativeToProjectRoot) throws IOException {
+  public FileTime getLastModifiedTime(Path pathRelativeToProjectRoot) throws IOException {
     Path path = getPathForRelativePath(pathRelativeToProjectRoot);
-    return Files.getLastModifiedTime(path).toMillis();
+    return Files.getLastModifiedTime(path);
   }
 
   /**
@@ -742,7 +742,7 @@ public class ProjectFilesystem {
       FileAttribute<?>... attrs) throws IOException {
     // No need to buffer writes when writing a single piece of data.
     try (OutputStream outputStream =
-             newUnbufferedFileOutputStream(pathRelativeToProjectRoot, attrs)) {
+             newUnbufferedFileOutputStream(pathRelativeToProjectRoot, /* append */ false, attrs)) {
       outputStream.write(bytes);
     }
   }
@@ -751,21 +751,34 @@ public class ProjectFilesystem {
       Path pathRelativeToProjectRoot,
       FileAttribute<?>... attrs)
       throws IOException {
+    return newFileOutputStream(pathRelativeToProjectRoot, /* append */ false, attrs);
+  }
+
+  public OutputStream newFileOutputStream(
+      Path pathRelativeToProjectRoot,
+      boolean append,
+      FileAttribute<?>... attrs)
+      throws IOException {
     return new BufferedOutputStream(
-        newUnbufferedFileOutputStream(pathRelativeToProjectRoot, attrs));
+        newUnbufferedFileOutputStream(pathRelativeToProjectRoot, append, attrs));
   }
 
   public OutputStream newUnbufferedFileOutputStream(
       Path pathRelativeToProjectRoot,
+      boolean append,
       FileAttribute<?>... attrs)
       throws IOException {
     return Channels.newOutputStream(
         Files.newByteChannel(
             getPathForRelativePath(pathRelativeToProjectRoot),
-            ImmutableSet.<OpenOption>of(
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE),
+            append ?
+                ImmutableSet.of(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND) :
+                ImmutableSet.of(
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE),
             attrs));
   }
 
@@ -1159,35 +1172,34 @@ public class ProjectFilesystem {
     }
 
     private class DirWalkState {
-      final @Nullable Path dir;
-      final @Nullable BasicFileAttributes attrs;
+      final Path dir;
+      final BasicFileAttributes attrs;
+      final boolean isRootSentinel;
       UnmodifiableIterator<Path> iter;
-      @Nullable IOException ioe;
+      @Nullable IOException ioe = null;
 
       DirWalkState(
           Path directory,
-          BasicFileAttributes attributes) {
+          BasicFileAttributes attributes,
+          boolean isRootSentinel) {
         this.dir = directory;
         this.attrs = attributes;
-        try {
-          this.iter = getContents(directory).iterator();
-          this.ioe = null;
-        } catch (IOException e) {
-          this.iter = ImmutableList.<Path>of().iterator();
-          this.ioe = e;
+        if (isRootSentinel) {
+          this.iter = ImmutableList.of(root).iterator();
+        } else {
+          try {
+            this.iter = getContents(directory).iterator();
+          } catch (IOException e) {
+            this.iter = ImmutableList.<Path>of().iterator();
+            this.ioe = e;
+          }
         }
-      }
-
-      DirWalkState(Path root) {
-        this.dir = null;
-        this.attrs = null;
-        this.iter = ImmutableList.<Path>of(root).iterator();
-        this.ioe = null;
+        this.isRootSentinel = isRootSentinel;
       }
     }
 
     private void walk() throws IOException {
-      state.add(new DirWalkState(root));
+      state.add(new DirWalkState(root, getAttributes(root), true));
 
       while (true) {
         FileVisitResult result;
@@ -1195,7 +1207,7 @@ public class ProjectFilesystem {
           result = visitPath(state.getLast().iter.next());
         } else {
           DirWalkState dirState = state.removeLast();
-          if (dirState.dir == null) {
+          if (dirState.isRootSentinel) {
             return;
           }
           result = visitor.postVisitDirectory(dirState.dir, dirState.ioe);
@@ -1221,7 +1233,7 @@ public class ProjectFilesystem {
       if (attrs.isDirectory()) {
         FileVisitResult result = visitor.preVisitDirectory(p, attrs);
         if (result == FileVisitResult.CONTINUE) {
-          state.add(new DirWalkState(p, attrs));
+          state.add(new DirWalkState(p, attrs, false));
         }
         return result;
       } else {
@@ -1245,7 +1257,7 @@ public class ProjectFilesystem {
       try {
         Object thisKey = attrs.fileKey();
         for (DirWalkState s : state) {
-          if (s.dir == null) {
+          if (s.isRootSentinel) {
             continue;
           }
           Object thatKey = s.attrs.fileKey();

@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -37,7 +38,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
@@ -720,8 +721,9 @@ public class AppleBundleIntegrationTest {
 
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
-        "Variant files have to be in a directory with name ending in '.lproj', " +
-            "but 'cc/Localizable.strings' is not.");
+        Matchers.matchesPattern(
+        "Variant files have to be in a directory with name ending in '\\.lproj', " +
+            "but '.*/cc/Localizable.strings' is not."));
 
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this,
@@ -856,8 +858,8 @@ public class AppleBundleIntegrationTest {
         ImmutableSet.of("//:DemoAppWithExtension", "//:DemoExtension");
 
     ImmutableSet<Flavor> includeFrameworkFlavors = ImmutableSet.of(
-        ImmutableFlavor.of("no-include-frameworks"),
-        ImmutableFlavor.of("include-frameworks"));
+        InternalFlavor.of("no-include-frameworks"),
+        InternalFlavor.of("include-frameworks"));
 
     for (BuildTarget builtTarget : buckBuildLog.getAllTargets()) {
       if (Sets.intersection(builtTarget.getFlavors(), includeFrameworkFlavors).isEmpty()) {
@@ -902,6 +904,13 @@ public class AppleBundleIntegrationTest {
             "%s")
         .resolve(target.getShortName() + ".app");
     assertTrue(Files.exists(workspace.getPath(appPath.resolve(target.getShortName()))));
+
+    NSDictionary plist = (NSDictionary) PropertyListParser.parse(
+        Files.readAllBytes(workspace.getPath(appPath.resolve("Info.plist"))));
+    assertThat(
+        "Should contain xcode build version",
+        (String) plist.get("DTXcodeBuild").toJavaObject(),
+        not(emptyString()));
   }
 
   @Test
@@ -1093,6 +1102,39 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
+  public void onlyIncludesResourcesInBundlesWhichStaticallyLinkThem() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(
+        AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.IPHONESIMULATOR));
+
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "app_bundle_with_embedded_framework_and_resources",
+        tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:DemoApp#no-debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    Path appPath = workspace.getPath(
+        BuildTargets
+            .getGenPath(
+                filesystem,
+                BuildTarget.builder(target)
+                    .addFlavors(AppleDebugFormat.NONE.getFlavor())
+                    .addFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
+                    .build(),
+                "%s")
+            .resolve(target.getShortName() + ".app"));
+
+    String resourceName = "Resource.plist";
+    assertFalse(Files.exists(appPath.resolve(resourceName)));
+
+    Path frameworkPath = appPath.resolve("Frameworks/TestFramework.framework");
+    assertTrue(Files.exists(frameworkPath.resolve(resourceName)));
+  }
+
+  @Test
   public void testTargetOutputForAppleBundle() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -1137,5 +1179,17 @@ public class AppleBundleIntegrationTest {
     assertThat(
         result.getStdout(),
         Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath.toString()));
+  }
+
+  @Test
+  public void resourcesFromOtherCellsCanBeProperlyIncluded() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "bundle_with_resources_from_other_cells", tmp);
+    workspace.setUp();
+    Path outputPath = workspace.buildAndReturnOutput("//:bundle#iphonesimulator-x86_64");
+    assertTrue(
+        "Resource file should exist.",
+        Files.isRegularFile(outputPath.resolve("file.txt")));
   }
 }

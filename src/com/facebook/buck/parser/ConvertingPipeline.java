@@ -29,6 +29,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Base class for a parse pipeline that converts data one item at a time.
@@ -50,7 +51,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
   public ListenableFuture<ImmutableSet<T>> getAllNodesJob(
       final Cell cell,
       final Path buildFile) throws BuildTargetException {
-    // TODO(tophyr): this hits the chained pipeline before hitting the cache
+    // TODO(csarbora): this hits the chained pipeline before hitting the cache
     ListenableFuture<List<T>> allNodesListJob = Futures.transformAsync(
         getItemsToConvert(cell, buildFile),
         allToConvert -> {
@@ -62,7 +63,8 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
 
           for (final F from : allToConvert) {
             if (isValid(from)) {
-              final BuildTarget target = getBuildTarget(cell.getRoot(), buildFile, from);
+              BuildTarget target =
+                  getBuildTarget(cell.getRoot(), cell.getCanonicalName(), buildFile, from);
               allNodeJobs.add(
                   cache.getJobWithCacheLookup(
                       cell,
@@ -106,6 +108,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
 
   protected abstract BuildTarget getBuildTarget(
       Path root,
+      Optional<String> cellName,
       Path buildFile,
       F from);
 
@@ -126,7 +129,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
       Cell cell,
       BuildTarget buildTarget,
       F from) throws BuildTargetException {
-    // TODO(tophyr): would be nice to have the first half of this function pulled up into base
+    // TODO(csarbora): would be nice to have the first half of this function pulled up into base
     if (shuttingDown()) {
       return Futures.immediateCancelledFuture();
     }

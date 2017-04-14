@@ -20,7 +20,8 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.model.UserFlavor;
 
 /**
  * Rust-specific flavors.
@@ -28,11 +29,13 @@ import com.facebook.buck.model.ImmutableFlavor;
 public class RustDescriptionEnhancer {
   private RustDescriptionEnhancer() {}
 
-  public static final Flavor RFBIN = ImmutableFlavor.of("binary");
-  public static final Flavor RFLIB = ImmutableFlavor.of("lib");
-  public static final Flavor RFRLIB = ImmutableFlavor.of("rlib");
-  public static final Flavor RFRLIB_PIC = ImmutableFlavor.of("rlib-pic");
-  public static final Flavor RFDYLIB = ImmutableFlavor.of("dylib");
+  public static final Flavor RFBIN = InternalFlavor.of("binary");
+  public static final Flavor RFLIB = InternalFlavor.of("lib");
+  public static final Flavor RFRLIB = InternalFlavor.of("rlib");
+  public static final Flavor RFRLIB_PIC = InternalFlavor.of("rlib-pic");
+  public static final Flavor RFDYLIB = InternalFlavor.of("dylib");
+  public static final Flavor RFCHECK = UserFlavor.of(
+      "check", "Quickly check code and generate metadata about crate, without generating code");
 
   /**
    * Flavor of Rust crate
@@ -47,6 +50,7 @@ public class RustDescriptionEnhancer {
     DYLIB(RustDescriptionEnhancer.RFDYLIB, CrateType.DYLIB),
     STATICLIB(CxxDescriptionEnhancer.STATIC_FLAVOR, CrateType.STATIC),
     CDYLIB(CxxDescriptionEnhancer.SHARED_FLAVOR, CrateType.CDYLIB),
+    CHECK(RustDescriptionEnhancer.RFCHECK, CrateType.CHECK),
     ;
 
     private final Flavor flavor;

@@ -205,6 +205,41 @@ class TestRuleKeyDiff(unittest.TestCase):
         ]
         self.assertEqual(result, expected)
 
+    def test_diff_different_deps(self):
+        result = diff("//:top",
+                      RuleKeyStructureInfo(MockFile([
+                          makeRuleKeyLine(
+                              name="//:top",
+                              key="aa",
+                              deps=["00"],
+                          ),
+                          makeRuleKeyLine(
+                              name="//:Zero",
+                              key="00",
+                              srcs={"Zero": "0"}
+                          ),
+                      ])),
+                      RuleKeyStructureInfo(MockFile([
+                          makeRuleKeyLine(
+                              name="//:top",
+                              key="bb",
+                              deps=["11"],
+                          ),
+                          makeRuleKeyLine(
+                              name="//:One",
+                              key="11",
+                              srcs={"One": "1"}
+                          ),
+                      ])),
+                      verbose=False)
+        expected = [
+                'Change details for [//:top]',
+                '  (deps):',
+                '    -["//:Zero"@ruleKey(sha1=00)]',
+                '    +["//:One"@ruleKey(sha1=11)]',
+        ]
+        self.assertEqual(result, expected)
+
     def test_diff_doesnt_know(self):
         result = diff("//:top",
                       RuleKeyStructureInfo(MockFile([
@@ -286,6 +321,88 @@ class TestRuleKeyDiff(unittest.TestCase):
         finally:
             if temp_file is not None:
                 os.unlink(temp_file.name)
+
+    def test_diff_all(self):
+        name = "//:lib"
+        result = diffAll(
+              RuleKeyStructureInfo(MockFile([
+                  makeRuleKeyLine(
+                      name="//:mid",
+                      key="aabb",
+                      srcs={'JavaLib1.java': 'aabb'}
+                  ),
+                  makeRuleKeyLine(
+                      name="//:top1",
+                      key="aabe",
+                      deps=["aabb"]
+                  ),
+                  makeRuleKeyLine(
+                      name="//:top2",
+                      key="aa",
+                      srcs={'Top.java': 'aa'}
+                  ),
+              ])),
+              RuleKeyStructureInfo(MockFile([
+                  makeRuleKeyLine(
+                      name="//:mid",
+                      key="cabb",
+                      srcs={'JavaLib1.java': 'cabb'}
+                  ),
+                  makeRuleKeyLine(
+                      name="//:top1",
+                      key="cabe",
+                      deps=["cabb"]
+                  ),
+                  makeRuleKeyLine(
+                      name="//:top2",
+                      key="bb",
+                      srcs={'Top.java': 'bb'}
+                  ),
+              ])),
+              verbose=False)
+
+        expected = [
+            'Change details for [//:top2]',
+            '  (srcs):',
+            '    -[path(Top.java:aa)]',
+            '    +[path(Top.java:bb)]',
+            'Change details for [//:mid]',
+            '  (srcs):',
+            '    -[path(JavaLib1.java:aabb)]',
+            '    +[path(JavaLib1.java:cabb)]',
+        ]
+        self.assertEqual(result, expected)
+
+    def test_compute_rulekey_mismatches(self):
+        result = compute_rulekey_mismatches(
+              RuleKeyStructureInfo(MockFile([
+                  makeRuleKeyLine(
+                      name="//:top",
+                      key="aa",
+                      ),
+                  makeRuleKeyLine(
+                      name="//:left",
+                      key="00",
+                      ),
+                  ])),
+              RuleKeyStructureInfo(MockFile([
+                  makeRuleKeyLine(
+                      name="//:top",
+                      key="bb",
+                      ),
+                  makeRuleKeyLine(
+                      name="//:right",
+                      key="11",
+                      ),
+                  ])),
+              )
+
+        expected = [
+            '//:left missing from right',
+            '//:right missing from left',
+            '//:top left:aa != right:bb',
+        ]
+        self.assertEqual(result, expected)
 
 
 def makeRuleKeyLine(key="aabb", name="//:name", srcs=None,

@@ -22,7 +22,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 
@@ -45,7 +44,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getValue("KEY"),
         Matchers.equalTo(Optional.of("")));
@@ -63,7 +63,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getValues("KEY"),
         Matchers.equalTo(Optional.of(ImmutableList.of("bar", "biz", "baz"))));
@@ -81,7 +82,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getValues("KEY"),
         Matchers.equalTo(Optional.of(ImmutableList.<String>of())));
@@ -97,7 +99,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getValues("KEY"),
         Matchers.equalTo(Optional.empty()));
@@ -115,7 +118,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getValues("KEY"),
         Matchers.equalTo(Optional.empty()));
@@ -134,7 +138,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getHash("KEY"),
         Matchers.equalTo(Optional.of(Sha1HashCode.of(hash))));
@@ -150,7 +155,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getHash("KEY"),
         Matchers.equalTo(Optional.empty()));
@@ -168,7 +174,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getHash("KEY"),
         Matchers.equalTo(Optional.empty()));
@@ -187,7 +194,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY),
         Matchers.equalTo(Optional.of(new RuleKey(key))));
@@ -205,7 +213,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY),
         Matchers.equalTo(Optional.empty()));
@@ -223,7 +232,8 @@ public class DefaultOnDiskBuildInfoTest {
         new DefaultOnDiskBuildInfo(
             buildTarget,
             projectFilesystem,
-            ObjectMappers.newDefaultInstance());
+            new FilesystemBuildInfoStore(projectFilesystem)
+        );
     assertThat(
         onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY),
         Matchers.equalTo(Optional.empty()));

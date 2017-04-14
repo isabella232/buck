@@ -17,11 +17,17 @@
 package com.facebook.buck.js;
 
 import static org.junit.Assume.assumeFalse;
+import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 
@@ -80,10 +86,10 @@ public class JsRulesIntegrationTest {
   @Test
   public void testOptimizationBuild() throws IOException {
     workspace
-        .runBuckBuild("//js:fruit#prod,android")
+        .runBuckBuild("//js:fruit#release,android")
         .assertSuccess();
 
-    workspace.verify(Paths.get("simple_prod_build.expected"), genPath);
+    workspace.verify(Paths.get("simple_release_build.expected"), genPath);
   }
 
   @Test
@@ -96,18 +102,18 @@ public class JsRulesIntegrationTest {
   }
 
   @Test
-  public void testProdBuildWithDeps() throws IOException {
+  public void testReleaseBuildWithDeps() throws IOException {
     workspace
-        .runBuckBuild("//js:fruit-salad#prod,ios")
+        .runBuckBuild("//js:fruit-salad#release,ios")
         .assertSuccess();
 
-    workspace.verify(Paths.get("prod_flavor_with_deps.expected"), genPath);
+    workspace.verify(Paths.get("release_flavor_with_deps.expected"), genPath);
   }
 
   @Test
   public void testFlavoredAndUnflavoredBuild() throws IOException {
     workspace
-        .runBuckBuild("//js:fruit#prod,android", "//js:fruit")
+        .runBuckBuild("//js:fruit#release,android", "//js:fruit")
         .assertSuccess();
 
     workspace.verify(Paths.get("same_target_with_and_without_flavors.expected"), genPath);
@@ -123,12 +129,39 @@ public class JsRulesIntegrationTest {
   }
 
   @Test
+  public void testReplacePrefixes() throws IOException {
+    workspace
+        .runBuckBuild("//external:replace-file-prefix", "//js:replace-build-target-prefix")
+        .assertSuccess();
+
+    workspace.verify(Paths.get("replace_path_prefix.expected"), genPath);
+  }
+
+  @Test
+  public void testSubPathsOfBuildTargets() throws IOException {
+    workspace
+        .runBuckBuild("//js:node_modules")
+        .assertSuccess();
+
+    workspace.verify(Paths.get("subpaths.expected"), genPath);
+  }
+
+  @Test
   public void testBundleBuild() throws IOException {
     workspace
         .runBuckBuild("//js:fruit-salad-in-a-bundle")
         .assertSuccess();
 
     workspace.verify(Paths.get("simple_bundle.expected"), genPath);
+  }
+
+  @Test
+  public void testBundleBuildWithFlavors() throws IOException {
+    workspace
+        .runBuckBuild("//js:fruit-salad-in-a-bundle#android,release")
+        .assertSuccess();
+
+    workspace.verify(Paths.get("simple_bundle_with_flavors.expected"), genPath);
   }
 
   @Test
@@ -147,4 +180,28 @@ public class JsRulesIntegrationTest {
         "js_library targets, but one of its dependencies, '//js:a-genrule', is of type genrule.");
     workspace.runBuckBuild("//js:bundle-with-genrule-dep");
   }
+
+  @Test
+  public void androidApplicationsContainsJsAndResources() throws IOException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//android/apps/sample:app");
+    workspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
+    ZipInspector zipInspector = new ZipInspector(
+        workspace.getPath(BuildTargets.getGenPath(projectFilesystem, target, "%s.apk")));
+
+    zipInspector.assertFileExists("assets/fruit-salad-in-a-bundle.js");
+    zipInspector.assertFileExists("res/drawable-mdpi-v4/pixel.gif");
+  }
+
+  @Test
+  public void iOSApplicationContainsJsAndResources() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    workspace
+        .runBuckBuild("//ios:DemoApp#iphonesimulator-x86_64,no-debug")
+        .assertSuccess();
+    workspace.verify(Paths.get("ios_app.expected"), genPath);
+  }
+
 }

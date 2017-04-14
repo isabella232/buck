@@ -22,7 +22,7 @@ import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ConstantToolProvider;
@@ -76,7 +76,7 @@ public class CxxPlatformUtils {
 
   public static final CxxPlatform DEFAULT_PLATFORM =
       CxxPlatform.builder()
-          .setFlavor(ImmutableFlavor.of("platform"))
+          .setFlavor(InternalFlavor.of("platform"))
           .setAs(DEFAULT_COMPILER_PROVIDER)
           .setAspp(DEFAULT_PREPROCESSOR_PROVIDER)
           .setCc(DEFAULT_COMPILER_PROVIDER)
@@ -102,6 +102,8 @@ public class CxxPlatformUtils {
           .setCompilerDebugPathSanitizer(DEFAULT_COMPILER_DEBUG_PATH_SANITIZER)
           .setAssemblerDebugPathSanitizer(DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER)
           .setHeaderVerification(DEFAULT_CONFIG.getHeaderVerification())
+          .setPublicHeadersSymlinksEnabled(true)
+          .setPrivateHeadersSymlinksEnabled(true)
           .build();
 
   public static final FlavorDomain<CxxPlatform> DEFAULT_PLATFORMS =

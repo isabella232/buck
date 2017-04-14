@@ -57,14 +57,16 @@ public class CxxBinaryTest {
                 bin,
                 ImmutableList.of(),
                 Optional.empty(),
-                /* cacheable */ true));
+                /* cacheable */ true,
+                /* thinLto */ false));
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:target").build();
     CxxBinary binary =
         ruleResolver.addToIndex(
             new CxxBinary(
-                params.appendExtraDeps(ImmutableSortedSet.<BuildRule>of(cxxLink)),
+                params.copyAppendingExtraDeps(ImmutableSortedSet.<BuildRule>of(cxxLink)),
                 ruleResolver,
                 ruleFinder,
+                CxxPlatformUtils.DEFAULT_PLATFORM,
                 cxxLink,
                 new CommandTool.Builder()
                     .addArg(SourcePathArg.of(cxxLink.getSourcePathToOutput()))

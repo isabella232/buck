@@ -1,5 +1,11 @@
 standard_java_library(
-  tests = [
-    '//test/com/facebook/buck/bser:bser',
-  ],
+    name = "bser",
+    tests = [
+        "//test/com/facebook/buck/bser:bser",
+    ],
+    deps = [
+        "//src/com/facebook/buck/util:util",
+        "//third-party/java/guava:guava",
+        "//third-party/java/jsr:jsr305",
+    ],
 )

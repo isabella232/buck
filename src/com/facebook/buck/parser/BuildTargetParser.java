@@ -18,7 +18,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorParser;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.CellPathResolver;
 import com.google.common.base.Preconditions;
@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
 
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -109,20 +110,24 @@ public class BuildTargetParser {
     baseName = baseName.replace("\\", "/");
     checkBaseName(baseName, buildTargetName);
 
+    Path cellPath = cellNames.getCellPath(givenCellName);
+
     UnflavoredBuildTarget.Builder unflavoredBuilder =
-        UnflavoredBuildTarget.builder(baseName, shortName)
+        UnflavoredBuildTarget.builder()
+            .setBaseName(baseName)
+            .setShortName(shortName)
             // Set the cell path correctly. Because the cellNames comes from the owning cell we can
             // be sure that if this doesn't throw an exception the target cell is visible to the
             // owning cell.
-            .setCellPath(cellNames.getCellPath(givenCellName))
+            .setCellPath(cellPath)
             // We are setting the cell name so we can print it later
-            .setCell(givenCellName);
+            .setCell(cellNames.getCanonicalCellName(cellPath));
 
     UnflavoredBuildTarget unflavoredBuildTarget = unflavoredBuilder.build();
 
     BuildTarget.Builder builder = BuildTarget.builder(unflavoredBuildTarget);
     for (String flavor : flavorNames) {
-      builder.addFlavors(ImmutableFlavor.of(flavor));
+      builder.addFlavors(InternalFlavor.of(flavor));
     }
     return flavoredTargetCache.intern(builder.build());
   }
@@ -143,7 +148,7 @@ public class BuildTargetParser {
       throw new BuildTargetParseException(
           String.format(
               "Build target path should start with an optional cell name, then // and then a " +
-              " relative directory name, not an absolute directory path (found %s)",
+              "relative directory name, not an absolute directory path (found %s)",
               buildTargetName
           ));
     }

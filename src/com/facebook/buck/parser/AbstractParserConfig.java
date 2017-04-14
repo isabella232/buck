@@ -19,20 +19,17 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.python.PythonBuckConfig;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 import org.immutables.value.Value;
 
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 
 @Value.Immutable(builder = false, copy = false)
@@ -119,13 +116,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   }
 
   @Value.Lazy
-  public ImmutableSet<Pattern> getTempFilePatterns() {
-    return getDelegate().getListWithoutComments("project", "temp_files").stream()
-        .map(Pattern::compile)
-        .collect(MoreCollectors.toImmutableSet());
-  }
-
-  @Value.Lazy
   public Optional<ImmutableList<Path>> getReadOnlyPaths() {
     return getDelegate().getOptionalPathList("project", "read_only_paths");
   }
@@ -178,11 +168,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean getEnableParallelParsing() {
     return getDelegate().getBooleanValue("project", "parallel_parsing", true);
-  }
-
-  @Value.Lazy
-  public boolean getTrackCellAgnosticTarget() {
-    return getDelegate().getBooleanValue("project", "track_cell_agnostic_target", true);
   }
 
   @Value.Lazy

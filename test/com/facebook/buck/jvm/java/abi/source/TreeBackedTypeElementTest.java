@@ -36,13 +36,17 @@ import java.util.List;
 
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.NoType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeVariable;
+import javax.lang.model.util.ElementFilter;
 import javax.lang.model.util.SimpleElementVisitor8;
 
 @RunWith(CompilerTreeApiParameterized.class)
@@ -199,6 +203,25 @@ public class TreeBackedTypeElementTest extends CompilerTreeApiParameterizedTest 
   }
 
   @Test
+  public void testAsTypeGeneric() throws IOException {
+    compile("class Foo<T> { }");
+
+    TypeElement fooElement = elements.getTypeElement("Foo");
+    TypeMirror fooTypeMirror = fooElement.asType();
+
+    assertEquals(TypeKind.DECLARED, fooTypeMirror.getKind());
+    DeclaredType fooDeclaredType = (DeclaredType) fooTypeMirror;
+    assertSame(fooElement, fooDeclaredType.asElement());
+    List<? extends TypeMirror> typeArguments = fooDeclaredType.getTypeArguments();
+    assertEquals("T", ((TypeVariable) typeArguments.get(0)).asElement().getSimpleName().toString());
+    assertEquals(1, typeArguments.size());
+
+    TypeMirror enclosingType = fooDeclaredType.getEnclosingType();
+    assertEquals(TypeKind.NONE, enclosingType.getKind());
+    assertTrue(enclosingType instanceof NoType);
+  }
+
+  @Test
   public void testGetSuperclassNoSuperclassIsObject() throws IOException {
     compile("class Foo { }");
 
@@ -230,6 +253,20 @@ public class TreeBackedTypeElementTest extends CompilerTreeApiParameterizedTest 
   }
 
   @Test
+  public void testGetSuperclassOfEnumIsEnumWithArgs() throws IOException {
+    compile("enum Foo { }");
+
+    TypeElement fooElement = elements.getTypeElement("Foo");
+    DeclaredType superclass = (DeclaredType) fooElement.getSuperclass();
+
+    TypeElement enumElement = elements.getTypeElement("java.lang.Enum");
+    TypeMirror expectedSuperclass = types.getDeclaredType(enumElement, fooElement.asType());
+
+    assertSameType(expectedSuperclass, superclass);
+  }
+
+
+  @Test
   public void testGetSuperclassOtherSuperclass() throws IOException {
     compile(ImmutableMap.of(
         "Foo.java",
@@ -249,6 +286,83 @@ public class TreeBackedTypeElementTest extends CompilerTreeApiParameterizedTest 
 
     DeclaredType superclass = (DeclaredType) fooElement.getSuperclass();
     assertSame(barElement, superclass.asElement());
+  }
+
+  @Test
+  public void testGetInterfacesOnClass() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public abstract class Foo implements Runnable, java.io.Closeable { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    TypeMirror runnableType = elements.getTypeElement("java.lang.Runnable").asType();
+    TypeMirror closeableType = elements.getTypeElement("java.io.Closeable").asType();
+
+    List<? extends TypeMirror> interfaces = fooElement.getInterfaces();
+    assertSameType(runnableType, interfaces.get(0));
+    assertSameType(closeableType, interfaces.get(1));
+    assertEquals(2, interfaces.size());
+  }
+
+  @Test
+  public void testGetInterfacesOnInterface() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public interface Foo extends Runnable, java.io.Closeable { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    TypeMirror runnableType = elements.getTypeElement("java.lang.Runnable").asType();
+    TypeMirror closeableType = elements.getTypeElement("java.io.Closeable").asType();
+
+    List<? extends TypeMirror> interfaces = fooElement.getInterfaces();
+    assertSameType(runnableType, interfaces.get(0));
+    assertSameType(closeableType, interfaces.get(1));
+    assertEquals(2, interfaces.size());
+  }
+
+  @Test
+  public void testGetInterfacesDefaultsEmptyForClass() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public class Foo { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    assertThat(fooElement.getInterfaces(), Matchers.empty());
+  }
+
+  @Test
+  public void testGetInterfacesDefaultsEmptyForInterface() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public interface Foo { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    assertThat(fooElement.getInterfaces(), Matchers.empty());
+  }
+
+  @Test
+  public void testGetInterfacesDefaultsEmptyForEnum() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public enum Foo { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    assertThat(fooElement.getInterfaces(), Matchers.empty());
+  }
+
+  @Test
+  public void testGetInterfacesDefaultsAnnotationForAnnotation() throws IOException {
+    compile(Joiner.on('\n').join(
+        "package com.facebook.foo;",
+        "public @interface Foo { }"));
+
+    TypeElement fooElement = elements.getTypeElement("com.facebook.foo.Foo");
+    TypeMirror annotationType =
+        elements.getTypeElement("java.lang.annotation.Annotation").asType();
+
+    List<? extends TypeMirror> interfaces = fooElement.getInterfaces();
+    assertSameType(annotationType, interfaces.get(0));
+    assertEquals(1, interfaces.size());
   }
 
   @Test
@@ -288,5 +402,49 @@ public class TreeBackedTypeElementTest extends CompilerTreeApiParameterizedTest 
     PackageElement javaLangElement = elements.getPackageElement("java.lang");
 
     assertSame(javaLangElement, stringElement.getEnclosingElement());
+  }
+
+  @Test
+  public void testIncludesGeneratedDefaultConstructor() throws IOException {
+    compile("class Foo { }");
+
+    TypeElement fooElement = elements.getTypeElement("Foo");
+    ExecutableElement constructorElement =
+        (ExecutableElement) fooElement.getEnclosedElements().get(0);
+
+    assertEquals("<init>", constructorElement.getSimpleName().toString());
+    assertSameType(types.getNoType(TypeKind.VOID), constructorElement.getReturnType());
+    assertThat(constructorElement.getParameters(), Matchers.empty());
+    assertThat(constructorElement.getTypeParameters(), Matchers.empty());
+    assertThat(constructorElement.getThrownTypes(), Matchers.empty());
+    assertEquals(1, fooElement.getEnclosedElements().size());
+  }
+
+  @Test
+  public void testIncludesGeneratedEnumMembers() throws IOException {
+    compile("enum Foo { }");
+
+    TypeElement fooElement = elements.getTypeElement("Foo");
+
+    List<ExecutableElement> methods = ElementFilter.methodsIn(fooElement.getEnclosedElements());
+    ExecutableElement valuesMethod = methods.get(0);
+    assertEquals("values", valuesMethod.getSimpleName().toString());
+    assertSameType(types.getArrayType(fooElement.asType()), valuesMethod.getReturnType());
+    assertThat(valuesMethod.getParameters(), Matchers.empty());
+    assertThat(valuesMethod.getTypeParameters(), Matchers.empty());
+    assertThat(valuesMethod.getThrownTypes(), Matchers.empty());
+
+    ExecutableElement valueOfMethod = methods.get(1);
+    assertEquals("valueOf", valueOfMethod.getSimpleName().toString());
+    assertSameType(fooElement.asType(), valueOfMethod.getReturnType());
+    List<? extends VariableElement> parameters = valueOfMethod.getParameters();
+    assertSameType(
+        elements.getTypeElement("java.lang.String").asType(),
+        parameters.get(0).asType());
+    assertEquals(1, parameters.size());
+    assertThat(valuesMethod.getTypeParameters(), Matchers.empty());
+    assertThat(valuesMethod.getThrownTypes(), Matchers.empty());
+
+    assertEquals(2, methods.size());
   }
 }

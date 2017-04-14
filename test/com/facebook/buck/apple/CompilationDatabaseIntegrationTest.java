@@ -29,7 +29,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -38,7 +38,6 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import org.junit.Assume;
 import org.junit.Before;
@@ -49,6 +48,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -96,7 +96,7 @@ public class CompilationDatabaseIntegrationTest {
             .getGenPath(
                 filesystem,
                 target.withFlavors(
-                    ImmutableFlavor.of("iphonesimulator-x86_64"),
+                    InternalFlavor.of("iphonesimulator-x86_64"),
                     CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
                 "%s.hmap")
             .toString();
@@ -119,8 +119,8 @@ public class CompilationDatabaseIntegrationTest {
         filesystem,
         "Libraries/EXExample/EXExample/EXExampleModel.m",
         target.withFlavors(
-            ImmutableFlavor.of("iphonesimulator-x86_64"),
-            ImmutableFlavor.of("compile-pic-" + sanitize("EXExample/EXExampleModel.m.o"))),
+            InternalFlavor.of("iphonesimulator-x86_64"),
+            InternalFlavor.of("compile-pic-" + sanitize("EXExample/EXExampleModel.m.o"))),
         Paths.get("EXExample/EXExampleModel.m.o"),
         /* isLibrary */ true,
         fileToEntry,
@@ -130,8 +130,8 @@ public class CompilationDatabaseIntegrationTest {
         filesystem,
         "Libraries/EXExample/EXExample/EXUser.mm",
         target.withFlavors(
-            ImmutableFlavor.of("iphonesimulator-x86_64"),
-            ImmutableFlavor.of("compile-pic-" + sanitize("EXExample/EXUser.mm.o"))),
+            InternalFlavor.of("iphonesimulator-x86_64"),
+            InternalFlavor.of("compile-pic-" + sanitize("EXExample/EXUser.mm.o"))),
         Paths.get("EXExample/EXUser.mm.o"),
         /* isLibrary */ true,
         fileToEntry,
@@ -141,8 +141,8 @@ public class CompilationDatabaseIntegrationTest {
         filesystem,
         "Libraries/EXExample/EXExample/Categories/NSString+Palindrome.m",
         target.withFlavors(
-            ImmutableFlavor.of("iphonesimulator-x86_64"),
-            ImmutableFlavor.of(
+            InternalFlavor.of("iphonesimulator-x86_64"),
+            InternalFlavor.of(
                 "compile-pic-" +
                     sanitize("EXExample/Categories/NSString+Palindrome.m.o"))),
         Paths.get("EXExample/Categories/NSString+Palindrome.m.o"),
@@ -172,7 +172,7 @@ public class CompilationDatabaseIntegrationTest {
             .getGenPath(
                 filesystem,
                 target.withFlavors(
-                    ImmutableFlavor.of("iphonesimulator-x86_64"),
+                    InternalFlavor.of("iphonesimulator-x86_64"),
                     CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
                 "%s.hmap")
             .toString();
@@ -196,8 +196,8 @@ public class CompilationDatabaseIntegrationTest {
         filesystem,
         "Apps/Weather/Weather/EXViewController.m",
         target.withFlavors(
-            ImmutableFlavor.of("iphonesimulator-x86_64"),
-            ImmutableFlavor.of(
+            InternalFlavor.of("iphonesimulator-x86_64"),
+            InternalFlavor.of(
                 "compile-" + sanitize("Weather/EXViewController.m.o"))),
         Paths.get("Weather/EXViewController.m.o"),
         /* isLibrary */ false,
@@ -208,8 +208,8 @@ public class CompilationDatabaseIntegrationTest {
         filesystem,
         "Apps/Weather/Weather/main.m",
         target.withFlavors(
-            ImmutableFlavor.of("iphonesimulator-x86_64"),
-            ImmutableFlavor.of(
+            InternalFlavor.of("iphonesimulator-x86_64"),
+            InternalFlavor.of(
                 "compile-" + sanitize("Weather/main.m.o"))),
         Paths.get("Weather/main.m.o"),
         /* isLibrary */ false,
@@ -259,14 +259,14 @@ public class CompilationDatabaseIntegrationTest {
         "x86_64",
         "'-mios-simulator-version-min=8.0'");
 
-    List<String> commandArgs = Lists.newArrayList();
+    List<String> commandArgs = new ArrayList<>();
     commandArgs.add(clang);
     if (isLibrary) {
       commandArgs.add("-fPIC");
       commandArgs.add("-fPIC");
     }
 
-    // TODO(Coneko, k21): It seems like a bug that this set of flags gets inserted twice.
+    // TODO(coneko, jakubzika): It seems like a bug that this set of flags gets inserted twice.
     // Perhaps this has something to do with how the [cxx] section in .buckconfig is processed.
     // (Err, it's probably adding both the preprocessor and regular rule command suffixes. Should
     // be harmless.)

@@ -19,18 +19,19 @@ package com.facebook.buck.cli;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Lists;
 
 import org.immutables.value.Value;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -56,7 +57,7 @@ public class AuditConfigCommand extends AbstractCommand {
   }
 
   @Argument
-  private List<String> arguments = Lists.newArrayList();
+  private List<String> arguments = new ArrayList<>();
 
   public List<String> getArguments() {
     return arguments;
@@ -157,7 +158,7 @@ public class AuditConfigCommand extends AbstractCommand {
       jsBuilder.put(config.getKey(), config.getValue());
     }
 
-    params.getObjectMapper().writeValue(params.getConsole().getStdOut(), jsBuilder.build());
+    ObjectMappers.WRITER.writeValue(params.getConsole().getStdOut(), jsBuilder.build());
   }
 
   private void printBuckconfigOutput(

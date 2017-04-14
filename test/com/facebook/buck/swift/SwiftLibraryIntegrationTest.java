@@ -28,7 +28,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -87,8 +87,9 @@ public class SwiftLibraryIntegrationTest {
     // Setup the map representing the link tree.
     ImmutableMap<Path, SourcePath> links = ImmutableMap.of();
 
-    BuildRule symlinkTreeBuildRule = HeaderSymlinkTreeWithHeaderMap.create(
-        new FakeBuildRuleParamsBuilder(symlinkTarget).build(),
+    HeaderSymlinkTreeWithHeaderMap symlinkTreeBuildRule = HeaderSymlinkTreeWithHeaderMap.create(
+        symlinkTarget,
+        projectFilesystem,
         symlinkTreeRoot,
         links,
         ruleFinder);
@@ -117,7 +118,12 @@ public class SwiftLibraryIntegrationTest {
     SwiftLibraryDescription.Arg args = createDummySwiftArg();
 
     SwiftCompile buildRule = (SwiftCompile) FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION
-        .createBuildRule(TargetGraph.EMPTY, params, resolver, args);
+        .createBuildRule(
+            TargetGraph.EMPTY,
+            params,
+            resolver,
+            TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+            args);
 
     ImmutableList<String> swiftIncludeArgs = buildRule.getSwiftIncludeArgs(pathResolver);
 
@@ -139,6 +145,7 @@ public class SwiftLibraryIntegrationTest {
             TargetGraph.EMPTY,
             params,
             resolver,
+            TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
             args);
     resolver.addToIndex(buildRule);
 
@@ -167,8 +174,9 @@ public class SwiftLibraryIntegrationTest {
     CxxLink linkRule = (CxxLink) FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION
         .createBuildRule(
             TargetGraphFactory.newInstance(FakeTargetNodeBuilder.build(buildRule)),
-            params.copyWithBuildTarget(linkTarget),
+            params.withBuildTarget(linkTarget),
             resolver,
+            TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
             args);
 
     assertThat(linkRule.getArgs(), Matchers.hasItem(objArg));

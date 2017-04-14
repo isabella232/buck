@@ -29,6 +29,7 @@ struct MemoryStatsRemoteLogEntry {
   3: optional i64 totalMemoryBytes;
   4: optional i64 timeSpentInGcMs;
   5: optional map<string, i64> currentMemoryBytesUsageByPool;
+  6: optional i64 maxMemoryBytes;
 }
 
 struct ProcessStatsRemoteLogEntry {
@@ -47,11 +48,20 @@ struct TimeStatsRemoteLogEntry {
   1: i64 pythonTimeMs;
   2: i64 initTimeMs;
   3: i64 parseTimeMs;
+  4: i64 processingTimeMs;
   5: i64 actionGraphTimeMs;
   6: i64 rulekeyTimeMs;
   7: i64 fetchTimeMs;
   8: i64 buildTimeMs;
   9: i64 installTimeMs;
+}
+
+struct ExperimentStatsRemoteLogEntry {
+  1: string tag;
+  2: string variant;
+  3: string propertyName;
+  4: optional i64 value;
+  5: optional string content;
 }
 
 struct RemoteLogEntry {
@@ -61,4 +71,5 @@ struct RemoteLogEntry {
   3: optional MemoryStatsRemoteLogEntry memoryStats;
   4: optional ProcessStatsRemoteLogEntry processStats;
   5: optional TimeStatsRemoteLogEntry timeStats;
+  6: optional ExperimentStatsRemoteLogEntry experimentStats;
 }

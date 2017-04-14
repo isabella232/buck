@@ -17,11 +17,16 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
-import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.CalculateAbiFromClasses;
+import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsAmender;
+import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -29,7 +34,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,10 +42,11 @@ import java.util.Optional;
 
 public class AndroidLibraryGraphEnhancer {
 
-  public static final Flavor DUMMY_R_DOT_JAVA_FLAVOR = ImmutableFlavor.of("dummy_r_dot_java");
+  public static final Flavor DUMMY_R_DOT_JAVA_FLAVOR = InternalFlavor.of("dummy_r_dot_java");
 
   private final BuildTarget dummyRDotJavaBuildTarget;
   private final BuildRuleParams originalBuildRuleParams;
+  private final Javac javac;
   private final JavacOptions javacOptions;
   private final DependencyMode resourceDependencyMode;
   private final boolean forceFinalResourceIds;
@@ -52,6 +57,7 @@ public class AndroidLibraryGraphEnhancer {
   public AndroidLibraryGraphEnhancer(
       BuildTarget buildTarget,
       BuildRuleParams buildRuleParams,
+      Javac javac,
       JavacOptions javacOptions,
       DependencyMode resourceDependencyMode,
       boolean forceFinalResourceIds,
@@ -60,6 +66,7 @@ public class AndroidLibraryGraphEnhancer {
       boolean useOldStyleableFormat) {
     this.dummyRDotJavaBuildTarget = getDummyRDotJavaTarget(buildTarget);
     this.originalBuildRuleParams = buildRuleParams;
+    this.javac = javac;
     // Override javacoptions because DummyRDotJava doesn't require annotation processing.
     this.javacOptions = JavacOptions.builder(javacOptions)
         .setAnnotationProcessingParams(AnnotationProcessingParams.EMPTY)
@@ -80,12 +87,12 @@ public class AndroidLibraryGraphEnhancer {
   public Optional<DummyRDotJava> getBuildableForAndroidResources(
       BuildRuleResolver ruleResolver,
       boolean createBuildableIfEmptyDeps) {
-    Preconditions.checkState(!CalculateAbi.isAbiTarget(dummyRDotJavaBuildTarget));
+    Preconditions.checkState(!HasJavaAbi.isAbiTarget(dummyRDotJavaBuildTarget));
     Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(dummyRDotJavaBuildTarget);
     if (previouslyCreated.isPresent()) {
       return previouslyCreated.map(input -> (DummyRDotJava) input);
     }
-    ImmutableSortedSet<BuildRule> originalDeps = originalBuildRuleParams.getDeps();
+    ImmutableSortedSet<BuildRule> originalDeps = originalBuildRuleParams.getBuildDeps();
     ImmutableSet<HasAndroidResourceDeps> androidResourceDeps;
 
     switch (resourceDependencyMode) {
@@ -112,19 +119,23 @@ public class AndroidLibraryGraphEnhancer {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
 
-    BuildRuleParams dummyRDotJavaParams = originalBuildRuleParams.copyWithChanges(
-        dummyRDotJavaBuildTarget,
-        // Add dependencies from `SourcePaths` in `JavacOptions`.
-        Suppliers.ofInstance(
-            ImmutableSortedSet.copyOf(
-                ruleFinder.filterBuildRuleInputs(javacOptions.getInputs(ruleFinder)))),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+    CompileToJarStepFactory compileToJarStepFactory =
+        new JavacToJarStepFactory(javac, javacOptions, JavacOptionsAmender.IDENTITY);
+    BuildRuleParams dummyRDotJavaParams = compileToJarStepFactory
+        .addInputs(
+            // DummyRDotJava inherits no dependencies from its android_library beyond the compiler
+            // that is used to build it
+            originalBuildRuleParams.copyReplacingDeclaredAndExtraDeps(
+                ImmutableSortedSet::of,
+                ImmutableSortedSet::of),
+            ruleFinder)
+        .withBuildTarget(dummyRDotJavaBuildTarget);
 
     DummyRDotJava dummyRDotJava = new DummyRDotJava(
         dummyRDotJavaParams,
         ruleFinder,
         androidResourceDeps,
-        javacOptions,
+        compileToJarStepFactory,
         forceFinalResourceIds,
         resourceUnionPackage,
         finalRName,
@@ -134,13 +145,13 @@ public class AndroidLibraryGraphEnhancer {
     return Optional.of(dummyRDotJava);
   }
 
-  public CalculateAbi getBuildableForAndroidResourcesAbi(
+  public CalculateAbiFromClasses getBuildableForAndroidResourcesAbi(
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder) throws NoSuchBuildTargetException {
-    Preconditions.checkState(CalculateAbi.isAbiTarget(dummyRDotJavaBuildTarget));
-    BuildTarget resourcesTarget = CalculateAbi.getLibraryTarget(dummyRDotJavaBuildTarget);
+    Preconditions.checkState(HasJavaAbi.isAbiTarget(dummyRDotJavaBuildTarget));
+    BuildTarget resourcesTarget = HasJavaAbi.getLibraryTarget(dummyRDotJavaBuildTarget);
     BuildRule resourcesRule = resolver.requireRule(resourcesTarget);
-    return CalculateAbi.of(
+    return CalculateAbiFromClasses.of(
         dummyRDotJavaBuildTarget,
         ruleFinder,
         originalBuildRuleParams,

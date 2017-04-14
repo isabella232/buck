@@ -1,5 +1,11 @@
 standard_java_library(
-  tests = [
-    '//test/com/facebook/buck/hashing:hashing',
-  ],
+    name = "hashing",
+    tests = [
+        "//test/com/facebook/buck/hashing:hashing",
+    ],
+    deps = [
+        "//src/com/facebook/buck/io:MorePaths.java",
+        "//src/com/facebook/buck/io:io",
+        "//third-party/java/guava:guava",
+    ],
 )

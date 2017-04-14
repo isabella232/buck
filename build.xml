@@ -84,6 +84,7 @@
     <include name="nailgun/nailgun-server-0.9.2-SNAPSHOT.jar" />
     <include name="jna/jna-4.2.0.jar" />
     <include name="jna/jna-platform-4.2.0.jar" />
+    <include name="rocksdbjni/rocksdbjni-5.1.2.jar" />
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
@@ -114,7 +115,7 @@
     <include name="gson/gson-2.2.4.jar" />
     <include name="icu4j/icu4j-54.1.1.jar" />
     <include name="immutables/value-2.3.8.jar" />
-    <include name="infer-annotations/infer-annotations-1.5.jar" />
+    <include name="infer-annotations/infer-annotations-4.1.jar" />
     <include name="nuprocess/nuprocess-1.1.0.jar" />
     <include name="jacoco/org.jacoco.core-0.7.7.201606060606.jar" />
     <include name="jacoco/org.jacoco.report-0.7.7.201606060606.jar" />
@@ -251,9 +252,9 @@
     <ecj destdir="${bootstrapper.classes.dir}" classpathref="bootstrapper-classpath">
       <javac-params>
         <include name="${bootstrapper.src.dir}/**/*.java" />
-        <include name="${javac-tracing.src.dir}/JavacPhaseTracer.java" />
         <include name="com/facebook/buck/util/liteinfersupport/Nullable.java" />
         <include name="com/facebook/buck/util/liteinfersupport/Preconditions.java" />
+        <include name="com/facebook/buck/jvm/java/plugin/api/*.java" />
         <include name="com/facebook/buck/jvm/java/abi/source/api/*.java" />
       </javac-params>
     </ecj>
@@ -304,7 +305,6 @@
         <include name="com/facebook/buck/util/liteinfersupport/Preconditions.java" />
         <include name="com/facebook/buck/jvm/java/abi/source/*.java" />
         <include name="com/facebook/buck/jvm/java/plugin/adapter/**/*.java" />
-        <include name="${javac-tracing.src.dir}/TracingTaskListener.java" />
       </javac-params>
     </ecj>
     <jar destfile="${javac-plugin.jar}">
@@ -427,14 +427,6 @@
           <exclude name="com/facebook/buck/jvm/java/plugin/adapter/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
         </patternset>
-        <or>
-          <filename name="${javac-tracing.src.dir}/JavacPhaseEvent.java" />
-          <filename name="${javac-tracing.src.dir}/JavacPhaseEventLogger.java" />
-          <filename name="${javac-tracing.src.dir}/TranslatingJavacPhaseTracer.java" />
-          <not>
-            <filename name="${javac-tracing.src.dir}/**" />
-          </not>
-        </or>
       </javac-params>
     </ecj>
   </target>
@@ -583,12 +575,6 @@
          >
       <javac-params>
         <exclude name="**/testdata/**" />
-
-        <!-- This test cannot build with the rest because it is testing TracingTaskListener,
-        which lives in the javac-plugin.jar, which is loaded dynamically at
-        runtime. This test is run in the Buck build, which is capable of more isolated testing
-        than the Ant build is. -->
-        <exclude name="com/facebook/buck/jvm/java/tracing/TracingTaskListenerCleanerTest.java" />
       </javac-params>
     </ecj>
   </target>
@@ -629,7 +615,6 @@
           <include name="com/facebook/buck/android/**/*${test.class}.java" />
           <include name="com/facebook/buck/dalvik/**/*${test.class}.java" />
 
-          <exclude name="com/facebook/buck/jvm/java/tracing/TracingTaskListenerCleanerTest.java" />
           <exclude name="**/testdata/**" />
         </fileset>
       </batchtest>

@@ -19,6 +19,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -69,6 +70,7 @@ public class TargetNodeFactory {
       BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<VisibilityPattern> visibilityPatterns,
+      ImmutableSet<VisibilityPattern> withinViewPatterns,
       CellPathResolver cellRoots)
       throws NoSuchBuildTargetException {
     return create(
@@ -79,6 +81,7 @@ public class TargetNodeFactory {
         buildTarget,
         declaredDeps,
         visibilityPatterns,
+        withinViewPatterns,
         cellRoots);
   }
 
@@ -91,10 +94,13 @@ public class TargetNodeFactory {
       BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<VisibilityPattern> visibilityPatterns,
+      ImmutableSet<VisibilityPattern> withinViewPatterns,
       CellPathResolver cellRoots)
       throws NoSuchBuildTargetException {
 
     ImmutableSortedSet.Builder<BuildTarget> extraDepsBuilder = ImmutableSortedSet.naturalOrder();
+    ImmutableSortedSet.Builder<BuildTarget> targetGraphOnlyDepsBuilder =
+        ImmutableSortedSet.naturalOrder();
     ImmutableSet.Builder<Path> pathsBuilder = ImmutableSet.builder();
 
     // Scan the input to find possible BuildTargets, necessary for loading dependent rules.
@@ -108,10 +114,12 @@ public class TargetNodeFactory {
     }
 
     if (description instanceof ImplicitDepsInferringDescription) {
-      extraDepsBuilder
-          .addAll(
-              ((ImplicitDepsInferringDescription<T>) description)
-                  .findDepsForTargetFromConstructorArgs(buildTarget, cellRoots, constructorArg));
+        ((ImplicitDepsInferringDescription<T>) description).findDepsForTargetFromConstructorArgs(
+            buildTarget,
+            cellRoots,
+            constructorArg,
+            extraDepsBuilder,
+            targetGraphOnlyDepsBuilder);
     }
 
     if (description instanceof ImplicitInputsInferringDescription) {
@@ -132,7 +140,9 @@ public class TargetNodeFactory {
         buildTarget,
         declaredDeps,
         ImmutableSortedSet.copyOf(Sets.difference(extraDepsBuilder.build(), declaredDeps)),
+        targetGraphOnlyDepsBuilder.build(),
         visibilityPatterns,
+        withinViewPatterns,
         pathsBuilder.build(),
         cellRoots,
         Optional.empty());
@@ -192,6 +202,7 @@ public class TargetNodeFactory {
           originalNode.getBuildTarget(),
           originalNode.getDeclaredDeps(),
           originalNode.getVisibilityPatterns(),
+          originalNode.getWithinViewPatterns(),
           originalNode.getCellNames());
     } catch (NoSuchBuildTargetException e) {
       throw new IllegalStateException(
@@ -214,6 +225,7 @@ public class TargetNodeFactory {
           originalNode.getBuildTarget().withFlavors(flavors),
           originalNode.getDeclaredDeps(),
           originalNode.getVisibilityPatterns(),
+          originalNode.getWithinViewPatterns(),
           originalNode.getCellNames());
     } catch (NoSuchBuildTargetException e) {
       throw new IllegalStateException(

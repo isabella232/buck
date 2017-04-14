@@ -18,7 +18,6 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
@@ -28,6 +27,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -58,11 +58,12 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
-      return CalculateAbi.of(
+    if (HasJavaAbi.isClassAbiTarget(params.getBuildTarget())) {
+      return CalculateAbiFromClasses.of(
           params.getBuildTarget(),
           ruleFinder,
           params,
@@ -81,13 +82,12 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         args.mavenCoords,
         args.provided.orElse(false));
 
-    UnflavoredBuildTarget prebuiltJarBuildTarget = params.getBuildTarget().checkUnflavored();
-    BuildTarget flavoredBuildTarget = BuildTargets.createFlavoredBuildTarget(
-        prebuiltJarBuildTarget, JavaLibrary.GWT_MODULE_FLAVOR);
-    BuildRuleParams gwtParams = params.copyWithChanges(
-        flavoredBuildTarget,
-        /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
-        /* inferredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+    params.getBuildTarget().checkUnflavored();
+    BuildRuleParams gwtParams = params
+        .withAppendedFlavor(JavaLibrary.GWT_MODULE_FLAVOR)
+        .copyReplacingDeclaredAndExtraDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
+            Suppliers.ofInstance(ImmutableSortedSet.of()));
     BuildRule gwtModule = createGwtModule(gwtParams, args);
     resolver.addToIndex(gwtModule);
 
@@ -134,7 +134,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
             context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
         ImmutableList.Builder<Step> steps = ImmutableList.builder();
-        steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), output.getParent()));
+        steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()));
         steps.add(CopyStep.forFile(
                 getProjectFilesystem(),
                 context.getSourcePathResolver().getAbsolutePath(source),

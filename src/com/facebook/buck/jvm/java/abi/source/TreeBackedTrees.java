@@ -17,7 +17,6 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -26,19 +25,12 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Scope;
 import com.sun.source.tree.Tree;
-import com.sun.source.tree.TypeParameterTree;
-import com.sun.source.tree.VariableTree;
 import com.sun.source.util.SimpleTreeVisitor;
 import com.sun.source.util.SourcePositions;
 import com.sun.source.util.TreePath;
-import com.sun.source.util.TreePathScanner;
 import com.sun.source.util.Trees;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import javax.lang.model.element.AnnotationMirror;
@@ -46,7 +38,6 @@ import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.Name;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ErrorType;
@@ -59,10 +50,9 @@ import javax.tools.JavaCompiler;
  */
 class TreeBackedTrees extends Trees {
   private final TreeBackedElements elements;
+  private final TreeBackedTypes types;
   private final Trees javacTrees;
-  private final Map<Tree, TreeBackedElement> treeBackedElements = new HashMap<>();
-  private final Map<TreeBackedElement, TreePath> elementPaths = new HashMap<>();
-  private final Map<Tree, TreeBackedScope> treeBackedScopes = new HashMap<>();
+  private final Map<Tree, TypeMirror> canonicalTypes = new HashMap<>();
 
   public static TreeBackedTrees instance(JavaCompiler.CompilationTask task) {
     return ((FrontendOnlyJavacTask) task).getTrees();
@@ -70,110 +60,15 @@ class TreeBackedTrees extends Trees {
 
   /* package */ TreeBackedTrees(
       Trees javacTrees,
-      TreeBackedElements elements) {
+      TreeBackedElements elements,
+      TreeBackedTypes types) {
     this.javacTrees = javacTrees;
     this.elements = elements;
+    this.types = types;
   }
 
-  /* package */ List<TreeBackedTypeElement> enterTree(
-      CompilationUnitTree compilationUnit,
-      TypeResolverFactory resolverFactory) {
-    List<TreeBackedTypeElement> topLevelElements = new ArrayList<>();
-
-    new TreePathScanner<Void, Void>() {
-      TreeBackedScope enclosingScope = getScope(getPath(
-          compilationUnit,
-          compilationUnit));
-
-      @Override
-      public Void visitCompilationUnit(CompilationUnitTree node, Void aVoid) {
-        Path sourcePath = Paths.get(node.getSourceFile().getName());
-        if (sourcePath.getFileName().toString().equals("package-info.java")) {
-          elements.getOrCreatePackageElement(
-              TreeBackedTrees.treeToName(compilationUnit.getPackageName()));
-        }
-
-        return super.visitCompilationUnit(node, aVoid);
-      }
-
-      @Override
-      public Void visitClass(ClassTree node, Void aVoid) {
-        // Match javac: create a package element only once we know a class exists in it
-        elements.getOrCreatePackageElement(
-            TreeBackedTrees.treeToName(compilationUnit.getPackageName()));
-
-        Name qualifiedName = enclosingScope.buildQualifiedName(node.getSimpleName());
-
-        TreeBackedScope classScope = getScope(getCurrentPath());
-        TreeBackedTypeElement typeElement =
-            new TreeBackedTypeElement(
-                enclosingScope.getEnclosingElement(),
-                node,
-                qualifiedName,
-                resolverFactory);
-
-        if (enclosingScope.getEnclosingClass() == null) {
-          topLevelElements.add(typeElement);
-        }
-        elements.enterTypeElement(typeElement);
-        enterElement(getCurrentPath(), typeElement);
-
-        TreeBackedScope oldScope = enclosingScope;
-        enclosingScope = classScope;
-        try {
-          return super.visitClass(node, aVoid);
-        } finally {
-          enclosingScope = oldScope;
-        }
-      }
-
-      @Override
-      public Void visitTypeParameter(TypeParameterTree node, Void aVoid) {
-        TreeBackedTypeElement enclosingClass =
-            Preconditions.checkNotNull(enclosingScope.getEnclosingClass());
-
-        TreeBackedTypeParameterElement typeParameter = new TreeBackedTypeParameterElement(
-            node,
-            enclosingClass,
-            resolverFactory);
-        enclosingClass.addTypeParameter(typeParameter);
-        enterElement(getCurrentPath(), typeParameter);
-
-        return null;
-      }
-
-      @Override
-      public Void visitMethod(MethodTree node, Void aVoid) {
-        // TODO(jkeljo): Construct an ExecutableElement
-
-        // The body of a method is not part of the ABI, so don't recurse into them
-        return null;
-      }
-
-      @Override
-      public Void visitVariable(VariableTree node, Void aVoid) {
-        // TODO(jkeljo): Construct a VariableElement
-        // TODO(jkeljo): Evaluate constants
-
-        // Except for constants, we shouldn't look at the next part of a variable decl, because
-        // there might be anonymous classes there and those are not part of the ABI
-        return null;
-      }
-    }.scan(compilationUnit, null);
-
-    return topLevelElements;
-  }
-
-  /* package */ void enterElement(TreePath path, TreeBackedElement element) {
-    if (treeBackedElements.containsKey(path.getLeaf())) {
-      throw new AssertionError();
-    }
-    treeBackedElements.put(path.getLeaf(), element);
-
-    if (elementPaths.containsKey(element)) {
-      throw new AssertionError();
-    }
-    elementPaths.put(element, path);
+  /* package */ void clear() {
+    canonicalTypes.clear();
   }
 
   @Override
@@ -227,7 +122,7 @@ class TreeBackedTrees extends Trees {
   @Nullable
   public TreePath getPath(Element e) {
     if (e instanceof TreeBackedElement) {
-      return Preconditions.checkNotNull(elementPaths.get(e));
+      return ((TreeBackedElement) e).getTreePath();
     }
 
     TreePath result = javacTrees.getPath(e);
@@ -254,53 +149,26 @@ class TreeBackedTrees extends Trees {
 
   @Override
   @Nullable
-  public TreeBackedElement getElement(TreePath path) {
-    return treeBackedElements.get(path.getLeaf());
+  public Element getElement(TreePath path) {
+    return elements.getCanonicalElement(javacTrees.getElement(path));
   }
 
   @Override
+  @Nullable
   public TypeMirror getTypeMirror(TreePath path) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public TreeBackedScope getScope(TreePath path) {
-    TreePath walker = path;
-
-    while (walker != null) {
-      final Tree leaf = walker.getLeaf();
-      switch (leaf.getKind()) {
-        case ANNOTATION_TYPE:
-        case CLASS:
-        case ENUM:
-        case INTERFACE:
-          if (!treeBackedScopes.containsKey(leaf)) {
-            treeBackedScopes.put(
-                leaf,
-                new TreeBackedClassScope(
-                    elements,
-                    this,
-                    getScope(walker.getParentPath()),
-                    walker));
-          }
-          return Preconditions.checkNotNull(treeBackedScopes.get(leaf));
-        case COMPILATION_UNIT:
-          if (!treeBackedScopes.containsKey(leaf)) {
-            treeBackedScopes.put(
-                leaf,
-                new TreeBackedFileScope(elements, this, walker));
-          }
-          return Preconditions.checkNotNull(treeBackedScopes.get(leaf));
-        // $CASES-OMITTED$
-        default:
-          // Skip over other nodes
-          break;
-      }
-
-      walker = walker.getParentPath();
+    Tree leaf = path.getLeaf();
+    TypeMirror result = canonicalTypes.get(leaf);
+    if (result == null) {
+      result = types.getCanonicalType(javacTrees.getTypeMirror(path));
+      canonicalTypes.put(leaf, result);
     }
 
-    throw new AssertionError("'Unreachable' code");
+    return result;
+  }
+
+  @Override
+  public Scope getScope(TreePath path) {
+    throw new UnsupportedOperationException();
   }
 
   @Override

@@ -58,7 +58,7 @@ public class ArtifactCacheBuckConfigTest {
         "[cache]",
         "mode = http",
         "blacklisted_wifi_ssids = yolocoaster");
-    ImmutableSet<HttpCacheEntry> httpCaches = config.getHttpCaches();
+    ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
     HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
 
@@ -72,7 +72,7 @@ public class ArtifactCacheBuckConfigTest {
     config = createFromText(
         "[cache]",
         "mode = http");
-    httpCaches = config.getHttpCaches();
+    httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
     cacheEntry = FluentIterable.from(httpCaches).get(0);
 
@@ -121,7 +121,7 @@ public class ArtifactCacheBuckConfigTest {
         "http_read_headers = Foo: bar; Baz: meh",
         "http_write_headers = Authorization: none",
         "http_mode = readwrite");
-    ImmutableSet<HttpCacheEntry> httpCaches = config.getHttpCaches();
+    ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
     HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
 
@@ -143,7 +143,7 @@ public class ArtifactCacheBuckConfigTest {
     assertThat(cacheEntry.getWriteHeaders(), Matchers.equalTo(expectedWriteHeaders));
     assertThat(
         cacheEntry.getCacheReadMode(),
-        Matchers.is(ArtifactCacheBuckConfig.CacheReadMode.readwrite));
+        Matchers.is(CacheReadMode.READWRITE));
   }
 
   @Test
@@ -151,7 +151,7 @@ public class ArtifactCacheBuckConfigTest {
     ArtifactCacheBuckConfig config = createFromText(
         "[cache]",
         "http_timeout_seconds = 42");
-    ImmutableSet<HttpCacheEntry> httpCaches = config.getHttpCaches();
+    ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
     HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
 
@@ -172,14 +172,14 @@ public class ArtifactCacheBuckConfigTest {
         "dir = cache_dir",
         "dir_mode = readonly",
         "dir_max_size = 1022B");
-    DirCacheEntry dirCacheConfig = config.getDirCacheEntries().get(0);
+    DirCacheEntry dirCacheConfig = config.getCacheEntries().getDirCacheEntries().asList().get(0);
 
     assertThat(
         dirCacheConfig.getCacheDir(),
         Matchers.equalTo(Paths.get("cache_dir").toAbsolutePath()));
     assertThat(
         dirCacheConfig.getCacheReadMode(),
-        Matchers.is(ArtifactCacheBuckConfig.CacheReadMode.readonly));
+        Matchers.is(CacheReadMode.READONLY));
     assertThat(dirCacheConfig.getMaxSizeBytes(), Matchers.equalTo(Optional.of(1022L)));
   }
 
@@ -197,14 +197,15 @@ public class ArtifactCacheBuckConfigTest {
         "dir_mode = readonly",
         "dir_max_size = 800B");
 
-    ImmutableList<DirCacheEntry> entries = ImmutableList.copyOf(config.getDirCacheEntries());
+    ImmutableList<DirCacheEntry> entries =
+        ImmutableList.copyOf(config.getCacheEntries().getDirCacheEntries());
     DirCacheEntry name1Entry = entries.get(0);
     assertThat(
         name1Entry.getCacheDir(),
         Matchers.equalTo(Paths.get("cache_dir_name1").toAbsolutePath()));
     assertThat(
         name1Entry.getCacheReadMode(),
-        Matchers.equalTo(ArtifactCacheBuckConfig.CacheReadMode.readwrite));
+        Matchers.equalTo(CacheReadMode.READWRITE));
     assertThat(
         name1Entry.getMaxSizeBytes(),
         Matchers.equalTo(Optional.of(1022L)));
@@ -215,7 +216,7 @@ public class ArtifactCacheBuckConfigTest {
         Matchers.equalTo(Paths.get("othername_dir_cache").toAbsolutePath()));
     assertThat(
         othernameDirCche.getCacheReadMode(),
-        Matchers.equalTo(ArtifactCacheBuckConfig.CacheReadMode.readonly));
+        Matchers.equalTo(CacheReadMode.READONLY));
     assertThat(
         othernameDirCche.getMaxSizeBytes(),
         Matchers.equalTo(Optional.of(800L)));
@@ -227,7 +228,7 @@ public class ArtifactCacheBuckConfigTest {
         "[cache]",
         "http_url = notaurl");
 
-    config.getHttpCaches();
+    config.getCacheEntries().getHttpCacheEntries();
   }
 
   @Test(expected = HumanReadableException.class)
@@ -236,7 +237,7 @@ public class ArtifactCacheBuckConfigTest {
         "[cache]",
         "dir_mode = notamode");
 
-    config.getDirCacheEntries().get(0);
+    config.getCacheEntries().getDirCacheEntries();
   }
 
   @Test
@@ -260,7 +261,7 @@ public class ArtifactCacheBuckConfigTest {
                 DirCacheEntry.builder()
                     .setMaxSizeBytes(Optional.empty())
                     .setCacheDir(cacheDir)
-                    .setCacheReadMode(ArtifactCacheBuckConfig.CacheReadMode.readonly)
+                    .setCacheReadMode(CacheReadMode.READONLY)
                     .build())));
 
     config = createFromText(
@@ -275,7 +276,7 @@ public class ArtifactCacheBuckConfigTest {
                 DirCacheEntry.builder()
                     .setMaxSizeBytes(Optional.of(42L))
                     .setCacheDir(cacheDir)
-                    .setCacheReadMode(ArtifactCacheBuckConfig.CacheReadMode.readonly)
+                    .setCacheReadMode(CacheReadMode.READONLY)
                     .build())));
   }
 
@@ -293,7 +294,7 @@ public class ArtifactCacheBuckConfigTest {
                 DirCacheEntry.builder()
                     .setMaxSizeBytes(Optional.empty())
                     .setCacheDir(cacheDir)
-                    .setCacheReadMode(ArtifactCacheBuckConfig.CacheReadMode.readwrite)
+                    .setCacheReadMode(CacheReadMode.READWRITE)
                     .build())));
   }
 
@@ -304,7 +305,7 @@ public class ArtifactCacheBuckConfigTest {
         "dir = ~/cache_dir");
     assertThat(
         "User home cache directory must be expanded.",
-        config.getDirCacheEntries().get(0).getCacheDir(),
+        config.getCacheEntries().getDirCacheEntries().stream().findFirst().get().getCacheDir(),
         Matchers.equalTo(MorePaths.expandHomeDir(Paths.get("~/cache_dir"))));
   }
 
@@ -326,19 +327,20 @@ public class ArtifactCacheBuckConfigTest {
         "[cache#ignoreme]",
         "http_url = http://ignored.com/");
 
-    assertThat(config.getHttpCaches(), Matchers.hasSize(2));
+    ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
+    assertThat(httpCacheEntries, Matchers.hasSize(2));
 
-    HttpCacheEntry bobCache = FluentIterable.from(config.getHttpCaches()).get(0);
+    HttpCacheEntry bobCache = FluentIterable.from(httpCacheEntries).get(0);
     assertThat(bobCache.getUrl(), Matchers.equalTo(URI.create("http://bob.com/")));
     assertThat(bobCache.getCacheReadMode(), Matchers.equalTo(
-            ArtifactCacheBuckConfig.CacheReadMode.readwrite));
+            CacheReadMode.READWRITE));
     assertThat(bobCache.getTimeoutSeconds(), Matchers.is(3));
 
-    HttpCacheEntry fredCache = FluentIterable.from(config.getHttpCaches()).get(1);
+    HttpCacheEntry fredCache = FluentIterable.from(httpCacheEntries).get(1);
     assertThat(fredCache.getUrl(), Matchers.equalTo(URI.create("http://fred.com/")));
     assertThat(fredCache.getTimeoutSeconds(), Matchers.is(42));
     assertThat(fredCache.getCacheReadMode(), Matchers.equalTo(
-            ArtifactCacheBuckConfig.CacheReadMode.readonly));
+            CacheReadMode.READONLY));
     assertThat(fredCache.isWifiUsableForDistributedCache(Optional.of("wsad")), Matchers.is(true));
     assertThat(fredCache.isWifiUsableForDistributedCache(Optional.of("yolo")), Matchers.is(false));
   }
@@ -353,16 +355,17 @@ public class ArtifactCacheBuckConfigTest {
         "[cache#bob]",
         "http_url = http://bob.com/");
 
-    assertThat(config.getHttpCaches(), Matchers.hasSize(2));
+    ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
+    assertThat(httpCacheEntries, Matchers.hasSize(2));
 
-    HttpCacheEntry legacyCache = FluentIterable.from(config.getHttpCaches()).get(0);
+    HttpCacheEntry legacyCache = FluentIterable.from(httpCacheEntries).get(0);
     assertThat(legacyCache.getUrl(), Matchers.equalTo(URI.create("http://localhost:8080/")));
     assertThat(legacyCache.getTimeoutSeconds(), Matchers.is(42));
 
-    HttpCacheEntry bobCache = FluentIterable.from(config.getHttpCaches()).get(1);
+    HttpCacheEntry bobCache = FluentIterable.from(httpCacheEntries).get(1);
     assertThat(bobCache.getUrl(), Matchers.equalTo(URI.create("http://bob.com/")));
     assertThat(bobCache.getCacheReadMode(), Matchers.equalTo(
-            ArtifactCacheBuckConfig.CacheReadMode.readwrite));
+            CacheReadMode.READWRITE));
     assertThat(bobCache.getTimeoutSeconds(), Matchers.is(3));
   }
 
@@ -399,7 +402,8 @@ public class ArtifactCacheBuckConfigTest {
         "[cache]",
         "http_error_message_format = " + testText);
 
-    HttpCacheEntry cache = FluentIterable.from(config.getHttpCaches()).get(0);
+    ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
+    HttpCacheEntry cache = FluentIterable.from(httpCacheEntries).get(0);
     assertThat(cache.getErrorMessageFormat(), Matchers.equalTo(testText));
   }
 

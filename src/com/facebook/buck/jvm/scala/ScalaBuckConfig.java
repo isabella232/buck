@@ -95,4 +95,5 @@ public class ScalaBuckConfig {
     throw new HumanReadableException(
         "Could not find scalac. Consider setting scala.compiler or $SCALA_HOME.");
   }
+
 }

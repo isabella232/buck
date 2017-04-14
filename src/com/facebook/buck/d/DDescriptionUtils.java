@@ -28,7 +28,7 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -59,7 +59,7 @@ import java.util.TreeMap;
  */
 abstract class DDescriptionUtils {
 
-  public static final Flavor SOURCE_LINK_TREE = ImmutableFlavor.of("source-link-tree");
+  public static final Flavor SOURCE_LINK_TREE = InternalFlavor.of("source-link-tree");
 
   /**
    * Creates a BuildTarget, based on an existing build target, but flavored with a CxxPlatform
@@ -79,7 +79,7 @@ abstract class DDescriptionUtils {
     return BuildTarget.builder(existingTarget)
         .addFlavors(
             cxxPlatform.getFlavor(),
-            ImmutableFlavor.of(
+            InternalFlavor.of(
                 flavorPrefix + Flavor.replaceInvalidCharacters(fileName)))
         .build();
   }
@@ -159,7 +159,8 @@ abstract class DDescriptionUtils {
             buildTarget,
             "%s/" + buildTarget.getShortName()),
         Linker.LinkableDepType.STATIC,
-        FluentIterable.from(params.getDeps())
+        /* thinLto */ false,
+        FluentIterable.from(params.getBuildDeps())
             .filter(NativeLinkable.class),
         /* cxxRuntimeType */ Optional.empty(),
         /* bundleLoader */ Optional.empty(),
@@ -185,10 +186,8 @@ abstract class DDescriptionUtils {
       SourceList sources) {
     Preconditions.checkState(target.getFlavors().contains(SOURCE_LINK_TREE));
     return new SymlinkTree(
-        baseParams.copyWithChanges(
-            target,
-            Suppliers.ofInstance(ImmutableSortedSet.of()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        target,
+        baseParams.getProjectFilesystem(),
         BuildTargets.getGenPath(
             baseParams.getProjectFilesystem(),
             baseParams.getBuildTarget(),
@@ -210,7 +209,7 @@ abstract class DDescriptionUtils {
       public ImmutableSet<BuildRule> visit(BuildRule rule) {
         if (rule instanceof DLibrary) {
           libraries.put(rule.getBuildTarget(), (DLibrary) rule);
-          return rule.getDeps();
+          return rule.getBuildDeps();
         }
         return ImmutableSet.of();
       }
@@ -249,7 +248,7 @@ abstract class DDescriptionUtils {
       Map<BuildTarget, DIncludes> transitiveIncludes = new TreeMap<>();
       transitiveIncludes.put(baseParams.getBuildTarget(), includes);
       for (Map.Entry<BuildTarget, DLibrary> library :
-           getTransitiveDLibraryRules(baseParams.getDeps()).entrySet()) {
+           getTransitiveDLibraryRules(baseParams.getBuildDeps()).entrySet()) {
         transitiveIncludes.put(library.getKey(), library.getValue().getIncludes());
       }
 
@@ -263,10 +262,11 @@ abstract class DDescriptionUtils {
 
       return buildRuleResolver.addToIndex(
           new DCompileBuildRule(
-              baseParams.copyWithChanges(
-                  compileTarget,
-                  Suppliers.ofInstance(deps),
-                  Suppliers.ofInstance(ImmutableSortedSet.of())),
+              baseParams
+                  .withBuildTarget(compileTarget)
+                  .copyReplacingDeclaredAndExtraDeps(
+                      Suppliers.ofInstance(deps),
+                      Suppliers.ofInstance(ImmutableSortedSet.of())),
               compiler,
               ImmutableList.<String>builder()
                   .addAll(dBuckConfig.getBaseCompilerFlags())

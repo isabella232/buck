@@ -61,6 +61,7 @@ struct BuildSlaveInfo {
   6: optional i32 stdErrCurrentBatchNumber;
   7: optional i32 stdErrCurrentBatchLineCount;
   8: optional bool logDirZipWritten;
+  9: optional i32 exitCode;
 }
 
 enum BuildStatus {
@@ -116,8 +117,6 @@ enum LogRequestType {
   SCRIBE_DATA = 1,
 }
 
-
-
 struct PathInfo {
   1: optional string contentHash;
   2: optional string path;
@@ -152,6 +151,35 @@ struct BuildJob {
 struct Announcement {
   1: optional string errorMessage;
   2: optional string solutionMessage;
+}
+
+##############################################################################
+## Build slave structs
+##############################################################################
+
+# See build_slave.thrift in Buck client for individual event thrift structs.
+struct SequencedBuildSlaveEvent {
+  1: optional i32 eventNumber;
+  2: optional binary event;
+}
+
+# Queries for all events with event number great than or equal to
+# firstEventNumber, for build that took place at the slave identified
+# by stampedeId/runId.
+struct BuildSlaveEventsQuery {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+  3: optional i32 firstEventNumber;
+}
+
+# The result of a BuildSlaveEventsQuery (contained as 'query' for reference).
+# If success == true, events contains the result of the query, otherwise
+# errorMessage contains an error string.
+struct BuildSlaveEventsRange {
+  1: optional bool success;
+  2: optional string errorMessage;
+  3: optional BuildSlaveEventsQuery query;
+  4: optional list<SequencedBuildSlaveEvent> events;
 }
 
 ##############################################################################
@@ -279,6 +307,48 @@ struct AnnouncementResponse {
   1: optional list<Announcement> announcements;
 }
 
+struct UpdateBuildSlaveStatusRequest {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+  3: optional binary buildSlaveStatus;
+}
+
+struct UpdateBuildSlaveStatusResponse {
+}
+
+# Retrieves binary encoded build slave status for the given runId.
+# Structure of build status can be found in client-side build_slave.thrift.
+struct FetchBuildSlaveStatusRequest {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+}
+
+struct FetchBuildSlaveStatusResponse {
+  # If the status existed, it will be set here. Otherwise field left unset
+  1: optional binary buildSlaveStatus;
+}
+
+# Used by build slaves to stream events (e.g. console events) back to the
+# client that initiated the distributed build.
+struct AppendBuildSlaveEventsRequest {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+  3: optional list<binary> events;
+}
+
+struct AppendBuildSlaveEventsResponse {
+}
+
+# Requests the frontend perform the given BuildSlaveEventsQuery queries.
+# Results are returned inside a MultiGetBuildSlaveEventsResponse.
+struct MultiGetBuildSlaveEventsRequest {
+  1: optional list<BuildSlaveEventsQuery> requests;
+}
+
+struct MultiGetBuildSlaveEventsResponse {
+  1: optional list<BuildSlaveEventsRange> responses;
+}
+
 ##############################################################################
 ## Top-Level Buck-Frontend HTTP body thrift Request/Response format
 ##############################################################################
@@ -300,6 +370,10 @@ enum FrontendRequestType {
   SET_DOTFILE_PATHS = 14,
   GET_BUILD_SLAVE_LOG_DIR = 15,
   GET_BUILD_SLAVE_REAL_TIME_LOGS = 16,
+  UPDATE_BUILD_SLAVE_STATUS = 17,
+  FETCH_BUILD_SLAVE_STATUS = 18,
+  APPEND_BUILD_SLAVE_EVENTS = 19,
+  MULTI_GET_BUILD_SLAVE_EVENTS = 20,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -321,6 +395,10 @@ struct FrontendRequest {
   16: optional MultiGetBuildSlaveLogDirRequest multiGetBuildSlaveLogDirRequest;
   17: optional
     MultiGetBuildSlaveRealTimeLogsRequest multiGetBuildSlaveRealTimeLogsRequest;
+  18: optional UpdateBuildSlaveStatusRequest updateBuildSlaveStatusRequest;
+  19: optional FetchBuildSlaveStatusRequest fetchBuildSlaveStatusRequest;
+  20: optional AppendBuildSlaveEventsRequest appendBuildSlaveEventsRequest;
+  21: optional MultiGetBuildSlaveEventsRequest multiGetBuildSlaveEventsRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -341,6 +419,11 @@ struct FrontendResponse {
     multiGetBuildSlaveLogDirResponse;
   21: optional MultiGetBuildSlaveRealTimeLogsResponse
     multiGetBuildSlaveRealTimeLogsResponse;
+  22: optional UpdateBuildSlaveStatusResponse updateBuildSlaveStatusResponse;
+  23: optional FetchBuildSlaveStatusResponse fetchBuildSlaveStatusResponse;
+  24: optional AppendBuildSlaveEventsResponse appendBuildSlaveEventsResponse;
+  25: optional MultiGetBuildSlaveEventsResponse
+    multiGetBuildSlaveEventsResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

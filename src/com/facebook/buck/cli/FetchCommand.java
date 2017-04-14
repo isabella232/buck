@@ -37,7 +37,7 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
-import com.facebook.buck.rules.keys.RuleKeyFactoryManager;
+import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.versions.VersionException;
@@ -114,30 +114,31 @@ public class FetchCommand extends BuildCommand {
                    new RuleKeyCacheRecycler.SettingsAffectingCache(
                        params.getBuckConfig().getKeySeed(),
                        actionGraphAndResolver.getActionGraph()));
+           CachingBuildEngine buildEngine = new CachingBuildEngine(
+               localCachingBuildEngineDelegate,
+               pool.getExecutor(),
+               pool.getExecutor(),
+               new DefaultStepRunner(),
+               getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
+               cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
+               cachingBuildEngineBuckConfig.getBuildDepFiles(),
+               cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+               cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
+               actionGraphAndResolver.getResolver(),
+               cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+               RuleKeyFactories.of(
+                   params.getBuckConfig().getKeySeed(),
+                   localCachingBuildEngineDelegate.getFileHashCache(),
+                   actionGraphAndResolver.getResolver(),
+                   cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                   ruleKeyCacheScope.getCache()));
            Build build = createBuild(
                params.getBuckConfig(),
                actionGraphAndResolver.getActionGraph(),
                actionGraphAndResolver.getResolver(),
                params.getCell(),
                params.getAndroidPlatformTargetSupplier(),
-               new CachingBuildEngine(
-                   localCachingBuildEngineDelegate,
-                   pool.getExecutor(),
-                   pool.getExecutor(),
-                   new DefaultStepRunner(),
-                   getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
-                   cachingBuildEngineBuckConfig.getBuildDepFiles(),
-                   cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-                   cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-                   params.getObjectMapper(),
-                   actionGraphAndResolver.getResolver(),
-                   cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
-                   new RuleKeyFactoryManager(
-                       params.getBuckConfig().getKeySeed(),
-                       localCachingBuildEngineDelegate.createFileHashCacheLoader()::getUnchecked,
-                       actionGraphAndResolver.getResolver(),
-                       cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                       ruleKeyCacheScope.getCache())),
+               buildEngine,
                params.getArtifactCacheFactory().newInstance(),
                params.getConsole(),
                params.getBuckEventBus(),
@@ -145,7 +146,6 @@ public class FetchCommand extends BuildCommand {
                params.getPersistentWorkerPools(),
                params.getPlatform(),
                params.getEnvironment(),
-               params.getObjectMapper(),
                params.getClock(),
                Optional.empty(),
                Optional.empty(),

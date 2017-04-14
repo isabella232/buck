@@ -19,7 +19,6 @@ package com.facebook.buck.cli;
 import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigSetup;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -63,7 +62,6 @@ public abstract class AbstractCommand implements Command {
   private static final String OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG = "--output-test-events-to-file";
   private static final String PROFILE_PARSER_LONG_ARG = "--profile-buck-parser";
   private static final String NUM_THREADS_LONG_ARG = "--num-threads";
-  private static final String LOAD_LIMIT_LONG_ARG = "--load-limit";
 
   /**
    * This value should never be read. {@link VerbosityParser} should be used instead.
@@ -81,13 +79,6 @@ public abstract class AbstractCommand implements Command {
   @Nullable
   private Integer numThreads = null;
 
-  @Nullable
-  @Option(name = LOAD_LIMIT_LONG_ARG,
-      aliases = "-L",
-      usage = "[Float] Do not start new jobs when system load is above this level." +
-          " See uptime(1).")
-  private Double loadLimit = null;
-
   @Option(
       name = "--config",
       aliases = {"-c"},
@@ -101,7 +92,7 @@ public abstract class AbstractCommand implements Command {
     // Parse command-line config overrides.
     for (Map.Entry<String, String> entry : configOverrides.entrySet()) {
       List<String> key = Splitter.on("//").limit(2).splitToList(entry.getKey());
-      RelativeCellName cellName = RelativeCellName.ROOT_CELL_NAME;
+      RelativeCellName cellName = RelativeCellName.ALL_CELLS_SPECIAL_NAME;
       String configKey = key.get(0);
       if (key.size() == 2) {
         // Here we explicitly take the whole string as the cell name. We don't support transitive
@@ -142,10 +133,14 @@ public abstract class AbstractCommand implements Command {
       builder.put(cellName, section, field, value);
     }
     if (numThreads != null) {
-      builder.put(CellConfig.ALL_CELLS_OVERRIDE, "build", "threads", String.valueOf(numThreads));
+      builder.put(
+          RelativeCellName.ALL_CELLS_SPECIAL_NAME,
+          "build",
+          "threads",
+          String.valueOf(numThreads));
     }
     if (noCache) {
-      builder.put(CellConfig.ALL_CELLS_OVERRIDE, "cache", "mode", "");
+      builder.put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
     }
 
     return builder.build();
@@ -284,20 +279,14 @@ public abstract class AbstractCommand implements Command {
         .setPlatform(params.getPlatform())
         .setEnvironment(params.getEnvironment())
         .setJavaPackageFinder(params.getJavaPackageFinder())
-        .setObjectMapper(params.getObjectMapper())
         .setExecutors(params.getExecutors())
         .setCellPathResolver(params.getCell().getCellPathResolver())
         .build();
   }
 
-  public double getLoadLimit(BuckConfig buckConfig) {
-    return this.loadLimit == null ? buckConfig.getLoadLimit() : this.loadLimit;
-  }
-
   public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
     return new ConcurrencyLimit(
         buckConfig.getNumThreads(),
-        getLoadLimit(buckConfig),
         buckConfig.getResourceAllocationFairness(),
         buckConfig.getManagedThreadCount(),
         buckConfig.getDefaultResourceAmounts(),
@@ -313,10 +302,6 @@ public abstract class AbstractCommand implements Command {
     if (numThreads != null) {
       builder.add(NUM_THREADS_LONG_ARG);
       builder.add(numThreads.toString());
-    }
-    if (loadLimit != null) {
-      builder.add(LOAD_LIMIT_LONG_ARG);
-      builder.add(loadLimit.toString());
     }
     if (noCache) {
       builder.add(NO_CACHE_LONG_ARG);
@@ -348,9 +333,7 @@ public abstract class AbstractCommand implements Command {
   }
 
   @Override
-  public Iterable<BuckEventListener> getEventListeners(
-      Path logDirectoryPath,
-      ProjectFilesystem filesystem) {
+  public Iterable<BuckEventListener> getEventListeners() {
     return ImmutableList.of();
   }
 

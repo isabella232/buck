@@ -16,25 +16,25 @@
 
 package com.facebook.buck.js;
 
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.nio.file.Path;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-public class JsBundle extends AbstractBuildRule {
+public class JsBundle extends AbstractBuildRule implements JsBundleOutputs {
 
   @AddToRuleKey
   private final String bundleName;
@@ -61,38 +61,64 @@ public class JsBundle extends AbstractBuildRule {
     this.worker = worker;
   }
 
-
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
     final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
-    final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
+    final SourcePath jsOutputDir = getSourcePathToOutput();
+    final SourcePath sourceMapFile = getSourcePathToSourceMap();
+    final SourcePath resourcesDir = getSourcePathToResources();
 
-    String jobArgs = String.format(
-        "bundle %s --out %s %s",
-        JsUtil.resolveMapJoin(libraries, sourcePathResolver, p -> "--lib " + p),
-        outputPath,
-        String.join(" ", entryPoints));
-    return ImmutableList.of(
-        new RmStep(
-            getProjectFilesystem(),
-            outputPath),
-        JsUtil.workerShellStep(
-            worker,
-            jobArgs,
-            getBuildTarget(),
-            sourcePathResolver,
-            getProjectFilesystem()));
+    this.getProjectFilesystem().getRootPath();
+
+    String jobArgs = Stream.concat(
+        Stream.of(
+            "bundle",
+            JsFlavors.bundleJobArgs(getBuildTarget().getFlavors()),
+            JsUtil.resolveMapJoin(libraries, sourcePathResolver, p -> "--lib " + p),
+            String.format(
+                "--root %s --sourcemap %s --assets %s --out %s/%s",
+                getProjectFilesystem().getRootPath(),
+                sourcePathResolver.getAbsolutePath(sourceMapFile),
+                sourcePathResolver.getAbsolutePath(resourcesDir),
+                sourcePathResolver.getAbsolutePath(jsOutputDir),
+                bundleName)),
+        entryPoints.stream())
+        .filter(s -> !s.isEmpty())
+        .collect(Collectors.joining(" "));
+
+    buildableContext.recordArtifact(sourcePathResolver.getRelativePath(jsOutputDir));
+    buildableContext.recordArtifact(sourcePathResolver.getRelativePath(sourceMapFile));
+    buildableContext.recordArtifact(sourcePathResolver.getRelativePath(resourcesDir));
+
+    return ImmutableList.<Step>builder()
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                getProjectFilesystem(),
+                sourcePathResolver.getRelativePath(
+                    JsUtil.relativeToOutputRoot(getBuildTarget(), getProjectFilesystem(), ""))))
+        .add(
+            MkdirStep.of(
+                getProjectFilesystem(),
+                sourcePathResolver.getAbsolutePath(jsOutputDir)),
+            MkdirStep.of(
+                getProjectFilesystem(),
+                sourcePathResolver.getAbsolutePath(sourceMapFile).getParent()),
+            MkdirStep.of(
+                getProjectFilesystem(),
+                sourcePathResolver.getAbsolutePath(resourcesDir)),
+            JsUtil.workerShellStep(
+                worker,
+                jobArgs,
+                getBuildTarget(),
+                sourcePathResolver,
+                getProjectFilesystem()))
+        .build();
   }
 
   @Override
-  public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(
-        getBuildTarget(),
-        BuildTargets.getGenPath(
-            getProjectFilesystem(),
-            getBuildTarget(),
-            "%s/" + bundleName));
+  public String getBundleName() {
+    return bundleName;
   }
 }

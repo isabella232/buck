@@ -24,15 +24,16 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -80,11 +81,15 @@ public class AndroidResourceDescription
 
   @VisibleForTesting
   static final Flavor RESOURCES_SYMLINK_TREE_FLAVOR =
-      ImmutableFlavor.of("resources-symlink-tree");
+      InternalFlavor.of("resources-symlink-tree");
 
   @VisibleForTesting
   static final Flavor ASSETS_SYMLINK_TREE_FLAVOR =
-      ImmutableFlavor.of("assets-symlink-tree");
+      InternalFlavor.of("assets-symlink-tree");
+
+  public static final Flavor AAPT2_COMPILE_FLAVOR =
+      InternalFlavor.of("aapt2_compile");
+
 
   public AndroidResourceDescription(boolean enableGrayscaleImageProcessing) {
     isGrayscaleImageProcessingEnabled = enableGrayscaleImageProcessing;
@@ -95,16 +100,19 @@ public class AndroidResourceDescription
     return new Arg();
   }
 
+  @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    if (params.getBuildTarget().getFlavors().contains(RESOURCES_SYMLINK_TREE_FLAVOR)) {
+    ImmutableSortedSet<Flavor> flavors = params.getBuildTarget().getFlavors();
+    if (flavors.contains(RESOURCES_SYMLINK_TREE_FLAVOR)) {
       return createSymlinkTree(ruleFinder, params, args.res, "res");
-    } else if (params.getBuildTarget().getFlavors().contains(ASSETS_SYMLINK_TREE_FLAVOR)) {
+    } else if (flavors.contains(ASSETS_SYMLINK_TREE_FLAVOR)) {
       return createSymlinkTree(ruleFinder, params, args.assets, "assets");
     }
 
@@ -136,7 +144,22 @@ public class AndroidResourceDescription
             ASSETS_SYMLINK_TREE_FLAVOR,
             args.assets);
 
-    params = params.appendExtraDeps(
+    if (flavors.contains(AAPT2_COMPILE_FLAVOR)) {
+      Optional<SourcePath> resDir = resInputs.getSecond();
+      Preconditions.checkArgument(
+          resDir.isPresent(),
+          "Tried to require rule %s, but no resource dir is preset.",
+          params.getBuildTarget());
+      params = params.copyReplacingDeclaredAndExtraDeps(
+          Suppliers.ofInstance(
+              ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(resDir.get()))),
+          Suppliers.ofInstance(ImmutableSortedSet.of()));
+      return new Aapt2Compile(
+          params,
+          resDir.get());
+    }
+
+    params = params.copyAppendingExtraDeps(
         Iterables.concat(
             resInputs.getSecond().map(ruleFinder::filterBuildRuleInputs)
                 .orElse(ImmutableSet.of()),
@@ -147,7 +170,7 @@ public class AndroidResourceDescription
         // We only propagate other AndroidResource rule dependencies, as these are
         // the only deps which should control whether we need to re-run the aapt_package
         // step.
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(
                 AndroidResourceHelper.androidResOnly(params.getDeclaredDeps().get())),
             params.getExtraDeps()),
@@ -175,7 +198,7 @@ public class AndroidResourceDescription
         // If our resources are coming from a `PathSourcePath`, we collect only the inputs we care
         // about and pass those in separately, so that that `AndroidResource` rule knows to only
         // hash these into it's rule key.
-        // TODO(k21): This is deprecated and should be disabled or removed.
+        // TODO(jakubzika): This is deprecated and should be disabled or removed.
         // Accessing the filesystem during rule creation is problematic because the accesses are
         // not cached or tracked in any way.
         Preconditions.checkArgument(
@@ -194,10 +217,12 @@ public class AndroidResourceDescription
         BuildTargets
             .getGenPath(params.getProjectFilesystem(), params.getBuildTarget(), "%s")
             .resolve(outputDirName);
-    params = params.copyWithDeps(
-        Suppliers.ofInstance(ImmutableSortedSet.of()),
-        Suppliers.ofInstance(ImmutableSortedSet.of()));
-    return new SymlinkTree(params, symlinkTreeRoot, links, ruleFinder);
+    return new SymlinkTree(
+        params.getBuildTarget(),
+        params.getProjectFilesystem(),
+        symlinkTreeRoot,
+        links,
+        ruleFinder);
   }
 
   public static Optional<SourcePath> getResDirectoryForProject(
@@ -274,7 +299,7 @@ public class AndroidResourceDescription
         return new Pair<>(Optional.empty(), Optional.of(inputSourcePath));
       }
     }
-    BuildTarget symlinkTreeTarget = resourceRuleTarget.withAppendedFlavors(symlinkTreeFlavor);
+    BuildTarget symlinkTreeTarget = resourceRuleTarget.withFlavors(symlinkTreeFlavor);
     SymlinkTree symlinkTree;
     try {
       symlinkTree = (SymlinkTree) ruleResolver.requireRule(symlinkTreeTarget);
@@ -366,7 +391,8 @@ public class AndroidResourceDescription
     if (flavors.size() == 1) {
       Flavor flavor = flavors.iterator().next();
       if (flavor.equals(RESOURCES_SYMLINK_TREE_FLAVOR) ||
-          flavor.equals(ASSETS_SYMLINK_TREE_FLAVOR)) {
+          flavor.equals(ASSETS_SYMLINK_TREE_FLAVOR) ||
+          flavor.equals(AAPT2_COMPILE_FLAVOR)) {
         return true;
       }
     }

@@ -46,11 +46,11 @@ public class TargetGraphFactory {
     MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
     for (TargetNode<?, ?> node : map.values()) {
       graph.addNode(node);
-      for (BuildTarget dep : node.getDeps()) {
+      for (BuildTarget dep : node.getBuildDeps()) {
         graph.addEdge(node, Preconditions.checkNotNull(map.get(dep), dep));
       }
     }
-    return new TargetGraph(graph, map, ImmutableSet.of());
+    return new TargetGraph(graph, map);
   }
 
   public static TargetGraph newInstance(TargetNode<?, ?>... nodes) {

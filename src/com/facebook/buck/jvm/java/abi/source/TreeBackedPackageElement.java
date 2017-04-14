@@ -16,19 +16,17 @@
 
 package com.facebook.buck.jvm.java.abi.source;
 
-import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.sun.source.tree.ModifiersTree;
 
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.Name;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.TypeMirror;
 
 /**
  * An implementation of {@link TypeElement} that uses only the information available from one or
@@ -37,19 +35,16 @@ import javax.lang.model.type.TypeMirror;
  * {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
 class TreeBackedPackageElement extends TreeBackedElement implements PackageElement {
-  private final Name qualifiedName;
-  @Nullable
   private final PackageElement javacPackage;
+  private final StandalonePackageType typeMirror;
   private boolean resolved = false;
 
   public TreeBackedPackageElement(
-      Name simpleName,
-      Name qualifiedName,
-      @Nullable PackageElement javacPackage,
-      TypeResolverFactory resolverFactory) {
-    super(ElementKind.PACKAGE, simpleName, null, resolverFactory);
-    this.qualifiedName = qualifiedName;
+      PackageElement javacPackage,
+      TreeBackedElementResolver resolver) {
+    super(javacPackage, null, null, resolver);
     this.javacPackage = javacPackage;
+    typeMirror = resolver.createType(this);
   }
 
   @Override
@@ -76,8 +71,8 @@ class TreeBackedPackageElement extends TreeBackedElement implements PackageEleme
 
       for (Element element : javacPackage.getEnclosedElements()) {
         if (enclosedElementNames.contains(element.getSimpleName())) {
-          throw new AssertionError(
-              String.format("Didn't expect javac to have an element for %s", element));
+          // This was already added when parsing the tree-backed elements
+          continue;
         }
 
         addEnclosedElement(element);
@@ -89,30 +84,26 @@ class TreeBackedPackageElement extends TreeBackedElement implements PackageEleme
 
   @Override
   public Name getQualifiedName() {
-    return this.qualifiedName;
+    return javacPackage.getQualifiedName();
   }
 
   @Override
   public boolean isUnnamed() {
-    return getSimpleName().contentEquals("") && getQualifiedName().contentEquals("");
+    return javacPackage.isUnnamed();
   }
 
   @Override
-  public TypeMirror asType() {
+  public StandalonePackageType asType() {
+    return typeMirror;
+  }
+
+  @Override
+  protected ModifiersTree getModifiersTree() {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public <R, P> R accept(ElementVisitor<R, P> v, P p) {
     return v.visitPackage(this, p);
-  }
-
-  @Override
-  public String toString() {
-    if (isUnnamed()) {
-      return "unnamed package";
-    }
-
-    return getQualifiedName().toString();
   }
 }

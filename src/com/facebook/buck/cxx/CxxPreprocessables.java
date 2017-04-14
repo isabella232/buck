@@ -17,10 +17,11 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,14 +32,12 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.base.Suppliers;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 
@@ -76,7 +75,7 @@ public class CxxPreprocessables {
 
     HeaderMode() {
       this.flavor =
-          ImmutableFlavor.of(
+          InternalFlavor.of(
               String.format(
                   "%s-%s",
                   CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_HYPHEN, getClass().getSimpleName()),
@@ -173,7 +172,7 @@ public class CxxPreprocessables {
                   HeaderVisibility.PUBLIC));
           return ImmutableSet.of();
         }
-        return traverse.apply(rule) ? rule.getDeps() : ImmutableSet.of();
+        return traverse.apply(rule) ? rule.getBuildDeps() : ImmutableSet.of();
       }
     }.start();
 
@@ -197,35 +196,31 @@ public class CxxPreprocessables {
    */
   public static HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
       BuildTarget target,
-      BuildRuleParams params,
+      ProjectFilesystem filesystem,
       Path root,
       ImmutableMap<Path, SourcePath> links,
       HeaderMode headerMode,
       SourcePathRuleFinder ruleFinder) {
-    // Symlink trees never need to depend on anything.
-    BuildRuleParams paramsWithoutDeps =
-        params.copyWithChanges(
-            target,
-            Suppliers.ofInstance(ImmutableSortedSet.of()),
-            Suppliers.ofInstance(ImmutableSortedSet.of()));
-
     switch (headerMode) {
       case SYMLINK_TREE_WITH_HEADER_MAP:
         return HeaderSymlinkTreeWithHeaderMap.create(
-            paramsWithoutDeps,
+            target,
+            filesystem,
             root,
             links,
             ruleFinder);
       case HEADER_MAP_ONLY:
         return new DirectHeaderMap(
-            paramsWithoutDeps,
+            target,
+            filesystem,
             root,
             links,
             ruleFinder);
       default:
       case SYMLINK_TREE_ONLY:
         return new HeaderSymlinkTree(
-            paramsWithoutDeps,
+            target,
+            filesystem,
             root,
             links,
             ruleFinder);
@@ -259,31 +254,6 @@ public class CxxPreprocessables {
     HeaderSymlinkTree symlinkTree = (HeaderSymlinkTree) rule;
     builder.addIncludes(CxxSymlinkTreeHeaders.from(symlinkTree, includeType));
     return builder;
-  }
-
-  /**
-   * @return The BuildRule corresponding to the exported (public) header symlink
-   * tree for the provided target.
-   */
-  public static HeaderSymlinkTree requireHeaderSymlinkTreeForLibraryTarget(
-      BuildRuleResolver ruleResolver,
-      BuildTarget libraryBuildTarget,
-      Flavor platformFlavor) {
-    BuildRule rule;
-    try {
-      rule = ruleResolver.requireRule(
-          BuildTarget.builder(libraryBuildTarget)
-              .addFlavors(
-                  platformFlavor,
-                  CxxDescriptionEnhancer.getHeaderSymlinkTreeFlavor(HeaderVisibility.PUBLIC))
-              .build());
-    } catch (NoSuchBuildTargetException e) {
-      // This shouldn't happen; if a library rule exists, its header symlink tree rule
-      // should exist.
-      throw new IllegalStateException(e);
-    }
-    Preconditions.checkState(rule instanceof HeaderSymlinkTree);
-    return (HeaderSymlinkTree) rule;
   }
 
   /**

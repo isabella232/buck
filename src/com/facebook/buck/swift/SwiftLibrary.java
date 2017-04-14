@@ -26,7 +26,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
@@ -110,7 +109,7 @@ class SwiftLibrary
 
   @Override
   public Iterable<NativeLinkable> getNativeLinkableDeps() {
-    // TODO(bhamiltoncx, ryu2): Use pseudo targets to represent the Swift
+    // TODO(beng, markwang): Use pseudo targets to represent the Swift
     // runtime library's linker args here so NativeLinkables can
     // deduplicate the linker flags on the build target (which would be the same for
     // all libraries).
@@ -252,16 +251,10 @@ class SwiftLibrary
 
   @Override
   public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
-    return getDeps().stream()
+    return getBuildDeps().stream()
         .filter(CxxPreprocessorDep.class::isInstance)
         .map(CxxPreprocessorDep.class::cast)
         .collect(MoreCollectors.toImmutableSet());
-  }
-
-  @Override
-  public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(
-      CxxPlatform cxxPlatform) {
-    return Optional.empty();
   }
 
   @Override

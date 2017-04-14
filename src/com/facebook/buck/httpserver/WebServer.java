@@ -19,10 +19,8 @@ package com.facebook.buck.httpserver;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.trace.BuildTraces;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Maps;
 
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Handler;
@@ -34,6 +32,7 @@ import org.eclipse.jetty.server.handler.ResourceHandler;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -74,13 +73,12 @@ public class WebServer {
   public WebServer(
       int port,
       ProjectFilesystem projectFilesystem,
-      String staticContentDirectory,
-      ObjectMapper objectMapper) {
+      String staticContentDirectory) {
     this.projectFilesystem = projectFilesystem;
     this.staticContentDirectory = staticContentDirectory;
     this.port = Optional.empty();
     this.server = new Server(port);
-    this.streamingWebSocketServlet = new StreamingWebSocketServlet(objectMapper);
+    this.streamingWebSocketServlet = new StreamingWebSocketServlet();
     this.artifactCacheHandler = new ArtifactCacheHandler(projectFilesystem);
   }
 
@@ -135,7 +133,7 @@ public class WebServer {
 
   @VisibleForTesting
   ImmutableList<ContextHandler> createHandlers() {
-    Map<String, Handler> contextPathToHandler = Maps.newHashMap();
+    Map<String, Handler> contextPathToHandler = new HashMap<>();
 
     contextPathToHandler.put(INDEX_CONTEXT_PATH, new TemplateHandler(new IndexHandlerDelegate()));
 

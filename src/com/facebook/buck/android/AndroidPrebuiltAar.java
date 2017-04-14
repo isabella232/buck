@@ -17,6 +17,7 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.model.BuildTarget;
@@ -28,7 +29,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
@@ -55,20 +55,22 @@ public class AndroidPrebuiltAar
       Iterable<PrebuiltJar> exportedDeps,
       ImmutableSortedSet<SourcePath> abiInputs) {
     super(
-        androidLibraryParams,
+        androidLibraryParams.copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(abiInputs)),
         resolver,
         ruleFinder,
         /* srcs */ ImmutableSortedSet.of(),
         /* resources */ ImmutableSortedSet.of(),
         Optional.of(proguardConfig),
         /* postprocessClassesCommands */ ImmutableList.of(),
-        /* deps */ ImmutableSortedSet.<BuildRule>naturalOrder()
+        /* declaredDeps */ androidLibraryParams.getDeclaredDeps().get(),
+        /* exportedDeps */ ImmutableSortedSet.<BuildRule>naturalOrder()
             .add(prebuiltJar)
             .addAll(exportedDeps)
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
+        /* compileTimeClasspathDeps */ ImmutableSortedSet.of(prebuiltJar.getSourcePathToOutput()),
         abiInputs,
-        /* additionalClasspathEntries */ ImmutableSet.of(),
+        HasJavaAbi.getClassAbiJar(androidLibraryParams.getBuildTarget()),
         javacOptions,
         /* trackClassUsage */ false,
         compileStepFactory,

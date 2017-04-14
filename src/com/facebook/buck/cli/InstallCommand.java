@@ -66,7 +66,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListeningExecutorService;
 
 import org.kohsuke.args4j.Option;
@@ -74,6 +73,7 @@ import org.kohsuke.args4j.Option;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -127,7 +127,7 @@ public class InstallCommand extends BuildCommand {
       usage = "Arguments passed when running with -r. Only valid for Apple targets.",
       handler = ConsumeAllOptionsHandler.class,
       depends = "-r")
-  private List<String> runArgs = Lists.newArrayList();
+  private List<String> runArgs = new ArrayList<>();
 
   @Option(
       name = RUN_LONG_ARG,
@@ -294,7 +294,7 @@ public class InstallCommand extends BuildCommand {
     ImmutableSet.Builder<String> installHelperTargets = ImmutableSet.builder();
     for (int index = 0; index < getArguments().size(); index++) {
 
-      // TODO(ryu2): Cache argument parsing
+      // TODO(markwang): Cache argument parsing
         TargetNodeSpec spec = parseArgumentsAsTargetNodeSpecs(
             params.getBuckConfig(),
             getArguments()).get(index);
@@ -326,7 +326,7 @@ public class InstallCommand extends BuildCommand {
                 .equals(Description.getBuildRuleType(AppleBundleDescription.class))) {
           for (Flavor flavor : node.getBuildTarget().getFlavors()) {
             if (ApplePlatform.needsInstallHelper(flavor.getName())) {
-              AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
+              AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
               Optional<BuildTarget> deviceHelperTarget = appleConfig.getAppleDeviceHelperTarget();
               Optionals.addIfPresent(
@@ -407,8 +407,7 @@ public class InstallCommand extends BuildCommand {
       ProcessExecutor processExecutor,
       SourcePathResolver pathResolver)
       throws IOException, NoSuchBuildTargetException {
-    // TODO(bhamiltoncx): This should be shared with the build and passed down.
-    AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
+    AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
     final Path helperPath;
     Optional<BuildTarget> helperTarget = appleConfig.getAppleDeviceHelperTarget();
@@ -540,8 +539,7 @@ public class InstallCommand extends BuildCommand {
       ProjectFilesystem projectFilesystem,
       ProcessExecutor processExecutor) throws IOException, InterruptedException {
 
-    // TODO(bhamiltoncx): This should be shared with the build and passed down.
-    AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());
+    AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
     Optional<Path> xcodeDeveloperPath = appleConfig.getAppleDeveloperDirectorySupplier(
         processExecutor).get();
     if (!xcodeDeveloperPath.isPresent()) {

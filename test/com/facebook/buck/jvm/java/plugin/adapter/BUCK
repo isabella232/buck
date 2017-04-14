@@ -1,10 +1,29 @@
-java_test(
-  name = 'adapter',
-  srcs = glob(['*.java']),
-  autodeps = True,
-  provided_deps = [
-  # Tools.jar is the compiler itself, and will already be present at runtime;
-  # we compile against a stub.
-    '//third-party/java/jdk:compiler-tree-api',
-  ],
+standard_java_test(
+    name = "adapter",
+    provided_deps = [
+        # Tools.jar is the compiler itself, and will already be present at runtime;
+        # we compile against a stub.
+        "//third-party/java/jdk:compiler-tree-api",
+    ],
+    deps = [
+        ":testutil",
+        "//src/com/facebook/buck/jvm/java/plugin/adapter:adapter",
+        "//test/com/facebook/buck/jvm/java/testutil:testutil",
+        "//third-party/java/asm:asm",
+        "//third-party/java/easymock:easymock",
+        "//third-party/java/guava:guava",
+        "//third-party/java/junit:junit",
+    ],
+)
+
+standard_java_testutil(
+    name = "testutil",
+    provided_deps = [
+        # Tools.jar is the compiler itself, and will already be present at runtime;
+        # we compile against a stub.
+        "//third-party/java/jdk:compiler-tree-api",
+    ],
+    deps = [
+        "//src/com/facebook/buck/jvm/java/plugin/adapter:adapter",
+    ],
 )

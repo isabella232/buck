@@ -1,9 +1,16 @@
 standard_java_library(
-  immutable_types = [
-    'AppleSimulator',
-    'AppleSimulatorProfile',
-  ],
-  tests = [
-    '//test/com/facebook/buck/apple/simulator:simulator',
-  ],
+    name = "simulator",
+    immutable_types = [
+        "AppleSimulator",
+        "AppleSimulatorProfile",
+    ],
+    tests = [
+        "//test/com/facebook/buck/apple/simulator:simulator",
+    ],
+    deps = [
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/util:io",
+        "//src/com/facebook/buck/util:process_executor",
+        "//third-party/java/dd-plist:dd-plist",
+    ],
 )

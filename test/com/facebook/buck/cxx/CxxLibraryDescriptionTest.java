@@ -69,6 +69,7 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
@@ -295,7 +296,7 @@ public class CxxLibraryDescriptionTest {
         ImmutableSet.of(
             cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactory.createCompileBuildTarget(genSourceName)),
-        archiveRule.getDeps().stream()
+        archiveRule.getBuildDeps().stream()
             .map(BuildRule::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet()));
 
@@ -570,7 +571,7 @@ public class CxxLibraryDescriptionTest {
         ImmutableSet.of(
             cxxSourceRuleFactoryPDC.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactoryPDC.createCompileBuildTarget(genSourceName)),
-        staticRule.getDeps().stream()
+        staticRule.getBuildDeps().stream()
             .map(BuildRule::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet()));
 
@@ -636,7 +637,7 @@ public class CxxLibraryDescriptionTest {
             sharedLibraryDepTarget,
             cxxSourceRuleFactoryPIC.createCompileBuildTarget("test/bar.cpp"),
             cxxSourceRuleFactoryPIC.createCompileBuildTarget(genSourceName)),
-        sharedRule.getDeps().stream()
+        sharedRule.getBuildDeps().stream()
             .map(BuildRule::getBuildTarget)
             .collect(MoreCollectors.toImmutableSet()));
 
@@ -796,7 +797,7 @@ public class CxxLibraryDescriptionTest {
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         hasItem(String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
     assertThat(
-        binary.getDeps(),
+        binary.getBuildDeps(),
         hasItem(dep));
   }
 
@@ -838,7 +839,7 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), hasItem(loc));
+    assertThat(lib.getBuildDeps(), hasItem(loc));
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     assertThat(
         Arg.stringify(lib.getArgs(), pathResolver),
@@ -890,7 +891,7 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), hasItem(loc));
+    assertThat(lib.getBuildDeps(), hasItem(loc));
     assertThat(
         Arg.stringify(lib.getArgs(), pathResolver),
         hasItem(
@@ -945,7 +946,7 @@ public class CxxLibraryDescriptionTest {
             filesystem,
             targetGraph);
 
-    assertThat(lib.getDeps(), not(hasItem(loc)));
+    assertThat(lib.getBuildDeps(), not(hasItem(loc)));
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     assertThat(
         Arg.stringify(lib.getArgs(), pathResolver),
@@ -1160,7 +1161,7 @@ public class CxxLibraryDescriptionTest {
         filesystem,
         targetGraph);
 
-    assertThat(lib.getDeps(), is(empty()));
+    assertThat(lib.getBuildDeps(), is(empty()));
     assertThat(
         lib.getBuildSteps(FakeBuildContext.NOOP_CONTEXT, new FakeBuildableContext()),
         is(empty()));
@@ -1461,6 +1462,94 @@ public class CxxLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
             CxxLibraryDescription.Type.STATIC.getFlavor()));
     verifySourcePaths(ruleResolver);
+  }
+
+  @Test
+  public void locationMacroFromCxxGenrule() throws Exception {
+    CxxGenruleBuilder srcBuilder =
+        new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:src"))
+            .setOut("linker.script");
+    CxxLibraryBuilder libraryBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo.cpp"))))
+            .setLinkerFlags(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format(
+                        "%s",
+                        LocationMacro.of(srcBuilder.getTarget()))));
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            srcBuilder.build(),
+            libraryBuilder.build());
+    BuildRuleResolver ruleResolver =
+        new BuildRuleResolver(
+            targetGraph,
+            new DefaultTargetNodeToBuildRuleTransformer());
+    ruleResolver.requireRule(
+        libraryBuilder.getTarget().withAppendedFlavors(
+            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+            CxxLibraryDescription.Type.SHARED.getFlavor()));
+    verifySourcePaths(ruleResolver);
+  }
+
+  @Test
+  public void platformDeps() throws Exception {
+    CxxLibraryBuilder depABuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep_a"), cxxBuckConfig);
+    CxxLibraryBuilder depBBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep_b"), cxxBuckConfig);
+    CxxLibraryBuilder cxxLibraryBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:rule"), cxxBuckConfig)
+            .setExportedPlatformDeps(
+                PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
+                    .add(
+                        Pattern.compile(CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString()),
+                        ImmutableSortedSet.of(depABuilder.getTarget()))
+                    .add(Pattern.compile("other"), ImmutableSortedSet.of(depBBuilder.getTarget()))
+                    .build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(
+            TargetGraphFactory.newInstance(
+                depABuilder.build(),
+                depBBuilder.build(),
+                cxxLibraryBuilder.build()),
+            new DefaultTargetNodeToBuildRuleTransformer());
+    resolver.requireRule(depABuilder.getTarget());
+    resolver.requireRule(depBBuilder.getTarget());
+    CxxLibrary rule = (CxxLibrary) resolver.requireRule(cxxLibraryBuilder.getTarget());
+    assertThat(
+        rule.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.contains(resolver.requireRule(depABuilder.getTarget())));
+    assertThat(
+        rule.getCxxPreprocessorDeps(CxxPlatformUtils.DEFAULT_PLATFORM),
+        Matchers.contains(resolver.requireRule(depABuilder.getTarget())));
+  }
+
+  @Test
+  public void inferCaptureAllIncludesExportedDeps() throws Exception {
+    CxxLibraryBuilder exportedDepBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:exported_dep"), cxxBuckConfig)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("dep.c"))));
+    CxxLibraryBuilder ruleBuilder =
+        new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:rule"), cxxBuckConfig)
+            .setExportedDeps(ImmutableSortedSet.of(exportedDepBuilder.getTarget()));
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            exportedDepBuilder.build(),
+            ruleBuilder.build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRule rule =
+        resolver.requireRule(
+            ruleBuilder.getTarget().withFlavors(
+                CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get(),
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()));
+    assertThat(
+        RichStream.from(rule.getBuildDeps())
+            .map(BuildRule::getBuildTarget)
+            .map(t -> t.withFlavors())
+            .toImmutableSet(),
+        hasItem(exportedDepBuilder.getTarget()));
   }
 
   /**

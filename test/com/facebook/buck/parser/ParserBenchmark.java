@@ -27,7 +27,6 @@ import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.caliper.AfterExperiment;
 import com.google.caliper.BeforeExperiment;
 import com.google.caliper.Benchmark;
@@ -115,8 +114,7 @@ public class ParserBenchmark {
     eventBus = BuckEventBusFactory.newInstance();
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(threadCount));
 
-    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-        ObjectMappers.newDefaultInstance());
+    DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller marshaller = new ConstructorArgMarshaller(typeCoercerFactory);
     parser = new Parser(
         new BroadcastEventListener(),

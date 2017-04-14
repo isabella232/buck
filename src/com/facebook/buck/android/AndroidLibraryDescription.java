@@ -16,16 +16,16 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.jvm.common.ResourceValidator;
-import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.CalculateAbiFromClasses;
+import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
-import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaSourceJar;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -33,27 +33,29 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.util.DependencyMode;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Ordering;
 
-import java.nio.file.Path;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class AndroidLibraryDescription
     implements Description<AndroidLibraryDescription.Arg>, Flavored,
@@ -69,12 +71,15 @@ public class AndroidLibraryDescription
     SCALA,
   }
 
+  private final JavaBuckConfig javaBuckConfig;
   private final JavacOptions defaultOptions;
   private final AndroidLibraryCompilerFactory compilerFactory;
 
   public AndroidLibraryDescription(
+      JavaBuckConfig javaBuckConfig,
       JavacOptions defaultOptions,
       AndroidLibraryCompilerFactory compilerFactory) {
+    this.javaBuckConfig = javaBuckConfig;
     this.defaultOptions = defaultOptions;
     this.compilerFactory = compilerFactory;
   }
@@ -89,6 +94,7 @@ public class AndroidLibraryDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     if (params.getBuildTarget().getFlavors().contains(JavaLibrary.SRC_JAR)) {
       return new JavaSourceJar(params, args.srcs, args.mavenCoords);
@@ -100,31 +106,31 @@ public class AndroidLibraryDescription
         defaultOptions,
         params,
         resolver,
-        ruleFinder,
         args
     );
 
-    final ImmutableSet.Builder<BuildRule> queriedDepsBuilder = ImmutableSet.builder();
-    if (args.depsQuery.isPresent()) {
-      queriedDepsBuilder.addAll(
-          QueryUtils.resolveDepQuery(
-              params,
-              args.depsQuery.get(),
-              resolver,
-              targetGraph)
-              .collect(Collectors.toList()));
+    final Supplier<ImmutableList<BuildRule>> queriedDepsSupplier = args.depsQuery.isPresent() ?
+        Suppliers.memoize(() -> QueryUtils.resolveDepQuery(
+            params.getBuildTarget(),
+            args.depsQuery.get(),
+            resolver,
+            cellRoots,
+            targetGraph,
+            args.deps)
+            .collect(MoreCollectors.toImmutableList()))
+        : ImmutableList::of;
 
-    }
-    final ImmutableSet<BuildRule> queriedDeps = queriedDepsBuilder.build();
+    final Supplier<ImmutableList<BuildRule>> exportedDepsSupplier = Suppliers.memoize(
+        () -> resolver.getAllRulesStream(args.exportedDeps)
+            .collect(MoreCollectors.toImmutableList()));
 
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
         params.getBuildTarget(),
-        params.copyWithExtraDeps(
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(queriedDeps)
-                    .addAll(resolver.getAllRules(args.exportedDeps))
-                    .build())),
+        params.copyReplacingExtraDeps(
+            () -> ImmutableSortedSet.copyOf(Iterables.concat(
+                queriedDepsSupplier.get(),
+                exportedDepsSupplier.get()))),
+        JavacFactory.create(ruleFinder, javaBuckConfig, args),
         javacOptions,
         DependencyMode.FIRST_ORDER,
         /* forceFinalResourceIds */ false,
@@ -134,13 +140,13 @@ public class AndroidLibraryDescription
 
     boolean hasDummyRDotJavaFlavor =
         params.getBuildTarget().getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
-    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
+    if (HasJavaAbi.isClassAbiTarget(params.getBuildTarget())) {
       if (hasDummyRDotJavaFlavor) {
         return graphEnhancer.getBuildableForAndroidResourcesAbi(resolver, ruleFinder);
       }
-      BuildTarget libraryTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
+      BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(params.getBuildTarget());
       BuildRule libraryRule = resolver.requireRule(libraryTarget);
-      return CalculateAbi.of(
+      return CalculateAbiFromClasses.of(
           params.getBuildTarget(),
           ruleFinder,
           params,
@@ -153,71 +159,44 @@ public class AndroidLibraryDescription
     if (hasDummyRDotJavaFlavor) {
       return dummyRDotJava.get();
     } else {
-      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries = ImmutableSet.of();
-      if (dummyRDotJava.isPresent()) {
-        additionalClasspathEntries = ImmutableSet.of(
-            Either.ofLeft(dummyRDotJava.get().getSourcePathToOutput()));
-        ImmutableSortedSet<BuildRule> newDeclaredDeps = ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(params.getDeclaredDeps().get())
-            .add(dummyRDotJava.get())
-            .build();
-        params = params.copyWithDeps(
-            Suppliers.ofInstance(newDeclaredDeps),
-            params.getExtraDeps());
-      }
-
-      AndroidLibraryCompiler compiler =
-          compilerFactory.getCompiler(args.language.orElse(JvmLanguage.JAVA));
-
-      ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps);
-
-      ImmutableSortedSet.Builder<BuildRule> declaredDepsBuilder =
-          ImmutableSortedSet.<BuildRule>naturalOrder()
-              .addAll(params.getDeclaredDeps().get())
-              .addAll(queriedDeps)
-              .addAll(compiler.getDeclaredDeps(args, resolver));
-
-      ImmutableSortedSet<BuildRule> declaredDeps = declaredDepsBuilder.build();
-
-      ImmutableSortedSet<BuildRule> extraDeps =
-          ImmutableSortedSet.<BuildRule>naturalOrder()
-              .addAll(params.getExtraDeps().get())
-              .addAll(BuildRules.getExportedRules(
-                  Iterables.concat(
-                      declaredDeps,
-                      exportedDeps,
-                      resolver.getAllRules(args.providedDeps))))
-              .addAll(ruleFinder.filterBuildRuleInputs(javacOptions.getInputs(ruleFinder)))
-              .addAll(compiler.getExtraDeps(args, resolver))
-              .build();
-
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+      ImmutableSortedSet<BuildRule> declaredDeps = RichStream
+          .fromSupplierOfIterable(params.getDeclaredDeps())
+          .concat(RichStream.from(dummyRDotJava))
+          .concat(RichStream.fromSupplierOfIterable(queriedDepsSupplier))
+          .toImmutableSortedSet(Ordering.natural());
 
       BuildRuleParams androidLibraryParams =
-          params.copyWithDeps(
+          params.copyReplacingDeclaredAndExtraDeps(
               Suppliers.ofInstance(declaredDeps),
-              Suppliers.ofInstance(extraDeps));
-      return new AndroidLibrary(
+              params.getExtraDeps());
+
+      ImmutableSortedSet.Builder<BuildTarget> providedDepsTargetsBuilder =
+          ImmutableSortedSet.<BuildTarget>naturalOrder()
+              .addAll(args.providedDeps);
+      if (args.providedDepsQuery.isPresent()) {
+        QueryUtils.resolveDepQuery(
+            params.getBuildTarget(),
+            args.providedDepsQuery.get(),
+            resolver,
+            cellRoots,
+            targetGraph,
+            args.providedDeps)
+            .map(BuildRule::getBuildTarget)
+            .forEach(providedDepsTargetsBuilder::add);
+      }
+
+      return AndroidLibrary.builder(
           androidLibraryParams,
-          pathResolver,
-          ruleFinder,
-          args.srcs,
-          ResourceValidator.validateResources(
-              pathResolver,
-              params.getProjectFilesystem(), args.resources),
-          args.proguardConfig,
-          args.postprocessClassesCommands,
-          exportedDeps,
-          resolver.getAllRules(args.providedDeps),
-          JavaLibraryRules.getAbiInputs(resolver, androidLibraryParams.getDeps()),
-          additionalClasspathEntries,
+          resolver,
+          javaBuckConfig,
           javacOptions,
-          compiler.trackClassUsage(javacOptions),
-          compiler.compileToJar(args, javacOptions, resolver),
-          args.resourcesRoot,
-          args.mavenCoords,
-          args.manifest,
-          args.tests);
+          args,
+          compilerFactory)
+          .setArgs(args)
+          .setJavacOptions(javacOptions)
+          .setProvidedDeps(providedDepsTargetsBuilder.build())
+          .setTests(args.tests)
+          .build();
     }
   }
 
@@ -229,12 +208,19 @@ public class AndroidLibraryDescription
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg) {
-    return compilerFactory.getCompiler(constructorArg.language.orElse(JvmLanguage.JAVA))
-        .findDepsForTargetFromConstructorArgs(buildTarget, cellRoots, constructorArg);
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    compilerFactory.getCompiler(constructorArg.language.orElse(JvmLanguage.JAVA))
+        .findDepsForTargetFromConstructorArgs(
+            buildTarget,
+            cellRoots,
+            constructorArg,
+            extraDepsBuilder,
+            targetGraphOnlyDepsBuilder);
   }
 
   @SuppressFieldNotInitialized
@@ -244,6 +230,7 @@ public class AndroidLibraryDescription
     public Optional<String> finalRName;
     public Optional<JvmLanguage> language;
     public Optional<Query> depsQuery;
+    public Optional<Query> providedDepsQuery;
   }
 }
 

@@ -1,14 +1,23 @@
 standard_java_library(
-  srcs = [
-    'GidGenerator.java',
-    'XcodeprojSerializer.java',
-    'XCScheme.java',
-  ] + glob(['util/*.java', 'xcodeproj/*.java']),
-  immutable_types = [
-    'xcodeproj.CopyFilePhaseDestinationSpec',
-    'xcodeproj.ProductType',
-  ],
-  tests = [
-    '//test/com/facebook/buck/apple/xcode:xcode',
-  ],
+    name = "xcode",
+    srcs = [
+        "GidGenerator.java",
+        "XcodeprojSerializer.java",
+        "XCScheme.java",
+    ] + glob([
+        "util/*.java",
+        "xcodeproj/*.java",
+    ]),
+    immutable_types = [
+        "xcodeproj.CopyFilePhaseDestinationSpec",
+        "xcodeproj.ProductType",
+    ],
+    tests = [
+        "//test/com/facebook/buck/apple/xcode:xcode",
+    ],
+    deps = [
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/util:util",
+        "//third-party/java/dd-plist:dd-plist",
+    ],
 )

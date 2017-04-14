@@ -32,7 +32,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -53,6 +53,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.zip.UnzipStep;
@@ -60,6 +61,7 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -81,9 +83,9 @@ public class AppleTestDescription implements
   /**
    * Flavors for the additional generated build rules.
    */
-  static final Flavor LIBRARY_FLAVOR = ImmutableFlavor.of("apple-test-library");
-  static final Flavor BUNDLE_FLAVOR = ImmutableFlavor.of("apple-test-bundle");
-  private static final Flavor UNZIP_XCTOOL_FLAVOR = ImmutableFlavor.of("unzip-xctool");
+  static final Flavor LIBRARY_FLAVOR = InternalFlavor.of("apple-test-library");
+  static final Flavor BUNDLE_FLAVOR = InternalFlavor.of("apple-test-bundle");
+  private static final Flavor UNZIP_XCTOOL_FLAVOR = InternalFlavor.of("unzip-xctool");
 
   private static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       LIBRARY_FLAVOR, BUNDLE_FLAVOR);
@@ -151,6 +153,7 @@ public class AppleTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
     AppleDebugFormat debugFormat = AppleDebugFormat.FLAVOR_DOMAIN
         .getValue(params.getBuildTarget())
@@ -226,10 +229,12 @@ public class AppleTestDescription implements
         targetGraph,
         params,
         resolver,
+        cellRoots,
         args,
         testHostInfo.map(TestHostInfo::getTestHostAppBinarySourcePath),
         testHostInfo.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
-        libraryTarget);
+        libraryTarget,
+        ImmutableSortedSet.copyOf(OptionalCompat.asSet(args.testHostApp)));
     if (!createBundle || SwiftLibraryDescription.isSwiftTarget(libraryTarget)) {
       return library;
     }
@@ -241,20 +246,19 @@ public class AppleTestDescription implements
         defaultCxxPlatform,
         appleCxxPlatformFlavorDomain,
         targetGraph,
-        params.copyWithChanges(
-            params.getBuildTarget().withAppendedFlavors(
+        params
+            .withBuildTarget(params.getBuildTarget().withAppendedFlavors(
                 BUNDLE_FLAVOR,
                 debugFormat.getFlavor(),
                 LinkerMapMode.NO_LINKER_MAP.getFlavor(),
-                AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
-            // We have to add back the original deps here, since they're likely
-            // stripped from the library link above (it doesn't actually depend on them).
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .add(library)
-                    .addAll(params.getDeclaredDeps().get())
-                    .build()),
-            params.getExtraDeps()),
+                AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR))
+            .copyReplacingDeclaredAndExtraDeps(
+                Suppliers.ofInstance(
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .add(library)
+                        .addAll(params.getDeclaredDeps().get())
+                        .build()),
+                params.getExtraDeps()),
         resolver,
         codeSignIdentityStore,
         provisioningProfileStore,
@@ -281,7 +285,7 @@ public class AppleTestDescription implements
         platformName,
         appleConfig.getXctoolDefaultDestinationSpecifier(),
         Optional.of(args.destinationSpecifier),
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(bundle)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         bundle,
@@ -315,10 +319,11 @@ public class AppleTestDescription implements
           BuildTargets.getGenPath(params.getProjectFilesystem(), unzipXctoolTarget, "%s/unzipped");
       if (!resolver.getRuleOptional(unzipXctoolTarget).isPresent()) {
         BuildRuleParams unzipXctoolParams =
-            params.copyWithChanges(
-                unzipXctoolTarget,
-                Suppliers.ofInstance(ImmutableSortedSet.of(xctoolZipBuildRule)),
-                Suppliers.ofInstance(ImmutableSortedSet.of()));
+            params
+                .withBuildTarget(unzipXctoolTarget)
+                .copyReplacingDeclaredAndExtraDeps(
+                    Suppliers.ofInstance(ImmutableSortedSet.of(xctoolZipBuildRule)),
+                    Suppliers.ofInstance(ImmutableSortedSet.of()));
         resolver.addToIndex(
             new AbstractBuildRule(unzipXctoolParams) {
               @Override
@@ -326,13 +331,14 @@ public class AppleTestDescription implements
                   BuildContext context,
                   BuildableContext buildableContext) {
                 buildableContext.recordArtifact(outputDirectory);
-                return ImmutableList.of(
-                    new MakeCleanDirectoryStep(getProjectFilesystem(), outputDirectory),
-                    new UnzipStep(
+                return new ImmutableList.Builder<Step>()
+                    .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDirectory))
+                    .add(new UnzipStep(
                         getProjectFilesystem(),
                         context.getSourcePathResolver().getAbsolutePath(
                             Preconditions.checkNotNull(xctoolZipBuildRule.getSourcePathToOutput())),
-                        outputDirectory));
+                        outputDirectory))
+                    .build();
               }
               @Override
               public SourcePath getSourcePathToOutput() {
@@ -356,10 +362,13 @@ public class AppleTestDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args,
       Optional<SourcePath> testHostAppBinarySourcePath,
       ImmutableSet<BuildTarget> blacklist,
-      BuildTarget libraryTarget) throws NoSuchBuildTargetException {
+      BuildTarget libraryTarget,
+      ImmutableSortedSet<BuildTarget> extraCxxDeps)
+      throws NoSuchBuildTargetException {
     BuildTarget existingLibraryTarget = libraryTarget
         .withAppendedFlavors(AppleDebuggableBinary.RULE_FLAVOR, CxxStrip.RULE_FLAVOR)
         .withAppendedFlavors(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor());
@@ -370,38 +379,41 @@ public class AppleTestDescription implements
     } else {
       library = appleLibraryDescription.createLibraryBuildRule(
           targetGraph,
-          params.copyWithBuildTarget(libraryTarget),
+          params.withBuildTarget(libraryTarget),
           resolver,
+          cellRoots,
           args,
           // For now, instead of building all deps as dylibs and fixing up their install_names,
           // we'll just link them statically.
           Optional.of(Linker.LinkableDepType.STATIC),
           testHostAppBinarySourcePath,
-          blacklist);
+          blacklist,
+          extraCxxDeps);
       resolver.addToIndex(library);
     }
     return library;
   }
 
   @Override
-  public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
+  public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      AppleTestDescription.Arg constructorArg) {
-    // TODO(bhamiltoncx, Coneko): This should technically only be a runtime dependency;
+      Arg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    // TODO(beng, coneko): This should technically only be a runtime dependency;
     // doing this adds it to the extra deps in BuildRuleParams passed to
     // the bundle and test rule.
-    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
     Optional<BuildTarget> xctoolZipTarget = appleConfig.getXctoolZipTarget();
     if (xctoolZipTarget.isPresent()) {
-      deps.add(xctoolZipTarget.get());
+      extraDepsBuilder.add(xctoolZipTarget.get());
     }
-    deps.addAll(
-        appleLibraryDescription.findDepsForTargetFromConstructorArgs(
-            buildTarget,
-            cellRoots,
-            constructorArg));
-    return deps.build();
+    appleLibraryDescription.findDepsForTargetFromConstructorArgs(
+        buildTarget,
+        cellRoots,
+        constructorArg,
+        extraDepsBuilder,
+        targetGraphOnlyDepsBuilder);
   }
 
   private TestHostInfo createTestHostInfo(
@@ -432,7 +444,7 @@ public class AppleTestDescription implements
 
     ImmutableMap<BuildTarget, NativeLinkable> roots =
         NativeLinkables.getNativeLinkableRoots(
-            testHostApp.getBinary().get().getDeps(),
+            testHostApp.getBinary().get().getBuildDeps(),
             x -> true);
 
     // Union the blacklist of all the platforms. This should give a superset for each particular
@@ -517,6 +529,11 @@ public class AppleTestDescription implements
     @Override
     public Optional<String> getXcodeProductType() {
       return xcodeProductType;
+    }
+
+    @Override
+    public ImmutableMap<String, String> getInfoPlistSubstitutions() {
+      return infoPlistSubstitutions;
     }
 
     public boolean getRunTestSeparately() {

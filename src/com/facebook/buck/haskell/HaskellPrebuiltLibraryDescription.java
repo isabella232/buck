@@ -21,7 +21,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
@@ -32,11 +31,13 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.cache.LoadingCache;
@@ -61,6 +62,7 @@ public class HaskellPrebuiltLibraryDescription implements
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       final A args) throws NoSuchBuildTargetException {
     return new PrebuiltHaskellLibrary(params) {
 
@@ -69,6 +71,14 @@ public class HaskellPrebuiltLibraryDescription implements
                   ImmutableMap<BuildTarget, CxxPreprocessorInput>
               > transitiveCxxPreprocessorInputCache =
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+
+      @Override
+      public Iterable<BuildRule> getCompileDeps(CxxPlatform cxxPlatform) {
+        return RichStream.from(args.deps)
+            .map(resolver::getRule)
+            .filter(HaskellCompileDep.class::isInstance)
+            .toImmutableList();
+      }
 
       @Override
       public HaskellCompileInput getCompileInput(
@@ -139,13 +149,8 @@ public class HaskellPrebuiltLibraryDescription implements
       @Override
       public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(
           CxxPlatform cxxPlatform) {
-        return FluentIterable.from(getDeps())
+        return FluentIterable.from(getBuildDeps())
             .filter(CxxPreprocessorDep.class);
-      }
-
-      @Override
-      public Optional<HeaderSymlinkTree> getExportedHeaderSymlinkTree(CxxPlatform cxxPlatform) {
-        return Optional.empty();
       }
 
       @Override

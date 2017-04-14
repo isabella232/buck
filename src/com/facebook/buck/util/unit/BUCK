@@ -1,5 +1,11 @@
 standard_java_library(
-  tests = [
-    '//test/com/facebook/buck/util/unit:unit',
-  ],
+    name = "unit",
+    tests = [
+        "//test/com/facebook/buck/util/unit:unit",
+    ],
+    deps = [
+        "//src/com/facebook/buck/model:simple_types",
+        "//src/com/facebook/buck/util:util",
+        "//third-party/java/guava:guava",
+    ],
 )

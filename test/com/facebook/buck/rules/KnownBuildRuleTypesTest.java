@@ -33,7 +33,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.ocaml.OcamlBinaryDescription;
 import com.facebook.buck.ocaml.OcamlLibraryDescription;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -102,6 +102,7 @@ public class KnownBuildRuleTypesTest {
         TargetGraph targetGraph,
         BuildRuleParams params,
         BuildRuleResolver resolver,
+        CellPathResolver cellRoots,
         A args) {
       return null;
     }
@@ -151,7 +152,12 @@ public class KnownBuildRuleTypesTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     return (DefaultJavaLibrary) description
-        .createBuildRule(TargetGraph.EMPTY, buildRuleParams, resolver, arg);
+        .createBuildRule(
+            TargetGraph.EMPTY,
+            buildRuleParams,
+            resolver,
+            TestCellBuilder.createCellRoots(buildRuleParams.getProjectFilesystem()),
+            arg);
   }
 
   @Test
@@ -305,7 +311,7 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void canOverrideDefaultHostPlatform() throws Exception {
     ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
-    Flavor flavor = ImmutableFlavor.of("flavor");
+    Flavor flavor = InternalFlavor.of("flavor");
     String flag = "-flag";
     ImmutableMap<String, ImmutableMap<String, String>> sections =
         ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("cflags", flag));
@@ -323,7 +329,7 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void ocamlUsesConfiguredDefaultPlatform() throws Exception {
     ProjectFilesystem filesystem = new ProjectFilesystem(temporaryFolder.getRoot());
-    Flavor flavor = ImmutableFlavor.of("flavor");
+    Flavor flavor = InternalFlavor.of("flavor");
     ImmutableMap<String, ImmutableMap<String, String>> sections =
         ImmutableMap.of(
             "cxx", ImmutableMap.of("default_platform", flavor.toString()),

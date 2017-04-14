@@ -21,9 +21,10 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.Hint;
+import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.ObjectMappers;
 
 import org.junit.Test;
 
@@ -36,7 +37,7 @@ public class ParamInfoTest {
 
   private Path testPath = Paths.get("path");
   private TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(
-      ObjectMappers.newDefaultInstance());
+  );
 
   public static class WithUpperBound<X extends SourcePath> {
     public X path;

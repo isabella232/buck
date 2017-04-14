@@ -44,8 +44,8 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -106,7 +106,7 @@ public class PythonTest
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
     return new PythonTest(
-        params.copyWithDeps(
+        params.copyReplacingDeclaredAndExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(binary)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         ruleFinder,
@@ -137,16 +137,17 @@ public class PythonTest
       TestRunningOptions options,
       SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), getPathToTestOutputDirectory()),
-        new PythonRunTestsStep(
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
+        .add(new PythonRunTestsStep(
             getProjectFilesystem().getRootPath(),
             getBuildTarget().getFullyQualifiedName(),
             binary.getExecutableCommand().getCommandPrefix(pathResolver),
             getMergedEnv(pathResolver),
             options.getTestSelectorList(),
             testRuleTimeoutMs,
-            getProjectFilesystem().resolve(getPathToTestOutputResult())));
+            getProjectFilesystem().resolve(getPathToTestOutputResult())))
+        .build();
   }
 
   private ImmutableMap<String, String> getMergedEnv(SourcePathResolver pathResolver) {
@@ -191,8 +192,7 @@ public class PythonTest
       Optional<String> resultsFileContents =
           getProjectFilesystem().readFileIfItExists(
               getPathToTestOutputResult());
-      ObjectMapper mapper = executionContext.getObjectMapper();
-      TestResultSummary[] testResultSummaries = mapper.readValue(
+      TestResultSummary[] testResultSummaries = ObjectMappers.readValue(
           resultsFileContents.get(),
           TestResultSummary[].class);
       return TestResults.of(

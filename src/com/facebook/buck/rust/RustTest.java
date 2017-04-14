@@ -109,19 +109,18 @@ public class RustTest
       SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
     Path workingDirectory = getProjectFilesystem().resolve(getPathToTestOutputDirectory());
-    return ImmutableList.of(
-        new MakeCleanDirectoryStep(getProjectFilesystem(), workingDirectory),
-        new AbstractTestStep(
+    return new ImmutableList.Builder<Step>()
+        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), workingDirectory))
+        .add(new AbstractTestStep(
             "rust test",
             getProjectFilesystem(),
             Optional.of(workingDirectory),
             getTestCommand(pathResolver, "--logfile", testOutputFile.toString()),
-            Optional.empty(), // TODO(StanislavGlebik): environment
+            Optional.empty(), // TODO(stash): environment
             workingDirectory.resolve("exitcode"),
             Optional.empty(),
-            testStdoutFile
-        ) { }
-    );
+            testStdoutFile) { })
+        .build();
   }
 
   @Override
@@ -267,7 +266,7 @@ public class RustTest
               "rust_test",
               entry.getKey(),
               entry.getValue(),
-              0, // TODO(StanislavGlebik) time
+              0, // TODO(stash) time
               "", // message
               "", // stack trace,
               testToStdout.get(entry.getKey()),

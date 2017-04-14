@@ -1,1 +1,8 @@
-standard_java_library()
+standard_java_library(
+    name = "device",
+    deps = [
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/util:process_executor",
+        "//third-party/java/guava:guava",
+    ],
+)

@@ -23,4 +23,5 @@ import java.util.Optional;
 @SuppressFieldNotInitialized
 public class LinkableCxxConstructorArg extends CxxConstructorArg {
   public Optional<Linker.LinkableDepType> linkStyle;
+  public boolean thinLto = false;
 }

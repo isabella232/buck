@@ -16,9 +16,9 @@
 
 package com.facebook.buck.distributed;
 
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
@@ -41,9 +41,9 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
+import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
@@ -63,12 +63,11 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
@@ -157,7 +156,7 @@ public class DistBuildStateTest {
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
     BuckConfig buckConfig = cell.getBuckConfig();
     TypeCoercerFactory typeCoercerFactory =
-        new DefaultTypeCoercerFactory(ObjectMappers.newDefaultInstance());
+        new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser = new Parser(
@@ -318,57 +317,60 @@ public class DistBuildStateTest {
         Matchers.equalTo("http://someserver:8080"));
   }
 
-  private DistBuildFileHashes emptyActionGraph() throws IOException {
+  private DistBuildFileHashes emptyActionGraph() throws IOException, InterruptedException {
     ActionGraph actionGraph = new ActionGraph(ImmutableList.of());
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");
+    Cell rootCell = new TestCellBuilder()
+        .setFilesystem(projectFilesystem)
+        .setBuckConfig(FakeBuckConfig.builder().build())
+        .build();
     return new DistBuildFileHashes(
         actionGraph,
         sourcePathResolver,
         ruleFinder,
-        ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)),
-        Functions.constant(0),
+        new StackedFileHashCache(ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(
+            projectFilesystem))),
+        new DistBuildCellIndexer(rootCell),
         MoreExecutors.newDirectExecutorService(),
         /* keySeed */ 0,
-        FakeBuckConfig.builder().build());
+        rootCell);
   }
 
-  private static DistBuildTargetGraphCodec createDefaultCodec(
+  public static DistBuildTargetGraphCodec createDefaultCodec(
       final Cell cell,
       final Optional<Parser> parser) {
-    ObjectMapper objectMapper = ObjectMappers.newDefaultInstance(); // NOPMD confused by lambda
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
     Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
-     nodeToRawNode = (Function<TargetNode<?, ?>, Map<String, Object>>) input -> {
-       try {
-         return parser.get().getRawTargetNode(
-             eventBus,
-             cell.getCell(input.getBuildTarget()),
+      nodeToRawNode = (Function<TargetNode<?, ?>, Map<String, Object>>) input -> {
+        try {
+          return parser.get().getRawTargetNode(
+              eventBus,
+              cell.getCell(input.getBuildTarget()),
              /* enableProfiling */ false,
-             MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
-             input);
-       } catch (BuildFileParseException e) {
-         throw new RuntimeException(e);
-       }
-     };
+              MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
+              input);
+        } catch (BuildFileParseException e) {
+          throw new RuntimeException(e);
+        }
+      };
     } else {
       nodeToRawNode = Functions.constant(ImmutableMap.<String, Object>of());
     }
 
     DistBuildTypeCoercerFactory typeCoercerFactory =
-        new DistBuildTypeCoercerFactory(objectMapper);
+        new DistBuildTypeCoercerFactory();
     ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory));
 
     return new DistBuildTargetGraphCodec(
-        objectMapper,
         parserTargetNodeFactory,
         nodeToRawNode,
         ImmutableSet.of());
@@ -384,10 +386,10 @@ public class DistBuildStateTest {
       ProjectFilesystem cellOneFilesystem,
       ProjectFilesystem cellTwoFilesystem) {
     Preconditions.checkArgument(!cellOneFilesystem.equals(cellTwoFilesystem));
-    BuildTarget target = BuildTargetFactory.newInstance(cellTwoFilesystem, "//:foo");
+    BuildTarget target = BuildTargetFactory.newInstance(cellTwoFilesystem.getRootPath(), "//:foo");
     return TargetGraphFactory.newInstance(
         JavaLibraryBuilder.createBuilder(
-            BuildTargetFactory.newInstance(cellOneFilesystem, "//:foo"),
+            BuildTargetFactory.newInstance(cellOneFilesystem.getRootPath(), "//:foo"),
             cellOneFilesystem)
             .addSrc(new DefaultBuildTargetSourcePath(target))
             .build(),
@@ -395,10 +397,10 @@ public class DistBuildStateTest {
             target,
             cellTwoFilesystem)
             .build()
-        );
+    );
   }
 
-  private static ProjectFilesystem createJavaOnlyFilesystem(String rootPath) throws IOException {
+  public static ProjectFilesystem createJavaOnlyFilesystem(String rootPath) throws IOException {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(rootPath);
     filesystem.mkdirs(filesystem.getBuckPaths().getBuckOut());
     return filesystem;

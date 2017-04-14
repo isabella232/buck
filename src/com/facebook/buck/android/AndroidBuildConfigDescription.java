@@ -16,19 +16,24 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.jvm.java.CalculateAbi;
+import com.facebook.buck.jvm.java.CalculateAbiFromClasses;
+import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryRules;
+import com.facebook.buck.jvm.java.Javac;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.ImmutableFlavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.Hint;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -45,10 +50,14 @@ import java.util.Optional;
 public class AndroidBuildConfigDescription
     implements Description<AndroidBuildConfigDescription.Arg> {
 
-  private static final Flavor GEN_JAVA_FLAVOR = ImmutableFlavor.of("gen_java_android_build_config");
+  private static final Flavor GEN_JAVA_FLAVOR = InternalFlavor.of("gen_java_android_build_config");
+  private final JavaBuckConfig javaBuckConfig;
   private final JavacOptions androidJavacOptions;
 
-  public AndroidBuildConfigDescription(JavacOptions androidJavacOptions) {
+  public AndroidBuildConfigDescription(
+      JavaBuckConfig javaBuckConfig,
+      JavacOptions androidJavacOptions) {
+    this.javaBuckConfig = javaBuckConfig;
     this.androidJavacOptions = androidJavacOptions;
   }
 
@@ -62,12 +71,13 @@ public class AndroidBuildConfigDescription
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args) throws NoSuchBuildTargetException {
-    if (CalculateAbi.isAbiTarget(params.getBuildTarget())) {
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-      BuildTarget configTarget = CalculateAbi.getLibraryTarget(params.getBuildTarget());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    if (HasJavaAbi.isClassAbiTarget(params.getBuildTarget())) {
+      BuildTarget configTarget = HasJavaAbi.getLibraryTarget(params.getBuildTarget());
       BuildRule configRule = resolver.requireRule(configTarget);
-      return CalculateAbi.of(
+      return CalculateAbiFromClasses.of(
           params.getBuildTarget(),
           ruleFinder,
           params,
@@ -80,6 +90,7 @@ public class AndroidBuildConfigDescription
         args.values,
         args.valuesFile,
         /* useConstantExpressions */ false,
+        JavacFactory.create(ruleFinder, javaBuckConfig, null),
         androidJavacOptions,
         resolver);
   }
@@ -98,6 +109,7 @@ public class AndroidBuildConfigDescription
       BuildConfigFields values,
       Optional<SourcePath> valuesFile,
       boolean useConstantExpressions,
+      Javac javac,
       JavacOptions javacOptions,
       BuildRuleResolver ruleResolver) throws NoSuchBuildTargetException {
     // Normally, the build target for an intermediate rule is a flavored version of the target for
@@ -127,18 +139,13 @@ public class AndroidBuildConfigDescription
       // android_binary() graph enhancement case.
       Preconditions.checkArgument(useConstantExpressions);
       buildConfigBuildTarget = params.getBuildTarget().withFlavors(
-          ImmutableFlavor.of(GEN_JAVA_FLAVOR.getName() + '_' + javaPackage.replace('.', '_')));
+          InternalFlavor.of(GEN_JAVA_FLAVOR.getName() + '_' + javaPackage.replace('.', '_')));
     }
 
     // Create one build rule to generate BuildConfig.java.
-    BuildRuleParams buildConfigParams = params.copyWithChanges(
-        buildConfigBuildTarget,
-        params.getDeclaredDeps(),
-        /* extraDeps */ Suppliers.ofInstance(
-            ImmutableSortedSet.<BuildRule>naturalOrder()
-                .addAll(params.getExtraDeps().get())
-                .addAll(ruleFinder.filterBuildRuleInputs(OptionalCompat.asSet(valuesFile)))
-                .build()));
+    BuildRuleParams buildConfigParams = params
+        .withBuildTarget(buildConfigBuildTarget)
+        .copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(OptionalCompat.asSet(valuesFile)));
     AndroidBuildConfig androidBuildConfig = new AndroidBuildConfig(
         buildConfigParams,
         javaPackage,
@@ -148,17 +155,17 @@ public class AndroidBuildConfigDescription
     ruleResolver.addToIndex(androidBuildConfig);
 
     // Create a second build rule to compile BuildConfig.java and expose it as a JavaLibrary.
-    BuildRuleParams javaLibraryParams = params.copyWithChanges(
-        params.getBuildTarget(),
-        /* declaredDeps */ Suppliers.ofInstance(
-            ImmutableSortedSet.of(androidBuildConfig)),
-        /* extraDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()));
+    BuildRuleParams javaLibraryParams = params
+        .copyReplacingDeclaredAndExtraDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(androidBuildConfig)),
+            Suppliers.ofInstance(ImmutableSortedSet.of()));
     return new AndroidBuildConfigJavaLibrary(
         javaLibraryParams,
         pathResolver,
         ruleFinder,
+        javac,
         javacOptions,
-        JavaLibraryRules.getAbiInputs(ruleResolver, javaLibraryParams.getDeps()),
+        JavaLibraryRules.getAbiSourcePaths(ruleResolver, javaLibraryParams.getBuildDeps()),
         androidBuildConfig);
   }
 

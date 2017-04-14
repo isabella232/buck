@@ -17,12 +17,13 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -50,6 +51,18 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
       input -> ImmutableList.of();
 
   @Override
+  public Iterable<BuildRule> getDeclaredDeps(SourcePathRuleFinder ruleFinder) {
+    return ImmutableList.of();
+  }
+
+  @Override
+  public Iterable<BuildRule> getExtraDeps(SourcePathRuleFinder ruleFinder) {
+    return getCompiler().getDeps(ruleFinder);
+  }
+
+  protected abstract Tool getCompiler();
+
+  @Override
   public void createCompileToJarStep(
       BuildContext context,
       ImmutableSortedSet<Path> sourceFilePaths,
@@ -61,7 +74,6 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
       Path outputDirectory,
       Optional<Path> workingDirectory,
       Path pathToSrcsList,
-      Optional<SuggestBuildRules> suggestBuildRules,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<Path> entriesToJar,
       Optional<String> mainClass,
@@ -84,7 +96,6 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
         outputDirectory,
         workingDirectory,
         pathToSrcsList,
-        suggestBuildRules,
         usedClassesFileWriter,
         steps,
         buildableContext);

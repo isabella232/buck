@@ -1,5 +1,7 @@
 standard_java_library(
-  tests = [
-    '//test/com/facebook/buck/util/sha1:sha1',
-  ],
+    name = "sha1",
+    tests = [
+        "//test/com/facebook/buck/util/sha1:sha1",
+    ],
+    deps = ["//third-party/java/guava:guava"],
 )

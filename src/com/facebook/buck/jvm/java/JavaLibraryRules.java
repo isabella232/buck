@@ -17,8 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.NativeLinkable;
-import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
+import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -31,10 +30,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
@@ -60,7 +58,7 @@ public class JavaLibraryRules {
 
     Path pathToClassHashes = JavaLibraryRules.getPathToClassHashes(
         javaLibrary.getBuildTarget(), javaLibrary.getProjectFilesystem());
-    steps.add(new MkdirStep(javaLibrary.getProjectFilesystem(), pathToClassHashes.getParent()));
+    steps.add(MkdirStep.of(javaLibrary.getProjectFilesystem(), pathToClassHashes.getParent()));
     steps.add(
         new AccumulateClassNamesStep(
             javaLibrary.getProjectFilesystem(),
@@ -94,42 +92,33 @@ public class JavaLibraryRules {
   public static ImmutableMap<String, SourcePath> getNativeLibraries(
       Iterable<BuildRule> deps,
       final CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
-    final ImmutableMap.Builder<String, SourcePath> libraries = ImmutableMap.builder();
-
-    new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(deps) {
-      @Override
-      public ImmutableSet<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
-        if (rule instanceof NativeLinkable) {
-          NativeLinkable linkable = (NativeLinkable) rule;
-          libraries.putAll(linkable.getSharedLibraries(cxxPlatform));
-        }
-        if (rule instanceof NativeLinkable ||
-            rule instanceof JavaLibrary) {
-          return rule.getDeps();
-        } else {
-          return ImmutableSet.of();
-        }
-      }
-    }.start();
-
-    return libraries.build();
+    return NativeLinkables.getTransitiveSharedLibraries(
+        cxxPlatform,
+        deps,
+        r -> r instanceof JavaLibrary);
   }
 
-  public static ImmutableSortedSet<SourcePath> getAbiInputs(
+  public static ImmutableSortedSet<BuildRule> getAbiRules(
       BuildRuleResolver resolver,
       Iterable<BuildRule> inputs) throws NoSuchBuildTargetException {
-    ImmutableSortedSet.Builder<SourcePath> abiRules =
-        ImmutableSortedSet.naturalOrder();
-    for (BuildRule dep : inputs) {
-      if (dep instanceof HasJavaAbi) {
-        Optional<BuildTarget> abiJarTarget = ((HasJavaAbi) dep).getAbiJar();
-        if (abiJarTarget.isPresent()) {
-          BuildRule abiJarRule = resolver.requireRule(abiJarTarget.get());
-          abiRules.add(Preconditions.checkNotNull(abiJarRule.getSourcePathToOutput()));
-        }
+    ImmutableSortedSet.Builder<BuildRule> abiRules = ImmutableSortedSet.naturalOrder();
+    for (BuildRule input : inputs) {
+      if (input instanceof HasJavaAbi && ((HasJavaAbi) input).getAbiJar().isPresent()) {
+        Optional<BuildTarget> abiJarTarget = ((HasJavaAbi) input).getAbiJar();
+        BuildRule abiJarRule = resolver.requireRule(abiJarTarget.get());
+        abiRules.add(abiJarRule);
       }
     }
     return abiRules.build();
+  }
+
+  public static ImmutableSortedSet<SourcePath> getAbiSourcePaths(
+      BuildRuleResolver resolver,
+      Iterable<BuildRule> inputs) throws NoSuchBuildTargetException {
+    return getAbiRules(resolver, inputs)
+        .stream()
+        .map(BuildRule::getSourcePathToOutput)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
 }

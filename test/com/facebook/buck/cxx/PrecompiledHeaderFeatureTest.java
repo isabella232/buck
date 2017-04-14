@@ -85,7 +85,7 @@ public class PrecompiledHeaderFeatureTest {
           {CxxToolProvider.Type.CLANG, false, false},
           {CxxToolProvider.Type.GCC, true, true},
           {CxxToolProvider.Type.GCC, false, false},
-          // TODO(elsteveogrande): add WINDOWS
+          // TODO(steveo): add WINDOWS
       });
     }
 
@@ -198,8 +198,10 @@ public class PrecompiledHeaderFeatureTest {
               preconfiguredCxxSourceBuilder()
                   .addFlags("-I", from.toString())
                   .build());
-          return
-              FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
+          return FluentIterable.from(rule.getBuildDeps())
+              .filter(CxxPrecompiledHeader.class)
+              .first()
+              .get();
         }
       }
       TestData testData = new TestData();
@@ -232,7 +234,10 @@ public class PrecompiledHeaderFeatureTest {
               "foo.c",
               preconfiguredCxxSourceBuilder().build());
           return
-              FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
+              FluentIterable.from(rule.getBuildDeps())
+                  .filter(CxxPrecompiledHeader.class)
+                  .first()
+                  .get();
         }
       }
       TestData testData = new TestData();
@@ -267,7 +272,10 @@ public class PrecompiledHeaderFeatureTest {
               "foo.c",
               preconfiguredCxxSourceBuilder().build());
           return
-              FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
+              FluentIterable.from(rule.getBuildDeps())
+                  .filter(CxxPrecompiledHeader.class)
+                  .first()
+                  .get();
         }
       }
       TestData testData = new TestData();
@@ -319,7 +327,7 @@ public class PrecompiledHeaderFeatureTest {
         break;
 
       case WINDOWS:
-        // TODO(elsteveogrande): windows support in the near future.
+        // TODO(steveo): windows support in the near future.
         // (This case is not hit; parameters at top of this test class don't include WINDOWS.)
         throw new IllegalStateException();
 
@@ -355,7 +363,7 @@ public class PrecompiledHeaderFeatureTest {
         break;
 
       case WINDOWS:
-        // TODO(elsteveogrande): windows support in the near future.
+        // TODO(steveo): windows support in the near future.
         // (This case is not hit; parameters at top of this test class don't include WINDOWS.)
         throw new IllegalStateException();
 

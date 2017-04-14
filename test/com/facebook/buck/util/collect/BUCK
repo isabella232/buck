@@ -1,1 +1,11 @@
-standard_java_test()
+standard_java_testutil(
+    name = "testutil",
+)
+
+standard_java_test(
+    name = "collect",
+    deps = [
+        "//src/com/facebook/buck/util/collect:collect",
+        "//third-party/java/junit:junit",
+    ],
+)

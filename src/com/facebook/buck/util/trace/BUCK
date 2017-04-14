@@ -1,1 +1,11 @@
-standard_java_library()
+standard_java_library(
+    name = "trace",
+    deps = [
+        "//src/com/facebook/buck/io:BuckPaths",
+        "//src/com/facebook/buck/io:io",
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/util:exceptions",
+        "//third-party/java/gson:gson",
+        "//third-party/java/guava:guava",
+    ],
+)

@@ -20,7 +20,6 @@ import static com.facebook.buck.zip.ZipOutputStreams.HandleDuplicates.APPEND_TO_
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.ClientSideSlb;
 import com.facebook.buck.slb.HttpResponse;
@@ -29,10 +28,10 @@ import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.timing.Clock;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.zip.CustomZipEntry;
 import com.facebook.buck.zip.CustomZipOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -70,20 +69,17 @@ public class DefaultDefectReporter implements DefectReporter {
   private static final String REQUEST_PROTOCOL_VERSION = "x-buck-protocol-version";
 
   private final ProjectFilesystem filesystem;
-  private final ObjectMapper objectMapper;
   private final RageConfig rageConfig;
   private final BuckEventBus buckEventBus;
   private final Clock clock;
 
   public DefaultDefectReporter(
       ProjectFilesystem filesystem,
-      ObjectMapper objectMapper,
       RageConfig rageConfig,
       BuckEventBus buckEventBus,
       Clock clock
   ) {
     this.filesystem = filesystem;
-    this.objectMapper = objectMapper;
     this.rageConfig = rageConfig;
     this.buckEventBus = buckEventBus;
     this.clock = clock;
@@ -128,10 +124,7 @@ public class DefaultDefectReporter implements DefectReporter {
 
     if (frontendConfig.isPresent()) {
       Optional<ClientSideSlb> slb =
-          frontendConfig.get().tryCreatingClientSideSlb(
-              clock,
-              buckEventBus,
-              new CommandThreadFactory("RemoteLog.HttpLoadBalancer"));
+          frontendConfig.get().tryCreatingClientSideSlb(clock, buckEventBus);
       if (slb.isPresent()) {
         try {
           return uploadReport(defectReport, defectSubmitResult, slb.get());
@@ -175,7 +168,7 @@ public class DefaultDefectReporter implements DefectReporter {
       addFilesToArchive(out, defectReport.getIncludedPaths());
 
       out.putNextEntry(new CustomZipEntry(REPORT_FILE_NAME));
-      objectMapper.writeValue(out, defectReport);
+      ObjectMappers.WRITER.writeValue(out, defectReport);
     }
   }
 
@@ -228,8 +221,8 @@ public class DefaultDefectReporter implements DefectReporter {
               .build();
         } else {
           // Decode Json response.
-          RageJsonResponse json = objectMapper.readValue(
-              responseBody.getBytes(Charsets.UTF_8),
+          RageJsonResponse json = ObjectMappers.READER.readValue(
+              ObjectMappers.createParser(responseBody.getBytes(Charsets.UTF_8)),
               RageJsonResponse.class);
           return defectSubmitResult
               .setIsRequestSuccessful(json.getRequestSuccessful())

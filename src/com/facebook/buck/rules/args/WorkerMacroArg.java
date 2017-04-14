@@ -28,8 +28,10 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.shell.WorkerTool;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 
 import java.nio.file.Path;
@@ -40,7 +42,6 @@ public class WorkerMacroArg extends MacroArg {
   private final WorkerTool workerTool;
   private final ImmutableList<String> startupCommand;
   private final ImmutableMap<String, String> startupEnvironment;
-  private final String jobArgs;
   private final BuildTarget buildTarget;
 
   public WorkerMacroArg(
@@ -60,12 +61,16 @@ public class WorkerMacroArg extends MacroArg {
     }
 
     // extract the BuildTargets referenced in any macros
-    ImmutableList<BuildTarget> targets = macroHandler.extractParseTimeDeps(
+    ImmutableList.Builder<BuildTarget> targetsBuilder = new ImmutableList.Builder<>();
+    macroHandler.extractParseTimeDeps(
         target,
         cellNames,
-        unexpanded);
+        unexpanded,
+        targetsBuilder,
+        new ImmutableSet.Builder<>());
+    ImmutableList<BuildTarget> targets = targetsBuilder.build();
 
-    if (targets.size() < 1) {
+    if (targets.isEmpty()) {
       throw new MacroException(String.format("Unable to extract any build targets for the macros " +
           "used in \"%s\" of target %s",
           unexpanded,
@@ -85,7 +90,7 @@ public class WorkerMacroArg extends MacroArg {
     Tool exe = this.workerTool.getTool();
     startupCommand = exe.getCommandPrefix(pathResolver);
     startupEnvironment = exe.getEnvironment(pathResolver);
-    jobArgs = macroHandler.expand(target, cellNames, resolver, unexpanded).trim();
+
   }
 
   public ImmutableList<String> getStartupCommand() {
@@ -121,6 +126,10 @@ public class WorkerMacroArg extends MacroArg {
   }
 
   public String getJobArgs() {
-    return jobArgs;
+    try {
+      return expander.expand(target, cellNames, resolver, unexpanded).trim();
+    } catch (MacroException e) {
+      throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
+    }
   }
 }
