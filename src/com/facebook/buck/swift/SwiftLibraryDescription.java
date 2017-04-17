@@ -22,6 +22,8 @@ import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.HeaderSymlinkTree;
+import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkable;
@@ -53,6 +55,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -219,6 +222,10 @@ public class SwiftLibraryDescription implements
               "Could not find SwiftCompile with target %s", buildTarget);
         }
       };
+
+      params = params.copyAppendingExtraDeps(
+          requireHeaderSymlinkTree(cxxPlatform, params, resolver, args));
+
       params = params.copyAppendingExtraDeps(
           params.getBuildDeps().stream()
               .filter(SwiftLibrary.class::isInstance)
@@ -330,6 +337,7 @@ public class SwiftLibraryDescription implements
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
+      CxxLibraryDescription.Arg cxxDelegateArgs,
       A args) throws NoSuchBuildTargetException {
     BuildTarget buildTarget = params.getBuildTarget();
     if (!isSwiftTarget(buildTarget)) {
@@ -347,6 +355,13 @@ public class SwiftLibraryDescription implements
         delegateArgs,
         args,
         buildTarget);
+
+    populateHeadersArg(
+        resolver,
+        cxxDelegateArgs,
+        delegateArgs,
+        buildTarget);
+
     if (!delegateArgs.srcs.isEmpty()) {
       return Optional.of(
           resolver.addToIndex(
@@ -359,6 +374,73 @@ public class SwiftLibraryDescription implements
   public static boolean isSwiftTarget(BuildTarget buildTarget) {
     return buildTarget.getFlavors().contains(SWIFT_COMPANION_FLAVOR) ||
         buildTarget.getFlavors().contains(SWIFT_COMPILE_FLAVOR);
+  }
+
+  private <A extends CxxLibraryDescription.Arg> void populateHeadersArg(
+      BuildRuleResolver resolver,
+      CxxLibraryDescription.Arg cxxDelegateArgs,
+      SwiftLibraryDescription.Arg delegateArgs,
+      BuildTarget buildTarget)
+      throws NoSuchBuildTargetException {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    Optional<CxxPlatform> cxxPlatform = getCxxPlatform(buildTarget);
+
+    delegateArgs.exportedHeaders = CxxDescriptionEnhancer.parseExportedHeaders(
+        buildTarget,
+        resolver,
+        ruleFinder,
+        pathResolver,
+        cxxPlatform,
+        cxxDelegateArgs);
+
+    delegateArgs.headers = CxxDescriptionEnhancer.parseHeaders(
+        buildTarget,
+        resolver,
+        ruleFinder,
+        pathResolver,
+        cxxPlatform,
+        cxxDelegateArgs);
+  }
+
+  private <A extends SwiftLibraryDescription.Arg> ImmutableList<HeaderSymlinkTree>
+  requireHeaderSymlinkTree(
+      CxxPlatform cxxPlatform,
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      A arg
+  ) {
+    BuildRuleParams untypedParams = params
+        .withoutFlavor(SWIFT_COMPANION_FLAVOR)
+        .withoutFlavor(SWIFT_COMPILE_FLAVOR);
+
+    HeaderSymlinkTree publicHeaderSymlinkTree = CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+        untypedParams,
+        resolver,
+        cxxPlatform,
+        arg.exportedHeaders,
+        HeaderVisibility.PUBLIC,
+        true
+    );
+    HeaderSymlinkTree privateHeaderSymlinkTree = CxxDescriptionEnhancer.requireHeaderSymlinkTree(
+        untypedParams,
+        resolver,
+        cxxPlatform,
+        arg.headers,
+        HeaderVisibility.PRIVATE,
+        true
+    );
+
+    return ImmutableList.of(publicHeaderSymlinkTree, privateHeaderSymlinkTree);
+  }
+
+  private Optional<CxxPlatform> getCxxPlatform(BuildTarget buildTarget) {
+    Optional<Map.Entry<Flavor, CxxPlatform>> platform = cxxPlatformFlavorDomain.getFlavorAndValue(
+        buildTarget);
+    if (platform.isPresent()) {
+      return Optional.of(platform.get().getValue());
+    }
+    return Optional.empty();
   }
 
   @SuppressFieldNotInitialized
@@ -374,6 +456,9 @@ public class SwiftLibraryDescription implements
     public Optional<SourcePath> bridgingHeader;
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<NativeLinkable.Linkage> preferredLinkage;
+
+    public ImmutableMap<Path, SourcePath> headers = ImmutableMap.of();
+    public ImmutableMap<Path, SourcePath> exportedHeaders = ImmutableMap.of();
   }
 
 }
