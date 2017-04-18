@@ -20,6 +20,7 @@ import static com.facebook.buck.swift.SwiftLibraryDescription.isSwiftTarget;
 
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
+import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.FrameworkDependencies;
@@ -375,9 +376,16 @@ public class AppleBinaryDescription
       return existingThinRule.get();
     }
 
+    CxxLibraryDescription.Arg cxxDelegateArgs = CxxLibraryDescription.createEmptyConstructorArg();
+    AppleDescriptions.populateCxxLibraryDescriptionArg(
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+        cxxDelegateArgs,
+        args,
+        params.getBuildTarget());
+
     ImmutableSortedSet.Builder<BuildTarget> extraCxxDepsBuilder = ImmutableSortedSet.naturalOrder();
     Optional<BuildRule> swiftCompanionBuildRule = swiftDelegate.createCompanionBuildRule(
-        targetGraph, params, resolver, cellRoots, args);
+        targetGraph, params, resolver, cellRoots, cxxDelegateArgs, args);
     if (swiftCompanionBuildRule.isPresent()) {
       // when creating a swift target, there is no need to proceed with apple binary rules,
       // otherwise, add this swift rule as a dependency.
