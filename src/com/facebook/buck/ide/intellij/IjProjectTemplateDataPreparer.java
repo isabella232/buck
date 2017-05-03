@@ -188,6 +188,10 @@ public class IjProjectTemplateDataPreparer {
         simplifiedFolders
             .stream()
             .map(transformToFolder::apply)
+            .filter(folder -> !(folder.getType().equals("excludeFolder")
+                && (folder.getUrl().contains("/res")
+                || folder.getUrl().contains("/assets")
+                || folder.getUrl().contains("/src"))))
             .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
     return ContentRoot.builder().setUrl(url).setFolders(sourceFolders).build();
   }
