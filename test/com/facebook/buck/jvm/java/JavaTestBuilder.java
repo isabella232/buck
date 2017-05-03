@@ -21,22 +21,21 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_C
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_OPTIONS;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 public class JavaTestBuilder
-    extends AbstractNodeBuilder<JavaTestDescription.Arg, JavaTestDescription, JavaTest> {
-  private JavaTestBuilder(BuildTarget target) {
+    extends AbstractNodeBuilderWithMutableArg<
+        JavaTestDescription.Arg, JavaTestDescription, JavaTest> {
+  private JavaTestBuilder(BuildTarget target, JavaBuckConfig javaBuckConfig) {
     super(
         new JavaTestDescription(
-            DEFAULT_JAVA_CONFIG,
+            javaBuckConfig,
             DEFAULT_JAVA_OPTIONS,
             DEFAULT_JAVAC_OPTIONS,
             /* testRuleTimeoutMs */ Optional.empty(),
@@ -45,7 +44,11 @@ public class JavaTestBuilder
   }
 
   public static JavaTestBuilder createBuilder(BuildTarget target) {
-    return new JavaTestBuilder(target);
+    return new JavaTestBuilder(target, DEFAULT_JAVA_CONFIG);
+  }
+
+  public static JavaTestBuilder createBuilder(BuildTarget target, JavaBuckConfig javaBuckConfig) {
+    return new JavaTestBuilder(target, javaBuckConfig);
   }
 
   public JavaTestBuilder addDep(BuildTarget rule) {

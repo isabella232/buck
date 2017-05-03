@@ -30,7 +30,6 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -53,24 +52,20 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class PythonTest
-    extends AbstractBuildRule
+public class PythonTest extends AbstractBuildRule
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
   private final SourcePathRuleFinder ruleFinder;
   private final Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps;
-  @AddToRuleKey
-  private final Supplier<ImmutableMap<String, String>> env;
-  @AddToRuleKey
-  private final PythonBinary binary;
-  private final ImmutableSet<Label> labels;
+  @AddToRuleKey private final Supplier<ImmutableMap<String, String>> env;
+  @AddToRuleKey private final PythonBinary binary;
+  private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage;
@@ -81,7 +76,7 @@ public class PythonTest
       Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps,
       Supplier<ImmutableMap<String, String>> env,
       PythonBinary binary,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
@@ -101,7 +96,7 @@ public class PythonTest
       SourcePathRuleFinder ruleFinder,
       Supplier<ImmutableMap<String, String>> env,
       PythonBinary binary,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
@@ -121,8 +116,7 @@ public class PythonTest
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }
 
@@ -139,14 +133,15 @@ public class PythonTest
       TestReportingCallback testReportingCallback) {
     return new ImmutableList.Builder<Step>()
         .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
-        .add(new PythonRunTestsStep(
-            getProjectFilesystem().getRootPath(),
-            getBuildTarget().getFullyQualifiedName(),
-            binary.getExecutableCommand().getCommandPrefix(pathResolver),
-            getMergedEnv(pathResolver),
-            options.getTestSelectorList(),
-            testRuleTimeoutMs,
-            getProjectFilesystem().resolve(getPathToTestOutputResult())))
+        .add(
+            new PythonRunTestsStep(
+                getProjectFilesystem().getRootPath(),
+                getBuildTarget().getFullyQualifiedName(),
+                binary.getExecutableCommand().getCommandPrefix(pathResolver),
+                getMergedEnv(pathResolver),
+                options.getTestSelectorList(),
+                testRuleTimeoutMs,
+                getProjectFilesystem().resolve(getPathToTestOutputResult())))
         .build();
   }
 
@@ -164,37 +159,26 @@ public class PythonTest
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        "__test_%s_output__");
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__test_%s_output__");
   }
 
-  public Path getPathToTestOutputResult() {
+  private Path getPathToTestOutputResult() {
     return getPathToTestOutputDirectory().resolve("results.json");
   }
 
   @Override
-  public boolean hasTestResultFiles() {
-    return getProjectFilesystem().isFile(getPathToTestOutputResult());
-  }
-
-  @Override
-  public ImmutableSet<Label> getLabels() {
+  public ImmutableSet<String> getLabels() {
     return labels;
   }
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext executionContext,
-      boolean isUsingTestSelectors) {
+      final ExecutionContext executionContext, boolean isUsingTestSelectors) {
     return () -> {
       Optional<String> resultsFileContents =
-          getProjectFilesystem().readFileIfItExists(
-              getPathToTestOutputResult());
-      TestResultSummary[] testResultSummaries = ObjectMappers.readValue(
-          resultsFileContents.get(),
-          TestResultSummary[].class);
+          getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
+      TestResultSummary[] testResultSummaries =
+          ObjectMappers.readValue(resultsFileContents.get(), TestResultSummary[].class);
       return TestResults.of(
           getBuildTarget(),
           ImmutableList.of(
@@ -202,9 +186,7 @@ public class PythonTest
                   getBuildTarget().getFullyQualifiedName(),
                   ImmutableList.copyOf(testResultSummaries))),
           contacts,
-          labels.stream()
-              .map(Object::toString)
-              .collect(MoreCollectors.toImmutableSet()));
+          labels.stream().map(Object::toString).collect(MoreCollectors.toImmutableSet()));
     };
   }
 
@@ -222,7 +204,10 @@ public class PythonTest
         .concat(originalDeclaredDeps.get().stream().map(BuildRule::getBuildTarget))
         .concat(binary.getRuntimeDeps())
         .concat(
-            binary.getExecutableCommand().getDeps(ruleFinder).stream()
+            binary
+                .getExecutableCommand()
+                .getDeps(ruleFinder)
+                .stream()
                 .map(BuildRule::getBuildTarget));
   }
 

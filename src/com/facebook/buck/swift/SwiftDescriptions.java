@@ -27,7 +27,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class SwiftDescriptions {
@@ -36,11 +35,8 @@ public class SwiftDescriptions {
   static final String SWIFT_MAIN_FILENAME = "main.swift";
   public static final String SWIFT_EXTENSION = "swift";
 
-  /**
-   * Utility class: do not instantiate.
-   */
-  private SwiftDescriptions() {
-  }
+  /** Utility class: do not instantiate. */
+  private SwiftDescriptions() {}
 
   static ImmutableSortedSet<SourcePath> filterSwiftSources(
       SourcePathResolver sourcePathResolver, ImmutableSet<SourceWithFlags> srcs) {
@@ -54,10 +50,10 @@ public class SwiftDescriptions {
     return swiftSrcsBuilder.build();
   }
 
-  static <A extends CxxLibraryDescription.Arg> void populateSwiftLibraryDescriptionArg(
+  static void populateSwiftLibraryDescriptionArg(
       final SourcePathResolver sourcePathResolver,
       SwiftLibraryDescription.Arg output,
-      final A args,
+      final CxxLibraryDescription.Arg args,
       BuildTarget buildTarget) {
 
     output.srcs = filterSwiftSources(sourcePathResolver, args.srcs);
@@ -82,5 +78,4 @@ public class SwiftDescriptions {
   static String toSwiftHeaderName(String moduleName) {
     return moduleName + SWIFT_HEADER_SUFFIX;
   }
-
 }

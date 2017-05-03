@@ -18,6 +18,7 @@ package com.facebook.buck.distributed;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.cli.MetadataChecker;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -32,7 +33,6 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -40,6 +40,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
+import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.PathTypeCoercer;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -54,7 +58,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -62,7 +65,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 public class DistBuildSlaveExecutor {
@@ -70,15 +72,11 @@ public class DistBuildSlaveExecutor {
 
   private final DistBuildExecutorArgs args;
 
-  @Nullable
-  private TargetGraph targetGraph;
+  @Nullable private TargetGraph targetGraph;
 
-  @Nullable
-  private ActionGraphAndResolver actionGraphAndResolver;
+  @Nullable private ActionGraphAndResolver actionGraphAndResolver;
 
-  @Nullable
-  private DistBuildCachingEngineDelegate cachingBuildEngineDelegate;
-
+  @Nullable private DistBuildCachingEngineDelegate cachingBuildEngineDelegate;
 
   public DistBuildSlaveExecutor(DistBuildExecutorArgs args) {
     this.args = args;
@@ -91,9 +89,9 @@ public class DistBuildSlaveExecutor {
     DistBuildModeRunner runner = null;
     switch (args.getDistBuildMode()) {
       case REMOTE_BUILD:
-        runner = new RemoteBuildModeRunner(
-            localBuilder,
-            args.getState().getRemoteState().getTopLevelTargets());
+        runner =
+            new RemoteBuildModeRunner(
+                localBuilder, args.getState().getRemoteState().getTopLevelTargets());
         break;
 
       case COORDINATOR:
@@ -105,9 +103,8 @@ public class DistBuildSlaveExecutor {
         break;
 
       case COORDINATOR_AND_MINION:
-        runner = new CoordinatorAndMinionModeRunner(
-            newCoordinatorMode(),
-            newMinionMode(localBuilder));
+        runner =
+            new CoordinatorAndMinionModeRunner(newCoordinatorMode(), newMinionMode(localBuilder));
         break;
 
       default:
@@ -127,13 +124,11 @@ public class DistBuildSlaveExecutor {
   }
 
   private CoordinatorModeRunner newCoordinatorMode() {
-    BuildTargetsQueue queue = BuildTargetsQueue.newQueue(
-        Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-        fullyQualifiedNameToBuildTarget(args.getState().getRemoteState().getTopLevelTargets()));
-    return new CoordinatorModeRunner(
-        args.getCoordinatorPort(),
-        queue,
-        args.getStampedeId());
+    BuildTargetsQueue queue =
+        BuildTargetsQueue.newQueue(
+            Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+            fullyQualifiedNameToBuildTarget(args.getState().getRemoteState().getTopLevelTargets()));
+    return new CoordinatorModeRunner(args.getCoordinatorPort(), queue, args.getStampedeId());
   }
 
   private TargetGraph createTargetGraph() throws IOException, InterruptedException {
@@ -143,17 +138,22 @@ public class DistBuildSlaveExecutor {
 
     DistBuildTargetGraphCodec codec = createGraphCodec();
     TargetGraphAndBuildTargets targetGraphAndBuildTargets =
-        Preconditions.checkNotNull(codec.createTargetGraph(
-            args.getState().getRemoteState().getTargetGraph(),
-            Functions.forMap(args.getState().getCells())));
+        Preconditions.checkNotNull(
+            codec.createTargetGraph(
+                args.getState().getRemoteState().getTargetGraph(),
+                Functions.forMap(args.getState().getCells())));
 
     try {
       if (args.getRemoteRootCellConfig().getBuildVersions()) {
-        targetGraph = args.getVersionedTargetGraphCache().toVersionedTargetGraph(
-            args.getBuckEventBus(),
-            args.getRemoteRootCellConfig(),
-            targetGraphAndBuildTargets
-        ).getTargetGraph();
+        targetGraph =
+            args.getVersionedTargetGraphCache()
+                .toVersionedTargetGraph(
+                    args.getBuckEventBus(),
+                    args.getRemoteRootCellConfig(),
+                    new DefaultTypeCoercerFactory(
+                        PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY),
+                    targetGraphAndBuildTargets)
+                .getTargetGraph();
       } else {
         targetGraph = targetGraphAndBuildTargets.getTargetGraph();
       }
@@ -171,13 +171,15 @@ public class DistBuildSlaveExecutor {
     }
     createTargetGraph();
 
-    actionGraphAndResolver = Preconditions.checkNotNull(
-        args.getActionGraphCache().getActionGraph(
-            args.getBuckEventBus(),
-            /* checkActionGraphs */ false,
-            /* skipActionGraphCache */ false,
-            Preconditions.checkNotNull(targetGraph),
-            args.getCacheKeySeed()));
+    actionGraphAndResolver =
+        Preconditions.checkNotNull(
+            args.getActionGraphCache()
+                .getActionGraph(
+                    args.getBuckEventBus(),
+                    /* checkActionGraphs */ false,
+                    /* skipActionGraphCache */ false,
+                    Preconditions.checkNotNull(targetGraph),
+                    args.getCacheKeySeed()));
     return actionGraphAndResolver;
   }
 
@@ -189,8 +191,8 @@ public class DistBuildSlaveExecutor {
 
     StackedFileHashCaches caches = createStackedFileHashesAndPreload();
     createActionGraphAndResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(Preconditions.checkNotNull(
-        actionGraphAndResolver).getResolver());
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(Preconditions.checkNotNull(actionGraphAndResolver).getResolver());
     cachingBuildEngineDelegate =
         new DistBuildCachingEngineDelegate(
             new SourcePathResolver(ruleFinder),
@@ -200,9 +202,9 @@ public class DistBuildSlaveExecutor {
     return cachingBuildEngineDelegate;
   }
 
-  private StackedFileHashCache createStackOfDefaultFileHashCache() throws IOException {
-    ImmutableList.Builder<ProjectFileHashCache> allCachesBuilder =
-        ImmutableList.builder();
+  private StackedFileHashCache createStackOfDefaultFileHashCache()
+      throws InterruptedException, IOException {
+    ImmutableList.Builder<ProjectFileHashCache> allCachesBuilder = ImmutableList.builder();
     Cell rootCell = args.getState().getRootCell();
 
     // 1. Add all cells (including the root cell).
@@ -226,10 +228,11 @@ public class DistBuildSlaveExecutor {
     CellPathResolver distBuildCellPathResolver =
         args.getState().getRootCell().getCellPathResolver();
     for (String fullyQualifiedBuildTarget : buildTargets) {
-      BuildTarget target = BuildTargetParser.INSTANCE.parse(
-          fullyQualifiedBuildTarget,
-          BuildTargetPatternParser.fullyQualified(),
-          distBuildCellPathResolver);
+      BuildTarget target =
+          BuildTargetParser.INSTANCE.parse(
+              fullyQualifiedBuildTarget,
+              BuildTargetPatternParser.fullyQualified(),
+              distBuildCellPathResolver);
       targets.add(target);
     }
 
@@ -237,32 +240,34 @@ public class DistBuildSlaveExecutor {
   }
 
   private DistBuildTargetGraphCodec createGraphCodec() {
-    DistBuildTypeCoercerFactory typeCoercerFactory =
-        new DistBuildTypeCoercerFactory();
+    TypeCoercerFactory typeCoercerFactory =
+        new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
     ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory));
 
-    DistBuildTargetGraphCodec targetGraphCodec = new DistBuildTargetGraphCodec(
-        parserTargetNodeFactory,
-        new Function<TargetNode<?, ?>, Map<String, Object>>() {
-          @Nullable
-          @Override
-          public Map<String, Object> apply(TargetNode<?, ?> input) {
-            try {
-              return args.getParser().getRawTargetNode(
-                  args.getBuckEventBus(),
-                  args.getRootCell().getCell(input.getBuildTarget()),
-                      /* enableProfiling */ false,
-                  args.getExecutorService(),
-                  input);
-            } catch (BuildFileParseException e) {
-              throw new RuntimeException(e);
-            }
-          }
-        },
-        new HashSet<>(args.getState().getRemoteState().getTopLevelTargets()));
+    DistBuildTargetGraphCodec targetGraphCodec =
+        new DistBuildTargetGraphCodec(
+            parserTargetNodeFactory,
+            new Function<TargetNode<?, ?>, Map<String, Object>>() {
+              @Nullable
+              @Override
+              public Map<String, Object> apply(TargetNode<?, ?> input) {
+                try {
+                  return args.getParser()
+                      .getRawTargetNode(
+                          args.getBuckEventBus(),
+                          args.getRootCell().getCell(input.getBuildTarget()),
+                          /* enableProfiling */ false,
+                          args.getExecutorService(),
+                          input);
+                } catch (BuildFileParseException e) {
+                  throw new RuntimeException(e);
+                }
+              }
+            },
+            new HashSet<>(args.getState().getRemoteState().getTopLevelTargets()));
 
     return targetGraphCodec;
   }
@@ -280,59 +285,61 @@ public class DistBuildSlaveExecutor {
     public int buildLocallyAndReturnExitCode(Iterable<String> targetsToBuild)
         throws IOException, InterruptedException {
       // TODO(ruibm): Fix this to work with Android.
-      try (
-          CachingBuildEngine buildEngine = new CachingBuildEngine(
-              Preconditions.checkNotNull(cachingBuildEngineDelegate),
-              args.getExecutorService(),
-              args.getExecutorService(),
-              new DefaultStepRunner(),
-              engineConfig.getBuildEngineMode(),
-              engineConfig.getBuildMetadataStorage(),
-              engineConfig.getBuildDepFiles(),
-              engineConfig.getBuildMaxDepFileCacheEntries(),
-              engineConfig.getBuildArtifactCacheSizeLimit(),
-              Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-              engineConfig.getResourceAwareSchedulingInfo(),
-              RuleKeyFactories.of(
-                  distBuildConfig.getKeySeed(),
-                  cachingBuildEngineDelegate.getFileHashCache(),
-                  actionGraphAndResolver.getResolver(),
-                  engineConfig.getBuildInputRuleKeyFileSizeLimit(),
-                  new DefaultRuleKeyCache<>()));
-          Build build = new Build(
-              Preconditions.checkNotNull(actionGraphAndResolver).getActionGraph(),
-              Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
-              args.getRootCell(),
-              Optional.empty(),
-              getExplodingAndroidSupplier(),
-              buildEngine,
-              args.getArtifactCache(),
-              distBuildConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
-              args.getConsole(),
-        /* defaultTestTimeoutMillis */ 1000,
-        /* isCodeCoverageEnabled */ false,
-        /* isInclNoLocationClassesEnabled */ false,
-        /* isDebugEnabled */ false,
-        /* shouldReportAbsolutePaths */ false,
-              RuleKeyDiagnosticsMode.NEVER,
-              args.getBuckEventBus(),
-              args.getPlatform(),
-              ImmutableMap.of(),
-              args.getClock(),
-              new ConcurrencyLimit(
-                  4,
-                  distBuildConfig.getResourceAllocationFairness(),
-                  4,
-                  distBuildConfig.getDefaultResourceAmounts(),
-                  distBuildConfig.getMaximumResourceAmounts().withCpu(4)),
-              Optional.empty(),
-              Optional.empty(),
-              Optional.empty(),
-              args.getExecutors())) {
+      MetadataChecker.checkAndCleanIfNeeded(args.getRootCell());
+      try (CachingBuildEngine buildEngine =
+              new CachingBuildEngine(
+                  Preconditions.checkNotNull(cachingBuildEngineDelegate),
+                  args.getExecutorService(),
+                  args.getExecutorService(),
+                  new DefaultStepRunner(),
+                  engineConfig.getBuildEngineMode(),
+                  engineConfig.getBuildMetadataStorage(),
+                  engineConfig.getBuildDepFiles(),
+                  engineConfig.getBuildMaxDepFileCacheEntries(),
+                  engineConfig.getBuildArtifactCacheSizeLimit(),
+                  Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+                  engineConfig.getResourceAwareSchedulingInfo(),
+                  RuleKeyFactories.of(
+                      distBuildConfig.getKeySeed(),
+                      cachingBuildEngineDelegate.getFileHashCache(),
+                      actionGraphAndResolver.getResolver(),
+                      engineConfig.getBuildInputRuleKeyFileSizeLimit(),
+                      new DefaultRuleKeyCache<>()));
+          Build build =
+              new Build(
+                  Preconditions.checkNotNull(actionGraphAndResolver).getActionGraph(),
+                  Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
+                  args.getRootCell(),
+                  Optional.empty(),
+                  getExplodingAndroidSupplier(),
+                  buildEngine,
+                  args.getArtifactCache(),
+                  distBuildConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
+                  args.getConsole(),
+                  /* defaultTestTimeoutMillis */ 1000,
+                  /* isCodeCoverageEnabled */ false,
+                  /* isInclNoLocationClassesEnabled */ false,
+                  /* isDebugEnabled */ false,
+                  /* shouldReportAbsolutePaths */ false,
+                  RuleKeyDiagnosticsMode.NEVER,
+                  args.getBuckEventBus(),
+                  args.getPlatform(),
+                  ImmutableMap.of(),
+                  args.getClock(),
+                  new ConcurrencyLimit(
+                      4,
+                      distBuildConfig.getResourceAllocationFairness(),
+                      4,
+                      distBuildConfig.getDefaultResourceAmounts(),
+                      distBuildConfig.getMaximumResourceAmounts().withCpu(4)),
+                  Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
+                  args.getExecutors())) {
 
         return build.executeAndPrintFailuresToEventBus(
             fullyQualifiedNameToBuildTarget(targetsToBuild),
-          /* isKeepGoing */ true,
+            /* isKeepGoing */ true,
             args.getBuckEventBus(),
             args.getConsole(),
             Optional.empty());
@@ -351,7 +358,8 @@ public class DistBuildSlaveExecutor {
     }
   }
 
-  private StackedFileHashCaches createStackedFileHashesAndPreload() throws IOException {
+  private StackedFileHashCaches createStackedFileHashesAndPreload()
+      throws InterruptedException, IOException {
     StackedFileHashCache stackedFileHashCache = createStackOfDefaultFileHashCache();
     // Used for rule key computations.
     StackedFileHashCache remoteStackedFileHashCache =
@@ -373,8 +381,6 @@ public class DistBuildSlaveExecutor {
               }
             });
 
-    return new StackedFileHashCaches(
-        remoteStackedFileHashCache,
-        materializingStackedFileHashCache);
+    return new StackedFileHashCaches(remoteStackedFileHashCache, materializingStackedFileHashCache);
   }
 }

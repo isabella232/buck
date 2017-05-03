@@ -18,16 +18,14 @@ package com.facebook.buck.shell;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableList;
-
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 public class GenruleBuilder
-    extends AbstractNodeBuilder<GenruleDescription.Arg, GenruleDescription, Genrule> {
+    extends AbstractNodeBuilderWithMutableArg<GenruleDescription.Arg, GenruleDescription, Genrule> {
   private GenruleBuilder(BuildTarget target) {
     super(new GenruleDescription(), target);
   }
@@ -73,5 +71,4 @@ public class GenruleBuilder
     arg.srcs = Optional.ofNullable(srcs).orElse(ImmutableList.of());
     return this;
   }
-
 }

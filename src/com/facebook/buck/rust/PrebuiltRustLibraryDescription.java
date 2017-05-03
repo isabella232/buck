@@ -34,25 +34,25 @@ import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class PrebuiltRustLibraryDescription implements
-    Description<PrebuiltRustLibraryDescription.Arg>,
-    VersionPropagator<PrebuiltRustLibraryDescription.Arg> {
+public class PrebuiltRustLibraryDescription
+    implements Description<PrebuiltRustLibraryDescription.Arg>,
+        VersionPropagator<PrebuiltRustLibraryDescription.Arg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> PrebuiltRustLibrary createBuildRule(
+  public PrebuiltRustLibrary createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
     final SourcePathResolver pathResolver =
         new SourcePathResolver(new SourcePathRuleFinder(resolver));
 

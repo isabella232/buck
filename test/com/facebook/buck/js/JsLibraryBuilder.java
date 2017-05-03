@@ -20,21 +20,19 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.test.selectors.Nullable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class JsLibraryBuilder extends
-    AbstractNodeBuilder<JsLibraryDescription.Arg, JsLibraryDescription, JsLibrary> {
+public class JsLibraryBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        JsLibraryDescription.Arg, JsLibraryDescription, JsLibrary> {
   private static final JsLibraryDescription libraryDescription = new JsLibraryDescription();
 
-  JsLibraryBuilder(
-      BuildTarget target,
-      BuildTarget worker,
-      ProjectFilesystem filesystem) {
+  JsLibraryBuilder(BuildTarget target, BuildTarget worker, ProjectFilesystem filesystem) {
     super(libraryDescription, target, filesystem);
     arg.extraArgs = Optional.empty();
     arg.worker = worker;
@@ -57,8 +55,8 @@ public class JsLibraryBuilder extends
     return this;
   }
 
-  JsLibraryBuilder setBasePath(String basePath) {
-    arg.basePath = Optional.of(basePath);
+  JsLibraryBuilder setBasePath(@Nullable String basePath) {
+    arg.basePath = Optional.ofNullable(basePath);
     return this;
   }
 }

@@ -18,20 +18,18 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class AppleBundleBuilder
-    extends AbstractNodeBuilder<AppleBundleDescription.Arg, AppleBundleDescription, AppleBundle> {
+    extends AbstractNodeBuilderWithMutableArg<
+        AppleBundleDescription.Arg, AppleBundleDescription, AppleBundle> {
 
   protected AppleBundleBuilder(BuildTarget target) {
-    super(
-        FakeAppleRuleDescriptions.BUNDLE_DESCRIPTION,
-        target);
+    super(FakeAppleRuleDescriptions.BUNDLE_DESCRIPTION, target);
   }
 
   public static AppleBundleBuilder createBuilder(BuildTarget target) {

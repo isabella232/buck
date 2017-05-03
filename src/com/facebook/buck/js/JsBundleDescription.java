@@ -16,7 +16,13 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResource;
+import com.facebook.buck.apple.AppleBundleResources;
+import com.facebook.buck.apple.AppleLibraryDescription;
+import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
@@ -29,28 +35,30 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Collection;
 import java.util.Optional;
-import java.util.function.Function;
-import java.util.stream.Stream;
 
-public class JsBundleDescription implements Description<JsBundleDescription.Arg>, Flavored {
+public class JsBundleDescription
+    implements Description<JsBundleDescription.Arg>,
+        Flavored,
+        HasAppleBundleResourcesDescription<JsBundleDescription.Arg> {
 
-  private static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS = ImmutableSet.of(
-      JsFlavors.PLATFORM_DOMAIN,
-      JsFlavors.OPTIMIZATION_DOMAIN,
-      JsFlavors.RAM_BUNDLE_DOMAIN);
+  private static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS =
+      ImmutableSet.of(
+          JsFlavors.PLATFORM_DOMAIN, JsFlavors.OPTIMIZATION_DOMAIN, JsFlavors.RAM_BUNDLE_DOMAIN);
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
@@ -63,17 +71,18 @@ public class JsBundleDescription implements Description<JsBundleDescription.Arg>
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
 
     final ImmutableSortedSet<Flavor> flavors = params.getBuildTarget().getFlavors();
     // For Android, we bundle JS output as assets, and images etc. as resources.
@@ -90,14 +99,15 @@ public class JsBundleDescription implements Description<JsBundleDescription.Arg>
     params = JsUtil.withWorkerDependencyOnly(params, resolver, args.worker);
 
     final Either<ImmutableSet<String>, String> entryPoint = args.entry;
-    ImmutableSortedSet<BuildRule> libraryDeps =
+    ImmutableSortedSet<JsLibrary> libraryDeps =
         new TransitiveLibraryDependencies(params.getBuildTarget(), targetGraph, resolver)
-            .collect(args.libs);
+            .collect(args.deps);
 
     return new JsBundle(
         params.copyAppendingExtraDeps(libraryDeps),
-        libraryDeps.stream()
-            .map(BuildRule::getSourcePathToOutput)
+        libraryDeps
+            .stream()
+            .map(JsLibrary::getSourcePathToOutput)
             .collect(MoreCollectors.toImmutableSortedSet()),
         entryPoint.isLeft() ? entryPoint.getLeft() : ImmutableSet.of(entryPoint.getRight()),
         args.bundleName.orElse(params.getBuildTarget().getShortName() + ".js"),
@@ -105,19 +115,23 @@ public class JsBundleDescription implements Description<JsBundleDescription.Arg>
   }
 
   private static BuildRule createAndroidRule(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      Optional<String> rDotJavaPackage) throws NoSuchBuildTargetException {
-    final BuildTarget bundleTarget = params.getBuildTarget()
-        .withAppendedFlavors(JsFlavors.FORCE_JS_BUNDLE)
-        .withoutFlavors(JsFlavors.ANDROID_RESOURCES);
+      BuildRuleParams params, BuildRuleResolver resolver, Optional<String> rDotJavaPackage)
+      throws NoSuchBuildTargetException {
+    final BuildTarget bundleTarget =
+        params
+            .getBuildTarget()
+            .withAppendedFlavors(JsFlavors.FORCE_JS_BUNDLE)
+            .withoutFlavors(JsFlavors.ANDROID_RESOURCES);
     resolver.requireRule(bundleTarget);
 
     final JsBundle jsBundle = resolver.getRuleWithType(bundleTarget, JsBundle.class);
     if (params.getBuildTarget().getFlavors().contains(JsFlavors.ANDROID_RESOURCES)) {
-      final String rDot = rDotJavaPackage.orElseThrow(() -> new HumanReadableException(
-          "Specify `android_package` when building %s for Android.",
-          params.getBuildTarget().getUnflavoredBuildTarget()));
+      final String rDot =
+          rDotJavaPackage.orElseThrow(
+              () ->
+                  new HumanReadableException(
+                      "Specify `android_package` when building %s for Android.",
+                      params.getBuildTarget().getUnflavoredBuildTarget()));
       return createAndroidResources(params, resolver, jsBundle, rDot);
     } else {
       return createAndroidBundle(params, resolver, jsBundle);
@@ -125,32 +139,27 @@ public class JsBundleDescription implements Description<JsBundleDescription.Arg>
   }
 
   private static JsBundleAndroid createAndroidBundle(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      JsBundle jsBundle) throws NoSuchBuildTargetException {
+      BuildRuleParams params, BuildRuleResolver resolver, JsBundle jsBundle)
+      throws NoSuchBuildTargetException {
 
-    final BuildTarget resourceTarget = params.getBuildTarget()
-        .withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
+    final BuildTarget resourceTarget =
+        params.getBuildTarget().withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
     final BuildRule resource = resolver.requireRule(resourceTarget);
 
     return new JsBundleAndroid(
         params.copyReplacingDeclaredAndExtraDeps(
-            ImmutableSortedSet::of,
-            () -> ImmutableSortedSet.of(jsBundle, resource)),
+            ImmutableSortedSet::of, () -> ImmutableSortedSet.of(jsBundle, resource)),
         jsBundle,
         resolver.getRuleWithType(resourceTarget, AndroidResource.class));
   }
 
   private static BuildRule createAndroidResources(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      JsBundle jsBundle,
-      String rDotJavaPackage) throws NoSuchBuildTargetException {
+      BuildRuleParams params, BuildRuleResolver resolver, JsBundle jsBundle, String rDotJavaPackage)
+      throws NoSuchBuildTargetException {
 
     return new AndroidResource(
         params.copyReplacingDeclaredAndExtraDeps(
-            ImmutableSortedSet::of,
-            () -> ImmutableSortedSet.of(jsBundle)),
+            ImmutableSortedSet::of, () -> ImmutableSortedSet.of(jsBundle)),
         new SourcePathRuleFinder(resolver),
         ImmutableSortedSet.of(), // deps
         jsBundle.getSourcePathToResources(),
@@ -162,72 +171,104 @@ public class JsBundleDescription implements Description<JsBundleDescription.Arg>
         false);
   }
 
+  @Override
+  public void addAppleBundleResources(
+      AppleBundleResources.Builder builder,
+      TargetNode<Arg, ?> targetNode,
+      ProjectFilesystem filesystem,
+      BuildRuleResolver resolver) {
+    JsBundleOutputs bundle =
+        resolver.getRuleWithType(targetNode.getBuildTarget(), JsBundleOutputs.class);
+    builder.addDirsContainingResourceDirs(
+        bundle.getSourcePathToOutput(), bundle.getSourcePathToResources());
+  }
+
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
-    public ImmutableSortedSet<BuildTarget> libs;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Either<ImmutableSet<String>, String> entry;
     public Optional<String> bundleName;
     public BuildTarget worker;
+
     @Hint(name = "android_package")
     public Optional<String> rDotJavaPackage;
   }
 
   private static class TransitiveLibraryDependencies {
-    private final BuildTarget bundleTarget;
     private final ImmutableSortedSet<Flavor> extraFlavors;
     private final BuildRuleResolver resolver;
     private final SourcePathRuleFinder ruleFinder;
     private final TargetGraph targetGraph;
 
     private TransitiveLibraryDependencies(
-        BuildTarget bundleTarget,
-        TargetGraph targetGraph,
-        BuildRuleResolver resolver
-    ) {
-      this.bundleTarget = bundleTarget;
+        BuildTarget bundleTarget, TargetGraph targetGraph, BuildRuleResolver resolver) {
       this.targetGraph = targetGraph;
       this.resolver = resolver;
+
       final ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
-      extraFlavors = bundleFlavors.contains(JsFlavors.RELEASE)
-          ? bundleFlavors.stream()
-                .filter(flavor -> JsLibraryDescription.FLAVOR_DOMAINS.stream()
-                    .anyMatch(domain -> domain.contains(flavor)))
-                .collect(MoreCollectors.toImmutableSortedSet())
-          : ImmutableSortedSet.of();
+      extraFlavors =
+          bundleFlavors
+              .stream()
+              .filter(
+                  flavor ->
+                      JsLibraryDescription.FLAVOR_DOMAINS
+                          .stream()
+                          .anyMatch(domain -> domain.contains(flavor)))
+              .collect(MoreCollectors.toImmutableSortedSet());
       ruleFinder = new SourcePathRuleFinder(resolver);
     }
 
-    private ImmutableSortedSet<BuildRule> collect(Collection<BuildTarget> firstLevelDeps) {
-      Stream<BuildRule> deps = transitiveDependenciesForAll(
-          firstLevelDeps.stream().map(this::requireRule),
-          bundleTarget);
-      return deps.collect(MoreCollectors.toImmutableSortedSet());
+    ImmutableSortedSet<JsLibrary> collect(Collection<BuildTarget> deps) {
+      ImmutableSortedSet.Builder<JsLibrary> jsLibraries = ImmutableSortedSet.naturalOrder();
+
+      new AbstractBreadthFirstTraversal<BuildTarget>(deps) {
+        @Override
+        public Iterable<BuildTarget> visit(BuildTarget target) throws RuntimeException {
+          final TargetNode<?, ?> targetNode = targetGraph.get(target);
+          final Description<?> description = targetNode.getDescription();
+
+          if (description instanceof JsLibraryDescription) {
+            final JsLibrary library = requireLibrary(target);
+            jsLibraries.add(library);
+            return getLibraryDependencies(library);
+          } else if (description instanceof AndroidLibraryDescription
+              || description instanceof AppleLibraryDescription) {
+            return targetNode.getDeclaredDeps();
+          }
+
+          return ImmutableList.of();
+        }
+      }.start();
+
+      return jsLibraries.build();
     }
 
-    private Stream<BuildRule> transitiveDependenciesForAll(
-        Stream<BuildRule> libraries,
-        BuildTarget parent) {
-      return libraries
-          .map(rule -> JsUtil.verifyIsJsLibrary(rule, parent, targetGraph))
-          .map(this::transitiveDependenciesFor)
-          .flatMap(Function.identity());
-    }
-
-    private Stream<BuildRule> transitiveDependenciesFor(JsLibrary library) {
-      return Stream.concat(
-          Stream.of(library),
-          transitiveDependenciesForAll(
-              library.getLibraryDependencies(ruleFinder)
-                  .map(t -> resolver.getRule(t.withAppendedFlavors(extraFlavors))),
-              library.getBuildTarget()));
-    }
-
-    private BuildRule requireRule(BuildTarget target) {
+    private JsLibrary requireLibrary(BuildTarget target) {
       try {
-        return resolver.requireRule(target.withAppendedFlavors(extraFlavors));
+        BuildRule rule = resolver.requireRule(target.withAppendedFlavors(extraFlavors));
+        Preconditions.checkState(rule instanceof JsLibrary);
+        return (JsLibrary) rule;
       } catch (NoSuchBuildTargetException e) {
         throw new HumanReadableException(e);
       }
+    }
+
+    private Iterable<BuildTarget> getLibraryDependencies(JsLibrary library) {
+      return library
+          .getLibraryDependencies()
+          .stream()
+          .map(
+              sourcePath ->
+                  ruleFinder
+                      .getRule(sourcePath)
+                      .<HumanReadableException>orElseThrow(
+                          () ->
+                              new HumanReadableException(
+                                  "js_library %s has '%s' as a lib, but js_library can only have other "
+                                      + "js_library targets as lib",
+                                  library.getBuildTarget(), sourcePath)))
+          .map(BuildRule::getBuildTarget)
+          .collect(MoreCollectors.toImmutableList());
     }
   }
 }

@@ -17,19 +17,13 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public final class AppleTestBuilder
-    extends
-    AbstractAppleNativeTargetBuilder<
-        AppleTestDescription.Arg,
-        AppleTestDescription,
-        AppleTest,
-        AppleTestBuilder> {
+    extends AbstractAppleNativeTargetBuilder<
+        AppleTestDescription.Arg, AppleTestDescription, AppleTest, AppleTestBuilder> {
 
   @Override
   protected AppleTestBuilder getThis() {
@@ -49,7 +43,7 @@ public final class AppleTestBuilder
     return this;
   }
 
-  public AppleTestBuilder setLabels(ImmutableSortedSet<Label> labels) {
+  public AppleTestBuilder setLabels(ImmutableSortedSet<String> labels) {
     arg.labels = labels;
     return this;
   }

@@ -19,20 +19,16 @@ package com.facebook.buck.rust;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class RustBinaryBuilder extends
-    AbstractNodeBuilder<
-        RustBinaryDescription.Arg,
-        RustBinaryDescription,
-        BuildRule> {
+public class RustBinaryBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        RustBinaryDescription.Arg, RustBinaryDescription, BuildRule> {
 
-  private RustBinaryBuilder(
-      RustBinaryDescription description,
-      BuildTarget target) {
+  private RustBinaryBuilder(RustBinaryDescription description, BuildTarget target) {
     super(description, target);
   }
 
@@ -54,5 +50,4 @@ public class RustBinaryBuilder extends
     arg.deps = deps;
     return this;
   }
-
 }

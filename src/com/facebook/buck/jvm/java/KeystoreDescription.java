@@ -27,21 +27,20 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSortedSet;
 
-
 public class KeystoreDescription implements Description<KeystoreDescription.Arg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> Keystore createBuildRule(
+  public Keystore createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
+      Arg args) {
     return new Keystore(params, args.store, args.properties);
   }
 

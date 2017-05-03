@@ -29,21 +29,20 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-
 public class ShBinaryDescription implements Description<ShBinaryDescription.Arg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> ShBinary createBuildRule(
+  public ShBinary createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
+      Arg args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new ShBinary(params, ruleFinder, args.main, args.resources);
   }

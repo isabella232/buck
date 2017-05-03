@@ -16,6 +16,11 @@
 
 package com.facebook.buck.ide.intellij;
 
+import com.facebook.buck.ide.intellij.aggregation.DefaultAggregationModuleFactory;
+import com.facebook.buck.ide.intellij.lang.java.ParsingJavaPackageFinder;
+import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
+import com.facebook.buck.ide.intellij.model.IjModuleFactoryResolver;
+import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaFileParser;
@@ -25,12 +30,9 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.IOException;
 
-/**
- * Top-level class for IntelliJ project generation.
- */
+/** Top-level class for IntelliJ project generation. */
 public class IjProject {
 
   private final TargetGraphAndTargets targetGraphAndTargets;
@@ -63,56 +65,54 @@ public class IjProject {
    * Write the project to disk.
    *
    * @return set of {@link BuildTarget}s which should be built in order for the project to index
-   *   correctly.
+   *     correctly.
    * @throws IOException
    */
   public ImmutableSet<BuildTarget> write() throws IOException {
     final ImmutableSet.Builder<BuildTarget> requiredBuildTargets = ImmutableSet.builder();
-    IjLibraryFactory libraryFactory = new DefaultIjLibraryFactory(
-        new DefaultIjLibraryFactoryResolver(
-            projectFilesystem,
-            sourcePathResolver,
+    IjLibraryFactory libraryFactory =
+        new DefaultIjLibraryFactory(
+            new DefaultIjLibraryFactoryResolver(
+                projectFilesystem,
+                sourcePathResolver,
+                buildRuleResolver,
+                ruleFinder,
+                requiredBuildTargets));
+    IjModuleFactoryResolver moduleFactoryResolver =
+        new DefaultIjModuleFactoryResolver(
             buildRuleResolver,
+            sourcePathResolver,
             ruleFinder,
-            requiredBuildTargets));
-    IjModuleFactoryResolver moduleFactoryResolver = new DefaultIjModuleFactoryResolver(
-        buildRuleResolver,
-        sourcePathResolver,
-        ruleFinder,
-        projectFilesystem,
-        projectConfig,
-        requiredBuildTargets);
-    IjModuleGraph moduleGraph = IjModuleGraphFactory.from(
-        projectFilesystem,
-        projectConfig,
-        targetGraphAndTargets.getTargetGraph(),
-        libraryFactory,
-        new DefaultIjModuleFactory(
             projectFilesystem,
-            moduleFactoryResolver,
-            projectConfig));
-    JavaPackageFinder parsingJavaPackageFinder = ParsingJavaPackageFinder.preparse(
-        javaFileParser,
-        projectFilesystem,
-        IjProjectTemplateDataPreparer.createPackageLookupPathSet(moduleGraph),
-        javaPackageFinder);
-    IjProjectTemplateDataPreparer templateDataPreparer = new IjProjectTemplateDataPreparer(
-        parsingJavaPackageFinder,
-        moduleGraph,
-        projectFilesystem);
-    IjProjectWriter writer = new IjProjectWriter(
-        templateDataPreparer,
-        projectConfig,
-        projectFilesystem);
+            projectConfig,
+            requiredBuildTargets);
+    SupportedTargetTypeRegistry typeRegistry =
+        new SupportedTargetTypeRegistry(projectFilesystem, moduleFactoryResolver, projectConfig);
+    IjModuleGraph moduleGraph =
+        IjModuleGraphFactory.from(
+            projectFilesystem,
+            projectConfig,
+            targetGraphAndTargets.getTargetGraph(),
+            libraryFactory,
+            new DefaultIjModuleFactory(projectFilesystem, typeRegistry),
+            new DefaultAggregationModuleFactory(typeRegistry));
+    JavaPackageFinder parsingJavaPackageFinder =
+        ParsingJavaPackageFinder.preparse(
+            javaFileParser,
+            projectFilesystem,
+            IjProjectTemplateDataPreparer.createPackageLookupPathSet(moduleGraph),
+            javaPackageFinder);
+    IjProjectTemplateDataPreparer templateDataPreparer =
+        new IjProjectTemplateDataPreparer(parsingJavaPackageFinder, moduleGraph, projectFilesystem);
+    IjProjectWriter writer =
+        new IjProjectWriter(templateDataPreparer, projectConfig, projectFilesystem);
 
     IJProjectCleaner cleaner = new IJProjectCleaner(projectFilesystem);
 
     writer.write(cleaner);
 
-    PregeneratedCodeWriter pregeneratedCodeWriter = new PregeneratedCodeWriter(
-        templateDataPreparer,
-        projectConfig,
-        projectFilesystem);
+    PregeneratedCodeWriter pregeneratedCodeWriter =
+        new PregeneratedCodeWriter(templateDataPreparer, projectConfig, projectFilesystem);
     pregeneratedCodeWriter.write(cleaner);
 
     cleaner.clean(
@@ -120,6 +120,10 @@ public class IjProject {
         IjProjectPaths.LIBRARIES_DIR,
         projectConfig.isCleanerEnabled(),
         projectConfig.isRemovingUnusedLibrariesEnabled());
+
+    if (projectConfig.getGeneratedFilesListFilename().isPresent()) {
+      cleaner.writeFilesToKeepToFile(projectConfig.getGeneratedFilesListFilename().get());
+    }
 
     return requiredBuildTargets.build();
   }

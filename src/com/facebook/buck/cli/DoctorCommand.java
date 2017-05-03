@@ -31,15 +31,9 @@ import com.facebook.buck.rage.DefectSubmitResult;
 import com.facebook.buck.rage.DoctorInteractiveReport;
 import com.facebook.buck.rage.RageConfig;
 import com.facebook.buck.rage.UserInput;
-import com.facebook.buck.rage.VcsInfoCollector;
 import com.facebook.buck.rage.WatchmanDiagReportCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
-import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
-import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -53,14 +47,16 @@ public class DoctorCommand extends AbstractCommand {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
     BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
 
-    UserInput userInput = new UserInput(
-        params.getConsole().getStdOut(),
-        new BufferedReader(new InputStreamReader(params.getStdIn())));
-    DoctorReportHelper helper = new DoctorReportHelper(
-        params.getCell().getFilesystem(),
-        userInput,
-        params.getConsole(),
-        params.getBuckConfig().getView(DoctorConfig.class));
+    UserInput userInput =
+        new UserInput(
+            params.getConsole().getStdOut(),
+            new BufferedReader(new InputStreamReader(params.getStdIn())));
+    DoctorReportHelper helper =
+        new DoctorReportHelper(
+            params.getCell().getFilesystem(),
+            userInput,
+            params.getConsole(),
+            params.getBuckConfig().getView(DoctorConfig.class));
 
     Optional<BuildLogEntry> entry =
         helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
@@ -85,16 +81,9 @@ public class DoctorCommand extends AbstractCommand {
   }
 
   private Optional<DefectSubmitResult> generateRageReport(
-      CommandRunnerParams params,
-      UserInput userInput,
-      BuildLogEntry entry) throws IOException, InterruptedException {
+      CommandRunnerParams params, UserInput userInput, BuildLogEntry entry)
+      throws IOException, InterruptedException {
     RageConfig rageConfig = RageConfig.of(params.getBuckConfig());
-    VersionControlCmdLineInterface versionControlCmdLineInterface =
-        new DelegatingVersionControlCmdLineInterface(
-            params.getCell().getFilesystem().getRootPath(),
-            new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(params.getBuckConfig()).getHgCmd(),
-            params.getBuckConfig().getEnvironment());
 
     Optional<WatchmanDiagReportCollector> watchmanDiagReportCollector =
         WatchmanDiagReportCollector.newInstanceIfWatchmanUsed(
@@ -104,24 +93,25 @@ public class DoctorCommand extends AbstractCommand {
             new ExecutableFinder(),
             params.getEnvironment());
 
-    DoctorInteractiveReport report = new DoctorInteractiveReport(
-        new DefaultDefectReporter(
+    DoctorInteractiveReport report =
+        new DoctorInteractiveReport(
+            new DefaultDefectReporter(
+                params.getCell().getFilesystem(),
+                rageConfig,
+                params.getBuckEventBus(),
+                params.getClock()),
             params.getCell().getFilesystem(),
+            params.getConsole(),
+            userInput,
+            params.getBuildEnvironmentDescription(),
+            params.getVersionControlStatsGenerator(),
             rageConfig,
-            params.getBuckEventBus(),
-            params.getClock()),
-        params.getCell().getFilesystem(),
-        params.getConsole(),
-        userInput,
-        params.getBuildEnvironmentDescription(),
-        VcsInfoCollector.create(versionControlCmdLineInterface),
-        rageConfig,
-        new DefaultExtraInfoCollector(
-            rageConfig,
-            params.getCell().getFilesystem(),
-            new DefaultProcessExecutor(params.getConsole())),
-        ImmutableSet.of(entry),
-        watchmanDiagReportCollector);
+            new DefaultExtraInfoCollector(
+                rageConfig,
+                params.getCell().getFilesystem(),
+                new DefaultProcessExecutor(params.getConsole())),
+            ImmutableSet.of(entry),
+            watchmanDiagReportCollector);
 
     return report.collectAndSubmitResult();
   }
@@ -143,5 +133,4 @@ public class DoctorCommand extends AbstractCommand {
         .setLogFilePrefix("doctor-")
         .build();
   }
-
 }

@@ -31,7 +31,6 @@ import com.facebook.buck.test.selectors.Nullable;
 import com.facebook.buck.timing.Clock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.LinkedList;
@@ -40,13 +39,12 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
-
 import javax.annotation.concurrent.GuardedBy;
 
 /**
- * Listener to transmit DistBuildSlave events over to buck frontend.
- * NOTE: We do not promise to transmit every single update to BuildSlaveStatus,
- * but we do promise to always transmit BuildSlaveStatus with the latest updates.
+ * Listener to transmit DistBuildSlave events over to buck frontend. NOTE: We do not promise to
+ * transmit every single update to BuildSlaveStatus, but we do promise to always transmit
+ * BuildSlaveStatus with the latest updates.
  */
 public class DistBuildSlaveEventBusListener implements BuckEventListener, Closeable {
 
@@ -60,20 +58,21 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
   private final ScheduledFuture<?> scheduledServerUpdates;
 
   private final Object consoleEventsLock = new Object();
+
   @GuardedBy("consoleEventsLock")
   private final List<BuildSlaveConsoleEvent> consoleEvents = new LinkedList<>();
 
   private final Object statusLock = new Object();
+
   @GuardedBy("statusLock")
   private final BuildSlaveStatus status = new BuildSlaveStatus();
+
+  protected final CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
 
   private volatile @Nullable DistBuildService distBuildService;
 
   public DistBuildSlaveEventBusListener(
-      StampedeId stampedeId,
-      RunId runId,
-      Clock clock,
-      ScheduledExecutorService networkScheduler) {
+      StampedeId stampedeId, RunId runId, Clock clock, ScheduledExecutorService networkScheduler) {
     this(stampedeId, runId, clock, networkScheduler, DEFAULT_SERVER_UPDATE_PERIOD_MILLIS);
   }
 
@@ -90,12 +89,12 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
     // No synchronization needed here because status is final.
     status.setStampedeId(stampedeId);
     status.setRunId(runId);
+    // Set the cache rate stats with zero values, so that we don't have to keep checking for nulls.
+    status.setCacheRateStats(cacheRateStatsKeeper.getSerializableStats());
 
-    scheduledServerUpdates = networkScheduler.scheduleAtFixedRate(
-        this::sendServerUpdates,
-        0,
-        serverUpdatePeriodMillis,
-        TimeUnit.MILLISECONDS);
+    scheduledServerUpdates =
+        networkScheduler.scheduleAtFixedRate(
+            this::sendServerUpdates, 0, serverUpdatePeriodMillis, TimeUnit.MILLISECONDS);
   }
 
   public void setDistBuildService(DistBuildService service) {
@@ -144,10 +143,7 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
     }
 
     try {
-      distBuildService.uploadBuildSlaveConsoleEvents(
-          stampedeId,
-          runId,
-          consoleEventsCopy);
+      distBuildService.uploadBuildSlaveConsoleEvents(stampedeId, runId, consoleEventsCopy);
     } catch (IOException e) {
       LOG.error(e, "Could not upload slave console events to frontend.");
     }
@@ -160,8 +156,7 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
 
   @Subscribe
   public void logEvent(ConsoleEvent event) {
-    if (!event.getLevel().equals(Level.WARNING) &&
-        !event.getLevel().equals(Level.SEVERE)) {
+    if (!event.getLevel().equals(Level.WARNING) && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
     synchronized (consoleEventsLock) {
@@ -173,15 +168,19 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
 
   @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
+    cacheRateStatsKeeper.ruleCountCalculated(calculated);
     synchronized (statusLock) {
       status.setTotalRulesCount(calculated.getNumRules());
+      status.setCacheRateStats(cacheRateStatsKeeper.getSerializableStats());
     }
   }
 
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
+    cacheRateStatsKeeper.ruleCountUpdated(updated);
     synchronized (statusLock) {
       status.setTotalRulesCount(updated.getNumRules());
+      status.setCacheRateStats(cacheRateStatsKeeper.getSerializableStats());
     }
   }
 
@@ -195,6 +194,7 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
 
   @Subscribe
   public void buildRuleFinished(BuildRuleEvent.Finished finished) {
+    cacheRateStatsKeeper.buildRuleFinished(finished);
     synchronized (statusLock) {
       status.setRulesStartedCount(status.getRulesStartedCount() - 1);
       status.setRulesFinishedCount(status.getRulesFinishedCount() + 1);
@@ -210,38 +210,28 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
           break;
       }
 
-      switch (finished.getCacheResult().getType()) {
-        case HIT:
-          status.setCacheHitsCount(status.getCacheHitsCount() + 1);
-          break;
-        case MISS:
-          status.setCacheMissesCount(status.getCacheMissesCount() + 1);
-          break;
-        case ERROR:
-          status.setCacheErrorsCount(status.getCacheErrorsCount() + 1);
-          break;
-        case IGNORED:
-          status.setCacheIgnoresCount(status.getCacheIgnoresCount() + 1);
-          break;
-        case LOCAL_KEY_UNCHANGED_HIT:
-          status.setCacheLocalKeyUnchangedHitsCount(
-              status.getCacheLocalKeyUnchangedHitsCount() + 1);
-          break;
-      }
+      status.setCacheRateStats(cacheRateStatsKeeper.getSerializableStats());
+    }
+  }
+
+  @SuppressWarnings("unused")
+  @Subscribe
+  public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
+    synchronized (statusLock) {
+      status.setRulesStartedCount(status.getRulesStartedCount() + 1);
+    }
+  }
+
+  @SuppressWarnings("unused")
+  @Subscribe
+  public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
+    synchronized (statusLock) {
+      status.setRulesStartedCount(status.getRulesStartedCount() - 1);
     }
   }
 
   /**
-   * TODO(shivanker): Add support for keeping track of suspended rules.
-   *
-   * @Subscribe public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {}
-   * @Subscribe public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {}
+   * TODO(shivanker): Add support for keeping track of cache uploads. @Subscribe public void
+   * onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {}
    */
-
-  /**
-   * TODO(shivanker): Add support for keeping track of cache uploads.
-   * @Subscribe
-   * public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {}
-   */
-
 }

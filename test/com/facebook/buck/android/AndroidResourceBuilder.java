@@ -19,20 +19,18 @@ package com.facebook.buck.android;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class AndroidResourceBuilder extends AbstractNodeBuilder<
-    AndroidResourceDescription.Arg,
-    AndroidResourceDescription,
-    AndroidResource> {
+public class AndroidResourceBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        AndroidResourceDescription.Arg, AndroidResourceDescription, AndroidResource> {
 
   private AndroidResourceBuilder(BuildTarget target, ProjectFilesystem filesystem) {
     super(new AndroidResourceDescription(false), target, filesystem);
@@ -43,8 +41,7 @@ public class AndroidResourceBuilder extends AbstractNodeBuilder<
   }
 
   public static AndroidResourceBuilder createBuilder(
-      BuildTarget target,
-      ProjectFilesystem filesystem) {
+      BuildTarget target, ProjectFilesystem filesystem) {
     return new AndroidResourceBuilder(target, filesystem);
   }
 
@@ -81,5 +78,4 @@ public class AndroidResourceBuilder extends AbstractNodeBuilder<
     arg.manifest = Optional.of(manifest);
     return this;
   }
-
 }

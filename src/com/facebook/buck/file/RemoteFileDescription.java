@@ -26,7 +26,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.hash.HashCode;
-
 import java.net.URI;
 import java.util.Optional;
 
@@ -39,17 +38,17 @@ public class RemoteFileDescription implements Description<RemoteFileDescription.
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
+      Arg args) {
     HashCode sha1;
     try {
       sha1 = HashCode.fromString(args.sha1);

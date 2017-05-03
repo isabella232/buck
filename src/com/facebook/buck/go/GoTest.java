@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -51,7 +50,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -65,31 +63,29 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
-    ExternalTestRunnerRule, BinaryBuildRule {
-  private static final Pattern TEST_START_PATTERN = Pattern.compile(
-      "^=== RUN\\s+(?<name>.*)$");
-  private static final Pattern TEST_FINISHED_PATTERN = Pattern.compile(
-      "^--- (?<status>PASS|FAIL|SKIP): (?<name>.+) \\((?<duration>\\d+\\.\\d+)(?: seconds|s)\\)$");
+public class GoTest extends NoopBuildRule
+    implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
+  private static final Pattern TEST_START_PATTERN = Pattern.compile("^=== RUN\\s+(?<name>.*)$");
+  private static final Pattern TEST_FINISHED_PATTERN =
+      Pattern.compile(
+          "^--- (?<status>PASS|FAIL|SKIP): (?<name>.+) \\((?<duration>\\d+\\.\\d+)(?: seconds|s)\\)$");
   // Extra time to wait for the process to exit on top of the test timeout
   private static final int PROCESS_TIMEOUT_EXTRA_MS = 5000;
 
   private final SourcePathRuleFinder ruleFinder;
   private final GoBinary testMain;
 
-  private final ImmutableSet<Label> labels;
+  private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
-  @AddToRuleKey
-  private final boolean runTestsSeparately;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> resources;
+  @AddToRuleKey private final boolean runTestsSeparately;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> resources;
 
   public GoTest(
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       GoBinary testMain,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       Optional<Long> testRuleTimeoutMs,
       boolean runTestsSeparately,
@@ -105,19 +101,15 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   }
 
   @Override
-  public boolean hasTestResultFiles() {
-    return getProjectFilesystem().isFile(getPathToTestResults());
-  }
-
-  @Override
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
       SourcePathResolver pathResolver,
       TestReportingCallback testReportingCallback) {
-    Optional<Long> processTimeoutMs = testRuleTimeoutMs.isPresent() ?
-        Optional.of(testRuleTimeoutMs.get() + PROCESS_TIMEOUT_EXTRA_MS) :
-        Optional.empty();
+    Optional<Long> processTimeoutMs =
+        testRuleTimeoutMs.isPresent()
+            ? Optional.of(testRuleTimeoutMs.get() + PROCESS_TIMEOUT_EXTRA_MS)
+            : Optional.empty();
 
     ImmutableList.Builder<String> args = ImmutableList.builder();
     args.addAll(testMain.getExecutableCommand().getCommandPrefix(pathResolver));
@@ -129,31 +121,37 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
     return new ImmutableList.Builder<Step>()
         .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
         .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestWorkingDirectory()))
-        .add(new SymlinkTreeStep(
-            getProjectFilesystem(),
-            getPathToTestWorkingDirectory(),
-            ImmutableMap.copyOf(
-                FluentIterable.from(resources)
-                .transform(input -> Maps.immutableEntry(
-                    getProjectFilesystem().getPath(pathResolver.getSourcePathName(
-                        getBuildTarget(),
-                        input)),
-                    pathResolver.getAbsolutePath(input))))))
-        .add(new GoTestStep(
-            getProjectFilesystem(),
-            getPathToTestWorkingDirectory(),
-            args.build(),
-            testMain.getExecutableCommand().getEnvironment(pathResolver),
-            getPathToTestExitCode(),
-            processTimeoutMs,
-            getPathToTestResults()))
+        .add(
+            new SymlinkTreeStep(
+                getProjectFilesystem(),
+                getPathToTestWorkingDirectory(),
+                ImmutableMap.copyOf(
+                    FluentIterable.from(resources)
+                        .transform(
+                            input ->
+                                Maps.immutableEntry(
+                                    getProjectFilesystem()
+                                        .getPath(
+                                            pathResolver.getSourcePathName(
+                                                getBuildTarget(), input)),
+                                    pathResolver.getAbsolutePath(input))))))
+        .add(
+            new GoTestStep(
+                getProjectFilesystem(),
+                getPathToTestWorkingDirectory(),
+                args.build(),
+                testMain.getExecutableCommand().getEnvironment(pathResolver),
+                getPathToTestExitCode(),
+                processTimeoutMs,
+                getPathToTestResults()))
         .build();
   }
 
   private ImmutableList<TestResultSummary> parseTestResults() throws IOException {
     ImmutableList.Builder<TestResultSummary> summariesBuilder = ImmutableList.builder();
-    try (BufferedReader reader = Files.newBufferedReader(
-        getProjectFilesystem().resolve(getPathToTestResults()), Charsets.UTF_8)) {
+    try (BufferedReader reader =
+        Files.newBufferedReader(
+            getProjectFilesystem().resolve(getPathToTestResults()), Charsets.UTF_8)) {
       Optional<String> currentTest = Optional.empty();
       List<String> stdout = new ArrayList<>();
       String line;
@@ -163,9 +161,10 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
           currentTest = Optional.of(matcher.group("name"));
         } else if ((matcher = TEST_FINISHED_PATTERN.matcher(line)).matches()) {
           if (!currentTest.orElse("").equals(matcher.group("name"))) {
-            throw new RuntimeException(String.format(
-                "Error parsing test output: test case end '%s' does not match start '%s'",
-                matcher.group("name"), currentTest.orElse("")));
+            throw new RuntimeException(
+                String.format(
+                    "Error parsing test output: test case end '%s' does not match start '%s'",
+                    matcher.group("name"), currentTest.orElse("")));
           }
 
           ResultType result = ResultType.FAILURE;
@@ -182,7 +181,8 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
             Throwables.throwIfUnchecked(ex);
           }
 
-          summariesBuilder.add(new TestResultSummary(
+          summariesBuilder.add(
+              new TestResultSummary(
                   "go_test",
                   matcher.group("name"),
                   result,
@@ -190,8 +190,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
                   "",
                   "",
                   Joiner.on(System.lineSeparator()).join(stdout),
-                  ""
-              ));
+                  ""));
 
           currentTest = Optional.empty();
           stdout.clear();
@@ -202,7 +201,8 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
 
       if (currentTest.isPresent()) {
         // This can happen in case of e.g. a panic.
-        summariesBuilder.add(new TestResultSummary(
+        summariesBuilder.add(
+            new TestResultSummary(
                 "go_test",
                 currentTest.get(),
                 ResultType.FAILURE,
@@ -210,8 +210,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
                 "incomplete",
                 "",
                 Joiner.on(System.lineSeparator()).join(stdout),
-                ""
-            ));
+                ""));
       }
     }
     return summariesBuilder.build();
@@ -219,23 +218,19 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      ExecutionContext executionContext,
-      boolean isUsingTestSelectors) {
+      ExecutionContext executionContext, boolean isUsingTestSelectors) {
     return () -> {
       return TestResults.of(
           getBuildTarget(),
-          ImmutableList.of(new TestCaseSummary(
-              getBuildTarget().getFullyQualifiedName(),
-              parseTestResults())),
+          ImmutableList.of(
+              new TestCaseSummary(getBuildTarget().getFullyQualifiedName(), parseTestResults())),
           contacts,
-          labels.stream()
-              .map(Object::toString)
-              .collect(MoreCollectors.toImmutableSet()));
+          labels.stream().map(Object::toString).collect(MoreCollectors.toImmutableSet()));
     };
   }
 
   @Override
-  public ImmutableSet<Label> getLabels() {
+  public ImmutableSet<String> getLabels() {
     return labels;
   }
 
@@ -246,10 +241,7 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        "__test_%s_output__");
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__test_%s_output__");
   }
 
   protected Path getPathToTestResults() {
@@ -278,7 +270,8 @@ public class GoTest extends NoopBuildRule implements TestRule, HasRuntimeDeps,
   public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.concat(
         Stream.of((testMain.getBuildTarget())),
-        resources.stream()
+        resources
+            .stream()
             .map(ruleFinder::filterBuildRuleInputs)
             .flatMap(ImmutableSet::stream)
             .map(BuildRule::getBuildTarget));

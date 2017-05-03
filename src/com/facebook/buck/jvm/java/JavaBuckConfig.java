@@ -24,17 +24,15 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * A java-specific "view" of BuckConfig.
- */
+/** A java-specific "view" of BuckConfig. */
 public class JavaBuckConfig implements ConfigView<BuckConfig> {
   public static final String SECTION = "java";
+  public static final String PROPERTY_COMPILE_AGAINST_ABIS = "compile_against_abis";
 
   private final BuckConfig delegate;
 
@@ -53,19 +51,13 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public JavaOptions getDefaultJavaOptions() {
-    return JavaOptions
-        .builder()
-        .setJavaPath(getPathToExecutable("java"))
-        .build();
+    return JavaOptions.builder().setJavaPath(getPathToExecutable("java")).build();
   }
 
   public JavaOptions getDefaultJavaOptionsForTests() {
     Optional<Path> javaTestPath = getPathToExecutable("java_for_tests");
     if (javaTestPath.isPresent()) {
-      return JavaOptions
-          .builder()
-          .setJavaPath(javaTestPath)
-          .build();
+      return JavaOptions.builder().setJavaPath(javaTestPath).build();
     }
     return getDefaultJavaOptions();
   }
@@ -83,16 +75,14 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       builder.setTargetLevel(targetLevel.get());
     }
 
-    ImmutableList<String> extraArguments = delegate.getListWithoutComments(
-        SECTION,
-        "extra_arguments");
+    ImmutableList<String> extraArguments =
+        delegate.getListWithoutComments(SECTION, "extra_arguments");
 
-    ImmutableList<String> safeAnnotationProcessors = delegate.getListWithoutComments(
-        SECTION,
-        "safe_annotation_processors");
+    ImmutableList<String> safeAnnotationProcessors =
+        delegate.getListWithoutComments(SECTION, "safe_annotation_processors");
 
-    Optional<AbstractJavacOptions.SpoolMode> spoolMode = delegate
-        .getEnum(SECTION, "jar_spool_mode", AbstractJavacOptions.SpoolMode.class);
+    Optional<AbstractJavacOptions.SpoolMode> spoolMode =
+        delegate.getEnum(SECTION, "jar_spool_mode", AbstractJavacOptions.SpoolMode.class);
     if (spoolMode.isPresent()) {
       builder.setSpoolMode(spoolMode.get());
     }
@@ -129,7 +119,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public AbiGenerationMode getAbiGenerationMode() {
-    return delegate.getEnum(SECTION, "abi_generation_mode", AbiGenerationMode.class)
+    return delegate
+        .getEnum(SECTION, "abi_generation_mode", AbiGenerationMode.class)
         .orElse(AbiGenerationMode.CLASS);
   }
 
@@ -162,7 +153,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
                 : Optional.empty())
         .setJavacJarPath(delegate.getSourcePath("tools", "javac_jar"))
         .setJavacLocation(
-            delegate.getEnum(SECTION, "location", Javac.Location.class)
+            delegate
+                .getEnum(SECTION, "location", Javac.Location.class)
                 .orElse(Javac.Location.IN_PROCESS))
         .setCompilerClassName(delegate.getValue("tools", "compiler_class_name"))
         .build();
@@ -194,15 +186,19 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   /**
-   * Enables a special validation mode that generates ABIs both from source and from class files
-   * and diffs them. This is a test hook for use during development of the source ABI feature.
+   * Controls a special verification mode that generates ABIs both from source and from class files
+   * and diffs them. This is a test hook for use during development of the source ABI feature. This
+   * only has meaning when {@link #getAbiGenerationMode()} is one of the source modes.
    */
-  public boolean shouldValidateAbisGeneratedFromSource() {
-    return delegate.getBooleanValue(SECTION, "validate_abis_from_source", false);
+  public SourceAbiVerificationMode getSourceAbiVerificationMode() {
+    return delegate
+        .getEnum(SECTION, "source_abi_verification_mode", SourceAbiVerificationMode.class)
+        // TODO(jkeljo): Flip the default to OFF when the feature is considered debugged
+        .orElse(SourceAbiVerificationMode.LOG);
   }
 
   public boolean shouldCompileAgainstAbis() {
-    return delegate.getBooleanValue(SECTION, "compile_against_abis", false);
+    return delegate.getBooleanValue(SECTION, PROPERTY_COMPILE_AGAINST_ABIS, false);
   }
 
   public enum AbiGenerationMode {
@@ -219,5 +215,14 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
      * Generate ABIs by parsing .java files without dependency ABIs available (has some limitations)
      */
     SOURCE,
+  }
+
+  public enum SourceAbiVerificationMode {
+    /** Don't verify ABI jars. */
+    OFF,
+    /** Generate ABI jars from classes and from source. Log any differences. */
+    LOG,
+    /** Generate ABI jars from classes and from source. Fail on differences. */
+    FAIL,
   }
 }

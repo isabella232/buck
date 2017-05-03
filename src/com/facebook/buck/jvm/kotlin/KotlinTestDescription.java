@@ -41,7 +41,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.logging.Level;
@@ -65,26 +64,25 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
-    BuildRuleParams testsLibraryParams = params
-        .withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+      Arg args)
+      throws NoSuchBuildTargetException {
+    BuildRuleParams testsLibraryParams =
+        params.withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
-    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder = new DefaultKotlinLibraryBuilder(
-        testsLibraryParams,
-        resolver,
-        kotlinBuckConfig)
-        .setArgs(args)
-        .setGeneratedSourceFolder(templateJavacOptions.getGeneratedSourceFolderName());
+    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder =
+        new DefaultKotlinLibraryBuilder(testsLibraryParams, resolver, kotlinBuckConfig)
+            .setArgs(args)
+            .setGeneratedSourceFolder(templateJavacOptions.getGeneratedSourceFolderName());
 
     if (HasJavaAbi.isAbiTarget(params.getBuildTarget())) {
       return defaultJavaLibraryBuilder.buildAbi();
@@ -132,6 +130,7 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
     public boolean getRunTestSeparately() {
       return runTestSeparately.orElse(false);
     }
+
     public ForkMode getForkMode() {
       return forkMode.orElse(ForkMode.NONE);
     }

@@ -23,7 +23,6 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -42,13 +41,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
-
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -62,6 +54,11 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunnerRule {
@@ -82,8 +79,9 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
       ImmutableMap<String, String> env,
       Supplier<ImmutableList<String>> args,
       ImmutableSortedSet<? extends SourcePath> resources,
+      ImmutableSet<SourcePath> additionalCoverageTargets,
       Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
       Optional<Long> testRuleTimeoutMs,
@@ -94,6 +92,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         env,
         args,
         resources,
+        additionalCoverageTargets,
         additionalDeps,
         labels,
         contacts,
@@ -107,8 +106,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ForwardingBuildTargetSourcePath(
-        getBuildTarget(),
-        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
+        getBuildTarget(), Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   @Override
@@ -120,25 +118,13 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         .build();
   }
 
-  private TestResultSummary getProgramFailureSummary(
-      String message,
-      String output) {
+  private TestResultSummary getProgramFailureSummary(String message, String output) {
     return new TestResultSummary(
-        getBuildTarget().toString(),
-        "main",
-        ResultType.FAILURE,
-        0L,
-        message,
-        "",
-        output,
-        "");
+        getBuildTarget().toString(), "main", ResultType.FAILURE, 0L, message, "", output, "");
   }
 
   @Override
-  protected ImmutableList<TestResultSummary> parseResults(
-      Path exitCode,
-      Path output,
-      Path results)
+  protected ImmutableList<TestResultSummary> parseResults(Path exitCode, Path output, Path results)
       throws IOException, SAXException {
 
     // Try to parse the results file first, which should be written if the test suite exited
@@ -163,7 +149,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
     CharsetDecoder decoder = Charsets.UTF_8.newDecoder();
     decoder.onMalformedInput(CodingErrorAction.IGNORE);
     try (InputStream input = getProjectFilesystem().newFileInputStream(output);
-         BufferedReader reader = new BufferedReader(new InputStreamReader(input, decoder))) {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, decoder))) {
       String line;
       while ((line = reader.readLine()) != null) {
         Matcher matcher;
@@ -208,14 +194,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
 
       summariesBuilder.add(
           new TestResultSummary(
-              testCase,
-              testName,
-              type,
-              time.longValue(),
-              message,
-              "",
-              testStdout,
-              ""));
+              testCase, testName, type, time.longValue(), message, "", testStdout, ""));
     }
 
     return summariesBuilder.build();
@@ -227,8 +206,7 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.concat(
         super.getRuntimeDeps(),
-        getExecutableCommand().getDeps(ruleFinder).stream()
-            .map(BuildRule::getBuildTarget));
+        getExecutableCommand().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
   }
 
   @Override
@@ -244,6 +222,8 @@ public class CxxGtestTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         .putAllEnv(getEnv(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
+        .addAllAdditionalCoverageTargets(
+            pathResolver.getAllAbsolutePaths(getAdditionalCoverageTargets()))
         .build();
   }
 }

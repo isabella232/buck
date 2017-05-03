@@ -27,6 +27,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.coercer.ParamInfoException;
@@ -37,13 +38,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.Hashing;
-
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.Test;
 
 public class TargetNodeTest {
 
@@ -62,17 +61,23 @@ public class TargetNodeTest {
 
   @Test
   public void testDepsAndPathsAreCollected() throws NoSuchBuildTargetException {
-    ImmutableList<String> depsStrings = ImmutableList.of(
-        "//example/path:one",
-        "//example/path:two");
-    ImmutableSet<BuildTarget> depsTargets = depsStrings.stream()
-        .map(BuildTargetFactory::newInstance)
-        .collect(MoreCollectors.toImmutableSet());
-    ImmutableMap<String, Object> rawNode = ImmutableMap.of(
-        "deps", depsStrings,
-        "sourcePaths", ImmutableList.of("//example/path:four", "MyClass.java"),
-        "appleSource", "//example/path:five",
-        "source", "AnotherClass.java");
+    ImmutableList<String> depsStrings =
+        ImmutableList.of("//example/path:one", "//example/path:two");
+    ImmutableSet<BuildTarget> depsTargets =
+        depsStrings
+            .stream()
+            .map(BuildTargetFactory::newInstance)
+            .collect(MoreCollectors.toImmutableSet());
+    ImmutableMap<String, Object> rawNode =
+        ImmutableMap.of(
+            "deps",
+            depsStrings,
+            "sourcePaths",
+            ImmutableList.of("//example/path:four", "MyClass.java"),
+            "appleSource",
+            "//example/path:five",
+            "source",
+            "AnotherClass.java");
 
     TargetNode<Arg, ExampleDescription> targetNode =
         createTargetNode(TARGET_THREE, depsTargets, rawNode);
@@ -80,8 +85,7 @@ public class TargetNodeTest {
     assertThat(
         targetNode.getInputs(),
         containsInAnyOrder(
-            Paths.get("example/path/MyClass.java"),
-            Paths.get("example/path/AnotherClass.java")));
+            Paths.get("example/path/MyClass.java"), Paths.get("example/path/AnotherClass.java")));
 
     assertThat(
         targetNode.getExtraDeps(),
@@ -119,6 +123,7 @@ public class TargetNodeTest {
     public Optional<SourceWithFlags> appleSource;
     public Optional<Path> source;
     public Optional<String> string;
+
     @Hint(isDep = false)
     public Optional<BuildTarget> target;
   }
@@ -126,29 +131,33 @@ public class TargetNodeTest {
   public static class ExampleDescription implements Description<Arg> {
 
     @Override
-    public Arg createUnpopulatedConstructorArg() {
-      return new Arg();
+    public Class<Arg> getConstructorArgType() {
+      return Arg.class;
     }
 
     @Override
-    public <A extends Arg> BuildRule createBuildRule(
+    public BuildRule createBuildRule(
         TargetGraph targetGraph,
         BuildRuleParams params,
         BuildRuleResolver resolver,
         CellPathResolver cellRoots,
-        A args) {
+        Arg args) {
       return new FakeBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
     }
   }
 
-  private static TargetNode<Arg, ExampleDescription> createTargetNode(
-      BuildTarget buildTarget)
+  private static TargetNode<Arg, ExampleDescription> createTargetNode(BuildTarget buildTarget)
       throws NoSuchBuildTargetException {
-    ImmutableMap<String, Object> rawNode = ImmutableMap.of(
-        "deps", ImmutableList.of(),
-        "string", "//example/path:one",
-        "target", "//example/path:two",
-        "sourcePaths", ImmutableSortedSet.of());
+    ImmutableMap<String, Object> rawNode =
+        ImmutableMap.of(
+            "deps",
+            ImmutableList.of(),
+            "string",
+            "//example/path:one",
+            "target",
+            "//example/path:two",
+            "sourcePaths",
+            ImmutableSortedSet.of());
 
     return createTargetNode(buildTarget, ImmutableSet.of(), rawNode);
   }
@@ -156,7 +165,8 @@ public class TargetNodeTest {
   private static TargetNode<Arg, ExampleDescription> createTargetNode(
       BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
-      ImmutableMap<String, Object> rawNode) throws NoSuchBuildTargetException {
+      ImmutableMap<String, Object> rawNode)
+      throws NoSuchBuildTargetException {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     ExampleDescription description = new ExampleDescription();
@@ -165,10 +175,7 @@ public class TargetNodeTest {
         .create(
             Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
             description,
-            createPopulatedConstructorArg(
-                description,
-                buildTarget,
-                rawNode),
+            createPopulatedConstructorArg(buildTarget, rawNode),
             filesystem,
             buildTarget,
             declaredDeps,
@@ -177,28 +184,21 @@ public class TargetNodeTest {
             createCellRoots(filesystem));
   }
 
-
   private static Arg createPopulatedConstructorArg(
-      Description<Arg> description,
-      BuildTarget buildTarget,
-      Map<String, Object> instance) throws NoSuchBuildTargetException {
+      BuildTarget buildTarget, Map<String, Object> instance) throws NoSuchBuildTargetException {
     ConstructorArgMarshaller marshaller =
         new ConstructorArgMarshaller(new DefaultTypeCoercerFactory());
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    Arg constructorArg = description.createUnpopulatedConstructorArg();
     try {
-      marshaller.populate(
+      return marshaller.populate(
           createCellRoots(projectFilesystem),
           projectFilesystem,
           buildTarget,
-          constructorArg,
-          ImmutableSet.builder(),
-          ImmutableSet.builder(),
+          Arg.class,
           ImmutableSet.builder(),
           instance);
     } catch (ParamInfoException e) {
       throw new RuntimeException(e);
     }
-    return constructorArg;
   }
 }

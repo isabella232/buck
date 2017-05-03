@@ -26,8 +26,8 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.util.Optional;
 
 public abstract class DefaultCompiler implements Compiler {
@@ -39,8 +39,9 @@ public abstract class DefaultCompiler implements Compiler {
   }
 
   @Override
-  public Optional<ImmutableList<String>> debugCompilationDirFlags(String debugCompilationDir) {
-    return Optional.empty();
+  public ImmutableList<String> getFlagsForReproducibleBuild(
+      String altCompilationDir, Path currentCellPath) {
+    return ImmutableList.of();
   }
 
   @Override
@@ -70,9 +71,7 @@ public abstract class DefaultCompiler implements Compiler {
 
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink
-        .setReflectively("tool", tool)
-        .setReflectively("type", getClass().getSimpleName());
+    sink.setReflectively("tool", tool).setReflectively("type", getClass().getSimpleName());
   }
 
   @Override

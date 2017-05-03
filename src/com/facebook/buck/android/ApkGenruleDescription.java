@@ -27,31 +27,30 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenruleDescription.Arg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  protected <A extends ApkGenruleDescription.Arg> BuildRule createBuildRule(
+  protected BuildRule createBuildRule(
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args,
+      Arg args,
       Optional<com.facebook.buck.rules.args.Arg> cmd,
       Optional<com.facebook.buck.rules.args.Arg> bash,
       Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
 
     final BuildRule apk = resolver.getRule(args.apk);
     if (!(apk instanceof HasInstallableApk)) {
-      throw new HumanReadableException("The 'apk' argument of %s, %s, must correspond to an " +
-          "installable rule, such as android_binary() or apk_genrule().",
-          params.getBuildTarget(),
-          args.apk.getFullyQualifiedName());
+      throw new HumanReadableException(
+          "The 'apk' argument of %s, %s, must correspond to an "
+              + "installable rule, such as android_binary() or apk_genrule().",
+          params.getBuildTarget(), args.apk.getFullyQualifiedName());
     }
     HasInstallableApk installableApk = (HasInstallableApk) apk;
 
@@ -61,10 +60,11 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
     return new ApkGenrule(
         params.copyReplacingExtraDeps(
             Suppliers.memoize(
-                () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(originalExtraDeps.get())
-                    .add(installableApk)
-                    .build())),
+                () ->
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(originalExtraDeps.get())
+                        .add(installableApk)
+                        .build())),
         ruleFinder,
         args.srcs,
         cmd,
@@ -78,5 +78,4 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
   public static class Arg extends AbstractGenruleDescription.Arg {
     public BuildTarget apk;
   }
-
 }

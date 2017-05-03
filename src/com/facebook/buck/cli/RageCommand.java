@@ -27,27 +27,22 @@ import com.facebook.buck.rage.DefectSubmitResult;
 import com.facebook.buck.rage.ExtraInfoCollector;
 import com.facebook.buck.rage.InteractiveReport;
 import com.facebook.buck.rage.RageConfig;
-import com.facebook.buck.rage.VcsInfoCollector;
 import com.facebook.buck.rage.WatchmanDiagReportCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
-import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterface;
-
-import org.kohsuke.args4j.Option;
-
 import java.io.IOException;
 import java.util.Optional;
+import org.kohsuke.args4j.Option;
 
 public class RageCommand extends AbstractCommand {
 
   @Option(name = "--non-interactive", usage = "Force the command to run in non-interactive mode.")
   private boolean nonInteractive = false;
 
-  @Option(name = "--gather-vcs-info", usage = "Gather information from the Version Control " +
-      "System in non-interactive mode.")
+  @Option(
+    name = "--gather-vcs-info",
+    usage = "Gather information from the Version Control " + "System in non-interactive mode."
+  )
   private boolean gatherVcsInfo = false;
 
   @Option(name = "--show-json", usage = "If protocol is JSON show the response to stdout or not.")
@@ -59,16 +54,6 @@ public class RageCommand extends AbstractCommand {
     BuckConfig buckConfig = params.getBuckConfig();
     RageConfig rageConfig = RageConfig.of(buckConfig);
     ProcessExecutor processExecutor = new DefaultProcessExecutor(params.getConsole());
-
-    VersionControlCmdLineInterface versionControlCmdLineInterface =
-        new DelegatingVersionControlCmdLineInterface(
-            params.getCell().getFilesystem().getRootPath(),
-            new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(buckConfig).getHgCmd(),
-            buckConfig.getEnvironment());
-
-    Optional<VcsInfoCollector> vcsInfoCollector =
-        VcsInfoCollector.create(versionControlCmdLineInterface);
 
     ExtraInfoCollector extraInfoCollector =
         new DefaultExtraInfoCollector(rageConfig, filesystem, processExecutor);
@@ -82,31 +67,32 @@ public class RageCommand extends AbstractCommand {
             params.getEnvironment());
 
     AbstractReport report;
-    DefaultDefectReporter reporter = new DefaultDefectReporter(
-        filesystem,
-        rageConfig,
-        params.getBuckEventBus(),
-        params.getClock());
+    DefaultDefectReporter reporter =
+        new DefaultDefectReporter(
+            filesystem, rageConfig, params.getBuckEventBus(), params.getClock());
     if (params.getConsole().getAnsi().isAnsiTerminal() && !nonInteractive) {
-      report = new InteractiveReport(
-          reporter,
-          filesystem,
-          params.getConsole(),
-          params.getStdIn(),
-          params.getBuildEnvironmentDescription(),
-          vcsInfoCollector,
-          rageConfig,
-          extraInfoCollector,
-          watchmanDiagReportCollector);
+      report =
+          new InteractiveReport(
+              reporter,
+              filesystem,
+              params.getConsole(),
+              params.getStdIn(),
+              params.getBuildEnvironmentDescription(),
+              params.getVersionControlStatsGenerator(),
+              rageConfig,
+              extraInfoCollector,
+              watchmanDiagReportCollector);
     } else {
-      report = new AutomatedReport(
-          reporter,
-          filesystem,
-          params.getConsole(),
-          params.getBuildEnvironmentDescription(),
-          gatherVcsInfo ? vcsInfoCollector : Optional.empty(),
-          rageConfig,
-          extraInfoCollector);
+      report =
+          new AutomatedReport(
+              reporter,
+              filesystem,
+              params.getConsole(),
+              params.getBuildEnvironmentDescription(),
+              params.getVersionControlStatsGenerator(),
+              gatherVcsInfo,
+              rageConfig,
+              extraInfoCollector);
     }
 
     Optional<DefectSubmitResult> defectSubmitResult = report.collectAndSubmitResult();

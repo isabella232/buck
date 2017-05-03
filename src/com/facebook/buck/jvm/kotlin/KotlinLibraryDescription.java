@@ -39,15 +39,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
-
-public class KotlinLibraryDescription implements
-    Description<KotlinLibraryDescription.Arg>, Flavored {
+public class KotlinLibraryDescription
+    implements Description<KotlinLibraryDescription.Arg>, Flavored {
 
   private final KotlinBuckConfig kotlinBuckConfig;
 
-  public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
-      JavaLibrary.SRC_JAR,
-      JavaLibrary.MAVEN_JAR);
+  public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS =
+      ImmutableSet.of(JavaLibrary.SRC_JAR, JavaLibrary.MAVEN_JAR);
 
   public KotlinLibraryDescription(KotlinBuckConfig kotlinBuckConfig) {
     this.kotlinBuckConfig = kotlinBuckConfig;
@@ -59,17 +57,18 @@ public class KotlinLibraryDescription implements
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
 
     BuildTarget target = params.getBuildTarget();
 
@@ -85,15 +84,12 @@ public class KotlinLibraryDescription implements
     }
 
     if (flavors.contains(JavaLibrary.SRC_JAR)) {
-      args.mavenCoords = args.mavenCoords.map(input -> AetherUtil.addClassifier(
-          input,
-          AetherUtil.CLASSIFIER_SOURCES));
+      args.mavenCoords =
+          args.mavenCoords.map(
+              input -> AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_SOURCES));
 
       if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
-        return new JavaSourceJar(
-            params,
-            args.srcs,
-            args.mavenCoords);
+        return new JavaSourceJar(params, args.srcs, args.mavenCoords);
       } else {
         return MavenUberJar.SourceJar.create(
             Preconditions.checkNotNull(paramsWithMavenFlavor),
@@ -103,12 +99,8 @@ public class KotlinLibraryDescription implements
       }
     }
 
-
-    DefaultKotlinLibraryBuilder defaultKotlinLibraryBuilder = new DefaultKotlinLibraryBuilder(
-        params,
-        resolver,
-        kotlinBuckConfig)
-        .setArgs(args);
+    DefaultKotlinLibraryBuilder defaultKotlinLibraryBuilder =
+        new DefaultKotlinLibraryBuilder(params, resolver, kotlinBuckConfig).setArgs(args);
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
@@ -128,7 +120,6 @@ public class KotlinLibraryDescription implements
           args.mavenPomTemplate);
     }
   }
-
 
   @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {

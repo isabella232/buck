@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -26,13 +26,13 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 
 public class NdkLibraryBuilder
-    extends AbstractNodeBuilder<NdkLibraryDescription.Arg, NdkLibraryDescription, NdkLibrary> {
+    extends AbstractNodeBuilderWithMutableArg<
+        NdkLibraryDescription.Arg, NdkLibraryDescription, NdkLibrary> {
 
   private static final NdkCxxPlatform DEFAULT_NDK_PLATFORM =
       NdkCxxPlatform.builder()
@@ -58,8 +58,7 @@ public class NdkLibraryBuilder
         new NdkLibraryDescription(Optional.empty(), NDK_PLATFORMS) {
           @Override
           protected ImmutableSortedSet<SourcePath> findSources(
-              ProjectFilesystem filesystem,
-              Path buildRulePath) {
+              ProjectFilesystem filesystem, Path buildRulePath) {
             return ImmutableSortedSet.of(
                 new PathSourcePath(filesystem, buildRulePath.resolve("Android.mk")));
           }
@@ -82,5 +81,4 @@ public class NdkLibraryBuilder
     arg.isAsset = Optional.of(isAsset);
     return this;
   }
-
 }

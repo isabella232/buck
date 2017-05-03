@@ -22,7 +22,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.rules.coercer.ParamInfoException;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
@@ -30,45 +30,33 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
-
-import java.lang.reflect.Field;
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 /**
- * Support class for writing builders for nodes of a {@link TargetGraph}
- * and {@link ActionGraph} ({@link TargetNode} and {@link BuildRule} respectively) mirroring the
- * behavior seen when running the actual parser as closely as possible.
+ * Support class for writing builders for nodes of a {@link TargetGraph} and {@link ActionGraph}
+ * ({@link TargetNode} and {@link BuildRule} respectively) mirroring the behavior seen when running
+ * the actual parser as closely as possible.
  */
 public abstract class AbstractNodeBuilder<
-    TArg,
-    TDescription extends Description<TArg>,
-    TBuildRule extends BuildRule> {
-  private static final DefaultTypeCoercerFactory TYPE_COERCER_FACTORY =
-      new DefaultTypeCoercerFactory();
+    TArg, TDescription extends Description<TArg>, TBuildRule extends BuildRule> {
+  protected static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
   private static final VisibilityPatternParser VISIBILITY_PATTERN_PARSER =
       new VisibilityPatternParser();
 
   protected final TDescription description;
   protected final ProjectFilesystem filesystem;
   protected final BuildTarget target;
-  protected final TArg arg;
-  private final CellPathResolver cellRoots;
-  @Nullable
-  private final HashCode rawHashCode;
+  protected final CellPathResolver cellRoots;
+  @Nullable private final HashCode rawHashCode;
   private Optional<ImmutableMap<BuildTarget, Version>> selectedVersions = Optional.empty();
 
-  protected AbstractNodeBuilder(
-      TDescription description,
-      BuildTarget target) {
+  protected AbstractNodeBuilder(TDescription description, BuildTarget target) {
     this(description, target, new FakeProjectFilesystem(), null);
   }
 
   protected AbstractNodeBuilder(
-      TDescription description,
-      BuildTarget target,
-      ProjectFilesystem projectFilesystem) {
+      TDescription description, BuildTarget target, ProjectFilesystem projectFilesystem) {
     this(description, target, projectFilesystem, null);
   }
 
@@ -83,9 +71,6 @@ public abstract class AbstractNodeBuilder<
     this.rawHashCode = hashCode;
 
     this.cellRoots = new FakeCellPathResolver(projectFilesystem);
-
-    this.arg = description.createUnpopulatedConstructorArg();
-    populateWithDefaultValues(this.arg);
   }
 
   public final TBuildRule build(BuildRuleResolver resolver) throws NoSuchBuildTargetException {
@@ -103,39 +88,40 @@ public abstract class AbstractNodeBuilder<
   }
 
   public final TBuildRule build(
-      BuildRuleResolver resolver,
-      ProjectFilesystem filesystem,
-      TargetGraph targetGraph) throws NoSuchBuildTargetException {
+      BuildRuleResolver resolver, ProjectFilesystem filesystem, TargetGraph targetGraph)
+      throws NoSuchBuildTargetException {
 
     // The BuildRule determines its deps by extracting them from the rule parameters.
     BuildRuleParams params = createBuildRuleParams(resolver, filesystem);
 
+    TArg builtArg = getPopulatedArg();
     @SuppressWarnings("unchecked")
     TBuildRule rule =
-        (TBuildRule) description.createBuildRule(targetGraph, params, resolver, cellRoots, arg);
+        (TBuildRule)
+            description.createBuildRule(targetGraph, params, resolver, cellRoots, builtArg);
     resolver.addToIndex(rule);
     return rule;
   }
 
   public TargetNode<TArg, TDescription> build() {
     try {
-      HashCode hash = rawHashCode == null ?
-          Hashing.sha1().hashString(target.getFullyQualifiedName(), UTF_8) :
-          rawHashCode;
+      HashCode hash =
+          rawHashCode == null
+              ? Hashing.sha1().hashString(target.getFullyQualifiedName(), UTF_8)
+              : rawHashCode;
       TargetNodeFactory factory = new TargetNodeFactory(TYPE_COERCER_FACTORY);
+      TArg populatedArg = getPopulatedArg();
       TargetNode<TArg, TDescription> node =
           factory.create(
               // This hash will do in a pinch.
               hash,
               description,
-              arg,
+              populatedArg,
               filesystem,
               target,
-              getDepsFromArg(),
+              getDepsFromArg(populatedArg),
               ImmutableSet.of(
-                  VISIBILITY_PATTERN_PARSER.parse(
-                      null,
-                      VisibilityPatternParser.VISIBILITY_PUBLIC)),
+                  VISIBILITY_PATTERN_PARSER.parse(null, VisibilityPatternParser.VISIBILITY_PUBLIC)),
               ImmutableSet.of(),
               cellRoots);
       if (selectedVersions.isPresent()) {
@@ -155,8 +141,7 @@ public abstract class AbstractNodeBuilder<
   }
 
   public BuildRuleParams createBuildRuleParams(
-      BuildRuleResolver resolver,
-      ProjectFilesystem filesystem) {
+      BuildRuleResolver resolver, ProjectFilesystem filesystem) {
     TargetNode<?, ?> node = build();
     return new FakeBuildRuleParamsBuilder(target)
         .setProjectFilesystem(filesystem)
@@ -165,28 +150,8 @@ public abstract class AbstractNodeBuilder<
         .build();
   }
 
-  @SuppressWarnings("unchecked")
-  private ImmutableSortedSet<BuildTarget> getDepsFromArg() {
-    // Not all rules have deps, but all rules call them deps. When they do, they're always optional.
-    // Grab them in the unsafest way I know.
-    try {
-      Field depsField = arg.getClass().getField("deps");
-      Object deps = depsField.get(arg);
-
-      if (deps == null) {
-        return ImmutableSortedSet.of();
-      }
-      // Here's a whole series of assumptions in one lump of a Bad Idea.
-      return (ImmutableSortedSet<BuildTarget>) deps;
-    } catch (ReflectiveOperationException ignored) {
-      // Field doesn't exist: no deps.
-      return ImmutableSortedSet.of();
-    }
-  }
-
   protected <C extends Comparable<?>> ImmutableSortedSet<C> amend(
-      ImmutableSortedSet<C> existing,
-      C instance) {
+      ImmutableSortedSet<C> existing, C instance) {
     ImmutableSortedSet.Builder<C> toReturn = ImmutableSortedSet.naturalOrder();
     if (existing != null) {
       toReturn.addAll(existing);
@@ -197,28 +162,11 @@ public abstract class AbstractNodeBuilder<
 
   // Thanks to type erasure, this needs a unique name.
   protected <C extends Comparable<?>> ImmutableSet<C> amendSet(
-      ImmutableSet<C> existing,
-      C instance) {
+      ImmutableSet<C> existing, C instance) {
     ImmutableSet.Builder<C> toReturn = ImmutableSet.builder();
     toReturn.addAll(existing);
     toReturn.add(instance);
     return toReturn.build();
-  }
-
-  /**
-   * Populate optional fields of this constructor arg with their default values.
-   */
-  private void populateWithDefaultValues(TArg arg) {
-    try {
-      new ConstructorArgMarshaller(TYPE_COERCER_FACTORY)
-          .populateDefaults(
-              cellRoots,
-              filesystem,
-              target,
-              arg);
-    } catch (ParamInfoException error) {
-      throw new RuntimeException(error);
-    }
   }
 
   @SuppressWarnings("unchecked")
@@ -227,11 +175,7 @@ public abstract class AbstractNodeBuilder<
         (ImplicitDepsInferringDescription<TArg>) description;
     ImmutableSortedSet.Builder<BuildTarget> builder = ImmutableSortedSet.naturalOrder();
     desc.findDepsForTargetFromConstructorArgs(
-        target,
-        cellRoots,
-        arg,
-        builder,
-        ImmutableSortedSet.naturalOrder());
+        target, cellRoots, getPopulatedArg(), builder, ImmutableSortedSet.naturalOrder());
     return builder.build();
   }
 
@@ -245,4 +189,9 @@ public abstract class AbstractNodeBuilder<
     return this;
   }
 
+  protected abstract Object getArgForPopulating();
+
+  protected abstract TArg getPopulatedArg();
+
+  protected abstract ImmutableSortedSet<BuildTarget> getDepsFromArg(TArg arg);
 }

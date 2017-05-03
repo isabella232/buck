@@ -19,9 +19,21 @@ package com.facebook.buck.rules;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
 @SuppressFieldNotInitialized
-public abstract class AbstractDescriptionArg {
+public abstract class AbstractDescriptionArg implements CommonDescriptionArg {
   public ImmutableSet<SourcePath> licenses = ImmutableSet.of();
-  public ImmutableSortedSet<Label> labels = ImmutableSortedSet.of();
+  public ImmutableSortedSet<String> labels = ImmutableSortedSet.of();
+
+  @Override
+  public ImmutableSet<SourcePath> getLicenses() {
+    return licenses;
+  }
+
+  @Value.NaturalOrder
+  @Override
+  public ImmutableSortedSet<String> getLabels() {
+    return labels;
+  }
 }

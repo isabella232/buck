@@ -18,33 +18,45 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.apple.XcodeWorkspaceConfigBuilder;
+import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.apple.project_generator.FocusedModuleTargetMatcher;
 import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.apple.project_generator.ProjectGeneratorTestUtils;
+import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.timing.SettableFakeClock;
+import com.facebook.buck.util.environment.Platform;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.junit.Before;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.Before;
+import org.junit.Test;
 
 public class ProjectCommandXcodeTest {
 
@@ -61,7 +73,7 @@ public class ProjectCommandXcodeTest {
   private TargetNode<?, ?> workspaceExtraTestNode;
   private TargetNode<?, ?> smallWorkspaceNode;
 
-  TargetGraph targetGraph;
+  private TargetGraph targetGraph;
 
   @Before
   public void buildGraph() {
@@ -84,109 +96,106 @@ public class ProjectCommandXcodeTest {
     BuildTarget fooBinTestTarget = BuildTargetFactory.newInstance("//foo:bin-xctest");
 
     BuildTarget barLibTarget = BuildTargetFactory.newInstance("//bar:lib");
-    barLibNode = AppleLibraryBuilder
-        .createBuilder(barLibTarget)
-        .build();
+    barLibNode = AppleLibraryBuilder.createBuilder(barLibTarget).build();
 
     BuildTarget bazLibTarget = BuildTargetFactory.newInstance("//baz:lib");
-    bazLibNode = AppleLibraryBuilder
-        .createBuilder(bazLibTarget)
-        .setTests(ImmutableSortedSet.of(bazTestTarget))
-        .build();
+    bazLibNode =
+        AppleLibraryBuilder.createBuilder(bazLibTarget)
+            .setTests(ImmutableSortedSet.of(bazTestTarget))
+            .build();
 
     BuildTarget fooTestTarget = BuildTargetFactory.newInstance("//foo:lib-xctest");
-    fooTestNode = AppleTestBuilder
-        .createBuilder(fooTestTarget)
-        .setDeps(ImmutableSortedSet.of(bazLibTarget))
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .build();
+    fooTestNode =
+        AppleTestBuilder.createBuilder(fooTestTarget)
+            .setDeps(ImmutableSortedSet.of(bazLibTarget))
+            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .build();
 
     BuildTarget fooLibTarget = BuildTargetFactory.newInstance("//foo:lib");
-    fooLibNode = AppleLibraryBuilder
-        .createBuilder(fooLibTarget)
-        .setDeps(ImmutableSortedSet.of(barLibTarget))
-        .setTests(ImmutableSortedSet.of(fooTestTarget))
-        .build();
+    fooLibNode =
+        AppleLibraryBuilder.createBuilder(fooLibTarget)
+            .setDeps(ImmutableSortedSet.of(barLibTarget))
+            .setTests(ImmutableSortedSet.of(fooTestTarget))
+            .build();
 
     BuildTarget fooBinBinaryTarget = BuildTargetFactory.newInstance("//foo:binbinary");
-    fooBinBinaryNode = AppleBinaryBuilder
-        .createBuilder(fooBinBinaryTarget)
-        .setDeps(ImmutableSortedSet.of(fooLibTarget))
-        .build();
+    fooBinBinaryNode =
+        AppleBinaryBuilder.createBuilder(fooBinBinaryTarget)
+            .setDeps(ImmutableSortedSet.of(fooLibTarget))
+            .build();
 
     BuildTarget fooBinTarget = BuildTargetFactory.newInstance("//foo:bin");
-    fooBinNode = AppleBundleBuilder
-        .createBuilder(fooBinTarget)
-        .setExtension(Either.ofLeft(AppleBundleExtension.APP))
-        .setBinary(fooBinBinaryTarget)
-        .setTests(ImmutableSortedSet.of(fooBinTestTarget))
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .build();
+    fooBinNode =
+        AppleBundleBuilder.createBuilder(fooBinTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setBinary(fooBinBinaryTarget)
+            .setTests(ImmutableSortedSet.of(fooBinTestTarget))
+            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .build();
 
-    bazTestNode = AppleTestBuilder
-        .createBuilder(bazTestTarget)
-        .setDeps(ImmutableSortedSet.of(bazLibTarget))
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .build();
+    bazTestNode =
+        AppleTestBuilder.createBuilder(bazTestTarget)
+            .setDeps(ImmutableSortedSet.of(bazLibTarget))
+            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .build();
 
-    fooBinTestNode = AppleTestBuilder
-        .createBuilder(fooBinTestTarget)
-        .setDeps(ImmutableSortedSet.of(fooBinTarget))
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .build();
+    fooBinTestNode =
+        AppleTestBuilder.createBuilder(fooBinTestTarget)
+            .setDeps(ImmutableSortedSet.of(fooBinTarget))
+            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .build();
 
     BuildTarget quxBinTarget = BuildTargetFactory.newInstance("//qux:bin");
-    quxBinNode = AppleBinaryBuilder
-        .createBuilder(quxBinTarget)
-        .setDeps(ImmutableSortedSet.of(barLibTarget))
-        .build();
+    quxBinNode =
+        AppleBinaryBuilder.createBuilder(quxBinTarget)
+            .setDeps(ImmutableSortedSet.of(barLibTarget))
+            .build();
 
     BuildTarget workspaceExtraTestTarget = BuildTargetFactory.newInstance("//foo:extra-xctest");
-    workspaceExtraTestNode = AppleTestBuilder
-        .createBuilder(workspaceExtraTestTarget)
-        .setInfoPlist(new FakeSourcePath("Info.plist"))
-        .build();
+    workspaceExtraTestNode =
+        AppleTestBuilder.createBuilder(workspaceExtraTestTarget)
+            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .build();
 
     BuildTarget workspaceTarget = BuildTargetFactory.newInstance("//foo:workspace");
-    workspaceNode = XcodeWorkspaceConfigBuilder
-        .createBuilder(workspaceTarget)
-        .setWorkspaceName(Optional.of("workspace"))
-        .setSrcTarget(Optional.of(fooBinTarget))
-        .setExtraTests(ImmutableSortedSet.of(workspaceExtraTestTarget))
-        .build();
+    workspaceNode =
+        XcodeWorkspaceConfigBuilder.createBuilder(workspaceTarget)
+            .setWorkspaceName(Optional.of("workspace"))
+            .setSrcTarget(Optional.of(fooBinTarget))
+            .setExtraTests(ImmutableSortedSet.of(workspaceExtraTestTarget))
+            .build();
 
     BuildTarget smallWorkspaceTarget = BuildTargetFactory.newInstance("//baz:small-workspace");
-    smallWorkspaceNode = XcodeWorkspaceConfigBuilder
-        .createBuilder(smallWorkspaceTarget)
-        .setWorkspaceName(Optional.of("small-workspace"))
-        .setSrcTarget(Optional.of(bazLibTarget))
-        .build();
+    smallWorkspaceNode =
+        XcodeWorkspaceConfigBuilder.createBuilder(smallWorkspaceTarget)
+            .setWorkspaceName(Optional.of("small-workspace"))
+            .setSrcTarget(Optional.of(bazLibTarget))
+            .build();
 
-    targetGraph = TargetGraphFactory.newInstance(
-        barLibNode,
-        fooLibNode,
-        fooBinBinaryNode,
-        fooBinNode,
-        bazLibNode,
-        bazTestNode,
-        fooTestNode,
-        fooBinTestNode,
-        quxBinNode,
-        workspaceExtraTestNode,
-        workspaceNode,
-        smallWorkspaceNode);
+    targetGraph =
+        TargetGraphFactory.newInstance(
+            barLibNode,
+            fooLibNode,
+            fooBinBinaryNode,
+            fooBinNode,
+            bazLibNode,
+            bazTestNode,
+            fooTestNode,
+            fooBinTestNode,
+            quxBinNode,
+            workspaceExtraTestNode,
+            workspaceNode,
+            smallWorkspaceNode);
   }
-
-
 
   @Test
   public void testCreateTargetGraphWithoutTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(),
-        /* withTests = */ false,
-        /* withDependenciesTests = */ false);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(),
+            /* withTests = */ false,
+            /* withDependenciesTests = */ false);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?, ?>>of(
@@ -198,18 +207,17 @@ public class ProjectCommandXcodeTest {
             smallWorkspaceNode,
             bazLibNode,
             workspaceExtraTestNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testCreateTargetGraphWithTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(),
-        /* withTests = */ true,
-        /* withDependenciesTests */ true);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(),
+            /* withTests = */ true,
+            /* withDependenciesTests */ true);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?, ?>>of(
@@ -224,18 +232,17 @@ public class ProjectCommandXcodeTest {
             bazLibNode,
             bazTestNode,
             workspaceExtraTestNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testCreateTargetGraphForSliceWithoutTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(workspaceNode.getBuildTarget()),
-        /* withTests = */ false,
-        /* withDependenciesTests */ false);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(workspaceNode.getBuildTarget()),
+            /* withTests = */ false,
+            /* withDependenciesTests */ false);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?, ?>>of(
@@ -245,18 +252,17 @@ public class ProjectCommandXcodeTest {
             fooLibNode,
             barLibNode,
             workspaceExtraTestNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testCreateTargetGraphForSliceWithTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(workspaceNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ true);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(workspaceNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ true);
 
     assertEquals(
         ImmutableSortedSet.<TargetNode<?, ?>>of(
@@ -269,51 +275,44 @@ public class ProjectCommandXcodeTest {
             barLibNode,
             bazLibNode,
             workspaceExtraTestNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testCreateTargetGraphForSmallSliceWithoutTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
-        /* withTests = */ false,
-        /* withDependenciesTests */ false);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
+            /* withTests = */ false,
+            /* withDependenciesTests */ false);
 
     assertEquals(
-        ImmutableSortedSet.of(
-            smallWorkspaceNode,
-            bazLibNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.of(smallWorkspaceNode, bazLibNode),
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testCreateTargetGraphForSmallSliceWithTests() {
-    TargetGraphAndTargets targetGraphAndTargets = ProjectCommandTests.createTargetGraph(
-        targetGraph,
-        ProjectCommand.Ide.XCODE,
-        ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ true);
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(
+            targetGraph,
+            ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ true);
 
     assertEquals(
-        ImmutableSortedSet.of(
-            smallWorkspaceNode,
-            bazLibNode,
-            bazTestNode),
-        ImmutableSortedSet.copyOf(
-            targetGraphAndTargets.getTargetGraph().getNodes()));
+        ImmutableSortedSet.of(smallWorkspaceNode, bazLibNode, bazTestNode),
+        ImmutableSortedSet.copyOf(targetGraphAndTargets.getTargetGraph().getNodes()));
   }
 
   @Test
   public void testTargetWithTests() throws IOException, InterruptedException {
-    Map<Path, ProjectGenerator> projectGenerators = generateProjectsForTests(
-        ImmutableSet.of(fooBinNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ true);
+    Map<Path, ProjectGenerator> projectGenerators =
+        generateProjectsForTests(
+            ImmutableSet.of(fooBinNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ true);
 
     ProjectGeneratorTestUtils.assertTargetExists(
         projectGenerators.get(Paths.get("foo")), "bin-xctest");
@@ -326,23 +325,17 @@ public class ProjectCommandXcodeTest {
       boolean isWithTests,
       boolean isWithDependenciesTests)
       throws IOException, InterruptedException {
-    return ProjectCommandTests.generateWorkspacesForTargets(
-        targetGraph,
-        passedInTargetsSet,
-        isWithTests,
-        isWithDependenciesTests,
-        /* isReadonly = */ false,
-        /* isBuildWithBuck = */ false,
-        /* isCombinedProjects = */ false);
+    return generateWorkspacesForTargets(
+        targetGraph, passedInTargetsSet, isWithTests, isWithDependenciesTests);
   }
 
   @Test
-  public void testTargetWithoutDependenciesTests()
-      throws IOException, InterruptedException {
-    Map<Path, ProjectGenerator> projectGenerators = generateProjectsForTests(
-        ImmutableSet.of(fooBinNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ false);
+  public void testTargetWithoutDependenciesTests() throws IOException, InterruptedException {
+    Map<Path, ProjectGenerator> projectGenerators =
+        generateProjectsForTests(
+            ImmutableSet.of(fooBinNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ false);
 
     ProjectGeneratorTestUtils.assertTargetExists(
         projectGenerators.get(Paths.get("foo")), "bin-xctest");
@@ -351,12 +344,12 @@ public class ProjectCommandXcodeTest {
   }
 
   @Test
-  public void testTargetWithoutTests()
-      throws IOException, InterruptedException {
-    Map<Path, ProjectGenerator> projectGenerators = generateProjectsForTests(
-        ImmutableSet.of(fooBinNode.getBuildTarget()),
-        /* withTests = */ false,
-        /* withDependenciesTests */ false);
+  public void testTargetWithoutTests() throws IOException, InterruptedException {
+    Map<Path, ProjectGenerator> projectGenerators =
+        generateProjectsForTests(
+            ImmutableSet.of(fooBinNode.getBuildTarget()),
+            /* withTests = */ false,
+            /* withDependenciesTests */ false);
 
     ProjectGeneratorTestUtils.assertTargetDoesNotExists(
         projectGenerators.get(Paths.get("foo")), "bin-xctest");
@@ -365,12 +358,12 @@ public class ProjectCommandXcodeTest {
   }
 
   @Test
-  public void testWorkspaceWithoutDependenciesTests()
-      throws IOException, InterruptedException {
-    Map<Path, ProjectGenerator> projectGenerators = generateProjectsForTests(
-        ImmutableSet.of(workspaceNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ false);
+  public void testWorkspaceWithoutDependenciesTests() throws IOException, InterruptedException {
+    Map<Path, ProjectGenerator> projectGenerators =
+        generateProjectsForTests(
+            ImmutableSet.of(workspaceNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ false);
 
     ProjectGeneratorTestUtils.assertTargetExists(
         projectGenerators.get(Paths.get("foo")), "bin-xctest");
@@ -383,14 +376,93 @@ public class ProjectCommandXcodeTest {
   @Test
   public void testWorkspaceWithoutExtraTestsWithoutDependenciesTests()
       throws IOException, InterruptedException {
-    Map<Path, ProjectGenerator> projectGenerators = generateProjectsForTests(
-        ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
-        /* withTests = */ true,
-        /* withDependenciesTests */ false);
+    Map<Path, ProjectGenerator> projectGenerators =
+        generateProjectsForTests(
+            ImmutableSet.of(smallWorkspaceNode.getBuildTarget()),
+            /* withTests = */ true,
+            /* withDependenciesTests */ false);
 
-    ProjectGeneratorTestUtils.assertTargetExists(
-        projectGenerators.get(Paths.get("baz")), "lib");
-    ProjectGeneratorTestUtils.assertTargetExists(
-        projectGenerators.get(Paths.get("baz")), "xctest");
+    ProjectGeneratorTestUtils.assertTargetExists(projectGenerators.get(Paths.get("baz")), "lib");
+    ProjectGeneratorTestUtils.assertTargetExists(projectGenerators.get(Paths.get("baz")), "xctest");
+  }
+
+  private static TargetGraphAndTargets createTargetGraph(
+      TargetGraph projectGraph,
+      ImmutableSet<BuildTarget> passedInTargetsSet,
+      boolean withTests,
+      boolean withDependenciesTests) {
+    ImmutableSet<BuildTarget> graphRoots;
+    if (!passedInTargetsSet.isEmpty()) {
+      graphRoots = passedInTargetsSet;
+    } else {
+      graphRoots =
+          ProjectCommand.getRootsFromPredicate(
+              projectGraph,
+              node -> node.getDescription() instanceof XcodeWorkspaceConfigDescription);
+    }
+
+    ImmutableSet<BuildTarget> graphRootsOrSourceTargets =
+        ProjectCommand.replaceWorkspacesWithSourceTargetsIfPossible(graphRoots, projectGraph);
+
+    ImmutableSet<BuildTarget> explicitTests;
+    if (withTests) {
+      explicitTests =
+          ProjectCommand.getExplicitTestTargets(
+              graphRootsOrSourceTargets,
+              projectGraph,
+              withDependenciesTests,
+              FocusedModuleTargetMatcher.noFocus());
+    } else {
+      explicitTests = ImmutableSet.of();
+    }
+
+    return TargetGraphAndTargets.create(graphRoots, projectGraph, withTests, explicitTests);
+  }
+
+  private static Map<Path, ProjectGenerator> generateWorkspacesForTargets(
+      TargetGraph targetGraph,
+      ImmutableSet<BuildTarget> passedInTargetsSet,
+      boolean isWithTests,
+      boolean isWithDependenciesTests)
+      throws IOException, InterruptedException {
+    TargetGraphAndTargets targetGraphAndTargets =
+        createTargetGraph(targetGraph, passedInTargetsSet, isWithTests, isWithDependenciesTests);
+
+    Map<Path, ProjectGenerator> projectGenerators = new HashMap<>();
+    ProjectCommand.generateWorkspacesForTargets(
+        createCommandRunnerParamsForTests(),
+        targetGraphAndTargets,
+        passedInTargetsSet,
+        ProjectCommand.buildWorkspaceGeneratorOptions(
+            false,
+            isWithTests,
+            isWithDependenciesTests,
+            false,
+            true /* shouldUseHeaderMaps */,
+            false /* shouldMergeHeaderMaps */,
+            false /* shouldGenerateHeaderSymlinkTreeOnly */),
+        FocusedModuleTargetMatcher.noFocus(),
+        projectGenerators,
+        false);
+    return projectGenerators;
+  }
+
+  private static CommandRunnerParams createCommandRunnerParamsForTests()
+      throws IOException, InterruptedException {
+    Cell cell =
+        new TestCellBuilder()
+            .setFilesystem(new FakeProjectFilesystem(new SettableFakeClock(0, 0)))
+            .build();
+    return CommandRunnerParamsForTesting.createCommandRunnerParamsForTesting(
+        new TestConsole(),
+        cell,
+        new FakeAndroidDirectoryResolver(),
+        new NoopArtifactCache(),
+        BuckEventBusFactory.newInstance(),
+        FakeBuckConfig.builder().build(),
+        Platform.detect(),
+        ImmutableMap.copyOf(System.getenv()),
+        new FakeJavaPackageFinder(),
+        Optional.empty());
   }
 }

@@ -28,26 +28,24 @@ import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class CxxPrecompiledHeaderDescription implements
-    Description<CxxPrecompiledHeaderDescription.Arg>,
-    VersionPropagator<CxxPrecompiledHeaderDescription.Arg> {
+public class CxxPrecompiledHeaderDescription
+    implements Description<CxxPrecompiledHeaderDescription.Arg>,
+        VersionPropagator<CxxPrecompiledHeaderDescription.Arg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> CxxPrecompiledHeaderTemplate createBuildRule(
+  public CxxPrecompiledHeaderTemplate createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       CellPathResolver cellRoots,
-      A args) {
+      Arg args) {
     return new CxxPrecompiledHeaderTemplate(
-        params.copyAppendingExtraDeps(ruleResolver.getAllRules(args.deps)),
-        ruleResolver,
-        args.src);
+        params.copyAppendingExtraDeps(ruleResolver.getAllRules(args.deps)), ruleResolver, args.src);
   }
 
   @SuppressFieldNotInitialized
@@ -55,5 +53,4 @@ public class CxxPrecompiledHeaderDescription implements
     public SourcePath src;
     public ImmutableSortedSet<BuildTarget> deps;
   }
-
 }

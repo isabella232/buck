@@ -47,6 +47,11 @@ public class AbiFilteringClassVisitorTest {
   }
 
   @Test
+  public void testExcludesSyntheticFields() {
+    testExcludesFieldWithAccess(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
+  }
+
+  @Test
   public void testIncludesPackageFields() {
     testIncludesFieldWithAccess(0);
   }
@@ -94,6 +99,11 @@ public class AbiFilteringClassVisitorTest {
   @Test
   public void testIncludesPublicMethods() {
     testIncludesMethodWithAccess(Opcodes.ACC_PUBLIC);
+  }
+
+  @Test
+  public void testExcludesSyntheticMethods() {
+    testExcludesMethodWithAccess(Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
   }
 
   @Test
@@ -165,6 +175,17 @@ public class AbiFilteringClassVisitorTest {
   }
 
   @Test
+  public void testExcludesSyntheticInnerClasses() {
+    visitClass(mockVisitor, "Foo");
+    replay(mockVisitor);
+
+    visitClass(filteringVisitor, "Foo");
+    filteringVisitor.visitInnerClass(
+        "Foo$Inner", "Foo", "Inner", Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC);
+    verify(mockVisitor);
+  }
+
+  @Test
   public void testExcludesAnonymousInnerClasses() {
     visitClass(mockVisitor, "Foo");
     replay(mockVisitor);
@@ -198,8 +219,7 @@ public class AbiFilteringClassVisitorTest {
 
   private void testFieldWithAccess(int access, boolean shouldInclude) {
     if (shouldInclude) {
-      expect(mockVisitor.visitField(access, "Foo", "I", null, null))
-          .andReturn(null);
+      expect(mockVisitor.visitField(access, "Foo", "I", null, null)).andReturn(null);
     }
     replay(mockVisitor);
     filteringVisitor.visitField(access, "Foo", "I", null, null);
@@ -224,8 +244,7 @@ public class AbiFilteringClassVisitorTest {
 
   private void testMethodWithAccess(int access, String name, boolean shouldInclude) {
     if (shouldInclude) {
-      expect(mockVisitor.visitMethod(access, name, "()V", null, null))
-          .andReturn(null);
+      expect(mockVisitor.visitMethod(access, name, "()V", null, null)).andReturn(null);
     }
     replay(mockVisitor);
     filteringVisitor.visitMethod(access, name, "()V", null, null);

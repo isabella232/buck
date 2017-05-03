@@ -23,7 +23,6 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -41,12 +40,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,6 +52,10 @@ import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunnerRule {
@@ -67,8 +64,8 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   private static final Pattern SUITE_END = Pattern.compile("^Leaving test suite \"(.*)\"$");
 
   private static final Pattern CASE_START = Pattern.compile("^Entering test case \"(.*)\"$");
-  private static final Pattern CASE_END = Pattern.compile(
-      "^Leaving test case \"(.*)\"(?:; testing time: (\\d+)ms)?$");
+  private static final Pattern CASE_END =
+      Pattern.compile("^Leaving test case \"(.*)\"(?:; testing time: (\\d+)ms)?$");
 
   private static final Pattern ERROR = Pattern.compile("^.*\\(\\d+\\): error .*");
 
@@ -83,8 +80,9 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
       ImmutableMap<String, String> env,
       Supplier<ImmutableList<String>> args,
       ImmutableSortedSet<? extends SourcePath> resources,
+      ImmutableSet<SourcePath> additionalCoverageTargets,
       Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
       Optional<Long> testRuleTimeoutMs) {
@@ -94,6 +92,7 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         env,
         args,
         resources,
+        additionalCoverageTargets,
         additionalDeps,
         labels,
         contacts,
@@ -106,8 +105,7 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ForwardingBuildTargetSourcePath(
-        getBuildTarget(),
-        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
+        getBuildTarget(), Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   @Override
@@ -174,10 +172,7 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   }
 
   @Override
-  protected ImmutableList<TestResultSummary> parseResults(
-      Path exitCode,
-      Path output,
-      Path results)
+  protected ImmutableList<TestResultSummary> parseResults(Path exitCode, Path output, Path results)
       throws Exception {
 
     ImmutableList.Builder<TestResultSummary> summariesBuilder = ImmutableList.builder();
@@ -235,8 +230,7 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   public Stream<BuildTarget> getRuntimeDeps() {
     return Stream.concat(
         super.getRuntimeDeps(),
-        getExecutableCommand().getDeps(ruleFinder).stream()
-            .map(BuildRule::getBuildTarget));
+        getExecutableCommand().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
   }
 
   @Override
@@ -252,6 +246,8 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
         .putAllEnv(getEnv(pathResolver))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
+        .addAllAdditionalCoverageTargets(
+            pathResolver.getAllAbsolutePaths(getAdditionalCoverageTargets()))
         .build();
   }
 }

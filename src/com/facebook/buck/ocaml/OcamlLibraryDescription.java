@@ -35,13 +35,12 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class OcamlLibraryDescription implements
-    Description<OcamlLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription<OcamlLibraryDescription.Arg>,
-    VersionPropagator<OcamlLibraryDescription.Arg> {
+public class OcamlLibraryDescription
+    implements Description<OcamlLibraryDescription.Arg>,
+        ImplicitDepsInferringDescription<OcamlLibraryDescription.Arg>,
+        VersionPropagator<OcamlLibraryDescription.Arg> {
 
   private final OcamlBuckConfig ocamlBuckConfig;
 
@@ -54,31 +53,28 @@ public class OcamlLibraryDescription implements
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
 
     ImmutableList<OcamlSource> srcs = args.srcs;
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> flags = ImmutableList.builder();
-    flags.addAll(OcamlDescriptionEnhancer.toStringWithMacrosArgs(
-            params.getBuildTarget(),
-            cellRoots,
-            resolver,
-            args.compilerFlags));
-    if (ocamlBuckConfig.getWarningsFlags().isPresent() ||
-        args.warningsFlags.isPresent()) {
+    flags.addAll(
+        OcamlDescriptionEnhancer.toStringWithMacrosArgs(
+            params.getBuildTarget(), cellRoots, resolver, args.compilerFlags));
+    if (ocamlBuckConfig.getWarningsFlags().isPresent() || args.warningsFlags.isPresent()) {
       flags.addAll(
           StringArg.from(
-              "-w",
-              ocamlBuckConfig.getWarningsFlags().orElse("") + args.warningsFlags.orElse("")));
+              "-w", ocamlBuckConfig.getWarningsFlags().orElse("") + args.warningsFlags.orElse("")));
     }
     ImmutableList<String> linkerflags = args.linkerFlags;
 
@@ -117,5 +113,4 @@ public class OcamlLibraryDescription implements
     public Optional<Boolean> bytecodeOnly;
     public Optional<Boolean> nativePlugin;
   }
-
 }

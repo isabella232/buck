@@ -16,13 +16,14 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
 import com.google.common.collect.ImmutableMap;
-
 import java.util.logging.Level;
 
 public interface JavacEventSink {
   void reportThrowable(Throwable throwable, String message, Object... args);
+
   void reportEvent(Level level, String message, Object... args);
 
   void reportCompilerPluginStarted(
@@ -30,16 +31,14 @@ public interface JavacEventSink {
       String pluginName,
       String durationName,
       ImmutableMap<String, String> args);
+
   void reportCompilerPluginFinished(BuildTarget buildTarget, ImmutableMap<String, String> args);
 
   void reportJavacPhaseStarted(
-      BuildTarget buildTarget,
-      String phase,
-      ImmutableMap<String, String> args);
+      BuildTarget buildTarget, String phase, ImmutableMap<String, String> args);
+
   void reportJavacPhaseFinished(
-      BuildTarget buildTarget,
-      String phase,
-      ImmutableMap<String, String> args);
+      BuildTarget buildTarget, String phase, ImmutableMap<String, String> args);
 
   void reportAnnotationProcessingEventStarted(
       BuildTarget buildTarget,
@@ -47,10 +46,13 @@ public interface JavacEventSink {
       String operation,
       int round,
       boolean isLastRound);
+
   void reportAnnotationProcessingEventFinished(
       BuildTarget buildTarget,
       String annotationProcessorName,
       String operation,
       int round,
       boolean isLastRound);
+
+  BuckEventBus getEventBus();
 }

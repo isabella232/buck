@@ -1,5 +1,13 @@
-standard_java_testutil(
+java_library(
     name = "testutil",
+    srcs = glob(
+        ["*.java"],
+        excludes = [
+            "*Benchmark.java",
+            "*Test.java",
+        ],
+    ),
+    visibility = ["//test/..."],
     deps = [
         "//src-gen:thrift",
         "//src/com/facebook/buck/android:apkmodule",
@@ -264,6 +272,7 @@ standard_java_test(
         "//src/com/facebook/buck/util/sha1:sha1",
         "//src/com/facebook/buck/util/trace:trace",
         "//src/com/facebook/buck/util/unit:unit",
+        "//src/com/facebook/buck/util/versioncontrol:value_types",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol_config",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol_generator",

@@ -19,25 +19,23 @@ package com.facebook.buck.js;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class JsBundleBuilder extends
-    AbstractNodeBuilder<JsBundleDescription.Arg, JsBundleDescription, JsBundle> {
+public class JsBundleBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        JsBundleDescription.Arg, JsBundleDescription, JsBundle> {
   private static final JsBundleDescription bundleDescription = new JsBundleDescription();
 
   JsBundleBuilder(
       BuildTarget target,
       BuildTarget worker,
-      ImmutableSortedSet<BuildTarget> libs,
       Either<ImmutableSet<String>, String> entry,
       ProjectFilesystem filesystem) {
     super(bundleDescription, target, filesystem);
     arg.entry = entry;
-    arg.libs = libs;
     arg.bundleName = Optional.empty();
     arg.worker = worker;
     arg.rDotJavaPackage = Optional.of("com.example");
@@ -45,6 +43,11 @@ public class JsBundleBuilder extends
 
   JsBundleBuilder setBundleName(String bundleName) {
     arg.bundleName = Optional.of(bundleName);
+    return this;
+  }
+
+  JsBundleBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
+    arg.deps = deps;
     return this;
   }
 }

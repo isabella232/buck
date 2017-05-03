@@ -32,21 +32,20 @@ import com.google.common.collect.ImmutableSortedSet;
 public class GraphqlLibraryDescription implements Description<GraphqlLibraryDescription.Arg> {
 
   @Override
-  public GraphqlLibraryDescription.Arg createUnpopulatedConstructorArg() {
-    return new GraphqlLibraryDescription.Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
 
-    return new GraphqlLibrary(
-        params,
-        args.srcs);
+    return new GraphqlLibrary(params, args.srcs);
   }
 
   @SuppressFieldNotInitialized

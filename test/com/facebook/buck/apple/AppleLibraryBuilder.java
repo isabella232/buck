@@ -20,12 +20,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 
 public class AppleLibraryBuilder
-    extends
-    AbstractAppleNativeTargetBuilder<
-        AppleLibraryDescription.Arg,
-        AppleLibraryDescription,
-        BuildRule,
-        AppleLibraryBuilder> {
+    extends AbstractAppleNativeTargetBuilder<
+        AppleLibraryDescription.Arg, AppleLibraryDescription, BuildRule, AppleLibraryBuilder> {
 
   @Override
   protected AppleLibraryBuilder getThis() {
@@ -38,5 +34,10 @@ public class AppleLibraryBuilder
 
   public static AppleLibraryBuilder createBuilder(BuildTarget target) {
     return new AppleLibraryBuilder(target);
+  }
+
+  public AppleLibraryBuilder setModular(boolean modular) {
+    arg.modular = modular;
+    return this;
   }
 }

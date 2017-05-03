@@ -18,7 +18,7 @@ package com.facebook.buck.shell;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -35,21 +35,19 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.function.Function;
 
-public class FakeWorkerBuilder extends AbstractNodeBuilder<
-    Object, FakeWorkerBuilder.FakeWorkerDescription, FakeWorkerBuilder.FakeWorkerTool> {
+public class FakeWorkerBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        Object, FakeWorkerBuilder.FakeWorkerDescription, FakeWorkerBuilder.FakeWorkerTool> {
 
   public FakeWorkerBuilder(BuildTarget target) {
     this(target, FakeWorkerTool::new);
   }
 
-  public FakeWorkerBuilder(
-      BuildTarget target,
-      Function<BuildRuleParams, BuildRule> create) {
+  public FakeWorkerBuilder(BuildTarget target, Function<BuildRuleParams, BuildRule> create) {
     super(new FakeWorkerDescription(create), target);
   }
 
@@ -60,6 +58,7 @@ public class FakeWorkerBuilder extends AbstractNodeBuilder<
     public FakeWorkerTool(BuildRuleParams params) {
       super(params);
     }
+
     @Override
     public Tool getTool() {
       return tool;
@@ -89,7 +88,6 @@ public class FakeWorkerBuilder extends AbstractNodeBuilder<
     public HashCode getInstanceKey() {
       return hashCode;
     }
-
   }
 
   private static class FakeTool implements Tool {
@@ -127,20 +125,19 @@ public class FakeWorkerBuilder extends AbstractNodeBuilder<
     }
 
     @Override
-    public Object createUnpopulatedConstructorArg() {
-      return new Object();
+    public Class<Object> getConstructorArgType() {
+      return Object.class;
     }
 
     @Override
-    public <A> BuildRule createBuildRule(
+    public BuildRule createBuildRule(
         TargetGraph targetGraph,
         BuildRuleParams params,
         BuildRuleResolver resolver,
         CellPathResolver cellRoots,
-        A args) throws NoSuchBuildTargetException {
+        Object args)
+        throws NoSuchBuildTargetException {
       return create.apply(params);
     }
   }
 }
-
-

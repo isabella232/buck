@@ -24,23 +24,21 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.Hint;
 import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
-
 import java.util.Optional;
 
 public class AndroidReactNativeLibraryDescription
-    implements
-    Description<AndroidReactNativeLibraryDescription.Args>,
-    Flavored,
-    ImplicitDepsInferringDescription<AndroidReactNativeLibraryDescription.Args> {
+    implements Description<AndroidReactNativeLibraryDescription.Args>,
+        Flavored,
+        ImplicitDepsInferringDescription<AndroidReactNativeLibraryDescription.Args> {
 
   private final ReactNativeLibraryGraphEnhancer enhancer;
   private final Supplier<SourcePath> packager;
@@ -51,17 +49,17 @@ public class AndroidReactNativeLibraryDescription
   }
 
   @Override
-  public Args createUnpopulatedConstructorArg() {
-    return new Args();
+  public Class<Args> getConstructorArgType() {
+    return Args.class;
   }
 
   @Override
-  public <A extends Args> AndroidReactNativeLibrary createBuildRule(
+  public AndroidReactNativeLibrary createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
+      Args args) {
     return enhancer.enhanceForAndroid(params, resolver, args);
   }
 
@@ -88,5 +86,4 @@ public class AndroidReactNativeLibraryDescription
     @Hint(name = "package")
     public Optional<String> rDotJavaPackage;
   }
-
 }

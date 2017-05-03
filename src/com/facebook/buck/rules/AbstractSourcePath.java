@@ -17,17 +17,12 @@
 package com.facebook.buck.rules;
 
 import com.google.common.base.Preconditions;
-
 import java.util.Objects;
 
-/**
- * Abstract base class for implementations of {@link SourcePath}.
- */
+/** Abstract base class for implementations of {@link SourcePath}. */
 abstract class AbstractSourcePath<T extends AbstractSourcePath<T>> implements SourcePath {
 
-  /**
-   * @return An opaque representation of the source path in a stable manner.
-   */
+  /** @return An opaque representation of the source path in a stable manner. */
   protected abstract Object asReference();
 
   protected abstract int compareReferences(T o);
@@ -46,8 +41,7 @@ abstract class AbstractSourcePath<T extends AbstractSourcePath<T>> implements So
       }
 
       Preconditions.checkState(
-          this.getClass().equals(o.getClass()),
-          "Classes are different but have the same name.");
+          this.getClass().equals(o.getClass()), "Classes are different but have the same name.");
     }
 
     return this.compareReferences((T) o);
@@ -60,6 +54,10 @@ abstract class AbstractSourcePath<T extends AbstractSourcePath<T>> implements So
 
   @Override
   public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+
     if (other == null || !(other instanceof AbstractSourcePath)) {
       return false;
     }

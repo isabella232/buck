@@ -19,7 +19,7 @@ package com.facebook.buck.apple;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
@@ -32,19 +32,16 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public abstract class AbstractAppleNativeTargetBuilder<
-    ARG extends AppleNativeTargetDescriptionArg,
-    DESCRIPTION extends Description<ARG>,
-    BUILDRULE extends BuildRule,
-    BUILDER extends AbstractAppleNativeTargetBuilder<ARG, DESCRIPTION, BUILDRULE, BUILDER>>
-    extends AbstractNodeBuilder<ARG, DESCRIPTION, BUILDRULE> {
+        ARG extends AppleNativeTargetDescriptionArg,
+        DESCRIPTION extends Description<ARG>,
+        BUILDRULE extends BuildRule,
+        BUILDER extends AbstractAppleNativeTargetBuilder<ARG, DESCRIPTION, BUILDRULE, BUILDER>>
+    extends AbstractNodeBuilderWithMutableArg<ARG, DESCRIPTION, BUILDRULE> {
 
-  public AbstractAppleNativeTargetBuilder(
-      DESCRIPTION description,
-      BuildTarget target) {
+  public AbstractAppleNativeTargetBuilder(DESCRIPTION description, BuildTarget target) {
     super(description, target);
   }
 
@@ -75,8 +72,7 @@ public abstract class AbstractAppleNativeTargetBuilder<
     return getThis();
   }
 
-  public BUILDER setExportedPreprocessorFlags(
-      ImmutableList<String> exportedPreprocessorFlags) {
+  public BUILDER setExportedPreprocessorFlags(ImmutableList<String> exportedPreprocessorFlags) {
     arg.exportedPreprocessorFlags = exportedPreprocessorFlags;
     return getThis();
   }
@@ -98,6 +94,11 @@ public abstract class AbstractAppleNativeTargetBuilder<
 
   public BUILDER setExtraXcodeSources(ImmutableList<SourcePath> extraXcodeSources) {
     arg.extraXcodeSources = extraXcodeSources;
+    return getThis();
+  }
+
+  public BUILDER setExtraXcodeFiles(ImmutableList<SourcePath> extraXcodeFiles) {
+    arg.extraXcodeFiles = extraXcodeFiles;
     return getThis();
   }
 

@@ -18,29 +18,23 @@ package com.facebook.buck.jvm.kotlin;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.hash.HashCode;
-
 import java.nio.file.Path;
 
 public class KotlinLibraryBuilder
-    extends AbstractNodeBuilder<KotlinLibraryDescription.Arg, KotlinLibraryDescription, BuildRule> {
+    extends AbstractNodeBuilderWithMutableArg<
+        KotlinLibraryDescription.Arg, KotlinLibraryDescription, BuildRule> {
 
   private final ProjectFilesystem projectFilesystem;
 
   protected KotlinLibraryBuilder(
-      BuildTarget target,
-      ProjectFilesystem projectFilesystem,
-      HashCode hashCode) {
-    super(
-        new KotlinLibraryDescription(null),
-        target,
-        projectFilesystem,
-        hashCode);
+      BuildTarget target, ProjectFilesystem projectFilesystem, HashCode hashCode) {
+    super(new KotlinLibraryDescription(null), target, projectFilesystem, hashCode);
     this.projectFilesystem = projectFilesystem;
   }
 
@@ -56,5 +50,4 @@ public class KotlinLibraryBuilder
   public KotlinLibraryBuilder addSrc(Path path) {
     return addSrc(new PathSourcePath(projectFilesystem, path));
   }
-
 }

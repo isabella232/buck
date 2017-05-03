@@ -30,7 +30,6 @@ import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.eventbus.Subscribe;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -41,7 +40,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 public class RuleKeyLoggerListener implements BuckEventListener {
@@ -55,13 +54,12 @@ public class RuleKeyLoggerListener implements BuckEventListener {
   private final ProjectFilesystem projectFilesystem;
 
   private final Object lock;
+
   @GuardedBy("lock")
   private List<String> logLines;
 
   public RuleKeyLoggerListener(
-      ProjectFilesystem projectFilesystem,
-      InvocationInfo info,
-      ExecutorService outputExecutor) {
+      ProjectFilesystem projectFilesystem, InvocationInfo info, ExecutorService outputExecutor) {
     this(projectFilesystem, info, outputExecutor, DEFAULT_MIN_LINES_FOR_AUTO_FLUSH);
   }
 
@@ -80,8 +78,8 @@ public class RuleKeyLoggerListener implements BuckEventListener {
 
   @Subscribe
   public void onArtifactCacheEvent(HttpArtifactCacheEvent.Finished event) {
-    if (event.getOperation() != ArtifactCacheEvent.Operation.FETCH ||
-        !event.getCacheResult().isPresent()) {
+    if (event.getOperation() != ArtifactCacheEvent.Operation.FETCH
+        || !event.getCacheResult().isPresent()) {
       return;
     }
 
@@ -90,11 +88,12 @@ public class RuleKeyLoggerListener implements BuckEventListener {
       return;
     }
 
-    List<String> newLogLines = new ArrayList<>();
-    for (RuleKey key : event.getRuleKeys()) {
-      newLogLines.add(toTsv(key, cacheResultType));
-    }
-
+    List<String> newLogLines =
+        event
+            .getRuleKeys()
+            .stream()
+            .map(key -> String.format("http\t%s\t%s", key.toString(), cacheResultType.toString()))
+            .collect(Collectors.toList());
     synchronized (lock) {
       logLines.addAll(newLogLines);
     }
@@ -120,10 +119,6 @@ public class RuleKeyLoggerListener implements BuckEventListener {
     }
 
     flushLogLinesIfNeeded();
-  }
-
-  private static String toTsv(RuleKey key, CacheResultType cacheResultType) {
-    return String.format("http\t%s\t%s", key.toString(), cacheResultType.toString());
   }
 
   private static String toTsv(BuildTarget target, RuleKey ruleKey) {
@@ -165,7 +160,7 @@ public class RuleKeyLoggerListener implements BuckEventListener {
     try {
       projectFilesystem.createParentDirs(path);
       try (OutputStream os = projectFilesystem.newUnbufferedFileOutputStream(path, true);
-           PrintWriter out = new PrintWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8))) {
+          PrintWriter out = new PrintWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8))) {
         for (String line : linesToFlush) {
           out.println(line);
         }

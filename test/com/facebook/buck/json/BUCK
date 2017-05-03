@@ -1,5 +1,13 @@
-standard_java_testutil(
+java_library(
     name = "testutil",
+    srcs = glob(
+        ["*.java"],
+        excludes = [
+            "*Benchmark.java",
+            "*Test.java",
+        ],
+    ),
+    visibility = ["//test/..."],
     deps = [
         "//src/com/facebook/buck/util:object_mapper",
         "//third-party/java/hamcrest:java-hamcrest",
@@ -41,6 +49,7 @@ standard_java_test(
         "//src/com/facebook/buck/timing:timing",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
+        "//src/com/facebook/buck/util:object_mapper",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/autosparse:autosparse_config",

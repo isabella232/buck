@@ -19,9 +19,8 @@ package com.facebook.buck.rage;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
-import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
+import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.IOException;
 import java.util.Optional;
 
@@ -31,27 +30,28 @@ import java.util.Optional;
  */
 public class AutomatedReport extends AbstractReport {
   private final BuildLogHelper buildLogHelper;
-  private final Optional<VcsInfoCollector> vcsInfoCollector;
-  private final Console console;
+  private final boolean gatherVcsInfo;
 
   public AutomatedReport(
       DefectReporter defectReporter,
       ProjectFilesystem filesystem,
       Console console,
       BuildEnvironmentDescription buildEnvironmentDescription,
-      Optional<VcsInfoCollector> vcsInfoCollector,
+      VersionControlStatsGenerator versionControlStatsGenerator,
+      boolean gatherVcsInfo,
       RageConfig rageConfig,
       ExtraInfoCollector extraInfoCollector) {
-    super(filesystem,
+    super(
+        filesystem,
         defectReporter,
         buildEnvironmentDescription,
+        versionControlStatsGenerator,
         console,
         rageConfig,
         extraInfoCollector,
         Optional.empty());
-    this.vcsInfoCollector = vcsInfoCollector;
     this.buildLogHelper = new BuildLogHelper(filesystem);
-    this.console = console;
+    this.gatherVcsInfo = gatherVcsInfo;
   }
 
   @Override
@@ -60,17 +60,9 @@ public class AutomatedReport extends AbstractReport {
   }
 
   @Override
-  public Optional<SourceControlInfo> getSourceControlInfo()
+  protected Optional<SourceControlInfo> getSourceControlInfo()
       throws IOException, InterruptedException {
-    try {
-      if (vcsInfoCollector.isPresent()) {
-        return Optional.of(vcsInfoCollector.get().gatherScmInformation());
-      }
-    } catch (VersionControlCommandFailedException e) {
-      console.printErrorText(
-          "Failed to get source control information: %s, proceeding regardless.", e);
-    }
-    return Optional.empty();
+    return gatherVcsInfo ? super.getSourceControlInfo() : Optional.empty();
   }
 
   @Override
@@ -82,5 +74,4 @@ public class AutomatedReport extends AbstractReport {
   protected Optional<UserReport> getUserReport() throws IOException {
     return Optional.empty();
   }
-
 }

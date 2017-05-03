@@ -43,12 +43,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 import java.util.logging.Level;
 
-public class ScalaTestDescription implements Description<ScalaTestDescription.Arg>,
-    ImplicitDepsInferringDescription<ScalaTestDescription.Arg> {
+public class ScalaTestDescription
+    implements Description<ScalaTestDescription.Arg>,
+        ImplicitDepsInferringDescription<ScalaTestDescription.Arg> {
 
   private final ScalaBuckConfig config;
   private final JavaOptions javaOptions;
@@ -67,17 +67,18 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<Arg> getConstructorArgType() {
+    return Arg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      Arg args)
+      throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     JavaTestDescription.CxxLibraryEnhancement cxxLibraryEnhancement =
         new JavaTestDescription.CxxLibraryEnhancement(
@@ -91,11 +92,8 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
     BuildRuleParams javaLibraryParams =
         params.withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
-    ScalaLibraryBuilder scalaLibraryBuilder = new ScalaLibraryBuilder(
-        javaLibraryParams,
-        resolver,
-        config)
-        .setArgs(args);
+    ScalaLibraryBuilder scalaLibraryBuilder =
+        new ScalaLibraryBuilder(javaLibraryParams, resolver, config).setArgs(args);
 
     if (HasJavaAbi.isAbiTarget(rawParams.getBuildTarget())) {
       return scalaLibraryBuilder.buildAbi();

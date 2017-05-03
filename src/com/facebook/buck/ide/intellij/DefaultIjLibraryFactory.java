@@ -17,12 +17,15 @@
 package com.facebook.buck.ide.intellij;
 
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
+import com.facebook.buck.ide.intellij.model.IjLibrary;
+import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
+import com.facebook.buck.ide.intellij.model.IjLibraryFactoryResolver;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,15 +39,14 @@ import java.util.Set;
  */
 class DefaultIjLibraryFactory extends IjLibraryFactory {
 
-  /**
-   * Rule describing how to create a {@link IjLibrary} from a {@link TargetNode}.
-   */
+  /** Rule describing how to create a {@link IjLibrary} from a {@link TargetNode}. */
   private interface IjLibraryRule {
     void applyRule(TargetNode<?, ?> targetNode, IjLibrary.Builder library);
   }
 
   /**
    * Rule describing how to create a {@link IjLibrary} from a {@link TargetNode}.
+   *
    * @param <T> the type of the TargetNode.
    */
   abstract class TypedIjLibraryRule<T> implements IjLibraryRule {
@@ -91,28 +93,32 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
   private Optional<IjLibraryRule> getRule(TargetNode<?, ?> targetNode) {
     IjLibraryRule rule = libraryRuleIndex.get(targetNode.getDescription().getClass());
     if (rule == null) {
-      rule = libraryFactoryResolver.getPathIfJavaLibrary(targetNode)
-          .map(libraryFactoryResolver::getPath)
-          .map(JavaLibraryRule::new)
-          .orElse(null);
+      rule =
+          libraryFactoryResolver
+              .getPathIfJavaLibrary(targetNode)
+              .map(libraryFactoryResolver::getPath)
+              .map(JavaLibraryRule::new)
+              .orElse(null);
     }
     return Optional.ofNullable(rule);
   }
 
   private Optional<IjLibrary> createLibrary(final TargetNode<?, ?> targetNode) {
-    return getRule(targetNode).map(rule -> {
-      // Use a "library_" prefix so that the names don't clash with module names.
-      String libraryName = Util.intelliJLibraryName(targetNode.getBuildTarget());
-      Preconditions.checkState(
-          !uniqueLibraryNamesSet.contains(libraryName),
-          "Trying to use the same library name for different targets.");
+    return getRule(targetNode)
+        .map(
+            rule -> {
+              // Use a "library_" prefix so that the names don't clash with module names.
+              String libraryName = Util.intelliJLibraryName(targetNode.getBuildTarget());
+              Preconditions.checkState(
+                  !uniqueLibraryNamesSet.contains(libraryName),
+                  "Trying to use the same library name for different targets.");
 
-      IjLibrary.Builder libraryBuilder = IjLibrary.builder();
-      rule.applyRule(targetNode, libraryBuilder);
-      libraryBuilder.setName(libraryName);
-      libraryBuilder.setTargets(ImmutableSet.of(targetNode));
-      return libraryBuilder.build();
-    });
+              IjLibrary.Builder libraryBuilder = IjLibrary.builder();
+              rule.applyRule(targetNode, libraryBuilder);
+              libraryBuilder.setName(libraryName);
+              libraryBuilder.setTargets(ImmutableSet.of(targetNode.getBuildTarget()));
+              return libraryBuilder.build();
+            });
   }
 
   private static class JavaLibraryRule implements IjLibraryRule {
@@ -123,9 +129,8 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     }
 
     @Override
-    public void applyRule(
-        TargetNode<?, ?> targetNode, IjLibrary.Builder library) {
-      library.setBinaryJar(binaryJarPath);
+    public void applyRule(TargetNode<?, ?> targetNode, IjLibrary.Builder library) {
+      library.addBinaryJars(binaryJarPath);
     }
   }
 
@@ -140,18 +145,17 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     @Override
     public void apply(
         TargetNode<AndroidPrebuiltAarDescription.Arg, ?> targetNode, IjLibrary.Builder library) {
-      library.setBinaryJar(libraryFactoryResolver.getPathIfJavaLibrary(targetNode)
-          .map(libraryFactoryResolver::getPath));
+      Optional<SourcePath> libraryPath = libraryFactoryResolver.getPathIfJavaLibrary(targetNode);
+      libraryPath.ifPresent(path -> library.addBinaryJars(libraryFactoryResolver.getPath(path)));
 
       AndroidPrebuiltAarDescription.Arg arg = targetNode.getConstructorArg();
-      library.setSourceJar(
-          arg.sourceJar.map(input -> libraryFactoryResolver.getPath(input)));
-      library.setJavadocUrl(arg.javadocUrl);
+      arg.sourceJar.ifPresent(
+          sourcePath -> library.addSourceJars(libraryFactoryResolver.getPath(sourcePath)));
+      arg.javadocUrl.ifPresent(library::addJavadocUrls);
     }
   }
 
-  private class PrebuiltJarLibraryRule
-      extends TypedIjLibraryRule<PrebuiltJarDescription.Arg> {
+  private class PrebuiltJarLibraryRule extends TypedIjLibraryRule<PrebuiltJarDescription.Arg> {
 
     @Override
     public Class<? extends Description<?>> getDescriptionClass() {
@@ -162,10 +166,10 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     public void apply(
         TargetNode<PrebuiltJarDescription.Arg, ?> targetNode, IjLibrary.Builder library) {
       PrebuiltJarDescription.Arg arg = targetNode.getConstructorArg();
-      library.setBinaryJar(libraryFactoryResolver.getPath(arg.binaryJar));
-      library.setSourceJar(
-          arg.sourceJar.map(input -> libraryFactoryResolver.getPath(input)));
-      library.setJavadocUrl(arg.javadocUrl);
+      library.addBinaryJars(libraryFactoryResolver.getPath(arg.binaryJar));
+      arg.sourceJar.ifPresent(
+          sourceJar -> library.addSourceJars(libraryFactoryResolver.getPath(sourceJar)));
+      arg.javadocUrl.ifPresent(library::addJavadocUrls);
     }
   }
 }

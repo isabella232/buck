@@ -22,27 +22,23 @@ import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class HaskellLibraryBuilder extends AbstractNodeBuilder<
-    HaskellLibraryDescription.Arg,
-    HaskellLibraryDescription,
-    HaskellLibrary> {
+public class HaskellLibraryBuilder
+    extends AbstractNodeBuilderWithMutableArg<
+        HaskellLibraryDescription.Arg, HaskellLibraryDescription, HaskellLibrary> {
 
   public HaskellLibraryBuilder(
       BuildTarget target,
       HaskellConfig haskellConfig,
       CxxBuckConfig cxxBuckConfig,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
-    super(
-        new HaskellLibraryDescription(haskellConfig, cxxBuckConfig, cxxPlatforms),
-        target);
+    super(new HaskellLibraryDescription(haskellConfig, cxxBuckConfig, cxxPlatforms), target);
   }
 
   public HaskellLibraryBuilder(BuildTarget target) {
@@ -83,5 +79,4 @@ public class HaskellLibraryBuilder extends AbstractNodeBuilder<
     arg.platformDeps = platformDeps;
     return this;
   }
-
 }

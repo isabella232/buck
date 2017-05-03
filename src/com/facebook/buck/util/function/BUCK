@@ -1,0 +1,6 @@
+standard_java_library(
+    name = "function",
+    deps = [
+        "//third-party/java/guava:guava",
+    ],
+)

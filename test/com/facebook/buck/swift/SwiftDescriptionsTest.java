@@ -19,7 +19,6 @@ package com.facebook.buck.swift;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
-import com.facebook.buck.apple.FakeAppleRuleDescriptions;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -33,10 +32,8 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.junit.Test;
-
 import java.util.Optional;
+import org.junit.Test;
 
 public class SwiftDescriptionsTest {
 
@@ -47,16 +44,15 @@ public class SwiftDescriptionsTest {
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
 
-    SwiftLibraryDescription.Arg output =
-        FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createUnpopulatedConstructorArg();
+    SwiftLibraryDescription.Arg output = new SwiftLibraryDescription.Arg();
 
     CxxLibraryDescription.Arg args = CxxLibraryDescription.createEmptyConstructorArg();
 
     FakeSourcePath swiftSrc = new FakeSourcePath("foo/bar.swift");
 
-    args.srcs = ImmutableSortedSet.of(
-        SourceWithFlags.of(new FakeSourcePath("foo/foo.cpp")),
-        SourceWithFlags.of(swiftSrc));
+    args.srcs =
+        ImmutableSortedSet.of(
+            SourceWithFlags.of(new FakeSourcePath("foo/foo.cpp")), SourceWithFlags.of(swiftSrc));
     args.compilerFlags = ImmutableList.of();
     args.supportedPlatformsRegex = Optional.empty();
 
@@ -69,5 +65,4 @@ public class SwiftDescriptionsTest {
     SwiftDescriptions.populateSwiftLibraryDescriptionArg(pathResolver, output, args, buildTarget);
     assertThat(output.moduleName.get(), equalTo("baz"));
   }
-
 }

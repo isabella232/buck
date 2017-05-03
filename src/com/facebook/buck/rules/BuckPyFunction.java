@@ -16,28 +16,27 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Resources;
-
+import java.io.IOException;
+import java.io.StringWriter;
+import java.util.Optional;
+import javax.annotation.Nullable;
 import org.stringtemplate.v4.AutoIndentWriter;
 import org.stringtemplate.v4.ST;
 import org.stringtemplate.v4.STGroup;
 import org.stringtemplate.v4.STGroupFile;
 
-import java.io.IOException;
-import java.io.StringWriter;
-import java.util.Optional;
-
-import javax.annotation.Nullable;
-
 /**
- * Used to generate a function for use within buck.py for the rule described by a
- * {@link Description}.
+ * Used to generate a function for use within buck.py for the rule described by a {@link
+ * Description}.
  */
 public class BuckPyFunction {
 
@@ -53,28 +52,31 @@ public class BuckPyFunction {
    * the build rule being defined.
    */
   public static final String TYPE_PROPERTY_NAME = INTERNAL_PROPERTY_NAME_PREFIX + "type";
+
   public static final String BUCK_PY_FUNCTION_TEMPLATE = "BuckPyFunction.stg";
 
-  private static final Supplier<STGroup> buckPyFunctionTemplate = Suppliers.memoize(
-      () -> new STGroupFile(
-          Resources.getResource(BuckPyFunction.class, BUCK_PY_FUNCTION_TEMPLATE),
-          "UTF-8",
-          '<',
-          '>')
-  );
+  private static final Supplier<STGroup> buckPyFunctionTemplate =
+      Suppliers.memoize(
+          () ->
+              new STGroupFile(
+                  Resources.getResource(BuckPyFunction.class, BUCK_PY_FUNCTION_TEMPLATE),
+                  "UTF-8",
+                  '<',
+                  '>'));
+  private final TypeCoercerFactory typeCoercerFactory;
 
-  private final ConstructorArgMarshaller argMarshaller;
-
-  public BuckPyFunction(ConstructorArgMarshaller argMarshaller) {
-    this.argMarshaller = argMarshaller;
+  public BuckPyFunction(TypeCoercerFactory typeCoercerFactory) {
+    this.typeCoercerFactory = typeCoercerFactory;
   }
 
-  public String toPythonFunction(BuildRuleType type, Object dto) {
-    @Nullable TargetName defaultName = dto.getClass().getAnnotation(TargetName.class);
+  public String toPythonFunction(BuildRuleType type, Class<?> dtoClass) {
+    @Nullable TargetName defaultName = dtoClass.getAnnotation(TargetName.class);
 
     ImmutableList.Builder<StParamInfo> mandatory = ImmutableList.builder();
     ImmutableList.Builder<StParamInfo> optional = ImmutableList.builder();
-    for (ParamInfo param : ImmutableSortedSet.copyOf(argMarshaller.getAllParamInfo(dto))) {
+    for (ParamInfo param :
+        ImmutableSortedSet.copyOf(
+            CoercedTypeCache.INSTANCE.getAllParamInfo(typeCoercerFactory, dtoClass).values())) {
       if (isSkippable(param)) {
         continue;
       }

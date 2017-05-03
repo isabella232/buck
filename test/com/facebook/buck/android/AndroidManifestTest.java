@@ -42,13 +42,11 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import org.junit.Test;
 
 public class AndroidManifestTest {
 
@@ -113,20 +111,17 @@ public class AndroidManifestTest {
 
   private AndroidManifest createSimpleAndroidManifestRule() {
     // First, create the AndroidManifest object.
-    BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(MANIFEST_TARGET).build();
+    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(MANIFEST_TARGET).build();
     AndroidManifestDescription description = new AndroidManifestDescription();
-    AndroidManifestDescription.Arg arg = description.createUnpopulatedConstructorArg();
+    AndroidManifestDescription.Arg arg = new AndroidManifestDescription.Arg();
     arg.skeleton = new FakeSourcePath("java/com/example/AndroidManifestSkeleton.xml");
     arg.deps = ImmutableSortedSet.<BuildTarget>of();
     return description.createBuildRule(
         TargetGraph.EMPTY,
         buildRuleParams,
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer()),
-            TestCellBuilder.createCellRoots(buildRuleParams.getProjectFilesystem()),
-            arg);
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
+        TestCellBuilder.createCellRoots(buildRuleParams.getProjectFilesystem()),
+        arg);
   }
 
   // TODO(abhi): Add another unit test that passes in a non-trivial DependencyGraph and verify that

@@ -16,8 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.zip.CustomZipOutputStream;
+import java.io.IOException;
 import java.net.URI;
-
 import javax.annotation.Nullable;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.NestingKind;
@@ -26,11 +27,10 @@ import javax.tools.JavaFileObject;
 import javax.tools.SimpleJavaFileObject;
 
 /**
- * A {@link JavaFileObject} implementation that allows using jar URIs unlike
- * {@link SimpleJavaFileObject} that assumes the uri used is a file system uri. This implementation
- * can be used when the CLASS_OUTPUT is represented by a straight to jar write.
- * The only content that it stores is the full uri, the relative path within the jar and the
- * kind of the {@link FileObject}.
+ * A {@link JavaFileObject} implementation that allows using jar URIs unlike {@link
+ * SimpleJavaFileObject} that assumes the uri used is a file system uri. This implementation can be
+ * used when the CLASS_OUTPUT is represented by a straight to jar write. The only content that it
+ * stores is the full uri, the relative path within the jar and the kind of the {@link FileObject}.
  */
 public abstract class JarFileObject implements JavaFileObject {
 
@@ -72,8 +72,8 @@ public abstract class JarFileObject implements JavaFileObject {
   @Override
   public boolean isNameCompatible(String simpleName, Kind kind) {
     String baseName = simpleName + kind.extension;
-    return kind.equals(getKind()) &&
-        (baseName.equals(pathInJar) || pathInJar.endsWith("/" + baseName));
+    return kind.equals(getKind())
+        && (baseName.equals(pathInJar) || pathInJar.endsWith("/" + baseName));
   }
 
   @Override
@@ -92,4 +92,6 @@ public abstract class JarFileObject implements JavaFileObject {
   public String toString() {
     return this.getClass().getName() + "[" + toUri() + "]";
   }
+
+  public abstract void writeToJar(CustomZipOutputStream jarOutputStream) throws IOException;
 }

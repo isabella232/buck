@@ -38,9 +38,9 @@ import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
@@ -68,9 +68,6 @@ import com.google.common.io.Files;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-
-import org.immutables.value.Value;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.ClosedByInterruptException;
@@ -83,7 +80,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.StreamSupport;
-
+import org.immutables.value.Value;
 
 public class Build implements Closeable {
 
@@ -126,27 +123,28 @@ public class Build implements Closeable {
     this.actionGraph = actionGraph;
     this.ruleResolver = ruleResolver;
     this.rootCell = rootCell;
-    this.executionContext = ExecutionContext.builder()
-        .setConsole(console)
-        .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
-        .setTargetDevice(targetDevice)
-        .setDefaultTestTimeoutMillis(defaultTestTimeoutMillis)
-        .setCodeCoverageEnabled(isCodeCoverageEnabled)
-        .setInclNoLocationClassesEnabled(isInclNoLocationClassesEnabled)
-        .setDebugEnabled(isDebugEnabled)
-        .setRuleKeyDiagnosticsMode(ruleKeyDiagnosticsMode)
-        .setShouldReportAbsolutePaths(shouldReportAbsolutePaths)
-        .setBuckEventBus(eventBus)
-        .setPlatform(platform)
-        .setEnvironment(environment)
-        .setJavaPackageFinder(javaPackageFinder)
-        .setConcurrencyLimit(concurrencyLimit)
-        .setAdbOptions(adbOptions)
-        .setPersistentWorkerPools(persistentWorkerPools)
-        .setTargetDeviceOptions(targetDeviceOptions)
-        .setExecutors(executors)
-        .setCellPathResolver(rootCell.getCellPathResolver())
-        .build();
+    this.executionContext =
+        ExecutionContext.builder()
+            .setConsole(console)
+            .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
+            .setTargetDevice(targetDevice)
+            .setDefaultTestTimeoutMillis(defaultTestTimeoutMillis)
+            .setCodeCoverageEnabled(isCodeCoverageEnabled)
+            .setInclNoLocationClassesEnabled(isInclNoLocationClassesEnabled)
+            .setDebugEnabled(isDebugEnabled)
+            .setRuleKeyDiagnosticsMode(ruleKeyDiagnosticsMode)
+            .setShouldReportAbsolutePaths(shouldReportAbsolutePaths)
+            .setBuckEventBus(eventBus)
+            .setPlatform(platform)
+            .setEnvironment(environment)
+            .setJavaPackageFinder(javaPackageFinder)
+            .setConcurrencyLimit(concurrencyLimit)
+            .setAdbOptions(adbOptions)
+            .setPersistentWorkerPools(persistentWorkerPools)
+            .setTargetDeviceOptions(targetDeviceOptions)
+            .setExecutors(executors)
+            .setCellPathResolver(rootCell.getCellPathResolver())
+            .build();
     this.artifactCache = artifactCache;
     this.buildEngine = buildEngine;
     this.javaPackageFinder = javaPackageFinder;
@@ -161,37 +159,19 @@ public class Build implements Closeable {
     return executionContext;
   }
 
-  private void collectAllCells(Cell cell, Map<Path, Cell> collector)  {
-    if (!collector.containsKey(cell.getRoot())) {
-      collector.put(cell.getRoot(), cell);
-      for (Cell child : cell.getLoadedCells().values()) {
-        collectAllCells(child, collector);
-      }
-    }
-  }
-
-  /**
-   * @return all {@link Cell}s reachable from the root {@link Cell}.
-   */
-  private ImmutableList<Cell> getAllCells() {
-    Map<Path, Cell> cells = new LinkedHashMap<>();
-    collectAllCells(rootCell, cells);
-    return ImmutableList.copyOf(cells.values());
-  }
-
   /**
    * When the user overrides the configured buck-out directory via the `.buckconfig` and also sets
    * the `project.buck_out_compat_link` setting to `true`, we symlink the original output path
    * (`buck-out/`) to this newly configured location for backwards compatibility.
    */
   private void createConfiguredBuckOutSymlinks() throws IOException {
-    for (Cell cell : getAllCells()) {
+    for (Cell cell : rootCell.getAllCells()) {
       BuckConfig buckConfig = cell.getBuckConfig();
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths configuredPaths = filesystem.getBuckPaths();
-      if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut()) &&
-          buckConfig.getBuckOutCompatLink() &&
-          Platform.detect() != Platform.WINDOWS) {
+      if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
+          && buckConfig.getBuckOutCompatLink()
+          && Platform.detect() != Platform.WINDOWS) {
         BuckPaths unconfiguredPaths =
             configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
         ImmutableMap<Path, Path> paths =
@@ -203,40 +183,44 @@ public class Build implements Closeable {
           filesystem.createSymLink(
               entry.getKey(),
               entry.getKey().getParent().relativize(entry.getValue()),
-            /* force */ false);
+              /* force */ false);
         }
       }
     }
   }
 
   /**
-   * If {@code isKeepGoing} is false, then this returns a future that succeeds only if all of
-   * {@code rulesToBuild} build successfully. Otherwise, this returns a future that should always
-   * succeed, even if individual rules fail to build. In that case, a failed build rule is indicated
-   * by a {@code null} value in the corresponding position in the iteration order of
-   * {@code rulesToBuild}.
+   * If {@code isKeepGoing} is false, then this returns a future that succeeds only if all of {@code
+   * rulesToBuild} build successfully. Otherwise, this returns a future that should always succeed,
+   * even if individual rules fail to build. In that case, a failed build rule is indicated by a
+   * {@code null} value in the corresponding position in the iteration order of {@code
+   * rulesToBuild}.
+   *
    * @param targetish The targets to build. All targets in this iterable must be unique.
    */
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public BuildExecutionResult executeBuild(
-      Iterable<? extends BuildTarget> targetish,
-      boolean isKeepGoing)
+      Iterable<? extends BuildTarget> targetish, boolean isKeepGoing)
       throws IOException, ExecutionException, InterruptedException {
     BuildId buildId = executionContext.getBuildId();
-    BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
-        .setBuildContext(BuildContext.builder()
-            .setActionGraph(actionGraph)
-            .setSourcePathResolver(new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
-            .setJavaPackageFinder(javaPackageFinder)
-            .setEventBus(executionContext.getBuckEventBus())
-            .setAndroidPlatformTargetSupplier(executionContext.getAndroidPlatformTargetSupplier())
-            .build())
-        .setClock(clock)
-        .setArtifactCache(artifactCache)
-        .setBuildId(buildId)
-        .putAllEnvironment(executionContext.getEnvironment())
-        .setKeepGoing(isKeepGoing)
-        .build();
+    BuildEngineBuildContext buildContext =
+        BuildEngineBuildContext.builder()
+            .setBuildContext(
+                BuildContext.builder()
+                    .setActionGraph(actionGraph)
+                    .setSourcePathResolver(
+                        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
+                    .setJavaPackageFinder(javaPackageFinder)
+                    .setEventBus(executionContext.getBuckEventBus())
+                    .setAndroidPlatformTargetSupplier(
+                        executionContext.getAndroidPlatformTargetSupplier())
+                    .build())
+            .setClock(clock)
+            .setArtifactCache(artifactCache)
+            .setBuildId(buildId)
+            .putAllEnvironment(executionContext.getEnvironment())
+            .setKeepGoing(isKeepGoing)
+            .build();
 
     // It is important to use this logic to determine the set of rules to build rather than
     // build.getActionGraph().getNodesWithNoIncomingEdges() because, due to graph enhancement,
@@ -248,32 +232,35 @@ public class Build implements Closeable {
     // It is important to use this logic to determine the set of rules to build rather than
     // build.getActionGraph().getNodesWithNoIncomingEdges() because, due to graph enhancement,
     // there could be disconnected subgraphs in the DependencyGraph that we do not want to build.
-    ImmutableList<BuildRule> rulesToBuild = ImmutableList.copyOf(
-        targetsToBuild.stream()
-            .map(buildTarget -> {
-              try {
-                return getRuleResolver().requireRule(buildTarget);
-              } catch (NoSuchBuildTargetException e) {
-                throw new HumanReadableException(
-                    "No build rule found for target %s",
-                    buildTarget);
-              }
-            })
-            .collect(MoreCollectors.toImmutableSet()));
+    ImmutableList<BuildRule> rulesToBuild =
+        ImmutableList.copyOf(
+            targetsToBuild
+                .stream()
+                .map(
+                    buildTarget -> {
+                      try {
+                        return getRuleResolver().requireRule(buildTarget);
+                      } catch (NoSuchBuildTargetException e) {
+                        throw new HumanReadableException(
+                            "No build rule found for target %s", buildTarget);
+                      }
+                    })
+                .collect(MoreCollectors.toImmutableSet()));
 
     // Calculate and post the number of rules that need to built.
     int numRules = buildEngine.getNumRulesToBuild(rulesToBuild);
-    getExecutionContext().getBuckEventBus().post(
-        BuildEvent.ruleCountCalculated(
-            targetsToBuild,
-            numRules));
+    getExecutionContext()
+        .getBuckEventBus()
+        .post(BuildEvent.ruleCountCalculated(targetsToBuild, numRules));
 
     // Setup symlinks required when configuring the output path.
     createConfiguredBuckOutSymlinks();
 
-    List<ListenableFuture<BuildResult>> futures = rulesToBuild.stream()
-        .map(rule -> buildEngine.build(buildContext, executionContext, rule))
-        .collect(MoreCollectors.toImmutableList());
+    List<ListenableFuture<BuildResult>> futures =
+        rulesToBuild
+            .stream()
+            .map(rule -> buildEngine.build(buildContext, executionContext, rule))
+            .collect(MoreCollectors.toImmutableList());
 
     // Get the Future representing the build and then block until everything is built.
     ListenableFuture<List<BuildResult>> buildFuture = Futures.allAsList(futures);
@@ -290,9 +277,9 @@ public class Build implements Closeable {
       }
     } catch (ExecutionException | InterruptedException | RuntimeException e) {
       Throwable t = Throwables.getRootCause(e);
-      if (e instanceof InterruptedException ||
-          t instanceof InterruptedException ||
-          t instanceof ClosedByInterruptException) {
+      if (e instanceof InterruptedException
+          || t instanceof InterruptedException
+          || t instanceof ClosedByInterruptException) {
         try {
           buildFuture.cancel(true);
         } catch (CancellationException ignored) {
@@ -331,7 +318,8 @@ public class Build implements Closeable {
       boolean isKeepGoing,
       BuckEventBus eventBus,
       Console console,
-      Optional<Path> pathToBuildReport) throws InterruptedException {
+      Optional<Path> pathToBuildReport)
+      throws InterruptedException {
     int exitCode;
 
     try {
@@ -344,15 +332,16 @@ public class Build implements Closeable {
 
         if (isKeepGoing) {
           String buildReportText = buildReport.generateForConsole(console);
-          buildReportText = buildReportText.isEmpty() ?
-              "Failure report is empty." :
-              // Remove trailing newline from build report.
-              buildReportText.substring(0, buildReportText.length() - 1);
+          buildReportText =
+              buildReportText.isEmpty()
+                  ? "Failure report is empty."
+                  :
+                  // Remove trailing newline from build report.
+                  buildReportText.substring(0, buildReportText.length() - 1);
           eventBus.post(ConsoleEvent.info(buildReportText));
           exitCode = buildExecutionResult.getFailures().isEmpty() ? 0 : 1;
           if (exitCode != 0) {
             eventBus.post(ConsoleEvent.severe("Not all rules succeeded."));
-
           }
         } else {
           exitCode = 0;
@@ -411,12 +400,12 @@ public class Build implements Closeable {
   abstract static class AbstractBuildExecutionResult {
 
     /**
-     * @return Keys are build rules built during this invocation of Buck. Values reflect
-     * the success of each build rule, if it succeeded. ({@link Optional#empty()} represents a
-     * failed build rule.)
+     * @return Keys are build rules built during this invocation of Buck. Values reflect the success
+     *     of each build rule, if it succeeded. ({@link Optional#empty()} represents a failed build
+     *     rule.)
      */
     public abstract Map<BuildRule, Optional<BuildResult>> getResults();
+
     public abstract ImmutableSet<BuildResult> getFailures();
   }
-
 }
