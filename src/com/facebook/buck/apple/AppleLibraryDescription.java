@@ -387,14 +387,9 @@ public class AppleLibraryDescription implements
       SourcePathResolver pathResolver,
       ImmutableSortedSet<BuildTarget> extraCxxDeps)
       throws NoSuchBuildTargetException {
-    CxxLibraryDescription.Arg cxxDelegateArgs = CxxLibraryDescription.createEmptyConstructorArg();
-      AppleDescriptions.populateCxxLibraryDescriptionArg(
-          pathResolver,
-          cxxDelegateArgs,
-          args,
-          params.getBuildTarget());
+
     Optional<BuildRule> swiftCompanionBuildRule = swiftDelegate.createCompanionBuildRule(
-        targetGraph, params, resolver, cellRoots, cxxDelegateArgs, args);
+        targetGraph, params, resolver, cellRoots, args);
     if (swiftCompanionBuildRule.isPresent()) {
       // when creating a swift target, there is no need to proceed with apple binary rules,
       // otherwise, add this swift rule as a dependency.
