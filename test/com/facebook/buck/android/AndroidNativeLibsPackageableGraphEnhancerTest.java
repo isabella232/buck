@@ -20,7 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
-import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -77,6 +77,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             apkModuleGraph);
 
@@ -108,7 +109,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     NdkCxxPlatform ndkCxxPlatform =
         NdkCxxPlatform.builder()
             .setCxxPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)
-            .setCxxRuntime(NdkCxxPlatforms.CxxRuntime.GNUSTL)
+            .setCxxRuntime(NdkCxxRuntime.GNUSTL)
             .setCxxSharedRuntimePath(Paths.get("runtime"))
             .setObjdump(new CommandTool.Builder().addArg("objdump").build())
             .build();
@@ -123,7 +124,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib"))
             .setSoname("somelib.so")
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test/bar.cpp"))));
-    TargetNode<CxxLibraryDescription.Arg, ?> cxxLibraryDescription = cxxLibraryBuilder.build();
+    TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription = cxxLibraryBuilder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(cxxLibraryDescription);
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
@@ -150,6 +151,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             apkModuleGraph);
 

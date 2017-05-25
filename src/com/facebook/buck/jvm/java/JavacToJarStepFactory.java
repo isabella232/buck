@@ -58,7 +58,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
   public void setCompileAbi() {
     javacOptions =
         javacOptions
-            .withCompilationMode(Javac.CompilationMode.ABI)
+            .withCompilationMode(JavacCompilationMode.ABI)
             .withAnnotationProcessingParams(
                 abiProcessorsOnly(javacOptions.getAnnotationProcessingParams()));
   }
@@ -113,6 +113,27 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
             filesystem,
             new ClasspathChecker(),
             Optional.empty()));
+  }
+
+  @Override
+  public void createJarStep(
+      ProjectFilesystem filesystem,
+      Path outputDirectory,
+      Optional<String> mainClass,
+      Optional<Path> manifestFile,
+      ImmutableSet<Pattern> classesToRemoveFromJar,
+      Path outputJar,
+      ImmutableList.Builder<Step> steps) {
+    steps.add(
+        new JarDirectoryStep(
+            filesystem,
+            outputJar,
+            ImmutableSortedSet.of(outputDirectory),
+            mainClass.orElse(null),
+            manifestFile.orElse(null),
+            true,
+            javacOptions.getCompilationMode() == JavacCompilationMode.ABI,
+            classesToRemoveFromJar));
   }
 
   @Override

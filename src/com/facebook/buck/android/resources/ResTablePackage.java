@@ -16,14 +16,21 @@
 
 package com.facebook.buck.android.resources;
 
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
 
 /**
  * A Package consists of a header: ResTable_header u16 chunk_type u16 header_size u32 chunk_size u32
@@ -37,6 +44,7 @@ import java.util.List;
 public class ResTablePackage extends ResChunk {
   public static final int HEADER_SIZE = 288;
   public static final int APP_PACKAGE_ID = 0x7F;
+  public static final int NAME_DATA_LENGTH = 256;
 
   private final int packageId;
   private final byte[] nameData;
@@ -45,12 +53,67 @@ public class ResTablePackage extends ResChunk {
   private final StringPool keys;
   private final List<ResTableTypeSpec> typeSpecs;
 
+  public void reassignIds(ReferenceMapper refMapping) {
+    for (ResTableTypeSpec spec : typeSpecs) {
+      spec.reassignIds(refMapping);
+    }
+  }
+
+  private void assertValidIds(Iterable<Integer> ids) {
+    ids.forEach(this::getTypeSpec);
+  }
+
+  public static ResTablePackage slice(
+      ResTablePackage resPackage, Map<Integer, Integer> countsToSlice) {
+    resPackage.assertValidIds(countsToSlice.keySet());
+
+    int packageId = resPackage.packageId;
+    byte[] nameData = Arrays.copyOf(resPackage.nameData, NAME_DATA_LENGTH);
+
+    List<ResTableTypeSpec> newSpecs =
+        resPackage
+            .getTypeSpecs()
+            .stream()
+            .map(
+                spec ->
+                    ResTableTypeSpec.slice(
+                        spec, countsToSlice.getOrDefault(spec.getResourceType(), 0)))
+            .collect(MoreCollectors.toImmutableList());
+
+    StringPool keys = resPackage.keys;
+
+    // Figure out what keys are used by the retained references.
+    ImmutableSortedSet.Builder<Integer> keyRefs =
+        ImmutableSortedSet.orderedBy(Comparator.comparing(keys::getString));
+    newSpecs.forEach(spec -> spec.visitKeyReferences(keyRefs::add));
+    ImmutableList<Integer> keysToExtract = keyRefs.build().asList();
+    Map<Integer, Integer> keyMapping =
+        Maps.uniqueIndex(IntStream.range(0, keysToExtract.size())::iterator, keysToExtract::get);
+
+    // Extract a StringPool that contains just the keys used by the new specs.
+    StringPool newKeys = StringPool.create(keysToExtract.stream().map(keys::getString)::iterator);
+
+    // Adjust the key references.
+    for (ResTableTypeSpec spec : newSpecs) {
+      spec.transformKeyReferences(keyMapping::get);
+    }
+
+    StringPool types = resPackage.types.copy();
+
+    int chunkSize = HEADER_SIZE + types.getChunkSize() + newKeys.getChunkSize();
+    for (ResTableTypeSpec spec : newSpecs) {
+      chunkSize += spec.getTotalSize();
+    }
+
+    return new ResTablePackage(chunkSize, packageId, nameData, types, newKeys, newSpecs);
+  }
+
   static ResTablePackage get(ByteBuffer buf) {
     int chunkType = buf.getShort();
     int headerSize = buf.getShort();
     int chunkSize = buf.getInt();
     int packageId = buf.getInt();
-    byte[] nameData = new byte[256];
+    byte[] nameData = new byte[NAME_DATA_LENGTH];
     buf.get(nameData);
 
     int typeStringOffset = buf.getInt();
@@ -68,13 +131,15 @@ public class ResTablePackage extends ResChunk {
     StringPool types = StringPool.get(slice(buf, typeStringOffset));
     StringPool keys = StringPool.get(slice(buf, keyStringOffset));
 
-    Preconditions.checkState(lastPublicType == types.getStringCount());
-    Preconditions.checkState(lastPublicKey == keys.getStringCount());
+    // TODO(cjhopman): aapt1 generates a lastPublicType/lastPublicKey at the end of types/keys. aapt2
+    // generates them as 0. Does this value matter?
+    Preconditions.checkState(lastPublicType == types.getStringCount() || lastPublicType == 0);
+    Preconditions.checkState(lastPublicKey == keys.getStringCount() || lastPublicKey == 0);
     Preconditions.checkState(keyStringOffset == HEADER_SIZE + types.getChunkSize());
 
     ImmutableList.Builder<ResTableTypeSpec> typeSpecs = ImmutableList.builder();
     buf.position(keyStringOffset + keys.getChunkSize());
-    for (int i = 0; i < types.getStringCount(); i++) {
+    while (buf.position() < chunkSize) {
       ByteBuffer specBuf = slice(buf, buf.position());
       ResTableTypeSpec spec = ResTableTypeSpec.get(specBuf);
       typeSpecs.add(spec);
@@ -167,6 +232,14 @@ public class ResTablePackage extends ResChunk {
 
   public byte[] getNameData() {
     return nameData;
+  }
+
+  public void transformStringReferences(RefTransformer visitor) {
+    typeSpecs.forEach(c -> c.transformStringReferences(visitor));
+  }
+
+  public void visitStringReferences(RefVisitor visitor) {
+    typeSpecs.forEach(c -> c.visitStringReferences(visitor));
   }
 
   public String getRefName(int i) {

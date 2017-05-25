@@ -31,7 +31,7 @@ import org.immutables.value.Value;
 /** An {@link Arg} which wraps a {@link SourcePath}. */
 @Value.Immutable
 @BuckStyleTuple
-abstract class AbstractSourcePathArg extends Arg implements HasSourcePath {
+abstract class AbstractSourcePathArg implements Arg, HasSourcePath {
 
   @Override
   public abstract SourcePath getPath();
@@ -46,7 +46,7 @@ abstract class AbstractSourcePathArg extends Arg implements HasSourcePath {
       ImmutableCollection.Builder<String> builder, Path cellPath, SourcePathResolver pathResolver) {
     SourcePath path = getPath();
     if (path instanceof BuildTargetSourcePath
-        && cellPath.equals(((BuildTargetSourcePath<?>) path).getTarget().getCellPath())) {
+        && cellPath.equals(((BuildTargetSourcePath) path).getTarget().getCellPath())) {
       builder.add(pathResolver.getRelativePath(path).toString());
     } else {
       appendToCommandLine(builder, pathResolver);

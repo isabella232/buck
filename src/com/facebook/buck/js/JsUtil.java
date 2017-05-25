@@ -19,6 +19,7 @@ package com.facebook.buck.js;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Description;
@@ -28,6 +29,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.WorkerJobParams;
+import com.facebook.buck.shell.WorkerProcessIdentity;
+import com.facebook.buck.shell.WorkerProcessParams;
 import com.facebook.buck.shell.WorkerProcessPoolFactory;
 import com.facebook.buck.shell.WorkerShellStep;
 import com.facebook.buck.shell.WorkerTool;
@@ -52,16 +55,19 @@ public class JsUtil {
     final Tool tool = worker.getTool();
     final WorkerJobParams params =
         WorkerJobParams.of(
-            worker.getTempDir(),
-            tool.getCommandPrefix(sourcePathResolver),
-            worker.getArgs(sourcePathResolver),
-            tool.getEnvironment(sourcePathResolver),
             jobArgs,
-            worker.getMaxWorkers(),
-            worker.isPersistent()
-                ? Optional.of(buildTarget.getCellPath().toString() + buildTarget.toString())
-                : Optional.empty(),
-            Optional.of(worker.getInstanceKey()));
+            WorkerProcessParams.of(
+                worker.getTempDir(),
+                tool.getCommandPrefix(sourcePathResolver),
+                worker.getArgs(sourcePathResolver),
+                tool.getEnvironment(sourcePathResolver),
+                worker.getMaxWorkers(),
+                worker.isPersistent()
+                    ? Optional.of(
+                        WorkerProcessIdentity.of(
+                            buildTarget.getCellPath().toString() + buildTarget.toString(),
+                            worker.getInstanceKey()))
+                    : Optional.empty()));
     return new WorkerShellStep(
         Optional.of(params),
         Optional.empty(),
@@ -102,9 +108,14 @@ public class JsUtil {
 
   static BuildRuleParams withWorkerDependencyOnly(
       BuildRuleParams params, BuildRuleResolver resolver, BuildTarget worker) {
+    BuildRule workerRule = resolver.getRule(worker);
+    return copyParamsWithDependencies(params, workerRule);
+  }
+
+  static BuildRuleParams copyParamsWithDependencies(BuildRuleParams params, BuildRule... rules) {
     return params.copyReplacingDeclaredAndExtraDeps(
         Suppliers.ofInstance(ImmutableSortedSet.of()),
-        Suppliers.ofInstance(ImmutableSortedSet.of(resolver.getRule(worker))));
+        Suppliers.ofInstance(ImmutableSortedSet.copyOf(rules)));
   }
 
   static SourcePath relativeToOutputRoot(

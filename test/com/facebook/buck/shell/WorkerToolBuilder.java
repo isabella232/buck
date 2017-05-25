@@ -19,13 +19,14 @@ package com.facebook.buck.shell;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.AbstractNodeBuilderWithMutableArg;
+import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.google.common.collect.ImmutableList;
-import java.util.Optional;
+import com.google.common.collect.ImmutableMap;
 
 public class WorkerToolBuilder
-    extends AbstractNodeBuilderWithMutableArg<
-        WorkerToolDescription.Arg, WorkerToolDescription, DefaultWorkerTool> {
+    extends AbstractNodeBuilder<
+        WorkerToolDescriptionArg.Builder, WorkerToolDescriptionArg, WorkerToolDescription,
+        DefaultWorkerTool> {
   private WorkerToolBuilder(BuildTarget target) {
     super(new WorkerToolDescription(FakeBuckConfig.builder().build()), target);
   }
@@ -34,18 +35,23 @@ public class WorkerToolBuilder
     return new WorkerToolBuilder(target);
   }
 
+  public WorkerToolBuilder setEnv(ImmutableMap<String, String> env) {
+    getArgForPopulating().setEnv(env);
+    return this;
+  }
+
   public WorkerToolBuilder setExe(BuildTarget exe) {
-    arg.exe = exe;
+    getArgForPopulating().setExe(exe);
     return this;
   }
 
   public WorkerToolBuilder setArgs(String... args) {
-    arg.args = Either.ofRight(ImmutableList.copyOf(args));
+    getArgForPopulating().setArgs(Either.ofRight(ImmutableList.copyOf(args)));
     return this;
   }
 
-  public WorkerToolBuilder setMaxWorkers(Integer maxWorkers) {
-    arg.maxWorkers = Optional.of(maxWorkers);
+  public WorkerToolBuilder setMaxWorkers(int maxWorkers) {
+    getArgForPopulating().setMaxWorkers(maxWorkers);
     return this;
   }
 }

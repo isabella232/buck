@@ -30,6 +30,7 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -45,18 +46,17 @@ import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.immutables.value.Value;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -74,10 +74,11 @@ public class KnownBuildRuleTypesTest {
 
   private static BuildRuleParams buildRuleParams;
 
-  private static class KnownRuleTestDescription
-      implements Description<KnownRuleTestDescription.Arg> {
+  static class KnownRuleTestDescription implements Description<KnownRuleTestDescriptionArg> {
 
-    static class Arg extends AbstractDescriptionArg {}
+    @BuckStyleImmutable
+    @Value.Immutable
+    interface AbstractKnownRuleTestDescriptionArg extends CommonDescriptionArg {}
 
     private final String value;
 
@@ -90,8 +91,8 @@ public class KnownBuildRuleTypesTest {
     }
 
     @Override
-    public Class<Arg> getConstructorArgType() {
-      return Arg.class;
+    public Class<KnownRuleTestDescriptionArg> getConstructorArgType() {
+      return KnownRuleTestDescriptionArg.class;
     }
 
     @Override
@@ -100,7 +101,7 @@ public class KnownBuildRuleTypesTest {
         BuildRuleParams params,
         BuildRuleResolver resolver,
         CellPathResolver cellRoots,
-        Arg args) {
+        KnownRuleTestDescriptionArg args) {
       return null;
     }
   }
@@ -111,33 +112,6 @@ public class KnownBuildRuleTypesTest {
         new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:foo")).build();
   }
 
-  private void populateJavaArg(JavaLibraryDescription.Arg arg) {
-    arg.srcs = ImmutableSortedSet.of();
-    arg.resources = ImmutableSortedSet.of();
-    arg.source = Optional.empty();
-    arg.target = Optional.empty();
-    arg.javaVersion = Optional.empty();
-    arg.javac = Optional.empty();
-    arg.javacJar = Optional.empty();
-    arg.compilerClassName = Optional.empty();
-    arg.compiler = Optional.empty();
-    arg.extraArguments = ImmutableList.of();
-    arg.removeClasses = ImmutableSet.of();
-    arg.proguardConfig = Optional.empty();
-    arg.annotationProcessorDeps = ImmutableSortedSet.of();
-    arg.annotationProcessorParams = ImmutableList.of();
-    arg.annotationProcessors = ImmutableSet.of();
-    arg.annotationProcessorOnly = Optional.empty();
-    arg.postprocessClassesCommands = ImmutableList.of();
-    arg.resourcesRoot = Optional.empty();
-    arg.manifestFile = Optional.empty();
-    arg.providedDeps = ImmutableSortedSet.of();
-    arg.exportedDeps = ImmutableSortedSet.of();
-    arg.deps = ImmutableSortedSet.of();
-    arg.tests = ImmutableSortedSet.of();
-    arg.generateAbiFromSource = Optional.empty();
-  }
-
   private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes)
       throws NoSuchBuildTargetException {
     JavaLibraryDescription description =
@@ -145,8 +119,7 @@ public class KnownBuildRuleTypesTest {
             buildRuleTypes.getDescription(
                 Description.getBuildRuleType(JavaLibraryDescription.class));
 
-    JavaLibraryDescription.Arg arg = new JavaLibraryDescription.Arg();
-    populateJavaArg(arg);
+    JavaLibraryDescriptionArg arg = JavaLibraryDescriptionArg.builder().setName("foo").build();
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     return (DefaultJavaLibrary)

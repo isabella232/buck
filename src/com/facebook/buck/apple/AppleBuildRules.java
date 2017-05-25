@@ -173,18 +173,18 @@ public final class AppleBuildRules {
           }
 
           if (node.getDescription() instanceof AppleBundleDescription) {
-            AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) node.getConstructorArg();
+            AppleBundleDescriptionArg arg = (AppleBundleDescriptionArg) node.getConstructorArg();
 
             ImmutableSortedSet.Builder<TargetNode<?, ?>> editedDeps =
                 ImmutableSortedSet.naturalOrder();
             ImmutableSortedSet.Builder<TargetNode<?, ?>> editedExportedDeps =
                 ImmutableSortedSet.naturalOrder();
             for (TargetNode<?, ?> rule : defaultDeps) {
-              if (!rule.getBuildTarget().equals(arg.binary)) {
+              if (!rule.getBuildTarget().equals(arg.getBinary())) {
                 editedDeps.add(rule);
               } else {
                 addDirectAndExportedDeps(
-                    targetGraph, targetGraph.get(arg.binary), editedDeps, editedExportedDeps);
+                    targetGraph, targetGraph.get(arg.getBinary()), editedDeps, editedExportedDeps);
               }
             }
 
@@ -213,7 +213,7 @@ public final class AppleBuildRules {
                 boolean nodeIsCxxLibrary = node.getDescription() instanceof CxxLibraryDescription;
                 if (nodeIsAppleLibrary || nodeIsCxxLibrary) {
                   if (AppleLibraryDescription.isNotStaticallyLinkedLibraryNode(
-                      (TargetNode<CxxLibraryDescription.Arg, ?>) node)) {
+                      (TargetNode<CxxLibraryDescription.CommonArg, ?>) node)) {
                     deps = exportedDeps;
                   } else {
                     deps = defaultDeps;
@@ -272,9 +272,10 @@ public final class AppleBuildRules {
     directDepsBuilder.addAll(targetGraph.getAll(targetNode.getBuildDepsStream()::iterator));
     if (targetNode.getDescription() instanceof AppleLibraryDescription
         || targetNode.getDescription() instanceof CxxLibraryDescription) {
-      CxxLibraryDescription.Arg arg = (CxxLibraryDescription.Arg) targetNode.getConstructorArg();
-      LOG.verbose("Exported deps of node %s: %s", targetNode, arg.exportedDeps);
-      Iterable<TargetNode<?, ?>> exportedNodes = targetGraph.getAll(arg.exportedDeps);
+      CxxLibraryDescription.CommonArg arg =
+          (CxxLibraryDescription.CommonArg) targetNode.getConstructorArg();
+      LOG.verbose("Exported deps of node %s: %s", targetNode, arg.getExportedDeps());
+      Iterable<TargetNode<?, ?>> exportedNodes = targetGraph.getAll(arg.getExportedDeps());
       directDepsBuilder.addAll(exportedNodes);
       exportedDepsBuilder.addAll(exportedNodes);
     }
@@ -298,7 +299,7 @@ public final class AppleBuildRules {
         Iterables.filter(targetNodes, input -> isXcodeTargetDescription(input.getDescription())));
   }
 
-  public static <T> ImmutableSet<AppleAssetCatalogDescription.Arg> collectRecursiveAssetCatalogs(
+  public static <T> ImmutableSet<AppleAssetCatalogDescriptionArg> collectRecursiveAssetCatalogs(
       TargetGraph targetGraph,
       Optional<AppleDependenciesCache> cache,
       Iterable<TargetNode<T, ?>> targetNodes) {
@@ -311,7 +312,7 @@ public final class AppleBuildRules {
                     RecursiveDependenciesMode.COPYING,
                     input,
                     APPLE_ASSET_CATALOG_DESCRIPTION_CLASSES))
-        .transform(input -> (AppleAssetCatalogDescription.Arg) input.getConstructorArg())
+        .transform(input -> (AppleAssetCatalogDescriptionArg) input.getConstructorArg())
         .toSet();
   }
 
@@ -352,13 +353,13 @@ public final class AppleBuildRules {
         .toImmutableSet();
   }
 
-  public static ImmutableSet<AppleAssetCatalogDescription.Arg> collectDirectAssetCatalogs(
+  public static ImmutableSet<AppleAssetCatalogDescriptionArg> collectDirectAssetCatalogs(
       TargetGraph targetGraph, TargetNode<?, ?> targetNode) {
-    ImmutableSet.Builder<AppleAssetCatalogDescription.Arg> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<AppleAssetCatalogDescriptionArg> builder = ImmutableSet.builder();
     Iterable<TargetNode<?, ?>> deps = targetGraph.getAll(targetNode.getBuildDeps());
     for (TargetNode<?, ?> node : deps) {
       if (node.getDescription() instanceof AppleAssetCatalogDescription) {
-        builder.add((AppleAssetCatalogDescription.Arg) node.getConstructorArg());
+        builder.add((AppleAssetCatalogDescriptionArg) node.getConstructorArg());
       }
     }
     return builder.build();

@@ -39,7 +39,9 @@ import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.testutil.Zip;
+import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -89,6 +91,7 @@ import org.junit.Test;
 public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp2 = new TemporaryPaths();
 
   private ProjectWorkspace workspace;
 
@@ -135,8 +138,9 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     int totalArtifactsCount = DirArtifactCacheTestUtil.getAllFilesInCache(dirCache).size();
 
     assertEquals(
-        "There should be two entries (a zip and metadata) in the build cache.",
-        2,
+        "There should be two entries (a zip and metadata) per rule key type (default and input-"
+            + "based) in the build cache.",
+        4,
         totalArtifactsCount);
 
     // Run `buck clean`.
@@ -144,7 +148,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     cleanResult.assertSuccess("Successful clean should exit with 0.");
 
     totalArtifactsCount = getAllFilesInPath(buildCache).size();
-    assertEquals("The build cache should still exist.", 2, totalArtifactsCount);
+    assertEquals("The build cache should still exist.", 4, totalArtifactsCount);
 
     // Corrupt the build cache!
     File artifactZip =
@@ -250,7 +254,8 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
     // TODO(mread): Change the output to the intended output.
     assertEquals(
-        jarContents.build(), ImmutableSet.of("META-INF/MANIFEST.MF", "swag.txt", "yolo.txt"));
+        jarContents.build(),
+        ImmutableSet.of("META-INF/", "META-INF/MANIFEST.MF", "swag.txt", "yolo.txt"));
 
     workspace.verify();
   }
@@ -624,6 +629,70 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testCanUseDepFileRuleKeysCrossCell() throws Exception {
+    setUpProjectWorkspaceForScenario("class_usage_file_xcell");
+    Path crossCellRoot = setUpACrossCell("away_cell", workspace.getPath("away_cell"));
+
+    // Run `buck build`.
+    BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
+    workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
+
+    final BuckBuildLog cleanBuildLog = workspace.getBuildLog();
+    cleanBuildLog.assertTargetBuiltLocally("away_cell//util:util");
+    cleanBuildLog.assertTargetBuiltLocally("//:biz");
+
+    // Edit the file not used by the local target and assert we get a dep file hit
+    workspace.replaceFileContents(
+        crossCellRoot.resolve("util/MoreUtil.java").toString(), "//public_method", "");
+    workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
+
+    final BuckBuildLog depFileHitLog = workspace.getBuildLog();
+    depFileHitLog.assertTargetBuiltLocally("away_cell//util:util");
+    depFileHitLog.assertTargetHadMatchingDepfileRuleKey("//:biz");
+
+    // Now edit the file not used by the local target and assert we don't get a false cache hit
+    workspace.replaceFileContents(
+        crossCellRoot.resolve("util/Util.java").toString(), "//public_method", "");
+    workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
+
+    final BuckBuildLog depFileMissLog = workspace.getBuildLog();
+    depFileMissLog.assertTargetBuiltLocally("away_cell//util:util");
+    depFileMissLog.assertTargetBuiltLocally("//:biz");
+  }
+
+  @Test
+  public void testClassUsageFileOutputForCrossCell() throws Exception {
+    setUpProjectWorkspaceForScenario("class_usage_file_xcell");
+    setUpACrossCell("away_cell", workspace.getPath("away_cell"));
+
+    // Run `buck build`.
+    BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
+    ProcessResult buildResult = workspace.runBuckBuild(bizTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    Path bizClassUsageFilePath =
+        BuildTargets.getGenPath(filesystem, bizTarget, "lib__%s__output/used-classes.json");
+
+    final String usedClasses = getContents(workspace.getPath(bizClassUsageFilePath));
+
+    final String utilJarPath;
+    if (compileAgainstAbis.equals(TRUE)) {
+      utilJarPath =
+          MorePaths.pathWithPlatformSeparators(
+              "/away_cell/buck-out/gen/util/util#class-abi/util-abi.jar");
+    } else {
+      utilJarPath =
+          MorePaths.pathWithPlatformSeparators(
+              "/away_cell/buck-out/gen/util/lib__util__output/util.jar");
+    }
+    final String utilClassPath = MorePaths.pathWithPlatformSeparators("com/example/Util.class");
+
+    final JsonMatcher expectedOutputMatcher =
+        new JsonMatcher(String.format("{ \"%s\": [ \"%s\" ] }", utilJarPath, utilClassPath));
+    assertThat(usedClasses, expectedOutputMatcher);
+  }
+
+  @Test
   public void updatingAResourceWhichIsJavaLibraryCausesAJavaLibraryToBeRepacked()
       throws IOException {
     setUpProjectWorkspaceForScenario("resource_change_causes_repack");
@@ -748,6 +817,8 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
         workspace.getPath(BuildTargets.getGenPath(filesystem, target, "lib__%s__output/a.jar"));
     assertTrue(Files.exists(jarPath));
     ZipInputStream zip = new ZipInputStream(new FileInputStream(jarPath.toFile()));
+    assertThat(zip.getNextEntry().getName(), is("META-INF/"));
+    assertThat(zip.getNextEntry().getName(), is("META-INF/MANIFEST.MF"));
     assertThat(zip.getNextEntry().getName(), is("A.class"));
     assertThat(zip.getNextEntry().getName(), is("B.class"));
     zip.close();
@@ -894,5 +965,15 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     workspace.setUp();
     setWorkspaceCompilationMode(workspace);
     return workspace;
+  }
+
+  private Path setUpACrossCell(String cellName, Path crossCellContents) throws IOException {
+    File crossCellsRoot = tmp2.getRoot().resolve("cross_cells").toFile();
+    crossCellsRoot.mkdirs();
+
+    Path newCellLocation = crossCellsRoot.toPath().resolve(crossCellContents.getFileName());
+    Files.move(crossCellContents, newCellLocation);
+    workspace.addBuckConfigLocalOption("repositories", cellName, newCellLocation.toString());
+    return newCellLocation;
   }
 }

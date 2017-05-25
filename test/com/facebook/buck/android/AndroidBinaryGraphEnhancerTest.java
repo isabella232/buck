@@ -53,6 +53,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -125,7 +126,9 @@ public class AndroidBinaryGraphEnhancerTest {
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             originalParams,
+            targetGraph,
             ruleResolver,
+            TestCellPathResolver.get(filesystem),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.DISABLED,
             FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
@@ -158,6 +161,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -179,11 +183,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* manifest */ new FakeSourcePath("java/src/com/facebook/base/AndroidManifest.xml"),
             new IdentityResourcesProvider(ImmutableList.of()),
             ImmutableList.of(),
-            /* resourceUnionPackage */ Optional.empty(),
-            false,
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
-            /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             /* manifestEntries */ ManifestEntries.empty());
     ruleResolver.addToIndex(aaptPackageResources);
 
@@ -277,7 +278,9 @@ public class AndroidBinaryGraphEnhancerTest {
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             originalParams,
+            TargetGraph.EMPTY,
             ruleResolver,
+            TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
@@ -310,6 +313,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -421,7 +425,9 @@ public class AndroidBinaryGraphEnhancerTest {
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             originalParams,
+            targetGraph,
             ruleResolver,
+            TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
@@ -454,6 +460,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -480,7 +487,9 @@ public class AndroidBinaryGraphEnhancerTest {
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             originalParams,
+            TargetGraph.EMPTY,
             ruleResolver,
+            TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
@@ -513,6 +522,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -569,7 +579,9 @@ public class AndroidBinaryGraphEnhancerTest {
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             originalParams,
+            TargetGraph.EMPTY,
             ruleResolver,
+            TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
@@ -602,6 +614,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
+            Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),

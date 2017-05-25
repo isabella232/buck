@@ -25,6 +25,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -70,8 +71,6 @@ public class CxxCompileStepIntegrationTest {
     Path scratchDir = filesystem.getPath("scratchDir");
     filesystem.mkdirs(scratchDir);
 
-    ImmutableList.Builder<String> preprocessorArguments = ImmutableList.builder();
-
     ImmutableList.Builder<String> compilerArguments = ImmutableList.builder();
     compilerArguments.add("-g");
 
@@ -81,27 +80,17 @@ public class CxxCompileStepIntegrationTest {
     // Build an archive step.
     CxxPreprocessAndCompileStep step =
         new CxxPreprocessAndCompileStep(
+            BuildTarget.builder(tmp.getRoot(), "//foo", "bar").build(),
             filesystem,
             CxxPreprocessAndCompileStep.Operation.PREPROCESS_AND_COMPILE,
             output,
-            depFile,
+            Optional.of(depFile),
             relativeInput,
             CxxSource.Type.C,
-            Optional.of(
-                new CxxPreprocessAndCompileStep.ToolCommand(
-                    compilerCommandPrefix,
-                    preprocessorArguments.build(),
-                    ImmutableMap.of(),
-                    Optional.empty())),
-            Optional.of(
-                new CxxPreprocessAndCompileStep.ToolCommand(
-                    compilerCommandPrefix,
-                    compilerArguments.build(),
-                    ImmutableMap.of(),
-                    Optional.empty())),
+            new CxxPreprocessAndCompileStep.ToolCommand(
+                compilerCommandPrefix, compilerArguments.build(), ImmutableMap.of()),
             HeaderPathNormalizer.empty(pathResolver),
             sanitizer,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             scratchDir,
             true,
             compiler);
@@ -154,35 +143,23 @@ public class CxxCompileStepIntegrationTest {
     Path scratchDir = filesystem.getPath("scratchDir");
     filesystem.mkdirs(scratchDir);
 
-    ImmutableList.Builder<String> preprocessorArguments = ImmutableList.builder();
-
     ImmutableList.Builder<String> compilerArguments = ImmutableList.builder();
     compilerArguments.add("-g");
 
     // Build an archive step.
     CxxPreprocessAndCompileStep step =
         new CxxPreprocessAndCompileStep(
+            BuildTarget.builder(tmp.getRoot(), "//foo", "bar").build(),
             filesystem,
             CxxPreprocessAndCompileStep.Operation.PREPROCESS_AND_COMPILE,
             output,
-            depFile,
+            Optional.of(depFile),
             relativeInput,
             CxxSource.Type.C,
-            Optional.of(
-                new CxxPreprocessAndCompileStep.ToolCommand(
-                    compilerCommandPrefix,
-                    preprocessorArguments.build(),
-                    ImmutableMap.of(),
-                    Optional.empty())),
-            Optional.of(
-                new CxxPreprocessAndCompileStep.ToolCommand(
-                    compilerCommandPrefix,
-                    compilerArguments.build(),
-                    ImmutableMap.of(),
-                    Optional.empty())),
+            new CxxPreprocessAndCompileStep.ToolCommand(
+                compilerCommandPrefix, compilerArguments.build(), ImmutableMap.of()),
             HeaderPathNormalizer.empty(pathResolver),
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             scratchDir,
             true,
             compiler);

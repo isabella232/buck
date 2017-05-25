@@ -29,10 +29,10 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEngineBuildContext;
+import com.facebook.buck.rules.BuildEngineResult;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
@@ -53,6 +53,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -79,6 +80,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.immutables.value.Value;
 
@@ -86,7 +88,6 @@ public class Build implements Closeable {
 
   private static final Logger LOG = Logger.get(Build.class);
 
-  private final ActionGraph actionGraph;
   private final BuildRuleResolver ruleResolver;
   private final Cell rootCell;
   private final ExecutionContext executionContext;
@@ -96,7 +97,6 @@ public class Build implements Closeable {
   private final Clock clock;
 
   public Build(
-      ActionGraph actionGraph,
       BuildRuleResolver ruleResolver,
       Cell rootCell,
       Optional<TargetDevice> targetDevice,
@@ -119,8 +119,8 @@ public class Build implements Closeable {
       Optional<AdbOptions> adbOptions,
       Optional<TargetDeviceOptions> targetDeviceOptions,
       Optional<ConcurrentMap<String, WorkerProcessPool>> persistentWorkerPools,
+      ProcessExecutor processExecutor,
       Map<ExecutorPool, ListeningExecutorService> executors) {
-    this.actionGraph = actionGraph;
     this.ruleResolver = ruleResolver;
     this.rootCell = rootCell;
     this.executionContext =
@@ -144,6 +144,8 @@ public class Build implements Closeable {
             .setTargetDeviceOptions(targetDeviceOptions)
             .setExecutors(executors)
             .setCellPathResolver(rootCell.getCellPathResolver())
+            .setBuildCellRootPath(rootCell.getRoot())
+            .setProcessExecutor(processExecutor)
             .build();
     this.artifactCache = artifactCache;
     this.buildEngine = buildEngine;
@@ -207,9 +209,9 @@ public class Build implements Closeable {
         BuildEngineBuildContext.builder()
             .setBuildContext(
                 BuildContext.builder()
-                    .setActionGraph(actionGraph)
                     .setSourcePathResolver(
                         new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
+                    .setBuildCellRootPath(rootCell.getRoot())
                     .setJavaPackageFinder(javaPackageFinder)
                     .setEventBus(executionContext.getBuckEventBus())
                     .setAndroidPlatformTargetSupplier(
@@ -256,14 +258,16 @@ public class Build implements Closeable {
     // Setup symlinks required when configuring the output path.
     createConfiguredBuckOutSymlinks();
 
-    List<ListenableFuture<BuildResult>> futures =
+    List<BuildEngineResult> futures =
         rulesToBuild
             .stream()
             .map(rule -> buildEngine.build(buildContext, executionContext, rule))
             .collect(MoreCollectors.toImmutableList());
 
     // Get the Future representing the build and then block until everything is built.
-    ListenableFuture<List<BuildResult>> buildFuture = Futures.allAsList(futures);
+    ListenableFuture<List<BuildResult>> buildFuture =
+        Futures.allAsList(
+            futures.stream().map(BuildEngineResult::getResult).collect(Collectors.toList()));
     List<BuildResult> results;
     try {
       results = buildFuture.get();

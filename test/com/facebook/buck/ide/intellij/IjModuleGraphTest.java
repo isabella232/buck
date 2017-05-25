@@ -22,11 +22,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidBinaryDescriptionArg;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceBuilder;
-import com.facebook.buck.android.AndroidResourceDescription;
+import com.facebook.buck.android.AndroidResourceDescriptionArg;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
@@ -392,6 +392,8 @@ public class IjModuleGraphTest {
     TargetNode<?, ?> productKeystoreTarget =
         KeystoreBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/src/com/facebook/library:keystore"))
+            .setStore(new FakeSourcePath("store"))
+            .setProperties(new FakeSourcePath("properties"))
             .build();
 
     TargetNode<?, ?> libraryJavaTarget =
@@ -423,6 +425,7 @@ public class IjModuleGraphTest {
     TargetNode<?, ?> productGenruleTarget =
         GenruleBuilder.newGenruleBuilder(
                 BuildTargetFactory.newInstance("//java/src/com/facebook/product:genrule"))
+            .setOut("out")
             .build();
 
     TargetNode<?, ?> libraryJavaTarget =
@@ -645,7 +648,7 @@ public class IjModuleGraphTest {
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     IjProjectConfig projectConfig =
-        IjProjectBuckConfig.create(buckConfig, aggregationMode, null, false, false, false);
+        IjProjectBuckConfig.create(buckConfig, aggregationMode, null, false, false, false, true);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(
@@ -658,31 +661,31 @@ public class IjModuleGraphTest {
 
               @Override
               public Path getAndroidManifestPath(
-                  TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
                 return Paths.get("TestAndroidManifest.xml");
               }
 
               @Override
               public Optional<Path> getLibraryAndroidManifestPath(
-                  TargetNode<AndroidLibraryDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidLibraryDescription.CoreArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getProguardConfigPath(
-                  TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getAndroidResourcePath(
-                  TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getAssetsPath(
-                  TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 

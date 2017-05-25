@@ -16,19 +16,26 @@
 
 package com.facebook.buck.ide.intellij.projectview;
 
+import static com.facebook.buck.ide.intellij.projectview.Patterns.capture;
+import static com.facebook.buck.ide.intellij.projectview.Patterns.noncapture;
+import static com.facebook.buck.ide.intellij.projectview.Patterns.optional;
+
 import com.facebook.buck.config.Config;
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
@@ -48,6 +55,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -67,12 +76,14 @@ public class ProjectView {
   public static int run(
       DirtyPrintStreamDecorator stderr,
       boolean dryRun,
+      boolean withTests,
       String viewPath,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> buildTargets,
-      BuckEventBus eventBus,
+      ActionGraphAndResolver actionGraph,
       Config config) {
-    return new ProjectView(stderr, dryRun, viewPath, targetGraph, buildTargets, eventBus, config)
+    return new ProjectView(
+            stderr, dryRun, withTests, viewPath, targetGraph, buildTargets, actionGraph, config)
         .run();
   }
 
@@ -85,39 +96,55 @@ public class ProjectView {
   private static final String ASSETS = "assets";
   private static final String CODE_STYLE_SETTINGS = "codeStyleSettings.xml";
   private static final String DOT_IDEA = ".idea";
+  private static final String DOT_XML = ".xml";
   private static final String FONTS = "fonts";
   private static final String RES = "res";
 
   private final DirtyPrintStreamDecorator stdErr;
   private final String viewPath;
   private final boolean dryRun;
+  private final boolean withTests;
   private final TargetGraph targetGraph;
   private final ImmutableSet<BuildTarget> buildTargets;
-  private final BuckEventBus eventBus;
   private final Config config;
+
+  private final ActionGraphAndResolver actionGraph;
+
+  private final Set<BuildTarget> testTargets = new HashSet<>();
+  /** {@code Sets.union(buildTargets, allTargets)} */
+  private final Set<BuildTarget> allTargets = new HashSet<>();
 
   private final String repository = new File("").getAbsolutePath();
 
   private ProjectView(
       DirtyPrintStreamDecorator stdErr,
       boolean dryRun,
+      boolean withTests,
       String viewPath,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> buildTargets,
-      BuckEventBus eventBus,
+      ActionGraphAndResolver actionGraph,
       Config config) {
     this.stdErr = stdErr;
     this.viewPath = viewPath;
     this.dryRun = dryRun;
+    this.withTests = withTests;
 
     this.targetGraph = targetGraph;
     this.buildTargets = buildTargets;
+    this.actionGraph = actionGraph;
 
-    this.eventBus = eventBus;
     this.config = config;
   }
 
   private int run() {
+    if (viewPathIsUnderRepository()) {
+      stderr("\nView directory %s is under the repo directory %s\n", viewPath, repository);
+      return 1;
+    }
+
+    getTestTargets();
+
     List<String> inputs = getPrunedInputs();
 
     scanExistingView();
@@ -140,6 +167,30 @@ public class ProjectView {
     return 0;
   }
 
+  private boolean viewPathIsUnderRepository() {
+    Path view = Paths.get(viewPath).toAbsolutePath();
+    Path repo = Paths.get(repository).toAbsolutePath();
+    return view.startsWith(repo);
+  }
+
+  // region getTestTargets
+
+  private void getTestTargets() {
+    if (withTests) {
+      AbstractBreadthFirstTraversal.<TargetNode<?, ?>>traverse(
+          targetGraph.getAll(buildTargets),
+          node -> {
+            testTargets.addAll(TargetNodes.getTestTargetsForNode(node));
+            return targetGraph.getAll(node.getBuildDeps());
+          });
+    }
+
+    allTargets.addAll(buildTargets);
+    allTargets.addAll(testTargets);
+  }
+
+  // endregion getTestTargets
+
   // region getPrunedInputs()
 
   private List<String> getPrunedInputs() {
@@ -150,21 +201,19 @@ public class ProjectView {
 
     Set<String> inputs = new HashSet<>();
 
-    AbstractBreadthFirstTraversal.<TargetNode<?, ?>>traverse(
-        targetGraph.getAll(buildTargets),
-        node -> {
-          node.getInputs().forEach(input -> inputs.add(input.toString()));
-          return targetGraph.getAll(node.getBuildDeps());
-        });
+    for (TargetNode<?, ?> node : targetGraph.getNodes()) {
+      node.getInputs().forEach(input -> inputs.add(input.toString()));
+    }
 
     return inputs
         .stream()
-        .filter(input -> !input.contains("/res/values-"))
+        //ignore non-english strings
+        .filter(input -> !(input.contains("/res/values-") && input.endsWith("strings.xml")))
         .collect(Collectors.toList());
   }
 
   private List<String> pruneInputs(Collection<String> allInputs) {
-    Pattern resource = Pattern.compile("/res/(?!values/)");
+    Pattern resource = Pattern.compile("/res/(?!(?:values(?:-[^/]+)?)/)");
 
     List<String> result = new ArrayList<>();
     Map<String, List<String>> resources = new HashMap<>();
@@ -199,53 +248,54 @@ public class ProjectView {
 
   // region linkResourceFile
 
-  private static final Pattern ANIM_RES = Pattern.compile("/res/(anim(?:-[^/]+)?)/");
-  private static final Pattern ANIMATOR_RES = Pattern.compile("/res/(animator)/");
-  private static final Pattern DRAWABLE_RES = Pattern.compile("/res/(drawable(?:-[^/]+)?)/");
-  private static final Pattern LAYOUT_RES = Pattern.compile("/res/(layout(?:-[^/]+)?)/");
-  private static final Pattern MENU_RES = Pattern.compile("/res/(menu(?:-[^/]+)?)/");
-  private static final Pattern RAW_RES = Pattern.compile("/res/(raw)/");
-  private static final Pattern XML_RES = Pattern.compile("/res/(xml(?:-[^/]+)?)/");
+  private static final String DASH_PART = "-[^/]+";
+  private static final String NONCAPTURE_DASH_PART = optional(noncapture(DASH_PART));
 
-  private static final Pattern[] SIMPLE_RESOURCE_PATTERNS =
-      new Pattern[] {ANIM_RES, ANIMATOR_RES, DRAWABLE_RES, LAYOUT_RES, MENU_RES, RAW_RES, XML_RES};
+  private static final Patterns SIMPLE_RESOURCE_PATTERNS =
+      Patterns.builder()
+          // These are ordered based on the frequency in two large Android projects.
+          // This ordering will not be ideal for every project, but it's probably not too far off.
+          .add("/res/", capture("drawable", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("layout", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("raw", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("anim", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("xml", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("menu", NONCAPTURE_DASH_PART), "/")
+          .add("/res/", capture("animator"), "/")
+          .build();
 
-  private static final Pattern COLOR_RES = Pattern.compile("^android_res/(.*)res/(color)/");
-  private static final Pattern VALUES_RES =
-      Pattern.compile("^android_res/(.*)res/(values(?:-[^/]+)?)/");
+  private static final String CAPTURE_ALL = capture(".*");
+  private static final String CAPTURE_DASH_PART = optional(capture(DASH_PART));
 
-  private static final Pattern[] MANGLED_RESOURCE_PATTERNS = new Pattern[] {COLOR_RES, VALUES_RES};
+  private static final Patterns MANGLED_RESOURCE_PATTERNS =
+      Patterns.builder()
+          // These are also ordered based on the frequency in the same two large Android projects.
+          .add("^android_res/", CAPTURE_ALL, "res/(values)", CAPTURE_DASH_PART, "/")
+          .add("^android_res/", CAPTURE_ALL, "res/(color)", CAPTURE_DASH_PART, "/")
+          .build();
 
   // Group 1 has any path under ...//assets/ while group 2 has the filename
-  private static final Pattern ASSETS_RES = Pattern.compile("/assets/" + "((?:[^/]+/)*)" + "(.*)");
-  private static final Pattern FONTS_RES = Pattern.compile("/fonts/(.*\\.\\w+)");
+  private static final Patterns ASSETS_RES =
+      Patterns.build("/assets/", capture(noncapture("[^/]+/"), "*"), CAPTURE_ALL);
+
+  private static final Patterns FONTS_RES = Patterns.build("/fonts/", capture(".*\\.\\w+"));
 
   private void linkResourceFile(String input) {
-    Matcher match;
-
     // TODO(shemitz) Convert (say) "res/drawable-hdpi/" to "res/drawable/"
 
-    match = firstMatch(SIMPLE_RESOURCE_PATTERNS, input);
-    if (match != null) {
-      simpleResourceLink(match, input);
+    if (SIMPLE_RESOURCE_PATTERNS.onAnyMatch(input, this::simpleResourceLink)) {
       return;
     }
 
-    match = firstMatch(MANGLED_RESOURCE_PATTERNS, input);
-    if (match != null) {
-      mangledResourceLink(match, input);
+    if (MANGLED_RESOURCE_PATTERNS.onAnyMatch(input, this::mangledResourceLink)) {
       return;
     }
 
-    match = matches(ASSETS_RES, input);
-    if (match != null) {
-      assetsLink(match, input);
+    if (ASSETS_RES.onAnyMatch(input, this::assetsLink)) {
       return;
     }
 
-    match = matches(FONTS_RES, input);
-    if (match != null) {
-      fontsLink(match, input);
+    if (FONTS_RES.onAnyMatch(input, this::fontsLink)) {
       return;
     }
 
@@ -264,14 +314,19 @@ public class ProjectView {
   }
 
   private void mangledResourceLink(Matcher match, String input) {
-    String name = basename(input);
+    String fileName = basename(input);
+    //its safe to assume input is .xml file
+    String name = fileName.substring(0, fileName.length() - DOT_XML.length());
 
     String path = match.group(1).replace('/', '_');
 
-    String directory = fileJoin(viewPath, RES, flattenResourceDirectoryName(match.group(2)));
+    String configQualifier = match.groupCount() > 2 ? match.group(3) : "";
+
+    String directory = fileJoin(viewPath, RES, match.group(2));
     mkdir(directory);
 
-    symlink(fileJoin(repository, input), fileJoin(directory, path + name));
+    symlink(
+        fileJoin(repository, input), fileJoin(directory, path + name + configQualifier + DOT_XML));
   }
 
   private static String flattenResourceDirectoryName(String name) {
@@ -294,23 +349,6 @@ public class ProjectView {
     String path = dirname(target);
     mkdir(path);
     symlink(fileJoin(repository, input), target);
-  }
-
-  @Nullable
-  private static Matcher firstMatch(Pattern[] patterns, String target) {
-    for (Pattern pattern : patterns) {
-      Matcher match = pattern.matcher(target);
-      if (match.find()) {
-        return match;
-      }
-    }
-    return null;
-  }
-
-  @Nullable
-  private static Matcher matches(Pattern pattern, String target) {
-    Matcher match = pattern.matcher(target);
-    return match.find() ? match : null;
   }
 
   // endregion linkResourceFile
@@ -412,6 +450,7 @@ public class ProjectView {
   private static final String COMPONENT = "component";
   private static final String CONTENT = "content";
   private static final String EXCLUDE_FOLDER = "excludeFolder";
+  private static final String IS_TEST_SOURCE = "isTestSource";
   private static final String LIBRARY = "library";
   private static final String MODULES = "modules";
   private static final String NAME = "name";
@@ -565,8 +604,12 @@ public class ProjectView {
   private static final String INTELLIJ_JDK_NAME = "jdk_name";
   private static final String INTELLIJ_JDK_TYPE = "jdk_type";
 
+  private Optional<String> getIntellijSectionValue(String propertyName) {
+    return config.getValue(INTELLIJ_SECTION, propertyName);
+  }
+
   private String getIntellijSectionValue(String propertyName, String defaultValue) {
-    return config.getValue(INTELLIJ_SECTION, propertyName).orElse(defaultValue);
+    return getIntellijSectionValue(propertyName).orElse(defaultValue);
   }
 
   /**
@@ -654,7 +697,7 @@ public class ProjectView {
   private void writeRootDotIml(
       List<String> sourceFiles, Set<String> roots, List<String> libraries) {
     String buckOut = fileJoin(viewPath, BUCK_OUT);
-    immediateSymlink(fileJoin(repository, BUCK_OUT), buckOut);
+    symlink(fileJoin(repository, BUCK_OUT), buckOut);
 
     String apkPath = null;
     Map<BuildTarget, String> outputs = getOutputs();
@@ -728,7 +771,7 @@ public class ProjectView {
     for (String source : sortSourceFolders(sourceFolders)) {
       List<Attribute> attributes = new ArrayList<>(3);
       attributes.add(attribute(URL, fileJoin(FILE_MODULE_DIR, source)));
-      attributes.add(attribute("isTestSource", false));
+      attributes.add(attribute(IS_TEST_SOURCE, false));
 
       String packagePrefix = getPackage(fileJoin(repository, source));
       if (packagePrefix != null) {
@@ -754,15 +797,24 @@ public class ProjectView {
           attribute("level", "project"));
     }
 
+    for (String relativeFolder : getAnnotationAndGeneratedFolders()) {
+      String folder = fileJoin(FILE_MODULE_DIR, relativeFolder);
+      Attribute url = attribute(URL, folder);
+      Element content = addElement(rootManager, CONTENT, url);
+      addElement(
+          content,
+          SOURCE_FOLDER,
+          url.clone(),
+          attribute(IS_TEST_SOURCE, false),
+          attribute("generated", true));
+    }
+
     saveDocument(viewPath, ROOT_IML, XML.DECLARATION, module);
   }
 
   private Map<BuildTarget, String> getOutputs() {
     Map<BuildTarget, String> outputs = new HashMap<>(buildTargets.size());
 
-    // TODO(shemitz) Use ActionGraphCache.getActionGraph()?
-    ActionGraphAndResolver actionGraph =
-        ActionGraphCache.getFreshActionGraph(eventBus, targetGraph);
     BuildRuleResolver ruleResolver = actionGraph.getResolver();
     SourcePathResolver pathResolver =
         new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
@@ -840,6 +892,60 @@ public class ProjectView {
     return null;
   }
 
+  private Collection<String> getAnnotationAndGeneratedFolders() {
+    Collection<String> folders = new HashSet<>();
+
+    getAnnotationFolders(folders);
+    getGeneratedFolders(folders);
+
+    return folders.stream().sorted().collect(Collectors.toList());
+  }
+
+  private void getAnnotationFolders(Collection<String> folders) {
+    for (BuildRule buildRule : actionGraph.getActionGraph().getNodes()) {
+      if (buildRule instanceof JavaLibrary) {
+        Optional<Path> generatedSourcePath = ((JavaLibrary) buildRule).getGeneratedSourcePath();
+        if (generatedSourcePath.isPresent()) {
+          folders.add(generatedSourcePath.get().toString());
+        }
+      }
+    }
+  }
+
+  private void getGeneratedFolders(Collection<String> folders) {
+    Map<String, String> labelToGeneratedSourcesMap =
+        config.getMap(INTELLIJ_SECTION, "generated_sources_label_map");
+    Pattern name = Pattern.compile("%name%");
+
+    AbstractBreadthFirstTraversal.<TargetNode<?, ?>>traverse(
+        targetGraph.getAll(allTargets),
+        node -> {
+          ProjectFilesystem filesystem = node.getFilesystem();
+          Set<BuildTarget> buildDeps = node.getBuildDeps();
+          for (BuildTarget buildTarget : buildDeps) {
+            Object constructorArg = node.getConstructorArg();
+            if (constructorArg instanceof CommonDescriptionArg) {
+              CommonDescriptionArg commonDescriptionArg = (CommonDescriptionArg) constructorArg;
+              folders.addAll(
+                  commonDescriptionArg
+                      .getLabels()
+                      .stream()
+                      .map(labelToGeneratedSourcesMap::get)
+                      .filter(Objects::nonNull)
+                      .map(
+                          pattern ->
+                              name.matcher(pattern)
+                                  .replaceAll(buildTarget.getShortNameAndFlavorPostfix()))
+                      .map(
+                          (String path) ->
+                              BuildTargets.getGenPath(filesystem, buildTarget, path).toString())
+                      .collect(Collectors.toSet()));
+            }
+          }
+          return targetGraph.getAll(buildDeps);
+        });
+  }
+
   // endregion .idea folder
 
   // region symlinks, mkdir, and other file utilities
@@ -858,7 +964,7 @@ public class ProjectView {
   private final Map<Path, Path> symlinksToCreate = new HashMap<>();
 
   private void scanExistingView() {
-    Path root = Paths.get(viewPath); // new File(viewPath).toPath();
+    Path root = Paths.get(viewPath);
     if (!Files.exists(root)) {
       return;
     }
@@ -914,15 +1020,7 @@ public class ProjectView {
     // Make any directories that don't already exist
     for (Path path : directoriesToMake) {
       if (!existingDirectories.contains(path)) {
-        if (dryRun) {
-          stderr("mkdir(%s)\n", path);
-        } else {
-          try {
-            Files.createDirectories(path);
-          } catch (IOException e) {
-            stderr("'%s' creating directory %s\n", e.getMessage(), path);
-          }
-        }
+        immediateMkdir(path);
       }
     }
 
@@ -1011,15 +1109,19 @@ public class ProjectView {
     directoriesToMake.add(Paths.get(name));
   }
 
-  private void immediateMkdir(String name) {
-    File file = new File(name);
-    if (file.isDirectory()) {
-      return;
-    }
+  private void immediateMkdir(String path) {
+    immediateMkdir(Paths.get(path));
+  }
+
+  private void immediateMkdir(Path path) {
     if (dryRun) {
-      stderr("mkdir(%s)\n", name);
+      stderr("mkdir(%s)\n", path);
     } else {
-      file.mkdirs();
+      try {
+        Files.createDirectories(path);
+      } catch (IOException e) {
+        stderr("'%s' creating directory %s\n", e.getMessage(), path);
+      }
     }
   }
 
@@ -1031,24 +1133,6 @@ public class ProjectView {
     Path filePath = Paths.get(filename);
 
     symlinksToCreate.put(filePath, linkPath);
-  }
-
-  private void immediateSymlink(String filename, String linkname) {
-    File link = new File(linkname);
-    Path linkPath = link.toPath();
-
-    if (Files.isSymbolicLink(linkPath)) {
-      return; // already exists
-    }
-
-    Path filePath = Paths.get(filename);
-
-    if (dryRun) {
-      stderr("symlink(%s, %s)\n", filename, linkname);
-    } else {
-      immediateMkdir(dirname(link));
-      createSymbolicLink(filePath, linkPath);
-    }
   }
 
   /** Parameter order is compatible with Ruby library code, for porting transparency */

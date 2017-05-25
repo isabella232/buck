@@ -17,12 +17,9 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.DirCacheExperimentEvent;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.randomizedtrial.CommonGroups;
-import com.facebook.buck.randomizedtrial.RandomizedTrial;
 import com.facebook.buck.slb.HttpLoadBalancer;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
@@ -173,14 +170,13 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       boolean distributedBuildModeEnabled) {
-    ImmutableSet<ArtifactCacheBuckConfig.ArtifactCacheMode> modes =
-        buckConfig.getArtifactCacheModes();
+    ImmutableSet<ArtifactCacheMode> modes = buckConfig.getArtifactCacheModes();
     if (modes.isEmpty()) {
       return new NoopArtifactCache();
     }
     ArtifactCacheEntries cacheEntries = buckConfig.getCacheEntries();
     ImmutableList.Builder<ArtifactCache> builder = ImmutableList.builder();
-    for (ArtifactCacheBuckConfig.ArtifactCacheMode mode : modes) {
+    for (ArtifactCacheMode mode : modes) {
       switch (mode) {
         case dir:
           initializeDirCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
@@ -195,7 +191,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
               httpWriteExecutorService,
               builder,
               distributedBuildModeEnabled,
-              HTTP_PROTOCOL);
+              HTTP_PROTOCOL,
+              mode);
           break;
 
         case thrift_over_http:
@@ -208,7 +205,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
               httpWriteExecutorService,
               builder,
               distributedBuildModeEnabled,
-              THRIFT_PROTOCOL);
+              THRIFT_PROTOCOL,
+              mode);
           break;
       }
     }
@@ -219,9 +217,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       // Don't bother wrapping a single artifact cache
       result = artifactCaches.get(0);
     } else {
-      result =
-          getDecoratedArtifactCache(
-              buckConfig, buckEventBus, artifactCaches, distributedBuildModeEnabled);
+      result = new MultiArtifactCache(artifactCaches);
     }
 
     // Always support reading two-level cache stores (in case we performed any in the past).
@@ -235,44 +231,6 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             buckConfig.getTwoLevelCachingMaximumSize());
 
     return result;
-  }
-
-  private static ArtifactCache getDecoratedArtifactCache(
-      ArtifactCacheBuckConfig buckConfig,
-      BuckEventBus buckEventBus,
-      ImmutableList<ArtifactCache> artifactCaches,
-      boolean distributedBuildModeEnabled) {
-    if (!distributedBuildModeEnabled && buckConfig.getDirCacheRunsPropagationExperiment()) {
-      ImmutableList<ArtifactCache> dirCaches =
-          ImmutableList.copyOf(
-              artifactCaches
-                  .stream()
-                  .filter(cache -> checkArtifactCacheClass(cache, DirArtifactCache.class))
-                  .iterator());
-      ImmutableList<ArtifactCache> remoteCaches =
-          ImmutableList.copyOf(
-              artifactCaches
-                  .stream()
-                  .filter(cache -> checkArtifactCacheClass(cache, AbstractNetworkCache.class))
-                  .iterator());
-
-      if (buckConfig.getDirCachePropagationExperimentRandomizedTrialForcedToBeControlGroup()
-          || RandomizedTrial.getGroup(
-                  "dirCacheOnlyForPropagation", CommonGroups.class, CommonGroups.CONTROL)
-              == CommonGroups.TEST) {
-        MultiArtifactCache multiDirCache = new MultiArtifactCache(dirCaches);
-        MultiArtifactCache multiRemoteCache = new MultiArtifactCache(remoteCaches);
-        if (!multiDirCache.getCacheReadMode().isWritable()) {
-          buckEventBus.post(DirCacheExperimentEvent.readOnly());
-        } else {
-          buckEventBus.post(DirCacheExperimentEvent.propagateOnly());
-        }
-        return new RemoteArtifactsInLocalCacheArtifactCache(multiDirCache, multiRemoteCache);
-      } else {
-        buckEventBus.post(DirCacheExperimentEvent.readWrite());
-      }
-    }
-    return new MultiArtifactCache(artifactCaches);
   }
 
   private static void initializeDirCaches(
@@ -295,7 +253,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       ListeningExecutorService httpWriteExecutorService,
       ImmutableList.Builder<ArtifactCache> builder,
       boolean distributedBuildModeEnabled,
-      NetworkCacheFactory factory) {
+      NetworkCacheFactory factory,
+      ArtifactCacheMode cacheMode) {
     for (HttpCacheEntry cacheEntry : artifactCacheEntries.getHttpCacheEntries()) {
       if (!cacheEntry.isWifiUsableForDistributedCache(wifiSsid)) {
         LOG.warn("HTTP cache is disabled because WiFi is not usable.");
@@ -311,7 +270,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
               httpWriteExecutorService,
               buckConfig,
               factory,
-              distributedBuildModeEnabled));
+              distributedBuildModeEnabled,
+              cacheMode));
     }
   }
 
@@ -352,7 +312,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       ListeningExecutorService httpWriteExecutorService,
       ArtifactCacheBuckConfig config,
       NetworkCacheFactory factory,
-      boolean distributedBuildModeEnabled) {
+      boolean distributedBuildModeEnabled,
+      ArtifactCacheMode cacheMode) {
 
     // Setup the default client to use.
     OkHttpClient.Builder storeClientBuilder = new OkHttpClient.Builder();
@@ -449,11 +410,11 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             "Unknown HttpLoadBalancer type: " + config.getLoadBalancingType());
     }
 
-    String cacheName = cacheDescription.getName().map(input -> "http-" + input).orElse("http");
     return factory.newInstance(
         NetworkCacheArgs.builder()
             .setThriftEndpointPath(config.getHybridThriftEndpoint())
-            .setCacheName(cacheName)
+            .setCacheName(cacheMode.name())
+            .setCacheMode(cacheMode)
             .setRepository(config.getRepository())
             .setScheduleType(config.getScheduleType())
             .setFetchClient(fetchService)
@@ -465,13 +426,6 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             .setErrorTextTemplate(cacheDescription.getErrorMessageFormat())
             .setDistributedBuildModeEnabled(distributedBuildModeEnabled)
             .build());
-  }
-
-  private static boolean checkArtifactCacheClass(
-      ArtifactCache artifactCache, Class<?> expectedClass) {
-    return expectedClass.isInstance(artifactCache)
-        || artifactCache instanceof CacheDecorator
-            && expectedClass.isInstance(((CacheDecorator) artifactCache).getDelegate());
   }
 
   private static String stripNonAscii(String str) {

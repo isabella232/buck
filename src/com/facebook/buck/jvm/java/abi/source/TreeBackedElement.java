@@ -18,8 +18,7 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.sun.source.tree.AnnotationTree;
-import com.sun.source.tree.ModifiersTree;
-import com.sun.source.util.TreePath;
+import com.sun.source.tree.Tree;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -43,19 +42,19 @@ abstract class TreeBackedElement implements Element {
   private final List<Element> enclosedElements = new ArrayList<>();
   private final TreeBackedElementResolver resolver;
 
-  @Nullable private final TreePath path;
+  @Nullable private final Tree tree;
   @Nullable private List<TreeBackedAnnotationMirror> annotationMirrors;
 
   public TreeBackedElement(
       Element underlyingElement,
       @Nullable TreeBackedElement enclosingElement,
-      @Nullable TreePath path,
+      @Nullable Tree tree,
       TreeBackedElementResolver resolver) {
     this.underlyingElement = underlyingElement;
     this.enclosingElement = enclosingElement;
     // Some element types don't appear as members of enclosingElement.getEnclosedElements, so
     // it's up to each subtype's constructor to decide whether to add itself or not.
-    this.path = path;
+    this.tree = tree;
     this.resolver = resolver;
   }
 
@@ -68,8 +67,8 @@ abstract class TreeBackedElement implements Element {
   }
 
   @Nullable
-  /* package */ TreePath getTreePath() {
-    return path;
+  /* package */ Tree getTree() {
+    return tree;
   }
 
   @Override
@@ -119,26 +118,15 @@ abstract class TreeBackedElement implements Element {
       for (int i = 0; i < underlyingAnnotations.size(); i++) {
         result.add(
             new TreeBackedAnnotationMirror(
-                underlyingAnnotations.get(i),
-                new TreePath(path, annotationTrees.get(i)),
-                resolver));
+                underlyingAnnotations.get(i), annotationTrees.get(i), resolver));
       }
       annotationMirrors = Collections.unmodifiableList(result);
     }
     return annotationMirrors;
   }
 
-  private List<? extends AnnotationTree> getAnnotationTrees() {
-    ModifiersTree modifiersTree = getModifiersTree();
-    if (modifiersTree == null) {
-      return Collections.emptyList();
-    }
-
-    return modifiersTree.getAnnotations();
-  }
-
   @Nullable
-  protected abstract ModifiersTree getModifiersTree();
+  protected abstract List<? extends AnnotationTree> getAnnotationTrees();
 
   @Override
   @Nullable

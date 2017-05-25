@@ -20,25 +20,31 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
-import com.facebook.buck.apple.AppleAssetCatalogDescription;
+import com.facebook.buck.apple.AppleAssetCatalogDescriptionArg;
 import com.facebook.buck.apple.AppleBinaryDescription;
+import com.facebook.buck.apple.AppleBinaryDescriptionArg;
 import com.facebook.buck.apple.AppleBuildRules;
 import com.facebook.buck.apple.AppleBundle;
 import com.facebook.buck.apple.AppleBundleDescription;
+import com.facebook.buck.apple.AppleBundleDescriptionArg;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
 import com.facebook.buck.apple.AppleLibraryDescription;
+import com.facebook.buck.apple.AppleLibraryDescriptionArg;
 import com.facebook.buck.apple.AppleNativeTargetDescriptionArg;
 import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleResourceDescriptionArg;
 import com.facebook.buck.apple.AppleResources;
 import com.facebook.buck.apple.AppleTestDescription;
+import com.facebook.buck.apple.AppleTestDescriptionArg;
 import com.facebook.buck.apple.AppleWrapperResourceArg;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.HasAppleBundleFields;
 import com.facebook.buck.apple.InfoPlistSubstitution;
 import com.facebook.buck.apple.PrebuiltAppleFrameworkDescription;
+import com.facebook.buck.apple.PrebuiltAppleFrameworkDescriptionArg;
 import com.facebook.buck.apple.SceneKitAssetsDescription;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
@@ -48,6 +54,7 @@ import com.facebook.buck.apple.xcode.XcodeprojSerializer;
 import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXContainerItemProxy;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
@@ -56,6 +63,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXProject;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXTargetDependency;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
@@ -77,6 +85,7 @@ import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideCompile;
 import com.facebook.buck.halide.HalideLibraryDescription;
+import com.facebook.buck.halide.HalideLibraryDescriptionArg;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -86,7 +95,6 @@ import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
@@ -97,6 +105,7 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -111,7 +120,7 @@ import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.shell.AbstractGenruleDescription;
-import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
@@ -260,7 +269,7 @@ public class ProjectGenerator {
    */
   private final ImmutableSet.Builder<String> targetConfigNamesBuilder;
 
-  private final Map<String, String> gidsToTargetNames;
+  private final GidGenerator gidGenerator;
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
@@ -332,11 +341,12 @@ public class ProjectGenerator {
                 });
 
     targetConfigNamesBuilder = ImmutableSet.builder();
-    gidsToTargetNames = new HashMap<>();
     this.halideBuckConfig = halideBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.focusModules = focusModules;
+
+    gidGenerator = new GidGenerator();
   }
 
   @VisibleForTesting
@@ -449,8 +459,8 @@ public class ProjectGenerator {
 
   private static Optional<String> getProductNameForTargetNode(TargetNode<?, ?> targetNode) {
     return targetNode
-        .castArg(AppleBundleDescription.Arg.class)
-        .flatMap(node -> node.getConstructorArg().productName);
+        .castArg(AppleBundleDescriptionArg.class)
+        .flatMap(node -> node.getConstructorArg().getProductName());
   }
 
   @SuppressWarnings("unchecked")
@@ -472,7 +482,7 @@ public class ProjectGenerator {
           Optional.of(
               generateCxxLibraryTarget(
                   project,
-                  (TargetNode<CxxLibraryDescription.Arg, ?>) targetNode,
+                  (TargetNode<CxxLibraryDescription.CommonArg, ?>) targetNode,
                   ImmutableSet.of(),
                   ImmutableSet.of(),
                   Optional.empty()));
@@ -482,26 +492,25 @@ public class ProjectGenerator {
               generateAppleBinaryTarget(
                   project, (TargetNode<AppleNativeTargetDescriptionArg, ?>) targetNode));
     } else if (targetNode.getDescription() instanceof AppleBundleDescription) {
-      TargetNode<AppleBundleDescription.Arg, ?> bundleTargetNode =
-          (TargetNode<AppleBundleDescription.Arg, ?>) targetNode;
+      TargetNode<AppleBundleDescriptionArg, ?> bundleTargetNode =
+          (TargetNode<AppleBundleDescriptionArg, ?>) targetNode;
       result =
           Optional.of(
               generateAppleBundleTarget(
                   project,
                   bundleTargetNode,
                   (TargetNode<AppleNativeTargetDescriptionArg, ?>)
-                      targetGraph.get(bundleTargetNode.getConstructorArg().binary),
+                      targetGraph.get(bundleTargetNode.getConstructorArg().getBinary()),
                   Optional.empty()));
     } else if (targetNode.getDescription() instanceof AppleTestDescription) {
       result =
-          Optional.of(
-              generateAppleTestTarget((TargetNode<AppleTestDescription.Arg, ?>) targetNode));
+          Optional.of(generateAppleTestTarget((TargetNode<AppleTestDescriptionArg, ?>) targetNode));
     } else if (targetNode.getDescription() instanceof AppleResourceDescription) {
       checkAppleResourceTargetNodeReferencingValidContents(
-          (TargetNode<AppleResourceDescription.Arg, ?>) targetNode);
+          (TargetNode<AppleResourceDescriptionArg, ?>) targetNode);
     } else if (targetNode.getDescription() instanceof HalideLibraryDescription) {
-      TargetNode<HalideLibraryDescription.Arg, ?> halideTargetNode =
-          (TargetNode<HalideLibraryDescription.Arg, ?>) targetNode;
+      TargetNode<HalideLibraryDescriptionArg, ?> halideTargetNode =
+          (TargetNode<HalideLibraryDescriptionArg, ?>) targetNode;
       BuildTarget buildTarget = targetNode.getBuildTarget();
 
       // The generated target just runs a shell script that invokes the "compiler" with the
@@ -529,7 +538,7 @@ public class ProjectGenerator {
                 HalideLibraryDescription.HALIDE_COMPILE_FLAVOR, defaultCxxPlatform.getFlavor()));
       }
     } else if (targetNode.getDescription() instanceof AbstractGenruleDescription) {
-      addGenruleFiles(project, (TargetNode<AbstractGenruleDescription.Arg, ?>) targetNode);
+      addGenruleFiles(project, (TargetNode<AbstractGenruleDescription.CommonArg, ?>) targetNode);
     }
     buckEventBus.post(ProjectGenerationEvent.processed());
     return result;
@@ -545,7 +554,7 @@ public class ProjectGenerator {
   }
 
   private Optional<PBXTarget> generateHalideLibraryTarget(
-      PBXProject project, TargetNode<HalideLibraryDescription.Arg, ?> targetNode)
+      PBXProject project, TargetNode<HalideLibraryDescriptionArg, ?> targetNode)
       throws IOException {
     final BuildTarget buildTarget = targetNode.getBuildTarget();
     boolean isFocusedOnTarget = focusModules.isFocusedOn(buildTarget);
@@ -581,11 +590,12 @@ public class ProjectGenerator {
     String halideCompilerSrcs;
     Iterable<Path> compilerSrcFiles =
         Iterables.transform(
-            targetNode.getConstructorArg().srcs, input -> resolveSourcePath(input.getSourcePath()));
+            targetNode.getConstructorArg().getSrcs(),
+            input -> resolveSourcePath(input.getSourcePath()));
     halideCompilerSrcs = Joiner.on(" ").join(compilerSrcFiles);
     defaultSettingsBuilder.put("HALIDE_COMPILER_SRCS", halideCompilerSrcs);
     String halideCompilerFlags;
-    halideCompilerFlags = Joiner.on(" ").join(targetNode.getConstructorArg().compilerFlags);
+    halideCompilerFlags = Joiner.on(" ").join(targetNode.getConstructorArg().getCompilerFlags());
     defaultSettingsBuilder.put("HALIDE_COMPILER_FLAGS", halideCompilerFlags);
 
     defaultSettingsBuilder.put("HALIDE_OUTPUT_PATH", outputPath.toString());
@@ -606,17 +616,17 @@ public class ProjectGenerator {
     return Optional.of(target);
   }
 
-  private PBXTarget generateAppleTestTarget(TargetNode<AppleTestDescription.Arg, ?> testTargetNode)
+  private PBXTarget generateAppleTestTarget(TargetNode<AppleTestDescriptionArg, ?> testTargetNode)
       throws IOException {
-    Optional<TargetNode<AppleBundleDescription.Arg, ?>> testHostBundle =
+    Optional<TargetNode<AppleBundleDescriptionArg, ?>> testHostBundle =
         testTargetNode
             .getConstructorArg()
-            .testHostApp
+            .getTestHostApp()
             .map(
                 testHostBundleTarget -> {
                   TargetNode<?, ?> testHostBundleNode = targetGraph.get(testHostBundleTarget);
                   return testHostBundleNode
-                      .castArg(AppleBundleDescription.Arg.class)
+                      .castArg(AppleBundleDescriptionArg.class)
                       .orElseGet(
                           () -> {
                             throw new HumanReadableException(
@@ -629,20 +639,20 @@ public class ProjectGenerator {
   }
 
   private void checkAppleResourceTargetNodeReferencingValidContents(
-      TargetNode<AppleResourceDescription.Arg, ?> resource) {
+      TargetNode<AppleResourceDescriptionArg, ?> resource) {
     // Check that the resource target node is referencing valid files or directories.
     // If a SourcePath is a BuildTargetSourcePath (or some hypothetical future implementation of
-    // AbstractSourcePath), just assume it's the right type; we have no way of checking now as it
+    // SourcePath), just assume it's the right type; we have no way of checking now as it
     // may not exist yet.
-    AppleResourceDescription.Arg arg = resource.getConstructorArg();
-    for (SourcePath dir : arg.dirs) {
+    AppleResourceDescriptionArg arg = resource.getConstructorArg();
+    for (SourcePath dir : arg.getDirs()) {
       if (dir instanceof PathSourcePath && !projectFilesystem.isDirectory(resolveSourcePath(dir))) {
         throw new HumanReadableException(
             "%s specified in the dirs parameter of %s is not a directory",
             dir.toString(), resource.toString());
       }
     }
-    for (SourcePath file : arg.files) {
+    for (SourcePath file : arg.getFiles()) {
       if (file instanceof PathSourcePath && !projectFilesystem.isFile(resolveSourcePath(file))) {
         throw new HumanReadableException(
             "%s specified in the files parameter of %s is not a regular file",
@@ -655,7 +665,7 @@ public class ProjectGenerator {
       PBXProject project,
       TargetNode<? extends HasAppleBundleFields, ?> targetNode,
       TargetNode<? extends AppleNativeTargetDescriptionArg, ?> binaryNode,
-      Optional<TargetNode<AppleBundleDescription.Arg, ?>> bundleLoaderNode)
+      Optional<TargetNode<AppleBundleDescriptionArg, ?>> bundleLoaderNode)
       throws IOException {
     Path infoPlistPath =
         Preconditions.checkNotNull(
@@ -730,21 +740,21 @@ public class ProjectGenerator {
     try {
       for (TargetNode<?, ?> node : traversal.traverse(ImmutableList.of(targetNode))) {
         if (node != targetNode) {
-          node.castArg(AppleBundleDescription.Arg.class)
+          node.castArg(AppleBundleDescriptionArg.class)
               .ifPresent(
                   appleBundleNode -> {
                     if (isFrameworkBundle(appleBundleNode.getConstructorArg())) {
                       filteredRules.add(node);
                     }
                   });
-          node.castArg(PrebuiltAppleFrameworkDescription.Arg.class)
+          node.castArg(PrebuiltAppleFrameworkDescriptionArg.class)
               .ifPresent(
                   prebuiltFramework -> {
                     // Technically (see Apple Tech Notes 2435), static frameworks are lies. In case a static
                     // framework is used, they can escape the incorrect project generation by marking its
                     // preferred linkage static (what does preferred linkage even mean for a prebuilt thing?
                     // none of this makes sense anyways).
-                    if (prebuiltFramework.getConstructorArg().preferredLinkage
+                    if (prebuiltFramework.getConstructorArg().getPreferredLinkage()
                         != NativeLinkable.Linkage.STATIC) {
                       filteredRules.add(node);
                     }
@@ -764,7 +774,7 @@ public class ProjectGenerator {
         .filter(
             input ->
                 input
-                    .castArg(AppleBundleDescription.Arg.class)
+                    .castArg(AppleBundleDescriptionArg.class)
                     .map(argTargetNode -> !isFrameworkBundle(argTargetNode.getConstructorArg()))
                     .orElse(true))
         .toImmutableList();
@@ -801,7 +811,7 @@ public class ProjectGenerator {
   private PBXNativeTarget generateAppleLibraryTarget(
       PBXProject project,
       TargetNode<? extends AppleNativeTargetDescriptionArg, ?> targetNode,
-      Optional<TargetNode<AppleBundleDescription.Arg, ?>> bundleLoaderNode)
+      Optional<TargetNode<AppleBundleDescriptionArg, ?>> bundleLoaderNode)
       throws IOException {
     PBXNativeTarget target =
         generateCxxLibraryTarget(
@@ -816,10 +826,10 @@ public class ProjectGenerator {
 
   private PBXNativeTarget generateCxxLibraryTarget(
       PBXProject project,
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
-      ImmutableSet<AppleResourceDescription.Arg> directResources,
-      ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs,
-      Optional<TargetNode<AppleBundleDescription.Arg, ?>> bundleLoaderNode)
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
+      ImmutableSet<AppleResourceDescriptionArg> directResources,
+      ImmutableSet<AppleAssetCatalogDescriptionArg> directAssetCatalogs,
+      Optional<TargetNode<AppleBundleDescriptionArg, ?>> bundleLoaderNode)
       throws IOException {
     boolean isShared =
         targetNode.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
@@ -860,18 +870,18 @@ public class ProjectGenerator {
   private PBXNativeTarget generateBinaryTarget(
       PBXProject project,
       Optional<? extends TargetNode<? extends HasAppleBundleFields, ?>> bundle,
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
       ProductType productType,
       String productOutputFormat,
       Optional<Path> infoPlistOptional,
       boolean includeFrameworks,
-      ImmutableSet<AppleResourceDescription.Arg> recursiveResources,
-      ImmutableSet<AppleResourceDescription.Arg> directResources,
-      ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs,
-      ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs,
+      ImmutableSet<AppleResourceDescriptionArg> recursiveResources,
+      ImmutableSet<AppleResourceDescriptionArg> directResources,
+      ImmutableSet<AppleAssetCatalogDescriptionArg> recursiveAssetCatalogs,
+      ImmutableSet<AppleAssetCatalogDescriptionArg> directAssetCatalogs,
       ImmutableSet<AppleWrapperResourceArg> wrapperResources,
       Optional<Iterable<PBXBuildPhase>> copyFilesPhases,
-      Optional<TargetNode<AppleBundleDescription.Arg, ?>> bundleLoaderNode)
+      Optional<TargetNode<AppleBundleDescriptionArg, ?>> bundleLoaderNode)
       throws IOException {
 
     LOG.debug("Generating binary target for node %s", targetNode);
@@ -880,14 +890,14 @@ public class ProjectGenerator {
     final BuildTarget buildTarget = buildTargetNode.getBuildTarget();
 
     String buildTargetName = getProductNameForBuildTarget(buildTarget);
-    CxxLibraryDescription.Arg arg = targetNode.getConstructorArg();
+    CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
     NewNativeTargetProjectMutator mutator =
         new NewNativeTargetProjectMutator(pathRelativizer, this::resolveSourcePath);
     ImmutableSet<SourcePath> exportedHeaders =
-        ImmutableSet.copyOf(getHeaderSourcePaths(arg.exportedHeaders));
-    ImmutableSet<SourcePath> headers = ImmutableSet.copyOf(getHeaderSourcePaths(arg.headers));
+        ImmutableSet.copyOf(getHeaderSourcePaths(arg.getExportedHeaders()));
+    ImmutableSet<SourcePath> headers = ImmutableSet.copyOf(getHeaderSourcePaths(arg.getHeaders()));
     ImmutableMap<CxxSource.Type, ImmutableList<String>> langPreprocessorFlags =
-        targetNode.getConstructorArg().langPreprocessorFlags;
+        targetNode.getConstructorArg().getLangPreprocessorFlags();
     boolean isFocusedOnTarget = focusModules.isFocusedOn(buildTarget);
 
     mutator
@@ -905,14 +915,14 @@ public class ProjectGenerator {
         mutator
             .setLangPreprocessorFlags(langPreprocessorFlags)
             .setPublicHeaders(exportedHeaders)
-            .setPrefixHeader(arg.prefixHeader)
-            .setSourcesWithFlags(ImmutableSet.copyOf(arg.srcs))
+            .setPrefixHeader(arg.getPrefixHeader())
+            .setSourcesWithFlags(ImmutableSet.copyOf(arg.getSrcs()))
             .setPrivateHeaders(headers)
             .setRecursiveResources(recursiveResources)
             .setDirectResources(directResources)
             .setWrapperResources(wrapperResources)
-            .setExtraXcodeSources(ImmutableSet.copyOf(arg.extraXcodeSources))
-            .setExtraXcodeFiles(ImmutableSet.copyOf(arg.extraXcodeFiles));
+            .setExtraXcodeSources(ImmutableSet.copyOf(arg.getExtraXcodeSources()))
+            .setExtraXcodeFiles(ImmutableSet.copyOf(arg.getExtraXcodeFiles()));
       }
 
       if (bundle.isPresent() && isFocusedOnTarget) {
@@ -920,7 +930,7 @@ public class ProjectGenerator {
         mutator.setInfoPlist(Optional.of(bundleArg.getInfoPlist()));
       }
 
-      mutator.setBridgingHeader(arg.bridgingHeader);
+      mutator.setBridgingHeader(arg.getBridgingHeader());
 
       if (options.contains(Option.CREATE_DIRECTORY_STRUCTURE) && isFocusedOnTarget) {
         mutator.setTargetGroupPath(
@@ -992,13 +1002,14 @@ public class ProjectGenerator {
         if (bundleLoaderNode.isPresent()) {
           BuildTarget testTarget = bundleLoaderNode.get().getBuildTarget();
           extraSettingsBuilder.put("TEST_TARGET_NAME", getXcodeTargetName(testTarget));
+          addPBXTargetDependency(target, testTarget);
         } else {
           throw new HumanReadableException(
               "The test rule '%s' is configured with 'is_ui_test' but has no test_host_app",
               buildTargetName);
         }
       } else if (bundleLoaderNode.isPresent() && isFocusedOnTarget) {
-        TargetNode<AppleBundleDescription.Arg, ?> bundleLoader = bundleLoaderNode.get();
+        TargetNode<AppleBundleDescriptionArg, ?> bundleLoader = bundleLoaderNode.get();
         String bundleLoaderProductName =
             getProductNameForBuildTarget(bundleLoader.getBuildTarget());
         String bundleLoaderBundleName =
@@ -1055,21 +1066,24 @@ public class ProjectGenerator {
             .put(bundleLoaderOutputPathDeepSetting, bundleLoaderOutputPathDeepValue)
             .put("BUNDLE_LOADER", bundleLoaderOutputPathValue)
             .put("TEST_HOST", "$(BUNDLE_LOADER)");
+
+        addPBXTargetDependency(target, bundleLoader.getBuildTarget());
       }
       if (infoPlistOptional.isPresent()) {
         Path infoPlistPath = pathRelativizer.outputDirToRootRelative(infoPlistOptional.get());
         extraSettingsBuilder.put("INFOPLIST_FILE", infoPlistPath.toString());
       }
-      if (arg.bridgingHeader.isPresent()) {
+      if (arg.getBridgingHeader().isPresent()) {
         Path bridgingHeaderPath =
-            pathRelativizer.outputDirToRootRelative(resolveSourcePath(arg.bridgingHeader.get()));
+            pathRelativizer.outputDirToRootRelative(
+                resolveSourcePath(arg.getBridgingHeader().get()));
         extraSettingsBuilder.put(
             "SWIFT_OBJC_BRIDGING_HEADER",
             Joiner.on('/').join("$(SRCROOT)", bridgingHeaderPath.toString()));
       }
       Optional<String> swiftVersion = swiftBuckConfig.getVersion();
       swiftVersion.ifPresent(s -> extraSettingsBuilder.put("SWIFT_VERSION", s));
-      Optional<SourcePath> prefixHeaderOptional = targetNode.getConstructorArg().prefixHeader;
+      Optional<SourcePath> prefixHeaderOptional = targetNode.getConstructorArg().getPrefixHeader();
       if (prefixHeaderOptional.isPresent()) {
         Path prefixHeaderRelative = resolveSourcePath(prefixHeaderOptional.get());
         Path prefixHeaderPath = pathRelativizer.outputDirToRootRelative(prefixHeaderRelative);
@@ -1132,19 +1146,19 @@ public class ProjectGenerator {
             Iterables.concat(
                 cxxBuckConfig.getFlags("cflags").orElse(DEFAULT_CFLAGS),
                 collectRecursiveExportedPreprocessorFlags(targetNode),
-                targetNode.getConstructorArg().compilerFlags,
-                targetNode.getConstructorArg().preprocessorFlags);
+                targetNode.getConstructorArg().getCompilerFlags(),
+                targetNode.getConstructorArg().getPreprocessorFlags());
         Iterable<String> otherCxxFlags =
             Iterables.concat(
                 cxxBuckConfig.getFlags("cxxflags").orElse(DEFAULT_CXXFLAGS),
                 collectRecursiveExportedPreprocessorFlags(targetNode),
-                targetNode.getConstructorArg().compilerFlags,
-                targetNode.getConstructorArg().preprocessorFlags);
+                targetNode.getConstructorArg().getCompilerFlags(),
+                targetNode.getConstructorArg().getPreprocessorFlags());
         ImmutableList<String> otherLdFlags =
             convertStringWithMacros(
                 targetNode,
                 Iterables.concat(
-                    targetNode.getConstructorArg().linkerFlags,
+                    targetNode.getConstructorArg().getLinkerFlags(),
                     collectRecursiveExportedLinkerFlags(targetNode)));
 
         appendConfigsBuilder
@@ -1162,8 +1176,11 @@ public class ProjectGenerator {
             ImmutableMultimap.builder();
         for (Pair<Pattern, ImmutableList<String>> flags :
             Iterables.concat(
-                targetNode.getConstructorArg().platformCompilerFlags.getPatternsAndValues(),
-                targetNode.getConstructorArg().platformPreprocessorFlags.getPatternsAndValues(),
+                targetNode.getConstructorArg().getPlatformCompilerFlags().getPatternsAndValues(),
+                targetNode
+                    .getConstructorArg()
+                    .getPlatformPreprocessorFlags()
+                    .getPatternsAndValues(),
                 collectRecursiveExportedPlatformPreprocessorFlags(targetNode))) {
           String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
           platformFlagsBuilder.put(sdk, flags.getSecond());
@@ -1194,7 +1211,7 @@ public class ProjectGenerator {
             ImmutableMultimap.builder();
         for (Pair<Pattern, ImmutableList<StringWithMacros>> flags :
             Iterables.concat(
-                targetNode.getConstructorArg().platformLinkerFlags.getPatternsAndValues(),
+                targetNode.getConstructorArg().getPlatformLinkerFlags().getPatternsAndValues(),
                 collectRecursiveExportedPlatformLinkerFlags(targetNode))) {
           String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
           platformLinkerFlagsBuilder.put(
@@ -1232,14 +1249,15 @@ public class ProjectGenerator {
     createHeaderSymlinkTree(
         getPublicCxxHeaders(targetNode),
         getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC),
-        arg.xcodePublicHeadersSymlinks.orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled())
+        arg.getXcodePublicHeadersSymlinks().orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled())
             || isHeaderMapDisabled(),
         !shouldMergeHeaderMaps());
     if (isFocusedOnTarget) {
       createHeaderSymlinkTree(
           getPrivateCxxHeaders(targetNode),
           getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PRIVATE),
-          arg.xcodePrivateHeadersSymlinks.orElse(cxxBuckConfig.getPrivateHeadersSymlinksEnabled())
+          arg.getXcodePrivateHeadersSymlinks()
+                  .orElse(cxxBuckConfig.getPrivateHeadersSymlinksEnabled())
               || isHeaderMapDisabled(),
           !isHeaderMapDisabled());
     }
@@ -1262,6 +1280,33 @@ public class ProjectGenerator {
     }
 
     return target;
+  }
+
+  private void addPBXTargetDependency(PBXNativeTarget pbxTarget, BuildTarget dependency) {
+    // Xcode appears to only support target dependencies if both targets are within the same project.
+    // If the desired target dependency is not in the same project, then just ignore it.
+    if (!isBuiltByCurrentProject(dependency)) {
+      return;
+    }
+
+    targetNodeToProjectTarget
+        .getUnchecked(targetGraph.get(dependency))
+        .ifPresent(
+            dependencyPBXTarget -> {
+              if (project.getGlobalID() == null) {
+                project.setGlobalID(project.generateGid(gidGenerator));
+              }
+              if (dependencyPBXTarget.getGlobalID() == null) {
+                dependencyPBXTarget.setGlobalID(dependencyPBXTarget.generateGid(gidGenerator));
+              }
+              PBXContainerItemProxy dependencyProxy =
+                  new PBXContainerItemProxy(
+                      project,
+                      dependencyPBXTarget.getGlobalID(),
+                      PBXContainerItemProxy.ProxyType.TARGET_REFERENCE);
+
+              pbxTarget.getDependencies().add(new PBXTargetDependency(dependencyProxy));
+            });
   }
 
   private ImmutableMap<String, String> getFrameworkAndLibrarySearchPathConfigs(
@@ -1323,14 +1368,14 @@ public class ProjectGenerator {
               // If the item itself is a prebuilt framework, add it to framework_search_paths.
               // This is needed for prebuilt framework's headers to be reference-able.
               castedNode
-                  .castArg(PrebuiltAppleFrameworkDescription.Arg.class)
+                  .castArg(PrebuiltAppleFrameworkDescriptionArg.class)
                   .ifPresent(
                       prebuilt -> {
                         frameworkSearchPaths.add(
                             "$REPO_ROOT/"
-                                + resolveSourcePath(prebuilt.getConstructorArg().framework)
+                                + resolveSourcePath(prebuilt.getConstructorArg().getFramework())
                                     .getParent());
-                        if (prebuilt.getConstructorArg().preferredLinkage
+                        if (prebuilt.getConstructorArg().getPreferredLinkage()
                             != NativeLinkable.Linkage.STATIC) {
                           // Frameworks that are copied into the binary.
                           ldRunpathSearchPaths.add("@executable_path/Frameworks");
@@ -1349,9 +1394,9 @@ public class ProjectGenerator {
   }
 
   private void addGenruleFiles(
-      PBXProject project, TargetNode<AbstractGenruleDescription.Arg, ?> targetNode) {
+      PBXProject project, TargetNode<AbstractGenruleDescription.CommonArg, ?> targetNode) {
     PBXGroup group = project.getMainGroup();
-    for (SourcePath sourcePath : targetNode.getConstructorArg().srcs) {
+    for (SourcePath sourcePath : targetNode.getConstructorArg().getSrcs()) {
       Path path = pathRelativizer.outputPathToSourcePath(sourcePath);
       ImmutableList<String> targetGroupPath = null;
       PBXGroup sourceGroup = group.getOrCreateChildGroupByName("Other");
@@ -1370,8 +1415,8 @@ public class ProjectGenerator {
   }
 
   private ImmutableSortedMap<Path, SourcePath> getPublicCxxHeaders(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode) {
-    CxxLibraryDescription.Arg arg = targetNode.getConstructorArg();
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
+    CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
     if (arg instanceof AppleNativeTargetDescriptionArg) {
       if (isModularAppleFramework(targetNode)) {
         // Modular targets should not include Buck-generated hmaps as they break the VFS overlay
@@ -1408,8 +1453,8 @@ public class ProjectGenerator {
   }
 
   private ImmutableSortedMap<Path, SourcePath> getPrivateCxxHeaders(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode) {
-    CxxLibraryDescription.Arg arg = targetNode.getConstructorArg();
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
+    CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
     if (arg instanceof AppleNativeTargetDescriptionArg) {
       Path headerPathPrefix =
           AppleDescriptions.getHeaderPathPrefix(
@@ -1452,12 +1497,12 @@ public class ProjectGenerator {
     Optional<ImmutableSortedMap<String, ImmutableMap<String, String>>> configs = Optional.empty();
     Optional<TargetNode<AppleNativeTargetDescriptionArg, ?>> appleTargetNode =
         targetNode.castArg(AppleNativeTargetDescriptionArg.class);
-    Optional<TargetNode<HalideLibraryDescription.Arg, ?>> halideTargetNode =
-        targetNode.castArg(HalideLibraryDescription.Arg.class);
+    Optional<TargetNode<HalideLibraryDescriptionArg, ?>> halideTargetNode =
+        targetNode.castArg(HalideLibraryDescriptionArg.class);
     if (appleTargetNode.isPresent()) {
-      configs = Optional.of(appleTargetNode.get().getConstructorArg().configs);
+      configs = Optional.of(appleTargetNode.get().getConstructorArg().getConfigs());
     } else if (halideTargetNode.isPresent()) {
-      configs = Optional.of(halideTargetNode.get().getConstructorArg().configs);
+      configs = Optional.of(halideTargetNode.get().getConstructorArg().getConfigs());
     }
     if (!configs.isPresent()
         || (configs.isPresent() && configs.get().isEmpty())
@@ -1494,7 +1539,7 @@ public class ProjectGenerator {
   }
 
   private void addCoreDataModelsIntoTarget(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode, PBXGroup targetGroup)
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode, PBXGroup targetGroup)
       throws IOException {
     addCoreDataModelBuildPhase(
         targetGroup,
@@ -1506,7 +1551,7 @@ public class ProjectGenerator {
   }
 
   private void addSceneKitAssetsIntoTarget(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode, PBXGroup targetGroup) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode, PBXGroup targetGroup) {
     ImmutableSet<AppleWrapperResourceArg> allSceneKitAssets =
         AppleBuildRules.collectTransitiveBuildRules(
             targetGraph,
@@ -1520,7 +1565,7 @@ public class ProjectGenerator {
       resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
           new SourceTreePath(
               PBXReference.SourceTree.SOURCE_ROOT,
-              pathRelativizer.outputDirToRootRelative(sceneKitAssets.path),
+              pathRelativizer.outputDirToRootRelative(sceneKitAssets.getPath()),
               Optional.empty()));
     }
   }
@@ -1648,11 +1693,11 @@ public class ProjectGenerator {
 
   /** Adds the set of headers defined by headerVisibility to the merged header maps. */
   private void addToMergedHeaderMap(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
       HeaderMap.Builder headerMapBuilder) {
-    CxxLibraryDescription.Arg arg = targetNode.getConstructorArg();
+    CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
     boolean shouldCreateHeadersSymlinks =
-        arg.xcodePublicHeadersSymlinks.orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled());
+        arg.getXcodePublicHeadersSymlinks().orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled());
     Path headerSymlinkTreeRoot = getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC);
 
     Path basePath;
@@ -1680,7 +1725,7 @@ public class ProjectGenerator {
   private void createMergedHeaderMap() throws IOException {
     HeaderMap.Builder headerMapBuilder = new HeaderMap.Builder();
 
-    Set<TargetNode<? extends CxxLibraryDescription.Arg, ?>> processedNodes = new HashSet<>();
+    Set<TargetNode<? extends CxxLibraryDescription.CommonArg, ?>> processedNodes = new HashSet<>();
 
     for (TargetNode<?, ?> targetNode : targetGraph.getAll(targetsInRequiredProjects)) {
       // Includes the public headers of the dependencies in the merged header map.
@@ -1823,15 +1868,15 @@ public class ProjectGenerator {
             resourcesGroup.getOrCreateChildVersionGroupsBySourceTreePath(
                 new SourceTreePath(
                     PBXReference.SourceTree.SOURCE_ROOT,
-                    pathRelativizer.outputDirToRootRelative(dataModel.path),
+                    pathRelativizer.outputDirToRootRelative(dataModel.getPath()),
                     Optional.empty()));
 
         projectFilesystem.walkRelativeFileTree(
-            dataModel.path,
+            dataModel.getPath(),
             new SimpleFileVisitor<Path>() {
               @Override
               public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                if (dir.equals(dataModel.path)) {
+                if (dir.equals(dataModel.getPath())) {
                   return FileVisitResult.CONTINUE;
                 }
                 versionGroup.getOrCreateFileReferenceBySourceTreePath(
@@ -1843,7 +1888,7 @@ public class ProjectGenerator {
               }
             });
 
-        Path currentVersionPath = dataModel.path.resolve(currentVersionFileName);
+        Path currentVersionPath = dataModel.getPath().resolve(currentVersionFileName);
         try (InputStream in = projectFilesystem.newFileInputStream(currentVersionPath)) {
           NSObject rootObject;
           try {
@@ -1866,7 +1911,7 @@ public class ProjectGenerator {
                   new SourceTreePath(
                       PBXReference.SourceTree.SOURCE_ROOT,
                       pathRelativizer.outputDirToRootRelative(
-                          dataModel.path.resolve(currentVersionName.toString())),
+                          dataModel.getPath().resolve(currentVersionName.toString())),
                       Optional.empty()));
           versionGroup.setCurrentVersion(Optional.of(ref));
         } catch (NoSuchFileException e) {
@@ -1879,7 +1924,7 @@ public class ProjectGenerator {
         resourcesGroup.getOrCreateFileReferenceBySourceTreePath(
             new SourceTreePath(
                 PBXReference.SourceTree.SOURCE_ROOT,
-                pathRelativizer.outputDirToRootRelative(dataModel.path),
+                pathRelativizer.outputDirToRootRelative(dataModel.getPath()),
                 Optional.empty()));
       }
     }
@@ -1887,9 +1932,9 @@ public class ProjectGenerator {
 
   private Optional<CopyFilePhaseDestinationSpec> getDestinationSpec(TargetNode<?, ?> targetNode) {
     if (targetNode.getDescription() instanceof AppleBundleDescription) {
-      AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) targetNode.getConstructorArg();
+      AppleBundleDescriptionArg arg = (AppleBundleDescriptionArg) targetNode.getConstructorArg();
       AppleBundleExtension extension =
-          arg.extension.isLeft() ? arg.extension.getLeft() : AppleBundleExtension.BUNDLE;
+          arg.getExtension().isLeft() ? arg.getExtension().getLeft() : AppleBundleExtension.BUNDLE;
       switch (extension) {
         case FRAMEWORK:
           return Optional.of(
@@ -1912,6 +1957,12 @@ public class ProjectGenerator {
         case BUNDLE:
           return Optional.of(
               CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PLUGINS));
+        case XPC:
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.builder()
+                  .setDestination(PBXCopyFilesBuildPhase.Destination.XPC)
+                  .setPath("$(CONTENTS_FOLDER_PATH)/XPCServices")
+                  .build());
           //$CASES-OMITTED$
         default:
           return Optional.of(
@@ -2000,9 +2051,7 @@ public class ProjectGenerator {
 
   /** Create the project bundle structure and write {@code project.pbxproj}. */
   private void writeProjectFile(PBXProject project) throws IOException {
-    XcodeprojSerializer serializer =
-        new XcodeprojSerializer(
-            new GidGenerator(ImmutableSet.copyOf(gidsToTargetNames.keySet())), project);
+    XcodeprojSerializer serializer = new XcodeprojSerializer(gidGenerator, project);
     NSDictionary rootObject = serializer.toPlist();
     Path xcodeprojDir = outputDirectory.resolve(projectName + ".xcodeproj");
     projectFilesystem.mkdirs(xcodeprojDir);
@@ -2031,7 +2080,7 @@ public class ProjectGenerator {
 
   /** @param targetNode Must have a header symlink tree or an exception will be thrown. */
   private Path getHeaderSymlinkTreeRelativePath(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
       HeaderVisibility headerVisibility) {
     Path treeRoot = getPathToHeaderSymlinkTree(targetNode, headerVisibility);
     Path cellRoot =
@@ -2063,7 +2112,7 @@ public class ProjectGenerator {
     if (targetNode.getDescription() instanceof AppleBinaryDescription
         || targetNode.getDescription() instanceof AppleTestDescription
         || (targetNode.getDescription() instanceof AppleBundleDescription
-            && !isFrameworkBundle((AppleBundleDescription.Arg) targetNode.getConstructorArg()))) {
+            && !isFrameworkBundle((AppleBundleDescriptionArg) targetNode.getConstructorArg()))) {
       // TODO(grp): These should be inside the path below. Right now, that causes issues with
       // bundle loader paths hardcoded in .xcconfig files that don't expect the full target path.
       // It also causes issues where Xcode doesn't know where to look for a final .app to run it.
@@ -2081,35 +2130,35 @@ public class ProjectGenerator {
   }
 
   @SuppressWarnings("unchecked")
-  private static Optional<TargetNode<CxxLibraryDescription.Arg, ?>> getAppleNativeNodeOfType(
+  private static Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> getAppleNativeNodeOfType(
       TargetGraph targetGraph,
       TargetNode<?, ?> targetNode,
       Set<Class<? extends Description<?>>> nodeTypes,
       Set<AppleBundleExtension> bundleExtensions) {
-    Optional<TargetNode<CxxLibraryDescription.Arg, ?>> nativeNode = Optional.empty();
+    Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> nativeNode = Optional.empty();
     if (nodeTypes.contains(targetNode.getDescription().getClass())) {
-      nativeNode = Optional.of((TargetNode<CxxLibraryDescription.Arg, ?>) targetNode);
+      nativeNode = Optional.of((TargetNode<CxxLibraryDescription.CommonArg, ?>) targetNode);
     } else if (targetNode.getDescription() instanceof AppleBundleDescription) {
-      TargetNode<AppleBundleDescription.Arg, ?> bundle =
-          (TargetNode<AppleBundleDescription.Arg, ?>) targetNode;
+      TargetNode<AppleBundleDescriptionArg, ?> bundle =
+          (TargetNode<AppleBundleDescriptionArg, ?>) targetNode;
       Either<AppleBundleExtension, String> extension = bundle.getConstructorArg().getExtension();
       if (extension.isLeft() && bundleExtensions.contains(extension.getLeft())) {
         nativeNode =
             Optional.of(
-                (TargetNode<CxxLibraryDescription.Arg, ?>)
-                    targetGraph.get(bundle.getConstructorArg().binary));
+                (TargetNode<CxxLibraryDescription.CommonArg, ?>)
+                    targetGraph.get(bundle.getConstructorArg().getBinary()));
       }
     }
     return nativeNode;
   }
 
-  private static Optional<TargetNode<CxxLibraryDescription.Arg, ?>> getAppleNativeNode(
+  private static Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> getAppleNativeNode(
       TargetGraph targetGraph, TargetNode<?, ?> targetNode) {
     return getAppleNativeNodeOfType(
         targetGraph, targetNode, APPLE_NATIVE_DESCRIPTION_CLASSES, APPLE_NATIVE_BUNDLE_EXTENSIONS);
   }
 
-  private static Optional<TargetNode<CxxLibraryDescription.Arg, ?>> getLibraryNode(
+  private static Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> getLibraryNode(
       TargetGraph targetGraph, TargetNode<?, ?> targetNode) {
     return getAppleNativeNodeOfType(
         targetGraph,
@@ -2119,7 +2168,7 @@ public class ProjectGenerator {
   }
 
   private ImmutableSet<Path> collectRecursiveHeaderSearchPaths(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
 
     if (shouldMergeHeaderMaps()) {
@@ -2149,7 +2198,7 @@ public class ProjectGenerator {
 
   @SuppressWarnings("unchecked")
   private ImmutableSet<Path> collectRecursiveHalideLibraryHeaderPaths(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
     for (TargetNode<?, ?> input :
         AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2158,8 +2207,8 @@ public class ProjectGenerator {
             AppleBuildRules.RecursiveDependenciesMode.BUILDING,
             targetNode,
             Optional.of(ImmutableSet.of(HalideLibraryDescription.class)))) {
-      TargetNode<HalideLibraryDescription.Arg, ?> halideNode =
-          (TargetNode<HalideLibraryDescription.Arg, ?>) input;
+      TargetNode<HalideLibraryDescriptionArg, ?> halideNode =
+          (TargetNode<HalideLibraryDescriptionArg, ?>) input;
       BuildTarget buildTarget = halideNode.getBuildTarget();
       builder.add(
           pathRelativizer.outputDirToRootRelative(
@@ -2168,15 +2217,16 @@ public class ProjectGenerator {
                           HalideLibraryDescription.HALIDE_COMPILE_FLAVOR,
                           defaultCxxPlatform.getFlavor()),
                       projectFilesystem,
-                      halideNode.getConstructorArg().functionName)
+                      halideNode.getConstructorArg().getFunctionName())
                   .getParent()));
     }
     return builder.build();
   }
 
   private void visitRecursiveHeaderSymlinkTrees(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
-      BiConsumer<TargetNode<? extends CxxLibraryDescription.Arg, ?>, HeaderVisibility> visitor) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
+      BiConsumer<TargetNode<? extends CxxLibraryDescription.CommonArg, ?>, HeaderVisibility>
+          visitor) {
     // Visits public and private headers from current target.
     visitor.accept(targetNode, HeaderVisibility.PRIVATE);
     visitor.accept(targetNode, HeaderVisibility.PUBLIC);
@@ -2197,13 +2247,14 @@ public class ProjectGenerator {
   }
 
   private void visitRecursivePrivateHeaderSymlinkTreesForTests(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
-      BiConsumer<TargetNode<? extends CxxLibraryDescription.Arg, ?>, HeaderVisibility> visitor) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
+      BiConsumer<TargetNode<? extends CxxLibraryDescription.CommonArg, ?>, HeaderVisibility>
+          visitor) {
     // Visits headers of source under tests.
     ImmutableSet<TargetNode<?, ?>> directDependencies =
         ImmutableSet.copyOf(targetGraph.getAll(targetNode.getBuildDeps()));
     for (TargetNode<?, ?> dependency : directDependencies) {
-      Optional<TargetNode<CxxLibraryDescription.Arg, ?>> nativeNode =
+      Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> nativeNode =
           getAppleNativeNode(targetGraph, dependency);
       if (nativeNode.isPresent() && isSourceUnderTest(dependency, nativeNode.get(), targetNode)) {
         visitor.accept(nativeNode.get(), HeaderVisibility.PRIVATE);
@@ -2212,7 +2263,7 @@ public class ProjectGenerator {
   }
 
   private ImmutableSet<Path> collectRecursiveHeaderSymlinkTrees(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
     visitRecursiveHeaderSymlinkTrees(
         targetNode,
@@ -2224,7 +2275,7 @@ public class ProjectGenerator {
 
   private boolean isSourceUnderTest(
       TargetNode<?, ?> dependencyNode,
-      TargetNode<CxxLibraryDescription.Arg, ?> nativeNode,
+      TargetNode<CxxLibraryDescription.CommonArg, ?> nativeNode,
       TargetNode<?, ?> testNode) {
     boolean isSourceUnderTest =
         nativeNode.getConstructorArg().getTests().contains(testNode.getBuildTarget());
@@ -2256,7 +2307,7 @@ public class ProjectGenerator {
         .transformAndConcat(
             input -> {
               // Libraries and bundles which has system frameworks and libraries.
-              Optional<TargetNode<CxxLibraryDescription.Arg, ?>> library =
+              Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> library =
                   getLibraryNode(targetGraph, input);
               if (library.isPresent()
                   && !AppleLibraryDescription.isNotStaticallyLinkedLibraryNode(library.get())) {
@@ -2265,14 +2316,15 @@ public class ProjectGenerator {
                     library.get().getConstructorArg().getLibraries());
               }
 
-              Optional<TargetNode<PrebuiltAppleFrameworkDescription.Arg, ?>> prebuilt =
-                  input.castArg(PrebuiltAppleFrameworkDescription.Arg.class);
+              Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg, ?>> prebuilt =
+                  input.castArg(PrebuiltAppleFrameworkDescriptionArg.class);
               if (prebuilt.isPresent()) {
                 return Iterables.concat(
                     prebuilt.get().getConstructorArg().getFrameworks(),
                     prebuilt.get().getConstructorArg().getLibraries(),
                     ImmutableList.of(
-                        FrameworkPath.ofSourcePath(prebuilt.get().getConstructorArg().framework)));
+                        FrameworkPath.ofSourcePath(
+                            prebuilt.get().getConstructorArg().getFramework())));
               }
 
               return ImmutableList.of();
@@ -2291,8 +2343,8 @@ public class ProjectGenerator {
         .transformAndConcat(
             input ->
                 input
-                    .castArg(CxxLibraryDescription.Arg.class)
-                    .map(input1 -> input1.getConstructorArg().exportedPreprocessorFlags)
+                    .castArg(CxxLibraryDescription.CommonArg.class)
+                    .map(input1 -> input1.getConstructorArg().getExportedPreprocessorFlags())
                     .orElse(ImmutableList.of()));
   }
 
@@ -2309,12 +2361,12 @@ public class ProjectGenerator {
         .transformAndConcat(
             input ->
                 input
-                    .castArg(CxxLibraryDescription.Arg.class)
+                    .castArg(CxxLibraryDescription.CommonArg.class)
                     .map(
                         input1 ->
                             input1
                                 .getConstructorArg()
-                                .exportedPlatformPreprocessorFlags
+                                .getExportedPlatformPreprocessorFlags()
                                 .getPatternsAndValues())
                     .orElse(ImmutableList.of()));
   }
@@ -2335,8 +2387,8 @@ public class ProjectGenerator {
         .transformAndConcat(
             input ->
                 input
-                    .castArg(CxxLibraryDescription.Arg.class)
-                    .map(input1 -> input1.getConstructorArg().exportedLinkerFlags)
+                    .castArg(CxxLibraryDescription.CommonArg.class)
+                    .map(input1 -> input1.getConstructorArg().getExportedLinkerFlags())
                     .orElse(ImmutableList.of()))
         .toList();
   }
@@ -2357,12 +2409,12 @@ public class ProjectGenerator {
         .transformAndConcat(
             input ->
                 input
-                    .castArg(CxxLibraryDescription.Arg.class)
+                    .castArg(CxxLibraryDescription.CommonArg.class)
                     .map(
                         input1 ->
                             input1
                                 .getConstructorArg()
-                                .exportedPlatformLinkerFlags
+                                .getExportedPlatformLinkerFlags()
                                 .getPatternsAndValues())
                     .orElse(ImmutableList.of()));
   }
@@ -2403,12 +2455,12 @@ public class ProjectGenerator {
     } else if (targetNode.getDescription() instanceof AppleBinaryDescription) {
       productOutputName = productName;
     } else if (targetNode.getDescription() instanceof PrebuiltAppleFrameworkDescription) {
-      PrebuiltAppleFrameworkDescription.Arg arg =
-          (PrebuiltAppleFrameworkDescription.Arg) targetNode.getConstructorArg();
+      PrebuiltAppleFrameworkDescriptionArg arg =
+          (PrebuiltAppleFrameworkDescriptionArg) targetNode.getConstructorArg();
       // Prebuilt frameworks reside in the source repo, not outputs dir.
       return new SourceTreePath(
           PBXReference.SourceTree.SOURCE_ROOT,
-          pathRelativizer.outputPathToSourcePath(arg.framework),
+          pathRelativizer.outputPathToSourcePath(arg.getFramework()),
           Optional.empty());
     } else {
       throw new RuntimeException("Unexpected type: " + targetNode.getDescription().getClass());
@@ -2489,9 +2541,9 @@ public class ProjectGenerator {
           return ProductType.APPLICATION;
         }
       } else if (binaryNode.getDescription() instanceof AppleTestDescription) {
-        TargetNode<AppleTestDescription.Arg, ?> testNode =
-            binaryNode.castArg(AppleTestDescription.Arg.class).get();
-        if (testNode.getConstructorArg().isUiTest()) {
+        TargetNode<AppleTestDescriptionArg, ?> testNode =
+            binaryNode.castArg(AppleTestDescriptionArg.class).get();
+        if (testNode.getConstructorArg().getIsUiTest()) {
           return ProductType.UI_TEST;
         } else {
           return ProductType.UNIT_TEST;
@@ -2516,11 +2568,11 @@ public class ProjectGenerator {
   }
 
   private static boolean isModularAppleFramework(TargetNode<?, ?> libraryNode) {
-    Optional<TargetNode<AppleLibraryDescription.Arg, ?>> appleLibNode =
-        libraryNode.castArg(AppleLibraryDescription.Arg.class);
+    Optional<TargetNode<AppleLibraryDescriptionArg, ?>> appleLibNode =
+        libraryNode.castArg(AppleLibraryDescriptionArg.class);
     if (appleLibNode.isPresent()) {
-      AppleLibraryDescription.Arg constructorArg = appleLibNode.get().getConstructorArg();
-      return constructorArg.modular;
+      AppleLibraryDescriptionArg constructorArg = appleLibNode.get().getConstructorArg();
+      return constructorArg.isModular();
     }
 
     return false;
@@ -2533,7 +2585,7 @@ public class ProjectGenerator {
 
   private static boolean bundleRequiresAllTransitiveFrameworks(
       TargetNode<? extends AppleNativeTargetDescriptionArg, ?> binaryNode) {
-    return binaryNode.castArg(AppleBinaryDescription.Arg.class).isPresent();
+    return binaryNode.castArg(AppleBinaryDescriptionArg.class).isPresent();
   }
 
   private Path resolveSourcePath(SourcePath sourcePath) {
@@ -2541,11 +2593,11 @@ public class ProjectGenerator {
       return projectFilesystem.relativize(defaultPathResolver.getAbsolutePath(sourcePath));
     }
     Preconditions.checkArgument(sourcePath instanceof BuildTargetSourcePath);
-    BuildTargetSourcePath<?> buildTargetSourcePath = (BuildTargetSourcePath<?>) sourcePath;
+    BuildTargetSourcePath buildTargetSourcePath = (BuildTargetSourcePath) sourcePath;
     BuildTarget buildTarget = buildTargetSourcePath.getTarget();
     TargetNode<?, ?> node = targetGraph.get(buildTarget);
-    Optional<TargetNode<ExportFileDescription.Arg, ?>> exportFileNode =
-        node.castArg(ExportFileDescription.Arg.class);
+    Optional<TargetNode<ExportFileDescriptionArg, ?>> exportFileNode =
+        node.castArg(ExportFileDescriptionArg.class);
     if (!exportFileNode.isPresent()) {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(node);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -2559,7 +2611,7 @@ public class ProjectGenerator {
       return projectFilesystem.relativize(output);
     }
 
-    Optional<SourcePath> src = exportFileNode.get().getConstructorArg().src;
+    Optional<SourcePath> src = exportFileNode.get().getConstructorArg().getSrc();
     if (!src.isPresent()) {
       Path output =
           buildTarget
@@ -2577,11 +2629,12 @@ public class ProjectGenerator {
       return true;
     }
 
-    Optional<TargetNode<CxxLibraryDescription.Arg, ?>> library = getLibraryNode(targetGraph, input);
+    Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> library =
+        getLibraryNode(targetGraph, input);
     if (!library.isPresent()) {
       return false;
     }
-    return (library.get().getConstructorArg().srcs.size() != 0);
+    return (library.get().getConstructorArg().getSrcs().size() != 0);
   }
 
   /** @return product type of a bundle containing a dylib. */
@@ -2610,7 +2663,7 @@ public class ProjectGenerator {
    */
   private static boolean isWatchApplicationNode(TargetNode<?, ?> targetNode) {
     if (targetNode.getDescription() instanceof AppleBundleDescription) {
-      AppleBundleDescription.Arg arg = (AppleBundleDescription.Arg) targetNode.getConstructorArg();
+      AppleBundleDescriptionArg arg = (AppleBundleDescriptionArg) targetNode.getConstructorArg();
       return arg.getXcodeProductType()
           .equals(Optional.of(ProductType.WATCH_APPLICATION.getIdentifier()));
     }
@@ -2622,7 +2675,7 @@ public class ProjectGenerator {
   }
 
   private Path getPathToHeadersPath(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode, String suffix) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode, String suffix) {
     String hashedPath =
         BaseEncoding.base64Url()
             .omitPadding()
@@ -2640,7 +2693,7 @@ public class ProjectGenerator {
   }
 
   private Path getPathToHeaderSymlinkTree(
-      TargetNode<? extends CxxLibraryDescription.Arg, ?> targetNode,
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
       HeaderVisibility headerVisibility) {
     return getPathToHeadersPath(
         targetNode, AppleHeaderVisibilities.getHeaderSymlinkTreeSuffix(headerVisibility));

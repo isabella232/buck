@@ -123,7 +123,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileDoesNotExist("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
   }
 
   @Test
@@ -203,20 +203,48 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileExists("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
   }
 
   @Test
   public void testDisguisedExecutableIsRenamed() throws IOException {
-    workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
-
-    ZipInspector zipInspector =
-        new ZipInspector(
-            workspace.getPath(
-                BuildTargets.getGenPath(
-                    filesystem, BuildTargetFactory.newInstance(SIMPLE_TARGET), "%s.apk")));
-
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_disguised_exe");
+    ZipInspector zipInspector = new ZipInspector(output);
     zipInspector.assertFileExists("lib/armeabi/libmybinary.so");
+  }
+
+  @Test
+  public void testNdkLibraryIsIncluded() throws IOException {
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_ndk_library");
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+  }
+
+  @Test
+  public void testEditingNdkLibraryForcesRebuild() throws IOException, InterruptedException {
+    String apkWithNdkLibrary = "//apps/sample:app_with_ndk_library";
+    Path output = workspace.buildAndReturnOutput(apkWithNdkLibrary);
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+
+    // Sleep 1 second (plus another half to be super duper safe) to make sure that
+    // fakesystem.c gets a later timestamp than the fakesystem.o that was produced
+    // during the build in setUp.  If we don't do this, there's a chance that the
+    // ndk-build we run during the upcoming build will not rebuild it (on filesystems
+    // that have 1-second granularity for last modified).
+    // To verify this, create a Makefile with the following rule (don't forget to use a tab):
+    // out: in
+    //   cat $< > $@
+    // Run: echo foo > in ; make ; cat out ; echo bar > in ; make ; cat out
+    // On a filesystem with 1-second mtime granularity, the last "cat" should print "foo"
+    // (with very high probability).
+    Thread.sleep(1500);
+    workspace.replaceFileContents(
+        "native/fakenative/jni/fakesystem.c", "exit(status)", "exit(1+status)");
+
+    workspace.resetBuildLogFile();
+    workspace.buildAndReturnOutput(apkWithNdkLibrary);
+    workspace.getBuildLog().assertTargetBuiltLocally(apkWithNdkLibrary);
   }
 
   @Test
@@ -465,9 +493,10 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
         workspace.buildMultipleAndReturnOutputs(
             "//apps/sample:app_with_merged_libs",
             "//apps/sample:app_with_alternate_merge_glue",
+            "//apps/sample:app_with_alternate_merge_glue_and_localized_symbols",
             "//apps/sample:app_with_merged_libs_modular");
-    Path apkPath = paths.get("//apps/sample:app_with_merged_libs");
 
+    Path apkPath = paths.get("//apps/sample:app_with_merged_libs");
     ZipInspector zipInspector = new ZipInspector(apkPath);
     zipInspector.assertFileDoesNotExist("lib/x86/lib1a.so");
     zipInspector.assertFileDoesNotExist("lib/x86/lib1b.so");
@@ -512,6 +541,12 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     assertThat(info.symbols.global, not(Matchers.hasItem("glue_1")));
     assertThat(info.symbols.global, Matchers.hasItem("glue_2"));
     assertThat(info.dtNeeded, Matchers.hasItem("libprebuilt_for_F.so"));
+
+    Path localizePath =
+        paths.get("//apps/sample:app_with_alternate_merge_glue_and_localized_symbols");
+    info = syms.getSymbolsAndDtNeeded(localizePath, "lib/x86/lib2.so");
+    assertThat(info.symbols.global, not(Matchers.hasItem("glue_1")));
+    assertThat(info.symbols.global, not(Matchers.hasItem("glue_2")));
 
     Path modularPath = paths.get("//apps/sample:app_with_merged_libs_modular");
     ZipInspector modularZipInspector = new ZipInspector(modularPath);
@@ -922,6 +957,8 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileExists("res/drawable/tiny_black.png");
     zipInspector.assertFileExists("res/layout/top_layout.xml");
     zipInspector.assertFileExists("assets/asset_file.txt");
+
+    zipInspector.assertFileIsNotCompressed("res/drawable/tiny_black.png");
 
     Map<String, String> rDotJavaContents =
         parseRDotJavaSmali(outputs.get("//apps/sample:disassemble_app_with_aapt2"));

@@ -24,9 +24,10 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.artifact_cache.HttpArtifactCacheEventFetchData;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
@@ -141,8 +142,7 @@ public class ChromeTraceBuildListenerTest {
             new FakeClock(TIMESTAMP_NANOS),
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
-            /* tracesToKeep */ 3,
-            false);
+            chromeTraceConfig(3, false));
 
     listener.outputTrace(invocationInfo.getBuildId());
 
@@ -174,8 +174,7 @@ public class ChromeTraceBuildListenerTest {
             new FakeClock(TIMESTAMP_NANOS),
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
-            /* tracesToKeep */ 42,
-            false);
+            chromeTraceConfig(42, false));
 
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
 
@@ -216,13 +215,11 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(buildEventStarted);
 
     HttpArtifactCacheEvent.Started artifactCacheEventStarted =
-        HttpArtifactCacheEvent.newFetchStartedEvent(ruleKey);
+        ArtifactCacheTestUtils.newFetchStartedEvent(ruleKey);
     eventBus.post(artifactCacheEventStarted);
     eventBus.post(
-        HttpArtifactCacheEvent.newFinishedEventBuilder(artifactCacheEventStarted)
-            .setFetchDataBuilder(
-                HttpArtifactCacheEventFetchData.builder().setFetchResult(CacheResult.hit("http")))
-            .build());
+        ArtifactCacheTestUtils.newFetchFinishedEvent(
+            artifactCacheEventStarted, CacheResult.hit("http", ArtifactCacheMode.http)));
 
     ArtifactCompressionEvent.Started artifactCompressionStartedEvent =
         ArtifactCompressionEvent.started(
@@ -248,17 +245,12 @@ public class ChromeTraceBuildListenerTest {
             target, annotationProcessorName, operation, annotationRound, isLastRound);
     eventBus.post(annotationProcessingEventStarted);
 
-    HttpArtifactCacheEvent.Scheduled httpScheduled =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(
-            Optional.of("TARGET_ONE"), ImmutableSet.of(ruleKey));
     HttpArtifactCacheEvent.Started httpStarted =
-        HttpArtifactCacheEvent.newStoreStartedEvent(httpScheduled);
-
+        ArtifactCacheTestUtils.newUploadStartedEvent(
+            new BuildId("horse"), Optional.of("TARGET_ONE"), ImmutableSet.of(ruleKey));
     eventBus.post(httpStarted);
-
     HttpArtifactCacheEvent.Finished httpFinished =
-        HttpArtifactCacheEvent.newFinishedEventBuilder(httpStarted).build();
-
+        ArtifactCacheTestUtils.newFinishedEvent(httpStarted, false);
     eventBus.post(httpFinished);
 
     final CompilerPluginDurationEvent.Started processingPartOneStarted =
@@ -282,6 +274,7 @@ public class ChromeTraceBuildListenerTest {
             CacheResult.miss(),
             Optional.empty(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+            false,
             Optional.empty(),
             Optional.empty(),
             Optional.empty()));
@@ -479,8 +472,7 @@ public class ChromeTraceBuildListenerTest {
               new FakeClock(TIMESTAMP_NANOS),
               Locale.US,
               TimeZone.getTimeZone("America/Los_Angeles"),
-              /* tracesToKeep */ 3,
-              false);
+              chromeTraceConfig(3, false));
       listener.outputTrace(invocationInfo.getBuildId());
       fail("Expected an exception.");
     } catch (HumanReadableException e) {
@@ -504,8 +496,7 @@ public class ChromeTraceBuildListenerTest {
             new FakeClock(TIMESTAMP_NANOS),
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
-            /* tracesToKeep */ 1,
-            false);
+            chromeTraceConfig(1, false));
     listener.outputTrace(invocationInfo.getBuildId());
     assertTrue(
         projectFilesystem.exists(
@@ -523,8 +514,7 @@ public class ChromeTraceBuildListenerTest {
             new FakeClock(TIMESTAMP_NANOS),
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
-            /* tracesToKeep */ 1,
-            true);
+            chromeTraceConfig(1, true));
     listener.outputTrace(invocationInfo.getBuildId());
 
     Path tracePath = Paths.get(EXPECTED_DIR + "build.2014-09-02.16-55-51.BUILD_ID.trace.gz");
@@ -538,5 +528,19 @@ public class ChromeTraceBuildListenerTest {
 
     List<?> elements = new Gson().fromJson(reader, List.class);
     assertThat(elements, notNullValue());
+  }
+
+  private static ChromeTraceBuckConfig chromeTraceConfig(int tracesToKeep, boolean compressTraces) {
+    return ChromeTraceBuckConfig.of(
+        FakeBuckConfig.builder()
+            .setSections(
+                ImmutableMap.of(
+                    "log",
+                    ImmutableMap.of(
+                        "max_traces",
+                        Integer.toString(tracesToKeep),
+                        "compress_traces",
+                        Boolean.toString(compressTraces))))
+            .build());
   }
 }

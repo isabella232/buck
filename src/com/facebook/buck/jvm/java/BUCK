@@ -92,9 +92,19 @@ java_library(
 )
 
 java_library(
+    name = "javac-compilation-mode",
+    srcs = [
+        "JavacCompilationMode.java",
+    ],
+    visibility = ["PUBLIC"],
+    deps = [],
+)
+
+java_library(
     name = "javac-sink",
     srcs = [
         "JavacEventSink.java",
+        "JavacEventSinkScopedSimplePerfEvent.java",
     ],
     visibility = ["PUBLIC"],
     deps = [
@@ -136,6 +146,7 @@ java_immutables_library(
         "AbstractJavaOptions.java",
         "AbstractJavacExecutionContext.java",
         "AbstractJavacOptions.java",
+        "AbstractJavacPluginJsr199Fields.java",
         "AbstractJavacPluginProperties.java",
         "AbstractJavacSpec.java",
         "AbstractJavacVersion.java",
@@ -152,7 +163,6 @@ java_immutables_library(
         "DiagnosticCleaner.java",
         "DiagnosticPrettyPrinter.java",
         "DirectToJarOutputSettingsSerializer.java",
-        "DirectoryJarEntryContainer.java",
         "ExternalJavaRuntimeLauncher.java",
         "ExternalJavac.java",
         "ExternalOrJarBackedJavacProvider.java",
@@ -163,11 +173,8 @@ java_immutables_library(
         "HasSources.java",
         "JarBackedJavac.java",
         "JarBackedJavacProvider.java",
-        "JarBuilder.java",
         "JarDiffer.java",
         "JarDumper.java",
-        "JarEntryContainer.java",
-        "JarEntrySupplier.java",
         "JarFileObject.java",
         "JavaInMemoryFileManager.java",
         "JavaInMemoryFileObject.java",
@@ -182,6 +189,7 @@ java_immutables_library(
         "JdkProvidedInMemoryJavac.java",
         "Jsr199Javac.java",
         "Jsr199TracingBridge.java",
+        "LoggingJarBuilderObserver.java",
         "MavenPublishable.java",
         "NoOpClassUsageFileWriter.java",
         "OptionsConsumer.java",
@@ -192,7 +200,9 @@ java_immutables_library(
         "ResolvedJavacPluginProperties.java",
         "StandardJavaFileManagerFactory.java",
         "TracingProcessorWrapper.java",
-        "ZipFileJarEntryContainer.java",
+    ],
+    exported_deps = [
+        "//src/com/facebook/buck/jvm/java:javac-compilation-mode",
     ],
     provided_deps = [
         # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
@@ -315,7 +325,7 @@ java_library(
     ],
 )
 
-java_library(
+java_immutables_library(
     name = "rules",
     srcs = [
         "BuiltInJavac.java",

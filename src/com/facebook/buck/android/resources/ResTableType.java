@@ -17,9 +17,11 @@
 package com.facebook.buck.android.resources;
 
 import com.google.common.base.Preconditions;
+import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
+import javax.annotation.Nullable;
 
 /**
  * ResTableType is a ResChunk holding the resource values for a given type and configuration. It
@@ -47,6 +49,48 @@ public class ResTableType extends ResChunk {
   private final ByteBuffer config;
   private final ByteBuffer entryOffsets;
   private final ByteBuffer entryData;
+
+  @Nullable
+  public static ResTableType slice(ResTableType type, int count) {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    int currentOffset = 0;
+    ByteBuffer entryOffsets = wrap(new byte[count * 4]);
+    for (int i = 0; i < count; i++) {
+      int offset = type.getEntryValueOffset(i);
+      if (offset == -1) {
+        entryOffsets.putInt(i * 4, -1);
+      } else {
+        entryOffsets.putInt(i * 4, currentOffset);
+        int dataSize = type.getEntrySizeAtOffset(offset);
+        currentOffset += dataSize;
+        output.write(type.entryData.array(), type.entryData.arrayOffset() + offset, dataSize);
+      }
+    }
+
+    byte[] entryData = output.toByteArray();
+    if (entryData.length == 0) {
+      return null;
+    }
+    int headerSize = type.getHeaderSize();
+    int chunkSize = headerSize + count * 4 + entryData.length;
+
+    return new ResTableType(
+        headerSize, chunkSize, type.id, count, copy(type.config), entryOffsets, wrap(entryData));
+  }
+
+  private int getEntrySizeAtOffset(int offset) {
+    int size = entryData.getShort(offset);
+    int flags = entryData.getShort(offset + 2);
+    if ((flags & FLAG_COMPLEX) == 0) {
+      return size + entryData.getShort(offset + size);
+    } else {
+      int count = entryData.getInt(offset + 12);
+      for (int i = 0; i < count; i++) {
+        size += 4 + entryData.getShort(offset + size + 4);
+      }
+      return size;
+    }
+  }
 
   @Override
   public void put(ByteBuffer output) {
@@ -284,5 +328,148 @@ public class ResTableType extends ResChunk {
 
   public int getEntryValueOffset(int i) {
     return entryOffsets.getInt(i * 4);
+  }
+
+  public int getEntryCount() {
+    return entryCount;
+  }
+
+  public void transformKeyReferences(RefTransformer visitor) {
+    for (int i = 0; i < entryCount; i++) {
+      int offset = getEntryValueOffset(i);
+      if (offset != -1) {
+        transformEntryDataOffset(entryData, offset + 4, visitor);
+      }
+    }
+  }
+
+  public void visitKeyReferences(RefVisitor visitor) {
+    transformKeyReferences(
+        i -> {
+          visitor.visit(i);
+          return i;
+        });
+  }
+
+  private void transformStringReferencesAt(RefTransformer visitor, int offset) {
+    int flags = entryData.getShort(offset + 2);
+    if ((flags & FLAG_COMPLEX) != 0) {
+      int count = entryData.getInt(offset + 12);
+      int entryOffset = offset;
+      for (int j = 0; j < count; j++) {
+        int name = entryData.getInt(entryOffset + 16);
+        if ((name >> 24) == ResTablePackage.APP_PACKAGE_ID) {
+          Preconditions.checkState(((name >> 16) & 0xFF) != 0);
+        }
+        int vsize = entryData.getShort(entryOffset + 20);
+        int type = entryData.get(entryOffset + 23);
+        if (type == RES_STRING) {
+          transformEntryDataOffset(entryData, entryOffset + 24, visitor);
+        }
+        entryOffset += 4 + vsize;
+      }
+    } else {
+      int type = entryData.get(offset + 11);
+      if (type == RES_STRING) {
+        transformEntryDataOffset(entryData, offset + 12, visitor);
+      }
+    }
+  }
+
+  public void transformStringReferences(RefTransformer visitor) {
+    for (int i = 0; i < entryCount; i++) {
+      int offset = getEntryValueOffset(i);
+      if (offset != -1) {
+        transformStringReferencesAt(visitor, offset);
+      }
+    }
+  }
+
+  public void transformStringReferences(int[] idsToVisit, RefTransformer visitor) {
+    for (int i : idsToVisit) {
+      int offset = getEntryValueOffset(i);
+      if (offset != -1) {
+        transformStringReferencesAt(visitor, offset);
+      }
+    }
+  }
+
+  public void visitStringReferences(RefVisitor visitor) {
+    transformStringReferences(
+        i -> {
+          visitor.visit(i);
+          return i;
+        });
+  }
+
+  public void visitStringReferences(int[] idsToVisit, RefVisitor visitor) {
+    transformStringReferences(
+        idsToVisit,
+        i -> {
+          visitor.visit(i);
+          return i;
+        });
+  }
+
+  private void transformReferencesAt(RefTransformer visitor, int offset) {
+    int flags = entryData.getShort(offset + 2);
+    if ((flags & FLAG_COMPLEX) != 0) {
+      int parent = entryData.getInt(offset + 8);
+      if (parent != 0) {
+        // An attribute map can derive from another. If it does, visit that parent.
+        transformEntryDataOffset(entryData, offset + 8, visitor);
+      }
+      int count = entryData.getInt(offset + 12);
+      int entryOffset = offset;
+      for (int j = 0; j < count; j++) {
+        // Visit the name attribute reference.
+        transformEntryDataOffset(entryData, entryOffset + 16, visitor);
+        int size = entryData.getShort(entryOffset + 20);
+        int type = entryData.get(entryOffset + 23);
+        if (type == RES_REFERENCE || type == RES_ATTRIBUTE) {
+          // Visit the value if it's a reference.
+          transformEntryDataOffset(entryData, entryOffset + 24, visitor);
+        }
+        entryOffset += 4 + size;
+      }
+    } else {
+      int type = entryData.get(offset + 11);
+      if (type == RES_REFERENCE || type == RES_ATTRIBUTE) {
+        // Visit the value if it's a reference.
+        transformEntryDataOffset(entryData, offset + 12, visitor);
+      }
+    }
+  }
+
+  public void transformReferences(RefTransformer visitor) {
+    for (int i = 0; i < entryCount; i++) {
+      int offset = getEntryValueOffset(i);
+      if (offset != -1) {
+        transformReferencesAt(visitor, offset);
+      }
+    }
+  }
+
+  public void transformReferences(int[] ids, RefTransformer visitor) {
+    for (int i : ids) {
+      int offset = getEntryValueOffset(i);
+      if (offset != -1) {
+        transformReferencesAt(visitor, offset);
+      }
+    }
+  }
+
+  public void visitReferences(int[] ids, RefVisitor visitor) {
+    transformReferences(
+        ids,
+        i -> {
+          visitor.visit(i);
+          return i;
+        });
+  }
+
+  public void reassignIds(ReferenceMapper refMapping) {
+    transformReferences(refMapping::map);
+    refMapping.rewrite(getResourceType(), entryOffsets.asIntBuffer());
   }
 }

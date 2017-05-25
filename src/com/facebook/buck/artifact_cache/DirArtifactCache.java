@@ -50,6 +50,8 @@ import java.util.Optional;
 public class DirArtifactCache implements ArtifactCache {
 
   private static final Logger LOG = Logger.get(DirArtifactCache.class);
+
+  private static final ArtifactCacheMode CACHE_MODE = ArtifactCacheMode.dir;
   // Ratio of bytes stored to max size that expresses how many bytes need to be stored after we
   // attempt to delete old files.
   private static final float STORED_TO_MAX_BYTES_RATIO_TRIM_TRIGGER = 0.5f;
@@ -107,12 +109,15 @@ public class DirArtifactCache implements ArtifactCache {
       // Now copy the artifact out.
       filesystem.copyFile(getPathForRuleKey(ruleKey, Optional.empty()), output.get());
 
-      result = CacheResult.hit(name, metadata.build(), filesystem.getFileSize(output.get()));
+      result =
+          CacheResult.hit(name, CACHE_MODE, metadata.build(), filesystem.getFileSize(output.get()));
     } catch (NoSuchFileException e) {
       result = CacheResult.miss();
     } catch (IOException e) {
       LOG.warn(e, "Artifact fetch(%s, %s) error", ruleKey, output);
-      result = CacheResult.error(name, String.format("%s: %s", e.getClass(), e.getMessage()));
+      result =
+          CacheResult.error(
+              name, CACHE_MODE, String.format("%s: %s", e.getClass(), e.getMessage()));
     }
 
     LOG.verbose(
@@ -269,31 +274,36 @@ public class DirArtifactCache implements ArtifactCache {
   }
 
   @VisibleForTesting
-  List<Path> getAllFilesInCache() throws IOException {
+  List<Path> getAllFilesInCache() {
     final List<Path> allFiles = new ArrayList<>();
-    Files.walkFileTree(
-        filesystem.resolve(cacheDir),
-        ImmutableSet.of(),
-        Integer.MAX_VALUE,
-        new SimpleFileVisitor<Path>() {
+    final Path tempFolderPath = getPathToTempFolder();
+    try {
+      Files.walkFileTree(
+          filesystem.resolve(cacheDir),
+          ImmutableSet.of(),
+          Integer.MAX_VALUE,
+          new SimpleFileVisitor<Path>() {
 
-          @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-              throws IOException {
-            // do not work with files in temp folder as they will be moved later
-            if (dir.equals(getPathToTempFolder())) {
-              return FileVisitResult.SKIP_SUBTREE;
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+                throws IOException {
+              // do not work with files in temp folder as they will be moved later
+              if (dir.equals(tempFolderPath)) {
+                return FileVisitResult.SKIP_SUBTREE;
+              }
+              return super.preVisitDirectory(dir, attrs);
             }
-            return super.preVisitDirectory(dir, attrs);
-          }
 
-          @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-              throws IOException {
-            allFiles.add(file);
-            return super.visitFile(file, attrs);
-          }
-        });
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                throws IOException {
+              allFiles.add(file);
+              return super.visitFile(file, attrs);
+            }
+          });
+    } catch (IOException e) {
+      LOG.error(e, "Error getting a list of files in %s", tempFolderPath);
+    }
 
     return allFiles;
   }

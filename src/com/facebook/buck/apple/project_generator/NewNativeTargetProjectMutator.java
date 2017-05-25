@@ -19,9 +19,9 @@ package com.facebook.buck.apple.project_generator;
 import com.dd.plist.NSArray;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSString;
-import com.facebook.buck.apple.AppleAssetCatalogDescription;
+import com.facebook.buck.apple.AppleAssetCatalogDescriptionArg;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
-import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleResourceDescriptionArg;
 import com.facebook.buck.apple.AppleWrapperResourceArg;
 import com.facebook.buck.apple.GroupedSource;
 import com.facebook.buck.apple.RuleUtils;
@@ -46,9 +46,10 @@ import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.js.CoreReactNativeLibraryArg;
 import com.facebook.buck.js.IosReactNativeLibraryDescription;
 import com.facebook.buck.js.ReactNativeBundle;
-import com.facebook.buck.js.ReactNativeLibraryArgs;
+import com.facebook.buck.js.ReactNativeLibraryArg;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
@@ -118,10 +119,10 @@ class NewNativeTargetProjectMutator {
   private Optional<SourcePath> bridgingHeader = Optional.empty();
   private ImmutableSet<FrameworkPath> frameworks = ImmutableSet.of();
   private ImmutableSet<PBXFileReference> archives = ImmutableSet.of();
-  private ImmutableSet<AppleResourceDescription.Arg> recursiveResources = ImmutableSet.of();
-  private ImmutableSet<AppleResourceDescription.Arg> directResources = ImmutableSet.of();
-  private ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs = ImmutableSet.of();
-  private ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs = ImmutableSet.of();
+  private ImmutableSet<AppleResourceDescriptionArg> recursiveResources = ImmutableSet.of();
+  private ImmutableSet<AppleResourceDescriptionArg> directResources = ImmutableSet.of();
+  private ImmutableSet<AppleAssetCatalogDescriptionArg> recursiveAssetCatalogs = ImmutableSet.of();
+  private ImmutableSet<AppleAssetCatalogDescriptionArg> directAssetCatalogs = ImmutableSet.of();
   private ImmutableSet<AppleWrapperResourceArg> wrapperResources = ImmutableSet.of();
   private Iterable<PBXShellScriptBuildPhase> preBuildRunScriptPhases = ImmutableList.of();
   private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
@@ -220,13 +221,13 @@ class NewNativeTargetProjectMutator {
   }
 
   public NewNativeTargetProjectMutator setRecursiveResources(
-      Set<AppleResourceDescription.Arg> recursiveResources) {
+      Set<AppleResourceDescriptionArg> recursiveResources) {
     this.recursiveResources = ImmutableSet.copyOf(recursiveResources);
     return this;
   }
 
   public NewNativeTargetProjectMutator setDirectResources(
-      ImmutableSet<AppleResourceDescription.Arg> directResources) {
+      ImmutableSet<AppleResourceDescriptionArg> directResources) {
     this.directResources = directResources;
     return this;
   }
@@ -265,14 +266,14 @@ class NewNativeTargetProjectMutator {
    *     targetNode.
    */
   public NewNativeTargetProjectMutator setRecursiveAssetCatalogs(
-      Set<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs) {
+      Set<AppleAssetCatalogDescriptionArg> recursiveAssetCatalogs) {
     this.recursiveAssetCatalogs = ImmutableSet.copyOf(recursiveAssetCatalogs);
     return this;
   }
 
   /** @param directAssetCatalogs List of asset catalog targets targetNode directly depends on */
   public NewNativeTargetProjectMutator setDirectAssetCatalogs(
-      Set<AppleAssetCatalogDescription.Arg> directAssetCatalogs) {
+      Set<AppleAssetCatalogDescriptionArg> directAssetCatalogs) {
     this.directAssetCatalogs = ImmutableSet.copyOf(directAssetCatalogs);
     return this;
   }
@@ -580,24 +581,25 @@ class NewNativeTargetProjectMutator {
   }
 
   private void collectResourcePathsFromConstructorArgs(
-      Set<AppleResourceDescription.Arg> resourceArgs,
-      Set<AppleAssetCatalogDescription.Arg> assetCatalogArgs,
+      Set<AppleResourceDescriptionArg> resourceArgs,
+      Set<AppleAssetCatalogDescriptionArg> assetCatalogArgs,
       Set<AppleWrapperResourceArg> resourcePathArgs,
       ImmutableSet.Builder<Path> resourceFilesBuilder,
       ImmutableSet.Builder<Path> resourceDirsBuilder,
       ImmutableSet.Builder<Path> variantResourceFilesBuilder) {
-    for (AppleResourceDescription.Arg arg : resourceArgs) {
-      resourceFilesBuilder.addAll(Iterables.transform(arg.files, sourcePathResolver));
-      resourceDirsBuilder.addAll(Iterables.transform(arg.dirs, sourcePathResolver));
-      variantResourceFilesBuilder.addAll(Iterables.transform(arg.variants, sourcePathResolver));
+    for (AppleResourceDescriptionArg arg : resourceArgs) {
+      resourceFilesBuilder.addAll(Iterables.transform(arg.getFiles(), sourcePathResolver));
+      resourceDirsBuilder.addAll(Iterables.transform(arg.getDirs(), sourcePathResolver));
+      variantResourceFilesBuilder.addAll(
+          Iterables.transform(arg.getVariants(), sourcePathResolver));
     }
 
-    for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
-      resourceDirsBuilder.addAll(Iterables.transform(arg.dirs, sourcePathResolver));
+    for (AppleAssetCatalogDescriptionArg arg : assetCatalogArgs) {
+      resourceDirsBuilder.addAll(Iterables.transform(arg.getDirs(), sourcePathResolver));
     }
 
     for (AppleWrapperResourceArg arg : resourcePathArgs) {
-      resourceDirsBuilder.add(arg.path);
+      resourceDirsBuilder.add(arg.getPath());
     }
   }
 
@@ -676,13 +678,13 @@ class NewNativeTargetProjectMutator {
         shellScriptBuildPhase
             .getInputPaths()
             .addAll(
-                FluentIterable.from(arg.srcs)
+                FluentIterable.from(arg.getSrcs())
                     .transform(sourcePathResolver)
                     .transform(pathRelativizer::outputDirToRootRelative)
                     .transform(Object::toString)
                     .toSet());
-        shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs);
-        shellScriptBuildPhase.setShellScript(arg.cmd);
+        shellScriptBuildPhase.getOutputPaths().addAll(arg.getOutputs());
+        shellScriptBuildPhase.setShellScript(arg.getCmd());
       } else if (node.getDescription() instanceof IosReactNativeLibraryDescription) {
         shellScriptBuildPhase.setShellScript(generateXcodeShellScript(node));
       } else {
@@ -702,7 +704,7 @@ class NewNativeTargetProjectMutator {
   }
 
   private String generateXcodeShellScript(TargetNode<?, ?> targetNode) {
-    Preconditions.checkArgument(targetNode.getConstructorArg() instanceof ReactNativeLibraryArgs);
+    Preconditions.checkArgument(targetNode.getConstructorArg() instanceof ReactNativeLibraryArg);
 
     ST template;
     try {
@@ -716,14 +718,15 @@ class NewNativeTargetProjectMutator {
       throw new RuntimeException("There was an error loading 'rn_package.st' template", e);
     }
 
-    ReactNativeLibraryArgs args = (ReactNativeLibraryArgs) targetNode.getConstructorArg();
+    CoreReactNativeLibraryArg args = (CoreReactNativeLibraryArg) targetNode.getConstructorArg();
 
-    template.add("bundle_name", args.bundleName);
+    template.add("bundle_name", args.getBundleName());
 
     ProjectFilesystem filesystem = targetNode.getFilesystem();
     BuildTarget buildTarget = targetNode.getBuildTarget();
     Path jsOutput =
-        ReactNativeBundle.getPathToJSBundleDir(buildTarget, filesystem).resolve(args.bundleName);
+        ReactNativeBundle.getPathToJSBundleDir(buildTarget, filesystem)
+            .resolve(args.getBundleName());
     template.add("built_bundle_path", filesystem.resolve(jsOutput));
 
     Path resourceOutput = ReactNativeBundle.getPathToResources(buildTarget, filesystem);

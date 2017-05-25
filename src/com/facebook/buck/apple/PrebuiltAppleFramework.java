@@ -20,8 +20,6 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
@@ -80,9 +78,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
   private final Map<Pair<Flavor, Linker.LinkableDepType>, NativeLinkableInput> nativeLinkableCache =
       new HashMap<>();
 
-  private final LoadingCache<
-          CxxPreprocessables.CxxPreprocessorInputCacheKey,
-          ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
       transitiveCxxPreprocessorInputCache =
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
@@ -143,7 +139,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
@@ -151,33 +147,23 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      final CxxPlatform cxxPlatform, HeaderVisibility headerVisibility)
+  public CxxPreprocessorInput getCxxPreprocessorInput(final CxxPlatform cxxPlatform)
       throws NoSuchBuildTargetException {
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
-    switch (headerVisibility) {
-      case PUBLIC:
-        if (isPlatformSupported(cxxPlatform)) {
-          builder.addAllFrameworks(frameworks);
+    if (isPlatformSupported(cxxPlatform)) {
+      builder.addAllFrameworks(frameworks);
 
-          ruleResolver.requireRule(this.getBuildTarget());
-          builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
-        }
-        return builder.build();
-      case PRIVATE:
-        return builder.build();
+      ruleResolver.requireRule(this.getBuildTarget());
+      builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     }
-
-    throw new RuntimeException("Invalid header visibility: " + headerVisibility);
+    return builder.build();
   }
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility)
-      throws NoSuchBuildTargetException {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(
-        ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
   }
 
   @Override

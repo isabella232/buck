@@ -65,6 +65,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private final CxxBuckConfig cxxBuckConfig;
   private final Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap;
   private final Optional<BuildTarget> nativeLibraryMergeGlue;
+  private final Optional<ImmutableSortedSet<String>> nativeLibraryMergeLocalizedSymbols;
   private final RelinkerMode relinkerMode;
   private final APKModuleGraph apkModuleGraph;
 
@@ -82,10 +83,12 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       CxxBuckConfig cxxBuckConfig,
       Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap,
       Optional<BuildTarget> nativeLibraryMergeGlue,
+      Optional<ImmutableSortedSet<String>> nativeLibraryMergeLocalizedSymbols,
       RelinkerMode relinkerMode,
       APKModuleGraph apkModuleGraph) {
     this.originalBuildTarget = originalParams.getBuildTarget();
     this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    this.nativeLibraryMergeLocalizedSymbols = nativeLibraryMergeLocalizedSymbols;
     this.pathResolver = new SourcePathResolver(ruleFinder);
     this.buildRuleParams = originalParams;
     this.ruleResolver = ruleResolver;
@@ -153,6 +156,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               nativePlatforms,
               nativeLibraryMergeMap.get(),
               nativeLibraryMergeGlue,
+              nativeLibraryMergeLocalizedSymbols,
               nativeLinkables,
               nativeLinkablesAssets);
       nativeLinkables = enhancement.getMergedLinkables();
@@ -214,10 +218,10 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
         if (module.isRootModule()) {
           // If we're using a C/C++ runtime other than the system one, add it to the APK.
-          NdkCxxPlatforms.CxxRuntime cxxRuntime = platform.getCxxRuntime();
+          NdkCxxRuntime cxxRuntime = platform.getCxxRuntime();
           if ((platformsWithNativeLibs.contains(platform)
                   || platformsWithNativeLibsAssets.contains(platform))
-              && !cxxRuntime.equals(NdkCxxPlatforms.CxxRuntime.SYSTEM)) {
+              && !cxxRuntime.equals(NdkCxxRuntime.SYSTEM)) {
             nativeLinkableLibsBuilder.put(
                 new Pair<>(targetCpuType, cxxRuntime.getSoname()),
                 new PathSourcePath(
@@ -344,7 +348,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       // But if we're stripping a cxx_library, use that library as the base of the target
       // to allow sharing the rule between all apps that depend on it.
       if (sourcePath instanceof BuildTargetSourcePath) {
-        baseBuildTarget = ((BuildTargetSourcePath<?>) sourcePath).getTarget();
+        baseBuildTarget = ((BuildTargetSourcePath) sourcePath).getTarget();
       }
 
       String sharedLibrarySoName = entry.getKey().getSecond();

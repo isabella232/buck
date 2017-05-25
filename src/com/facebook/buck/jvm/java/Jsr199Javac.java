@@ -35,7 +35,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.zip.CustomJarOutputStream;
 import com.facebook.buck.zip.CustomZipOutputStream;
-import com.facebook.buck.zip.ZipOutputStreams;
+import com.facebook.buck.zip.JarBuilder;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -47,7 +47,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.io.Closeable;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.io.PrintWriter; // NOPMD required by API
 import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -117,11 +117,11 @@ public abstract class Jsr199Javac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
-      CompilationMode compilationMode) {
+      JavacCompilationMode compilationMode) {
     JavaCompiler compiler = createCompiler(context);
     CustomJarOutputStream jarOutputStream = null;
     StandardJavaFileManager fileManager = null;
@@ -159,7 +159,7 @@ public abstract class Jsr199Javac implements Javac {
                 context,
                 invokingRule,
                 options,
-                annotationProcessors,
+                pluginFields,
                 javaSourceFilePaths,
                 pathToSrcsList,
                 compiler,
@@ -170,27 +170,24 @@ public abstract class Jsr199Javac implements Javac {
           return result;
         }
 
-        jarOutputStream =
-            ZipOutputStreams.newJarOutputStream(
-                Preconditions.checkNotNull(directToJarPath),
-                ZipOutputStreams.HandleDuplicates.APPEND_TO_ZIP);
-        if (compilationMode == CompilationMode.ABI) {
-          jarOutputStream.setEntryHashingEnabled(true);
-        }
-        return new JarBuilder(
-                context.getProjectFilesystem(), context.getEventSink(), context.getStdErr())
-            .setEntriesToJar(context.getDirectToJarOutputSettings().get().getEntriesToJar())
-            .setAlreadyAddedEntries(
-                Preconditions.checkNotNull(inMemoryFileManager).writeToJar(jarOutputStream))
+        JarBuilder jarBuilder = new JarBuilder();
+        Preconditions.checkNotNull(inMemoryFileManager).writeToJar(jarBuilder);
+        return jarBuilder
+            .setObserver(new LoggingJarBuilderObserver(context.getEventSink()))
+            .setEntriesToJar(
+                context
+                    .getDirectToJarOutputSettings()
+                    .get()
+                    .getEntriesToJar()
+                    .stream()
+                    .map(context.getProjectFilesystem()::resolve))
             .setMainClass(context.getDirectToJarOutputSettings().get().getMainClass().orElse(null))
             .setManifestFile(
                 context.getDirectToJarOutputSettings().get().getManifestFile().orElse(null))
             .setShouldMergeManifests(true)
+            .setShouldHashEntries(compilationMode == JavacCompilationMode.ABI)
             .setEntryPatternBlacklist(ImmutableSet.of())
-            .appendToJarFile(
-                context.getDirectToJarOutputSettings().get().getDirectToJarOutputPath(),
-                Preconditions.checkNotNull(jarOutputStream));
-
+            .createJarFile(Preconditions.checkNotNull(directToJarPath));
       } finally {
         close(compilationUnits);
       }
@@ -229,13 +226,13 @@ public abstract class Jsr199Javac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       JavaCompiler compiler,
       StandardJavaFileManager fileManager,
       Iterable<? extends JavaFileObject> compilationUnits,
-      CompilationMode compilationMode) {
+      JavacCompilationMode compilationMode) {
     // write javaSourceFilePaths to classes file
     // for buck user to have a list of all .java files to be compiled
     // since we do not print them out to console in case of error
@@ -259,11 +256,11 @@ public abstract class Jsr199Javac implements Javac {
 
     DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
     List<String> classNamesForAnnotationProcessing = ImmutableList.of();
-    Writer compilerOutputWriter = new PrintWriter(context.getStdErr());
+    Writer compilerOutputWriter = new PrintWriter(context.getStdErr()); // NOPMD required by API
     PluginClassLoaderFactory loaderFactory = PluginLoader.newFactory(context.getClassLoaderCache());
     BuckJavacTaskProxy javacTask;
 
-    if (compilationMode != CompilationMode.ABI) {
+    if (compilationMode != JavacCompilationMode.ABI) {
       javacTask =
           BuckJavacTaskProxy.getTask(
               loaderFactory,
@@ -293,7 +290,7 @@ public abstract class Jsr199Javac implements Javac {
                     getTargetVersion(options),
                     javacTask.getElements(),
                     fileManager,
-                    context.getEventSink().getEventBus());
+                    context.getEventSink());
             stubGenerator.generate(topLevelTypes);
           });
     }
@@ -305,14 +302,15 @@ public abstract class Jsr199Javac implements Javac {
         new Jsr199TracingBridge(context.getEventSink(), invokingRule));
     BuckJavacTaskListener taskListener = null;
     if (EnumSet.of(
-            CompilationMode.FULL_CHECKING_REFERENCES, CompilationMode.FULL_ENFORCING_REFERENCES)
+            JavacCompilationMode.FULL_CHECKING_REFERENCES,
+            JavacCompilationMode.FULL_ENFORCING_REFERENCES)
         .contains(compilationMode)) {
       taskListener =
           SourceBasedAbiStubber.newValidatingTaskListener(
               pluginLoader,
               javacTask,
               new FileManagerBootClasspathOracle(fileManager),
-              compilationMode == CompilationMode.FULL_ENFORCING_REFERENCES
+              compilationMode == JavacCompilationMode.FULL_ENFORCING_REFERENCES
                   ? Diagnostic.Kind.ERROR
                   : Diagnostic.Kind.WARNING);
     }
@@ -338,7 +336,7 @@ public abstract class Jsr199Javac implements Javac {
         taskListener = new TracingTaskListener(tracer, taskListener);
 
         javacTask.setTaskListener(taskListener);
-        javacTask.setProcessors(processorFactory.createProcessors(annotationProcessors));
+        javacTask.setProcessors(processorFactory.createProcessors(pluginFields));
 
         // Invoke the compilation and inspect the result.
         isSuccess = javacTask.call();
@@ -359,7 +357,9 @@ public abstract class Jsr199Javac implements Javac {
         DiagnosticCleaner.clean(diagnostics.getDiagnostics());
 
     if (isSuccess) {
-      context.getUsedClassesFileWriter().writeFile(context.getProjectFilesystem());
+      context
+          .getUsedClassesFileWriter()
+          .writeFile(context.getProjectFilesystem(), context.getCellPathResolver());
       return 0;
     } else {
       if (context.getVerbosity().shouldPrintStandardInformation()) {

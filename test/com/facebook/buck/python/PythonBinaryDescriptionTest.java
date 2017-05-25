@@ -237,7 +237,7 @@ public class PythonBinaryDescriptionTest {
             .setMainModule("main")
             .setBuildArgs(buildArgs)
             .build(resolver);
-    ImmutableList<Step> buildSteps =
+    ImmutableList<? extends Step> buildSteps =
         binary.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
     PexStep pexStep = FluentIterable.from(buildSteps).filter(PexStep.class).get(0);
@@ -287,6 +287,9 @@ public class PythonBinaryDescriptionTest {
           new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep"));
       PythonLibraryBuilder pythonLibraryBuilder =
           new PythonLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
+              .setSrcs(
+                  SourceList.ofUnnamedSources(
+                      ImmutableSortedSet.of(new FakeSourcePath("something.py"))))
               .setDeps(ImmutableSortedSet.of(cxxBinaryBuilder.getTarget()));
       PythonBinaryBuilder pythonBinaryBuilder =
           PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
@@ -711,7 +714,7 @@ public class PythonBinaryDescriptionTest {
     for (SourcePath path : binary.getComponents().getNativeLibraries().values()) {
       CxxLink link =
           resolver
-              .getRuleOptionalWithType(((BuildTargetSourcePath<?>) path).getTarget(), CxxLink.class)
+              .getRuleOptionalWithType(((BuildTargetSourcePath) path).getTarget(), CxxLink.class)
               .get();
       assertThat(Arg.stringify(link.getArgs(), pathResolver), Matchers.hasItem("-flag"));
     }

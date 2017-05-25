@@ -18,9 +18,9 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
+import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.ModifiersTree;
-import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -42,29 +42,44 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
   @Nullable private final MethodTree tree;
 
   @Nullable private TypeMirror returnType;
+  @Nullable private TypeMirror receiverType;
   @Nullable private List<TypeMirror> thrownTypes;
   @Nullable private TreeBackedAnnotationValue defaultValue;
+  @Nullable private StandaloneExecutableType typeMirror;
 
   TreeBackedExecutableElement(
       ExecutableElement underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable TreePath path,
+      @Nullable MethodTree tree,
       TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, path, resolver);
+    super(underlyingElement, enclosingElement, tree, resolver);
     this.underlyingElement = underlyingElement;
-    tree = path != null ? (MethodTree) path.getLeaf() : null;
+    this.tree = tree;
     enclosingElement.addEnclosedElement(this);
   }
 
   @Override
-  public StandaloneTypeMirror asType() {
-    throw new UnsupportedOperationException("NYI");
+  @Nullable
+  MethodTree getTree() {
+    return tree;
   }
 
   @Override
-  @Nullable
-  protected ModifiersTree getModifiersTree() {
-    return tree != null ? tree.getModifiers() : null;
+  public StandaloneTypeMirror asType() {
+    if (typeMirror == null) {
+      typeMirror = getResolver().createType(this);
+    }
+    return typeMirror;
+  }
+
+  @Override
+  protected List<? extends AnnotationTree> getAnnotationTrees() {
+    ModifiersTree modifiersTree = tree == null ? null : tree.getModifiers();
+    if (modifiersTree == null) {
+      return Collections.emptyList();
+    }
+
+    return modifiersTree.getAnnotations();
   }
 
   @Override
@@ -86,7 +101,10 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
 
   @Override
   public TypeMirror getReceiverType() {
-    throw new UnsupportedOperationException("NYI");
+    if (receiverType == null) {
+      receiverType = getResolver().getCanonicalType(underlyingElement.getReceiverType());
+    }
+    return receiverType;
   }
 
   @Override
@@ -122,9 +140,7 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
       if (underlyingValue != null) {
         defaultValue =
             new TreeBackedAnnotationValue(
-                underlyingValue,
-                new TreePath(getTreePath(), Preconditions.checkNotNull(tree).getDefaultValue()),
-                getResolver());
+                underlyingValue, Preconditions.checkNotNull(tree).getDefaultValue(), getResolver());
       }
     }
     return defaultValue;

@@ -16,9 +16,9 @@
 
 package com.facebook.buck.ide.intellij.model;
 
-import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidBinaryDescriptionArg;
 import com.facebook.buck.android.AndroidLibraryDescription;
-import com.facebook.buck.android.AndroidResourceDescription;
+import com.facebook.buck.android.AndroidResourceDescriptionArg;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.rules.TargetNode;
 import java.nio.file.Path;
@@ -38,32 +38,32 @@ public interface IjModuleFactoryResolver {
    * @param targetNode node describing the Android binary to get the manifest of.
    * @return path on disk to the AndroidManifest.
    */
-  Path getAndroidManifestPath(TargetNode<AndroidBinaryDescription.Arg, ?> targetNode);
+  Path getAndroidManifestPath(TargetNode<AndroidBinaryDescriptionArg, ?> targetNode);
 
   /**
    * @param targetNode node describing the Android library to get the manifest of.
    * @return path on disk to the AndroidManifest.
    */
   Optional<Path> getLibraryAndroidManifestPath(
-      TargetNode<AndroidLibraryDescription.Arg, ?> targetNode);
+      TargetNode<AndroidLibraryDescription.CoreArg, ?> targetNode);
 
   /**
    * @param targetNode node describing the Android binary to get the Proguard config of.
    * @return path on disk to the proguard config.
    */
-  Optional<Path> getProguardConfigPath(TargetNode<AndroidBinaryDescription.Arg, ?> targetNode);
+  Optional<Path> getProguardConfigPath(TargetNode<AndroidBinaryDescriptionArg, ?> targetNode);
 
   /**
    * @param targetNode node describing the Android resources to get the path of.
    * @return path on disk to the resources folder.
    */
-  Optional<Path> getAndroidResourcePath(TargetNode<AndroidResourceDescription.Arg, ?> targetNode);
+  Optional<Path> getAndroidResourcePath(TargetNode<AndroidResourceDescriptionArg, ?> targetNode);
 
   /**
    * @param targetNode node describing the Android assets to get the path of.
    * @return path on disk to the assets folder.
    */
-  Optional<Path> getAssetsPath(TargetNode<AndroidResourceDescription.Arg, ?> targetNode);
+  Optional<Path> getAssetsPath(TargetNode<AndroidResourceDescriptionArg, ?> targetNode);
 
   /**
    * @param targetNode node which may use annotation processors.

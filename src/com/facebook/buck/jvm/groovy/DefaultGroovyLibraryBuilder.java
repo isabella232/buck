@@ -22,6 +22,8 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;
@@ -31,20 +33,22 @@ class DefaultGroovyLibraryBuilder extends DefaultJavaLibraryBuilder {
   private ImmutableList<String> extraGroovycArguments = ImmutableList.of();
 
   protected DefaultGroovyLibraryBuilder(
+      TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
       JavacOptions javacOptions,
       GroovyBuckConfig groovyBuckConfig) {
-    super(params, buildRuleResolver);
+    super(targetGraph, params, buildRuleResolver, cellRoots);
     this.groovyBuckConfig = groovyBuckConfig;
     setJavacOptions(javacOptions);
   }
 
   @Override
-  public DefaultGroovyLibraryBuilder setArgs(JavaLibraryDescription.Arg args) {
+  public DefaultGroovyLibraryBuilder setArgs(JavaLibraryDescription.CoreArg args) {
     super.setArgs(args);
-    GroovyLibraryDescription.Arg groovyArgs = (GroovyLibraryDescription.Arg) args;
-    extraGroovycArguments = groovyArgs.extraGroovycArguments;
+    GroovyLibraryDescription.CoreArg groovyArgs = (GroovyLibraryDescription.CoreArg) args;
+    extraGroovycArguments = groovyArgs.getExtraGroovycArguments();
     return this;
   }
 

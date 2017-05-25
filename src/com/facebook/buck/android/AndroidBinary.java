@@ -23,6 +23,7 @@ import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.redex.ReDexStep;
 import com.facebook.buck.android.redex.RedexOptions;
+import com.facebook.buck.android.resources.ResourcesZipBuilder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
@@ -32,6 +33,7 @@ import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -48,7 +50,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.shell.AbstractGenruleStep;
-import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -57,6 +58,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.XzStep;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.RichStream;
@@ -82,17 +84,22 @@ import com.google.common.hash.HashCode;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.AbstractMap;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
 
 /**
@@ -345,6 +352,17 @@ public class AndroidBinary extends AbstractBuildRule
           enhancementResult.getComputeExopackageDepsAbi().isPresent(),
           "computeExopackageDepsAbi must be set if exopackage is true.");
     }
+
+    if (ExopackageMode.enabledForResources(exopackageModes)
+        && !(ExopackageMode.enabledForSecondaryDexes(exopackageModes)
+            && ExopackageMode.enabledForNativeLibraries(exopackageModes))) {
+      throw new HumanReadableException(
+          "Invalid exopackage_modes for android_binary %s. %s requires %s and %s",
+          getBuildTarget().getUnflavoredBuildTarget(),
+          ExopackageMode.RESOURCES,
+          ExopackageMode.NATIVE_LIBRARY,
+          ExopackageMode.SECONDARY_DEX);
+    }
   }
 
   public static Path getPrimaryDexPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
@@ -491,6 +509,7 @@ public class AndroidBinary extends AbstractBuildRule
       if ((!packageableCollection.getNativeLibAssetsDirectories().isEmpty())
           || (!packageableCollection.getNativeLinkablesAssets().isEmpty()
               && shouldPackageAssetLibraries)) {
+        Preconditions.checkState(!ExopackageMode.enabledForResources(exopackageModes));
         Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
 
         final Path libSubdirectory =
@@ -553,6 +572,18 @@ public class AndroidBinary extends AbstractBuildRule
               }
             });
 
+    ImmutableSet<Path> thirdPartyJars =
+        packageableCollection
+            .getPathsToThirdPartyJars()
+            .stream()
+            .map(resolver::getAbsolutePath)
+            .collect(MoreCollectors.toImmutableSet());
+
+    if (ExopackageMode.enabledForResources(exopackageModes)) {
+      steps.add(createMergedThirdPartyJarsStep(thirdPartyJars));
+      buildableContext.recordArtifact(getMergedThirdPartyJarsPath());
+    }
+
     ApkBuilderStep apkBuilderCommand =
         new ApkBuilderStep(
             getProjectFilesystem(),
@@ -562,11 +593,7 @@ public class AndroidBinary extends AbstractBuildRule
             allAssetDirectories,
             nativeLibraryDirectoriesBuilder.build(),
             zipFiles.build(),
-            packageableCollection
-                .getPathsToThirdPartyJars()
-                .stream()
-                .map(resolver::getAbsolutePath)
-                .collect(MoreCollectors.toImmutableSet()),
+            thirdPartyJars,
             pathToKeystore,
             keystoreProperties,
             /* debugMode */ false,
@@ -620,6 +647,62 @@ public class AndroidBinary extends AbstractBuildRule
 
     buildableContext.recordArtifact(apkPath);
     return steps.build();
+  }
+
+  private Step createMergedThirdPartyJarsStep(ImmutableSet<Path> thirdPartyJars) {
+    return new AbstractExecutionStep("merging_third_party_jar_resources") {
+      @Override
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
+        try (ResourcesZipBuilder builder =
+            new ResourcesZipBuilder(
+                getProjectFilesystem().resolve(getMergedThirdPartyJarsPath()))) {
+          for (Path jar : thirdPartyJars) {
+            try (ZipFile base = new ZipFile(jar.toFile())) {
+              for (ZipEntry inputEntry : Collections.list(base.entries())) {
+                if (inputEntry.isDirectory()) {
+                  continue;
+                }
+                String name = inputEntry.getName();
+                String ext = Files.getFileExtension(name);
+                String filename = Paths.get(name).getFileName().toString();
+                // Android's ApkBuilder filters out a lot of files from Java resources. Try to
+                // match its behavior.
+                // See https://android.googlesource.com/platform/sdk/+/jb-release/sdkmanager/libs/sdklib/src/com/android/sdklib/build/ApkBuilder.java
+                if (name.startsWith(".")
+                    || name.endsWith("~")
+                    || name.startsWith("META-INF")
+                    || "aidl".equalsIgnoreCase(ext)
+                    || "rs".equalsIgnoreCase(ext)
+                    || "rsh".equalsIgnoreCase(ext)
+                    || "d".equalsIgnoreCase(ext)
+                    || "java".equalsIgnoreCase(ext)
+                    || "scala".equalsIgnoreCase(ext)
+                    || "class".equalsIgnoreCase(ext)
+                    || "scc".equalsIgnoreCase(ext)
+                    || "swp".equalsIgnoreCase(ext)
+                    || "thumbs.db".equalsIgnoreCase(filename)
+                    || "picasa.ini".equalsIgnoreCase(filename)
+                    || "package.html".equalsIgnoreCase(filename)
+                    || "overview.html".equalsIgnoreCase(filename)) {
+                  continue;
+                }
+                try (InputStream inputStream = base.getInputStream(inputEntry)) {
+                  builder.addEntry(
+                      inputStream,
+                      inputEntry.getSize(),
+                      inputEntry.getCrc(),
+                      name,
+                      Deflater.NO_COMPRESSION,
+                      false);
+                }
+              }
+            }
+          }
+        }
+        return StepExecutionResult.SUCCESS;
+      }
+    };
   }
 
   private void getStepsForNativeAssets(
@@ -762,15 +845,12 @@ public class AndroidBinary extends AbstractBuildRule
       SourcePathResolver resolver,
       ImmutableList.Builder<Step> steps) {
 
-    AndroidPackageableCollection packageableCollection =
-        enhancementResult.getPackageableCollection();
-
     ImmutableSet<Path> classpathEntriesToDex =
-        Stream.concat(
-                enhancementResult.getClasspathEntriesToDex().stream(),
+        RichStream.from(enhancementResult.getClasspathEntriesToDex())
+            .concat(
                 RichStream.of(enhancementResult.getCompiledUberRDotJava().getSourcePathToOutput()))
-            .map(resolver::getRelativePath)
-            .collect(MoreCollectors.toImmutableSet());
+            .map(input -> getProjectFilesystem().relativize(resolver.getAbsolutePath(input)))
+            .toImmutableSet();
 
     ImmutableMultimap.Builder<APKModule, Path> additionalDexStoreToJarPathMapBuilder =
         ImmutableMultimap.builder();
@@ -783,7 +863,9 @@ public class AndroidBinary extends AbstractBuildRule
             .map(
                 input ->
                     new AbstractMap.SimpleEntry<>(
-                        input.getKey(), resolver.getRelativePath(input.getValue())))
+                        input.getKey(),
+                        getProjectFilesystem()
+                            .relativize(resolver.getAbsolutePath(input.getValue()))))
             .collect(MoreCollectors.toImmutableSet()));
     ImmutableMultimap<APKModule, Path> additionalDexStoreToJarPathMap =
         additionalDexStoreToJarPathMapBuilder.build();
@@ -791,23 +873,48 @@ public class AndroidBinary extends AbstractBuildRule
     // Execute preprocess_java_classes_binary, if appropriate.
     if (preprocessJavaClassesBash.isPresent()) {
       // Symlink everything in dexTransitiveDependencies.classpathEntriesToDex to the input
-      // directory. Expect parallel outputs in the output directory and update classpathEntriesToDex
+      // directory.
+      Path preprocessJavaClassesInDir = getBinPath("java_classes_preprocess_in_%s");
+      Path preprocessJavaClassesOutDir = getBinPath("java_classes_preprocess_out_%s");
+      Path ESCAPED_PARENT = getProjectFilesystem().getPath("_.._");
+
+      ImmutableList.Builder<Pair<Path, Path>> pathToTargetBuilder = ImmutableList.builder();
+      ImmutableSet.Builder<Path> outDirPaths = ImmutableSet.builder();
+      for (Path entry : classpathEntriesToDex) {
+        // The entries are relative to the current cell root, and may contain '..' to
+        // reference entries in other roots. To construct the path in InDir, escape '..'
+        // with a normal directory name, so that the path does not escape InDir.
+        Path relPath =
+            RichStream.from(entry)
+                .map(fragment -> fragment.toString().equals("..") ? ESCAPED_PARENT : fragment)
+                .reduce(Path::resolve)
+                .orElse(getProjectFilesystem().getPath(""));
+        pathToTargetBuilder.add(new Pair<>(preprocessJavaClassesInDir.resolve(relPath), entry));
+        outDirPaths.add(preprocessJavaClassesOutDir.resolve(relPath));
+      }
+      // cell relative path of where the symlink should go, to where the symlink should map to.
+      ImmutableList<Pair<Path, Path>> pathToTarget = pathToTargetBuilder.build();
+      // Expect parallel outputs in the output directory and update classpathEntriesToDex
       // to reflect that.
-      final Path preprocessJavaClassesInDir = getBinPath("java_classes_preprocess_in_%s");
-      final Path preprocessJavaClassesOutDir = getBinPath("java_classes_preprocess_out_%s");
+      classpathEntriesToDex = outDirPaths.build();
+
       steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), preprocessJavaClassesInDir));
       steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), preprocessJavaClassesOutDir));
+
       steps.add(
-          new SymlinkFilesIntoDirectoryStep(
-              getProjectFilesystem(),
-              getProjectFilesystem().getRootPath(),
-              classpathEntriesToDex,
-              preprocessJavaClassesInDir));
-      classpathEntriesToDex =
-          classpathEntriesToDex
-              .stream()
-              .map(preprocessJavaClassesOutDir::resolve)
-              .collect(MoreCollectors.toImmutableSet());
+          new AbstractExecutionStep("symlinking for preprocessing") {
+            @Override
+            public StepExecutionResult execute(ExecutionContext context)
+                throws IOException, InterruptedException {
+              for (Pair<Path, Path> entry : pathToTarget) {
+                Path symlinkPath = getProjectFilesystem().resolve(entry.getFirst());
+                Path symlinkTarget = getProjectFilesystem().resolve(entry.getSecond());
+                java.nio.file.Files.createDirectories(symlinkPath.getParent());
+                java.nio.file.Files.createSymbolicLink(symlinkPath, symlinkTarget);
+              }
+              return StepExecutionResult.SUCCESS;
+            }
+          });
 
       AbstractGenruleStep.CommandString commandString =
           new AbstractGenruleStep.CommandString(
@@ -860,16 +967,6 @@ public class AndroidBinary extends AbstractBuildRule
               resolver);
     }
 
-    Supplier<ImmutableMap<String, HashCode>> classNamesToHashesSupplier;
-    boolean classFilesHaveChanged =
-        preprocessJavaClassesBash.isPresent() || packageType.isBuildWithObfuscation();
-
-    if (classFilesHaveChanged) {
-      classNamesToHashesSupplier = addAccumulateClassNamesStep(classpathEntriesToDex, steps);
-    } else {
-      classNamesToHashesSupplier = packageableCollection.getClassNamesToHashesSupplier();
-    }
-
     // Create the final DEX (or set of DEX files in the case of split dex).
     // The APK building command needs to take a directory of raw files, so primaryDexPath
     // can only contain .dex files from this build rule.
@@ -893,6 +990,9 @@ public class AndroidBinary extends AbstractBuildRule
     ImmutableSet.Builder<Path> secondaryDexDirectoriesBuilder = ImmutableSet.builder();
     Optional<PreDexMerge> preDexMerge = enhancementResult.getPreDexMerge();
     if (!preDexMerge.isPresent()) {
+      Supplier<ImmutableMap<String, HashCode>> classNamesToHashesSupplier =
+          addAccumulateClassNamesStep(classpathEntriesToDex, steps);
+
       steps.add(MkdirStep.of(getProjectFilesystem(), primaryDexPath.getParent()));
 
       addDexingSteps(
@@ -952,6 +1052,10 @@ public class AndroidBinary extends AbstractBuildRule
   public String getUnsignedApkPath() {
     return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.unsigned.apk")
         .toString();
+  }
+
+  private Path getMergedThirdPartyJarsPath() {
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.java.resources");
   }
 
   /** The APK at this path will be signed, but not zipaligned. */
@@ -1323,7 +1427,13 @@ public class AndroidBinary extends AbstractBuildRule
     if (ExopackageMode.enabledForResources(exopackageModes)) {
       Preconditions.checkState(!enhancementResult.getExoResources().isEmpty());
       builder.setResourcesInfo(
-          ExopackageInfo.ResourcesInfo.of(enhancementResult.getExoResources()));
+          ExopackageInfo.ResourcesInfo.of(
+              ImmutableList.<SourcePath>builder()
+                  .addAll(enhancementResult.getExoResources())
+                  .add(
+                      new ExplicitBuildTargetSourcePath(
+                          getBuildTarget(), getMergedThirdPartyJarsPath()))
+                  .build()));
       shouldInstall = true;
     } else {
       Preconditions.checkState(enhancementResult.getExoResources().isEmpty());

@@ -71,7 +71,7 @@ public class ContentAgnosticRuleKeyFactory implements RuleKeyFactory<RuleKey> {
 
   private RuleKey calculateBuildRuleKey(BuildRule buildRule) {
     Builder<HashCode> builder = new Builder<>(RuleKeyBuilder.createDefaultHasher());
-    ruleKeyFieldLoader.setFields(buildRule, builder);
+    ruleKeyFieldLoader.setFields(builder, buildRule, RuleKeyType.CONTENT_AGNOSTIC);
     return builder.build(RuleKey::new);
   }
 
@@ -110,7 +110,7 @@ public class ContentAgnosticRuleKeyFactory implements RuleKeyFactory<RuleKey> {
     @Override
     protected RuleKeyBuilder<RULE_KEY> setSourcePath(SourcePath sourcePath) throws IOException {
       if (sourcePath instanceof BuildTargetSourcePath) {
-        return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
+        return setSourcePathAsRule((BuildTargetSourcePath) sourcePath);
       } else {
         return setSourcePathDirectly(sourcePath);
       }

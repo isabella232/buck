@@ -125,6 +125,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                   getStampedeIdOptional(),
                   getGlobalCacheDirOptional());
           int returnCode = distBuildExecutor.buildAndReturnExitCode();
+          if (slaveEventListener != null) {
+            slaveEventListener.publishBuildSlaveFinishedEvent(params.getBuckEventBus(), returnCode);
+          }
           if (returnCode == 0) {
             console.printSuccess(
                 String.format(

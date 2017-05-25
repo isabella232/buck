@@ -17,9 +17,11 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.VariableTree;
-import com.sun.source.util.TreePath;
+import java.util.Collections;
+import java.util.List;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.VariableElement;
@@ -35,16 +37,22 @@ class TreeBackedVariableElement extends TreeBackedElement implements VariableEle
   TreeBackedVariableElement(
       VariableElement underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable TreePath path,
+      @Nullable VariableTree tree,
       TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, path, resolver);
+    super(underlyingElement, enclosingElement, tree, resolver);
     this.underlyingElement = underlyingElement;
-    tree = path != null ? (VariableTree) path.getLeaf() : null;
+    this.tree = tree;
     if (underlyingElement.getKind() == ElementKind.PARAMETER) {
       ((TreeBackedExecutableElement) enclosingElement).addParameter(this);
     } else {
       enclosingElement.addEnclosedElement(this);
     }
+  }
+
+  @Override
+  @Nullable
+  VariableTree getTree() {
+    return tree;
   }
 
   @Override
@@ -56,9 +64,13 @@ class TreeBackedVariableElement extends TreeBackedElement implements VariableEle
   }
 
   @Override
-  @Nullable
-  protected ModifiersTree getModifiersTree() {
-    return tree != null ? tree.getModifiers() : null;
+  protected List<? extends AnnotationTree> getAnnotationTrees() {
+    ModifiersTree modifiersTree = tree == null ? null : tree.getModifiers();
+    if (modifiersTree == null) {
+      return Collections.emptyList();
+    }
+
+    return modifiersTree.getAnnotations();
   }
 
   @Override

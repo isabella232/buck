@@ -71,7 +71,12 @@ abstract class AbstractIjProjectConfig {
 
   public abstract boolean isExcludeArtifactsEnabled();
 
+  public abstract boolean isSkipBuildEnabled();
+
   public abstract AggregationMode getAggregationMode();
 
   public abstract Optional<String> getGeneratedFilesListFilename();
+
+  /** Labels that indicate targets that need to be ignored during project generation. */
+  public abstract ImmutableSet<String> getIgnoredTargetLabels();
 }

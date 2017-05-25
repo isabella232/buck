@@ -40,7 +40,8 @@ public class IjProjectBuckConfig {
       @Nullable String generatedFilesListFilename,
       boolean isCleanerEnabled,
       boolean removeUnusedLibraries,
-      boolean excludeArtifacts) {
+      boolean excludeArtifacts,
+      boolean skipBuild) {
     Optional<String> excludedResourcePathsOption =
         buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "excluded_resource_paths");
 
@@ -56,33 +57,11 @@ public class IjProjectBuckConfig {
       excludedResourcePaths = Collections.emptyList();
     }
 
-    Optional<String> generatedSourcesMap =
-        buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "generated_srcs_map");
-
     Map<String, String> depToGeneratedSourcesMap =
-        generatedSourcesMap
-            .map(
-                value ->
-                    Splitter.on(',')
-                        .omitEmptyStrings()
-                        .trimResults()
-                        .withKeyValueSeparator(Splitter.on("=>").trimResults())
-                        .split(value))
-            .orElse(Collections.emptyMap());
-
-    Optional<String> generatedSourcesLabelMap =
-        buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "generated_sources_label_map");
+        buckConfig.getMap(INTELLIJ_BUCK_CONFIG_SECTION, "generated_srcs_map");
 
     Map<String, String> labelToGeneratedSourcesMap =
-        generatedSourcesLabelMap
-            .map(
-                value ->
-                    Splitter.on(',')
-                        .omitEmptyStrings()
-                        .trimResults()
-                        .withKeyValueSeparator(Splitter.on("=>").trimResults())
-                        .split(value))
-            .orElse(Collections.emptyMap());
+        buckConfig.getMap(INTELLIJ_BUCK_CONFIG_SECTION, "generated_sources_label_map");
 
     Optional<Path> androidManifest =
         buckConfig.getPath(INTELLIJ_BUCK_CONFIG_SECTION, "default_android_manifest_path", false);
@@ -118,8 +97,14 @@ public class IjProjectBuckConfig {
         .setRemovingUnusedLibrariesEnabled(
             isRemovingUnusedLibrariesEnabled(removeUnusedLibraries, buckConfig))
         .setExcludeArtifactsEnabled(isExcludingArtifactsEnabled(excludeArtifacts, buckConfig))
+        .setSkipBuildEnabled(
+            skipBuild
+                || buckConfig.getBooleanValue(PROJECT_BUCK_CONFIG_SECTION, "skip_build", false))
         .setAggregationMode(getAggregationMode(aggregationMode, buckConfig))
         .setGeneratedFilesListFilename(Optional.ofNullable(generatedFilesListFilename))
+        .setIgnoredTargetLabels(
+            buckConfig.getListWithoutComments(
+                INTELLIJ_BUCK_CONFIG_SECTION, "ignored_target_labels"))
         .build();
   }
 

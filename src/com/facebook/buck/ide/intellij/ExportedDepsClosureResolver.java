@@ -16,9 +16,9 @@
 
 package com.facebook.buck.ide.intellij;
 
-import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreCollectors;
@@ -30,11 +30,14 @@ import java.util.stream.Stream;
 /** Calculates the transitive closure of exported deps for every node in a {@link TargetGraph}. */
 public class ExportedDepsClosureResolver {
 
-  private TargetGraph targetGraph;
-  private Map<BuildTarget, ImmutableSet<BuildTarget>> index;
+  private final TargetGraph targetGraph;
+  private final ImmutableSet<String> ignoredTargetLabels;
+  private final Map<BuildTarget, ImmutableSet<BuildTarget>> index;
 
-  public ExportedDepsClosureResolver(TargetGraph targetGraph) {
+  public ExportedDepsClosureResolver(
+      TargetGraph targetGraph, ImmutableSet<String> ignoredTargetLabels) {
     this.targetGraph = targetGraph;
+    this.ignoredTargetLabels = ignoredTargetLabels;
     index = new HashMap<>();
   }
 
@@ -50,18 +53,21 @@ public class ExportedDepsClosureResolver {
 
     ImmutableSet<BuildTarget> exportedDeps = ImmutableSet.of();
     TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
-    if (targetNode.getDescription() instanceof JavaLibraryDescription) {
-      JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) targetNode.getConstructorArg();
-      exportedDeps = arg.exportedDeps;
-    } else if (targetNode.getDescription() instanceof AndroidLibraryDescription) {
-      AndroidLibraryDescription.Arg arg =
-          (AndroidLibraryDescription.Arg) targetNode.getConstructorArg();
-      exportedDeps = arg.exportedDeps;
+    if (targetNode.getConstructorArg() instanceof JavaLibraryDescription.CoreArg) {
+      JavaLibraryDescription.CoreArg arg =
+          (JavaLibraryDescription.CoreArg) targetNode.getConstructorArg();
+      exportedDeps = arg.getExportedDeps();
     }
 
     ImmutableSet<BuildTarget> exportedDepsClosure =
         exportedDeps
             .stream()
+            .filter(
+                target -> {
+                  CommonDescriptionArg arg =
+                      (CommonDescriptionArg) targetGraph.get(target).getConstructorArg();
+                  return !arg.labelsContainsAnyOf(ignoredTargetLabels);
+                })
             .flatMap(
                 target -> Stream.concat(Stream.of(target), getExportedDepsClosure(target).stream()))
             .collect(MoreCollectors.toImmutableSet());

@@ -166,7 +166,7 @@ public class ExternalJavac implements Javac {
       return pathToJavac.getLeft().toString();
     }
     if (pathToJavac.getRight() instanceof BuildTargetSourcePath) {
-      return ((BuildTargetSourcePath<?>) pathToJavac.getRight()).getTarget().toString();
+      return ((BuildTargetSourcePath) pathToJavac.getRight()).getTarget().toString();
     }
     return ((PathSourcePath) pathToJavac.getRight()).getRelativePath().toString();
   }
@@ -176,15 +176,16 @@ public class ExternalJavac implements Javac {
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToArgsList,
       Optional<Path> workingDirectory,
-      CompilationMode compilationMode)
+      JavacCompilationMode compilationMode)
       throws InterruptedException {
 
     Preconditions.checkArgument(
-        compilationMode == CompilationMode.FULL, "Cannot compile ABI jars with external javac");
+        compilationMode == JavacCompilationMode.FULL,
+        "Cannot compile ABI jars with external javac");
     ImmutableList.Builder<String> command = ImmutableList.builder();
     command.add(
         pathToJavac.isLeft()

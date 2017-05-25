@@ -108,14 +108,16 @@ public class WorkerShellStepTest {
       @Nullable String persistentWorkerKey,
       @Nullable HashCode workerHash) {
     return WorkerJobParams.of(
-        Paths.get("tmp").toAbsolutePath().normalize(),
-        startupCommand,
-        startupArgs,
-        startupEnv,
         jobArgs,
-        maxWorkers,
-        Optional.ofNullable(persistentWorkerKey),
-        Optional.ofNullable(workerHash));
+        WorkerProcessParams.of(
+            Paths.get("tmp").toAbsolutePath().normalize(),
+            startupCommand,
+            startupArgs,
+            startupEnv,
+            maxWorkers,
+            persistentWorkerKey == null || workerHash == null
+                ? Optional.empty()
+                : Optional.of(WorkerProcessIdentity.of(persistentWorkerKey, workerHash))));
   }
 
   private ExecutionContext createExecutionContextWith(int exitCode, String stdout, String stderr)
@@ -226,11 +228,11 @@ public class WorkerShellStepTest {
 
     WorkerShellStep step = createWorkerShellStep(cmdParams, null, cmdExeParams);
     assertThat(
-        step.getFactory().getCommand(Platform.LINUX, cmdParams),
+        step.getFactory().getCommand(Platform.LINUX, cmdParams.getWorkerProcessParams()),
         Matchers.equalTo(
             ImmutableList.of("/bin/bash", "-e", "-c", "command --platform unix-like")));
     assertThat(
-        step.getFactory().getCommand(Platform.WINDOWS, cmdExeParams),
+        step.getFactory().getCommand(Platform.WINDOWS, cmdExeParams.getWorkerProcessParams()),
         Matchers.equalTo(ImmutableList.of("cmd.exe", "/c", "command --platform windows")));
   }
 
@@ -385,7 +387,9 @@ public class WorkerShellStepTest {
     Map<String, String> processEnv =
         Maps.newHashMap(
             step.getFactory()
-                .getEnvironmentForProcess(context, step.getWorkerJobParamsToUse(Platform.UNKNOWN)));
+                .getEnvironmentForProcess(
+                    context,
+                    step.getWorkerJobParamsToUse(Platform.UNKNOWN).getWorkerProcessParams()));
     processEnv.remove("TMP");
     assertThat(
         processEnv,

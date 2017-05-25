@@ -17,8 +17,8 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.JarBuilder;
 import com.facebook.buck.jvm.java.JavacEventSinkToBuckEventBusBridge;
+import com.facebook.buck.jvm.java.LoggingJarBuilderObserver;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -39,6 +39,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
+import com.facebook.buck.zip.JarBuilder;
 import com.facebook.buck.zip.UnzipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -107,12 +108,12 @@ public class UnzipAar extends AbstractBuildRule
           public StepExecutionResult execute(ExecutionContext context) {
             Path libsDirectory = unpackDirectory.resolve("libs");
             boolean dirDoesNotExistOrIsEmpty;
-            if (!getProjectFilesystem().exists(libsDirectory)) {
+            ProjectFilesystem filesystem = getProjectFilesystem();
+            if (!filesystem.exists(libsDirectory)) {
               dirDoesNotExistOrIsEmpty = true;
             } else {
               try {
-                dirDoesNotExistOrIsEmpty =
-                    getProjectFilesystem().getDirectoryContents(libsDirectory).isEmpty();
+                dirDoesNotExistOrIsEmpty = filesystem.getDirectoryContents(libsDirectory).isEmpty();
               } catch (IOException e) {
                 context.logError(e, "Failed to get directory contents of %s", libsDirectory);
                 return StepExecutionResult.ERROR;
@@ -122,10 +123,11 @@ public class UnzipAar extends AbstractBuildRule
             Path classesJar = unpackDirectory.resolve("classes.jar");
             JavacEventSinkToBuckEventBusBridge eventSink =
                 new JavacEventSinkToBuckEventBusBridge(context.getBuckEventBus());
-            if (!getProjectFilesystem().exists(classesJar)) {
+            if (!filesystem.exists(classesJar)) {
               try {
-                new JarBuilder(getProjectFilesystem(), eventSink, context.getStdErr())
-                    .createJarFile(classesJar);
+                new JarBuilder()
+                    .setObserver(new LoggingJarBuilderObserver(eventSink))
+                    .createJarFile(filesystem.resolve(classesJar));
               } catch (IOException e) {
                 context.logError(e, "Failed to create empty jar %s", classesJar);
                 return StepExecutionResult.ERROR;
@@ -134,8 +136,7 @@ public class UnzipAar extends AbstractBuildRule
 
             if (dirDoesNotExistOrIsEmpty) {
               try {
-                getProjectFilesystem()
-                    .copy(classesJar, uberClassesJar, ProjectFilesystem.CopySourceMode.FILE);
+                filesystem.copy(classesJar, uberClassesJar, ProjectFilesystem.CopySourceMode.FILE);
               } catch (IOException e) {
                 context.logError(e, "Failed to copy from %s to %s", classesJar, uberClassesJar);
                 return StepExecutionResult.ERROR;
@@ -156,13 +157,14 @@ public class UnzipAar extends AbstractBuildRule
               ImmutableSortedSet<Path> entriesToJar = entriesToJarBuilder.build();
               try {
 
-                new JarBuilder(getProjectFilesystem(), eventSink, context.getStdErr())
-                    .setEntriesToJar(entriesToJar)
+                new JarBuilder()
+                    .setObserver(new LoggingJarBuilderObserver(eventSink))
+                    .setEntriesToJar(entriesToJar.stream().map(filesystem::resolve))
                     .setMainClass(Optional.<String>empty().orElse(null))
                     .setManifestFile(Optional.<Path>empty().orElse(null))
                     .setShouldMergeManifests(true)
                     .setEntryPatternBlacklist(ImmutableSet.of())
-                    .createJarFile(uberClassesJar);
+                    .createJarFile(filesystem.resolve(uberClassesJar));
               } catch (IOException e) {
                 context.logError(e, "Failed to jar %s into %s", entriesToJar, uberClassesJar);
                 return StepExecutionResult.ERROR;

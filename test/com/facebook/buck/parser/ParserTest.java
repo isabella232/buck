@@ -59,7 +59,7 @@ import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.shell.GenruleDescription;
+import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
@@ -157,13 +157,7 @@ public class ParserTest {
       throws InterruptedException, BuildFileParseException {
     try (PerBuildState state =
         new PerBuildState(
-            parser,
-            eventBus,
-            executor,
-            cell,
-            enableProfiling,
-            SpeculativeParsing.of(false),
-            /* ignoreBuckAutodepsFiles */ false)) {
+            parser, eventBus, executor, cell, enableProfiling, SpeculativeParsing.of(false))) {
       return Parser.getRawTargetNodes(state, cell, buildFile);
     }
   }
@@ -1563,192 +1557,13 @@ public class ParserTest {
     BuckConfig config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-    TargetNode<GenruleDescription.Arg, ?> node =
+    TargetNode<GenruleDescriptionArg, ?> node =
         parser
             .getTargetNode(eventBus, cell, false, executorService, buildTarget)
-            .castArg(GenruleDescription.Arg.class)
+            .castArg(GenruleDescriptionArg.class)
             .get();
 
-    assertThat(node.getConstructorArg().out, is(equalTo("default.txt")));
-
-    config =
-        FakeBuckConfig.builder()
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "value")))
-            .setFilesystem(filesystem)
-            .build();
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-    node =
-        parser
-            .getTargetNode(eventBus, cell, false, executorService, buildTarget)
-            .castArg(GenruleDescription.Arg.class)
-            .get();
-
-    assertThat(node.getConstructorArg().out, is(equalTo("value.txt")));
-
-    config =
-        FakeBuckConfig.builder()
-            .setFilesystem(filesystem)
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "other value")))
-            .build();
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-    node =
-        parser
-            .getTargetNode(eventBus, cell, false, executorService, buildTarget)
-            .castArg(GenruleDescription.Arg.class)
-            .get();
-
-    assertThat(node.getConstructorArg().out, is(equalTo("other value.txt")));
-  }
-
-  @Test
-  public void whenBuckConfigEntryChangesThenCachedRulesAreInvalidated() throws Exception {
-    Path buckFile = cellRoot.resolve("BUCK");
-    Files.write(
-        buckFile,
-        Joiner.on("")
-            .join(
-                ImmutableList.of(
-                    "read_config('foo', 'bar')\n",
-                    "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n"))
-            .getBytes(UTF_8));
-
-    BuckConfig config =
-        FakeBuckConfig.builder()
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "value")))
-            .setFilesystem(filesystem)
-            .build();
-
-    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Call filterAllTargetsInProject to request cached rules.
-    config =
-        FakeBuckConfig.builder()
-            .setFilesystem(filesystem)
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "other value")))
-            .build();
-
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Test that the second parseBuildFile call repopulated the cache.
-    assertEquals("Should have invalidated.", 2, counter.calls);
-  }
-
-  @Test
-  public void whenBuckConfigAddedThenCachedRulesAreInvalidated() throws Exception {
-    Path buckFile = cellRoot.resolve("BUCK");
-    Files.write(
-        buckFile,
-        Joiner.on("")
-            .join(
-                ImmutableList.of(
-                    "read_config('foo', 'bar')\n",
-                    "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n"))
-            .getBytes(UTF_8));
-
-    BuckConfig config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
-
-    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Call filterAllTargetsInProject to request cached rules.
-    config =
-        FakeBuckConfig.builder()
-            .setFilesystem(filesystem)
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "other value")))
-            .build();
-
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Test that the second parseBuildFile call repopulated the cache.
-    assertEquals("Should have invalidated.", 2, counter.calls);
-  }
-
-  @Test
-  public void whenBuckConfigEntryRemovedThenCachedRulesAreInvalidated() throws Exception {
-    Path buckFile = cellRoot.resolve("BUCK");
-    Files.write(
-        buckFile,
-        Joiner.on("")
-            .join(
-                ImmutableList.of(
-                    "read_config('foo', 'bar')\n",
-                    "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n"))
-            .getBytes(UTF_8));
-
-    BuckConfig config =
-        FakeBuckConfig.builder()
-            .setSections(ImmutableMap.of("foo", ImmutableMap.of("bar", "value")))
-            .setFilesystem(filesystem)
-            .build();
-
-    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Call filterAllTargetsInProject to request cached rules.
-    config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
-
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Test that the second parseBuildFile call repopulated the cache.
-    assertEquals("Should have invalidated.", 2, counter.calls);
-  }
-
-  @Test
-  public void whenUnrelatedBuckConfigEntryChangesThenCachedRulesAreNotInvalidated()
-      throws Exception {
-    Path buckFile = cellRoot.resolve("BUCK");
-    Files.write(
-        buckFile,
-        Joiner.on("")
-            .join(
-                ImmutableList.of(
-                    "read_config('foo', 'bar')\n",
-                    "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n"))
-            .getBytes(UTF_8));
-
-    BuckConfig config =
-        FakeBuckConfig.builder()
-            .setSections(
-                ImmutableMap.of(
-                    "foo",
-                    ImmutableMap.of(
-                        "bar", "value",
-                        "dead", "beef")))
-            .setFilesystem(filesystem)
-            .build();
-
-    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Call filterAllTargetsInProject to request cached rules.
-    config =
-        FakeBuckConfig.builder()
-            .setSections(
-                ImmutableMap.of(
-                    "foo",
-                    ImmutableMap.of(
-                        "bar", "value",
-                        "dead", "beef different")))
-            .setFilesystem(filesystem)
-            .build();
-
-    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
-
-    // Test that the second parseBuildFile call repopulated the cache.
-    assertEquals("Should not have invalidated.", 1, counter.calls);
+    assertThat(node.getConstructorArg().getOut(), is(equalTo("default.txt")));
   }
 
   @Test
@@ -1878,7 +1693,6 @@ public class ParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTarget.builder(cellRoot, "//lib", "lib").build())),
-                /* ignoreBuckAutodepsFiles */ false,
                 ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
             .getBuildTargets();
 
@@ -1923,7 +1737,6 @@ public class ParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTarget.builder(cellRoot, "//lib", "lib").build())),
-                /* ignoreBuckAutodepsFiles */ false,
                 ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
             .getBuildTargets();
 
@@ -1972,7 +1785,6 @@ public class ParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTarget.builder(cellRoot, "//lib", "lib").build())),
-                /* ignoreBuckAutodepsFiles */ false,
                 ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
             .getBuildTargets();
 
@@ -2011,7 +1823,6 @@ public class ParserTest {
         executorService,
         ImmutableList.of(
             AbstractBuildTargetSpec.from(BuildTarget.builder(cellRoot, "//lib", "gen").build())),
-        /* ignoreBuckAutodepsFiles */ false,
         ParserConfig.ApplyDefaultFlavorsMode.DISABLED);
 
     // The read bytes are dependent on the serialization format of the parser, and the absolute path
@@ -2030,7 +1841,6 @@ public class ParserTest {
         executorService,
         ImmutableList.of(
             AbstractBuildTargetSpec.from(BuildTarget.builder(cellRoot, "//lib", "gen").build())),
-        /* ignoreBuckAutodepsFiles */ false,
         ParserConfig.ApplyDefaultFlavorsMode.DISABLED);
     assertEquals(0L, Iterables.getOnlyElement(events).getProcessedBytes());
   }
@@ -2284,8 +2094,7 @@ public class ParserTest {
                     ImmutableList.of(
                         TargetNodePredicateSpec.of(
                             filter,
-                            BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
-                    /* ignoreBuckAutodepsFiles */ false)
+                            BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))))
                 .getTargetGraph()
                 .getNodes())
         .filter(filter)

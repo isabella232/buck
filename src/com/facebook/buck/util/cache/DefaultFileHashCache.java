@@ -150,7 +150,8 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     }
   }
 
-  private HashCodeAndFileType getHashCodeAndFileType(Path path) throws IOException {
+  // TODO(rvitale): restrict visibility of this method after the file hash cache experiment is over.
+  HashCodeAndFileType getHashCodeAndFileType(Path path) throws IOException {
     if (projectFilesystem.isDirectory(path)) {
       return getDirHashCode(path);
     } else if (path.toString().endsWith(".jar")) {
@@ -209,6 +210,21 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
 
   @Override
   public void invalidate(Path relativePath) {
+    invalidateOld(relativePath);
+    invalidateNew(relativePath);
+  }
+
+  @Override
+  public void invalidateAll() {
+    loadingCache.invalidateAll();
+    sizeCache.invalidateAll();
+    invalidateAllNew();
+  }
+  /* *****************************************************************************/
+
+  // TODO(rvitale): rename functions below after the file hash cache experiment is over.
+  /* *****************************************************************************/
+  public void invalidateOld(Path relativePath) {
     Preconditions.checkArgument(!relativePath.isAbsolute());
     checkNotIgnored(relativePath);
     HashCodeAndFileType cached = loadingCache.getIfPresent(relativePath);
@@ -220,15 +236,6 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     }
   }
 
-  @Override
-  public void invalidateAll() {
-    loadingCache.invalidateAll();
-    sizeCache.invalidateAll();
-  }
-  /* *****************************************************************************/
-
-  // TODO(rvitale): rename functions below after the file hash cache experiment is over.
-  /* *****************************************************************************/
   public void invalidateNew(Path relativePath) {
     Preconditions.checkArgument(!relativePath.isAbsolute());
     checkNotIgnored(relativePath);
@@ -334,6 +341,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
       value = HashCodeAndFileType.ofFile(hashCode);
     }
 
+    loadingCache.put(relativePath, value);
     newLoadingCache.put(relativePath, value);
   }
 

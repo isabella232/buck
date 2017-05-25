@@ -12,7 +12,7 @@
 !com.facebook.buck.cxx.CxxCompilationDatabaseTest
 !com.facebook.buck.cxx.CxxCompileStepIntegrationTest
 !com.facebook.buck.cxx.CxxDependencyFileIntegrationTest
-!com.facebook.buck.cxx.CxxErrorTransformerFactoryTest
+!com.facebook.buck.cxx.CxxErrorTransformerTest
 !com.facebook.buck.cxx.CxxGtestTestTest
 !com.facebook.buck.cxx.CxxLibraryDescriptionTest#createBuildRule
 !com.facebook.buck.cxx.CxxLibraryDescriptionTest#createBuildRule.*
@@ -30,7 +30,6 @@
 !com.facebook.buck.cxx.OmnibusTest
 !com.facebook.buck.cxx.ToolTest
 !com.facebook.buck.jvm.java.ExternalJavacIntegrationTest#whenBuckdUsesExternalJavacThenClientEnvironmentUsed
-!com.facebook.buck.parser.ParserIntegrationTest#testModifyingAutodepsShouldInvalidateCorrespondingBuildRules
 !com.facebook.buck.python.PrebuiltPythonLibraryIntegrationTest
 !com.facebook.buck.python.PythonBinaryIntegrationTest
 !com.facebook.buck.python.PythonSrcZipIntegrationTest#testDependingOnSrcZipWorks

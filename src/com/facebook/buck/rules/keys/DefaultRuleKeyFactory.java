@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 
 /** A {@link RuleKeyFactory} which adds some default settings to {@link RuleKey}s. */
 public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<RuleKey> {
@@ -73,7 +74,7 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
   private <HASH> Builder<HASH> newPopulatedBuilder(
       BuildRule buildRule, RuleKeyHasher<HASH> hasher) {
     Builder<HASH> builder = new Builder<>(hasher);
-    ruleKeyFieldLoader.setFields(buildRule, builder);
+    ruleKeyFieldLoader.setFields(builder, buildRule, RuleKeyType.DEFAULT);
     addDepsToRuleKey(buildRule, builder);
     return builder;
   }
@@ -88,6 +89,12 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
   @VisibleForTesting
   public Builder<HashCode> newBuilderForTesting(BuildRule buildRule) {
     return newPopulatedBuilder(buildRule, RuleKeyBuilder.createDefaultHasher());
+  }
+
+  @Nullable
+  @Override
+  public RuleKey getFromCache(BuildRule buildRule) {
+    return ruleKeyCache.get(buildRule);
   }
 
   @Override
@@ -162,7 +169,7 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
     @Override
     protected RuleKeyBuilder<RULE_KEY> setSourcePath(SourcePath sourcePath) throws IOException {
       if (sourcePath instanceof BuildTargetSourcePath) {
-        return setSourcePathAsRule((BuildTargetSourcePath<?>) sourcePath);
+        return setSourcePathAsRule((BuildTargetSourcePath) sourcePath);
       } else {
         // Add `PathSourcePath`s to our tracked inputs.
         pathResolver

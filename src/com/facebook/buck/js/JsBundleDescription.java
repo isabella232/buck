@@ -16,8 +16,10 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.android.Aapt2Compile;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResource;
+import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.apple.AppleBundleResources;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
@@ -29,20 +31,23 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.coercer.Hint;
+import com.facebook.buck.shell.ExportFile;
+import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -50,15 +55,19 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Collection;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class JsBundleDescription
-    implements Description<JsBundleDescription.Arg>,
+    implements Description<JsBundleDescriptionArg>,
         Flavored,
-        HasAppleBundleResourcesDescription<JsBundleDescription.Arg> {
+        HasAppleBundleResourcesDescription<JsBundleDescriptionArg> {
 
   private static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS =
       ImmutableSet.of(
-          JsFlavors.PLATFORM_DOMAIN, JsFlavors.OPTIMIZATION_DOMAIN, JsFlavors.RAM_BUNDLE_DOMAIN);
+          JsFlavors.PLATFORM_DOMAIN,
+          JsFlavors.OPTIMIZATION_DOMAIN,
+          JsFlavors.RAM_BUNDLE_DOMAIN,
+          JsFlavors.SOURCE_MAP_DOMAIN);
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
@@ -71,8 +80,8 @@ public class JsBundleDescription
   }
 
   @Override
-  public Class<Arg> getConstructorArgType() {
-    return Arg.class;
+  public Class<JsBundleDescriptionArg> getConstructorArgType() {
+    return JsBundleDescriptionArg.class;
   }
 
   @Override
@@ -81,27 +90,44 @@ public class JsBundleDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      Arg args)
+      JsBundleDescriptionArg args)
       throws NoSuchBuildTargetException {
 
     final ImmutableSortedSet<Flavor> flavors = params.getBuildTarget().getFlavors();
+
+    // Source maps are exposed individually using a special flavor
+    if (flavors.contains(JsFlavors.SOURCE_MAP)) {
+      BuildTarget bundleTarget = params.getBuildTarget().withoutFlavors(JsFlavors.SOURCE_MAP);
+      resolver.requireRule(bundleTarget);
+      JsBundleOutputs bundleOutputs = resolver.getRuleWithType(bundleTarget, JsBundleOutputs.class);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+
+      return new ExportFile(
+          JsUtil.copyParamsWithDependencies(params),
+          ruleFinder,
+          new SourcePathResolver(ruleFinder),
+          bundleOutputs.getBundleName() + ".map",
+          ExportFileDescription.Mode.REFERENCE,
+          bundleOutputs.getSourcePathToSourceMap());
+    }
+
     // For Android, we bundle JS output as assets, and images etc. as resources.
     // To facilitate this, we return a build rule that in turn depends on a `JsBundle` and
     // an `AndroidResource`. The `AndroidResource` rule also depends on the `JsBundle`
     // if the `FORCE_JS_BUNDLE` flavor is present, we create the `JsBundle` instance itself.
     if (flavors.contains(JsFlavors.ANDROID) && !flavors.contains(JsFlavors.FORCE_JS_BUNDLE)) {
-      return createAndroidRule(params.copyInvalidatingDeps(), resolver, args.rDotJavaPackage);
+      return createAndroidRule(params.copyInvalidatingDeps(), resolver, args.getAndroidPackage());
     }
 
     // Flavors are propagated from js_bundle targets to their js_library dependencies
     // for that reason, dependencies of libraries are handled manually, and as a first step,
     // all dependencies to libraries are removed
-    params = JsUtil.withWorkerDependencyOnly(params, resolver, args.worker);
+    params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
 
-    final Either<ImmutableSet<String>, String> entryPoint = args.entry;
+    final Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
     ImmutableSortedSet<JsLibrary> libraryDeps =
         new TransitiveLibraryDependencies(params.getBuildTarget(), targetGraph, resolver)
-            .collect(args.deps);
+            .collect(args.getDeps());
 
     return new JsBundle(
         params.copyAppendingExtraDeps(libraryDeps),
@@ -110,8 +136,8 @@ public class JsBundleDescription
             .map(JsLibrary::getSourcePathToOutput)
             .collect(MoreCollectors.toImmutableSortedSet()),
         entryPoint.isLeft() ? entryPoint.getLeft() : ImmutableSet.of(entryPoint.getRight()),
-        args.bundleName.orElse(params.getBuildTarget().getShortName() + ".js"),
-        resolver.getRuleWithType(args.worker, WorkerTool.class));
+        args.getBundleName(),
+        resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
   }
 
   private static BuildRule createAndroidRule(
@@ -121,7 +147,8 @@ public class JsBundleDescription
         params
             .getBuildTarget()
             .withAppendedFlavors(JsFlavors.FORCE_JS_BUNDLE)
-            .withoutFlavors(JsFlavors.ANDROID_RESOURCES);
+            .withoutFlavors(JsFlavors.ANDROID_RESOURCES)
+            .withoutFlavors(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR);
     resolver.requireRule(bundleTarget);
 
     final JsBundle jsBundle = resolver.getRuleWithType(bundleTarget, JsBundle.class);
@@ -157,6 +184,16 @@ public class JsBundleDescription
       BuildRuleParams params, BuildRuleResolver resolver, JsBundle jsBundle, String rDotJavaPackage)
       throws NoSuchBuildTargetException {
 
+    if (params
+        .getBuildTarget()
+        .getFlavors()
+        .contains(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR)) {
+      return new Aapt2Compile(
+          params.copyReplacingDeclaredAndExtraDeps(
+              ImmutableSortedSet::of, () -> ImmutableSortedSet.of(jsBundle)),
+          jsBundle.getSourcePathToResources());
+    }
+
     return new AndroidResource(
         params.copyReplacingDeclaredAndExtraDeps(
             ImmutableSortedSet::of, () -> ImmutableSortedSet.of(jsBundle)),
@@ -174,7 +211,7 @@ public class JsBundleDescription
   @Override
   public void addAppleBundleResources(
       AppleBundleResources.Builder builder,
-      TargetNode<Arg, ?> targetNode,
+      TargetNode<JsBundleDescriptionArg, ?> targetNode,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver) {
     JsBundleOutputs bundle =
@@ -183,15 +220,20 @@ public class JsBundleDescription
         bundle.getSourcePathToOutput(), bundle.getSourcePathToResources());
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public Either<ImmutableSet<String>, String> entry;
-    public Optional<String> bundleName;
-    public BuildTarget worker;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractJsBundleDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+    Either<ImmutableSet<String>, String> getEntry();
 
-    @Hint(name = "android_package")
-    public Optional<String> rDotJavaPackage;
+    @Value.Default
+    default String getBundleName() {
+      return getName() + ".js";
+    }
+
+    BuildTarget getWorker();
+
+    /** For R.java */
+    Optional<String> getAndroidPackage();
   }
 
   private static class TransitiveLibraryDependencies {

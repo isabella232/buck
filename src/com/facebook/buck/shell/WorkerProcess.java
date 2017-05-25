@@ -29,6 +29,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -39,7 +40,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
-public class WorkerProcess {
+public class WorkerProcess implements Closeable {
 
   private static final Logger LOG = Logger.get(WorkerProcess.class);
 
@@ -99,7 +100,14 @@ public class WorkerProcess {
         new JsonReader(new BufferedReader(new InputStreamReader(launchedProcess.getInputStream())));
     protocol =
         new WorkerProcessProtocolZero(
-            executor, launchedProcess, processStdinWriter, processStdoutReader, stdErr);
+            processStdinWriter,
+            processStdoutReader,
+            stdErr,
+            () -> {
+              if (launchedProcess != null) {
+                executor.destroyLaunchedProcess(launchedProcess);
+              }
+            });
 
     int messageID = currentMessageID.getAndAdd(1);
     LOG.debug("Sending handshake to process %d", this.hashCode());
@@ -140,6 +148,7 @@ public class WorkerProcess {
     return WorkerJobResult.of(exitCode, stdout, stderr);
   }
 
+  @Override
   public void close() {
     LOG.debug("Closing process %d", this.hashCode());
     try {

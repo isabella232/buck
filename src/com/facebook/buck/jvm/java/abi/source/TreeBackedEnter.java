@@ -29,6 +29,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.util.ElementScanner8;
+import javax.tools.JavaFileObject;
 
 /**
  * Creates {@link TreeBackedElement}s for each element in the {@link CompilationUnitTree}s known to
@@ -52,9 +53,25 @@ class TreeBackedEnter {
     }
   }
 
+  // TODO(jkeljo): Consider continuing to build TreePath objects as we go, so that we don't have to
+  // re-query the tree when creating the elements in `TreeBackedElements`.
   private class EnteringTreePathScanner extends TreePathScanner<Void, Void> {
     @Override
+    public Void visitCompilationUnit(CompilationUnitTree node, Void aVoid) {
+      if (node.getSourceFile().isNameCompatible("package-info", JavaFileObject.Kind.SOURCE)) {
+        TreeBackedPackageElement packageElement =
+            Preconditions.checkNotNull(
+                elements.getPackageElement(node.getPackageName().toString()));
+        packageElement.setTree(node);
+      }
+      return super.visitCompilationUnit(node, aVoid);
+    }
+
+    @Override
     public Void visitClass(ClassTree node, Void v) {
+      // We use a TreePathScanner to find the top-level type elements in a given compilation unit,
+      // then switch to Element scanning so that we can catch elements created by the compiler
+      // that don't have a tree, such as default constructors or the generated methods on enums.
       return elementScanner.scan(
           Preconditions.checkNotNull(javacTrees.getElement(getCurrentPath())));
     }

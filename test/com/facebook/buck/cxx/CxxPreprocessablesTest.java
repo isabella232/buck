@@ -62,27 +62,23 @@ public class CxxPreprocessablesTest {
     }
 
     @Override
-    public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+    public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
       return FluentIterable.from(getBuildDeps()).filter(CxxPreprocessorDep.class);
     }
 
     @Override
-    public CxxPreprocessorInput getCxxPreprocessorInput(
-        CxxPlatform cxxPlatform, HeaderVisibility headerVisibility) {
+    public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
       return input;
     }
 
     @Override
     public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-        CxxPlatform cxxPlatform, HeaderVisibility headerVisibility)
-        throws NoSuchBuildTargetException {
+        CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
       ImmutableMap.Builder<BuildTarget, CxxPreprocessorInput> builder = ImmutableMap.builder();
-      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, headerVisibility));
+      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform));
       for (BuildRule dep : getBuildDeps()) {
         if (dep instanceof CxxPreprocessorDep) {
-          builder.putAll(
-              ((CxxPreprocessorDep) dep)
-                  .getTransitiveCxxPreprocessorInput(cxxPlatform, headerVisibility));
+          builder.putAll(((CxxPreprocessorDep) dep).getTransitiveCxxPreprocessorInput(cxxPlatform));
         }
       }
       return builder.build();

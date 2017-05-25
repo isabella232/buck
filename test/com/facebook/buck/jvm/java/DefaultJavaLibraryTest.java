@@ -31,14 +31,12 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -56,6 +54,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -159,7 +158,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             + File.pathSeparator
             + "usb.jar"
             + File.pathSeparator;
-    BuildContext context = createBuildContext(libraryRule, bootclasspath);
+    BuildContext context = createBuildContext(bootclasspath);
 
     List<Step> steps = javaLibrary.getBuildSteps(context, new FakeBuildableContext());
 
@@ -384,8 +383,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
-    JavaLibrary libraryOneRule = (JavaLibrary) ruleResolver.requireRule(libraryOneTarget);
-    BuildRule libraryTwoRule = ruleResolver.requireRule(libraryTwoTarget);
+    DefaultJavaLibrary libraryOneRule =
+        (DefaultJavaLibrary) ruleResolver.requireRule(libraryOneTarget);
+    DefaultJavaLibrary libraryTwoRule =
+        (DefaultJavaLibrary) ruleResolver.requireRule(libraryTwoTarget);
 
     SourcePathResolver pathResolver =
         new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
@@ -641,7 +642,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   public void testStepsPresenceForForDirectJarSpooling() throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
-    BuildRule javaLibraryBuildRule =
+    DefaultJavaLibrary javaLibraryBuildRule =
         createDefaultJavaLibraryRuleWithAbiKey(
             buildTarget,
             /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
@@ -650,7 +651,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
             /* postprocessClassesCommands */ ImmutableList.of());
 
-    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
+    BuildContext buildContext = createBuildContext(/* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -665,7 +666,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
       throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
-    BuildRule javaLibraryBuildRule =
+    DefaultJavaLibrary javaLibraryBuildRule =
         createDefaultJavaLibraryRuleWithAbiKey(
             buildTarget,
             /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
@@ -674,7 +675,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             Optional.of(AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR),
             /* postprocessClassesCommands */ ImmutableList.of("process_class_files.py"));
 
-    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
+    BuildContext buildContext = createBuildContext(/* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -690,7 +691,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
       throws NoSuchBuildTargetException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:lib");
 
-    BuildRule javaLibraryBuildRule =
+    DefaultJavaLibrary javaLibraryBuildRule =
         createDefaultJavaLibraryRuleWithAbiKey(
             buildTarget,
             /* srcs */ ImmutableSortedSet.of("foo/Bar.java"),
@@ -699,7 +700,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             Optional.of(AbstractJavacOptions.SpoolMode.INTERMEDIATE_TO_DISK),
             /* postprocessClassesCommands */ ImmutableList.of());
 
-    BuildContext buildContext = createBuildContext(javaLibraryBuildRule, /* bootclasspath */ null);
+    BuildContext buildContext = createBuildContext(/* bootclasspath */ null);
 
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -785,7 +786,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup a Java library which builds against another Java library dep.
-    TargetNode<JavaLibraryDescription.Arg, ?> depNode =
+    TargetNode<JavaLibraryDescriptionArg, ?> depNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:dep"), filesystem)
             .addSrc(Paths.get("Source.java"))
             .build();
@@ -878,7 +879,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     // Setup a Java library which builds against another Java library dep exporting another Java
     // library dep.
 
-    TargetNode<JavaLibraryDescription.Arg, ?> exportedDepNode =
+    TargetNode<JavaLibraryDescriptionArg, ?> exportedDepNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:edep"), filesystem)
             .addSrc(Paths.get("Source1.java"))
             .build();
@@ -979,7 +980,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
     // Setup a Java library which builds against another Java library dep exporting another Java
     // library dep.
-    TargetNode<JavaLibraryDescription.Arg, ?> exportedDepNode =
+    TargetNode<JavaLibraryDescriptionArg, ?> exportedDepNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:edep"), filesystem)
             .addSrc(Paths.get("Source1.java"))
             .build();
@@ -1075,7 +1076,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
   }
 
-  private BuildRule createDefaultJavaLibraryRuleWithAbiKey(
+  private DefaultJavaLibrary createDefaultJavaLibraryRuleWithAbiKey(
       BuildTarget buildTarget,
       ImmutableSet<String> srcs,
       ImmutableSortedSet<BuildRule> deps,
@@ -1101,7 +1102,12 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             : DEFAULT_JAVAC_OPTIONS;
 
     DefaultJavaLibrary defaultJavaLibrary =
-        DefaultJavaLibrary.builder(buildRuleParams, ruleResolver, testJavaBuckConfig)
+        DefaultJavaLibrary.builder(
+                TargetGraph.EMPTY,
+                buildRuleParams,
+                ruleResolver,
+                TestCellPathResolver.get(projectFilesystem),
+                testJavaBuckConfig)
             .setJavacOptions(javacOptions)
             .setSrcs(srcsAsPaths)
             .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
@@ -1268,23 +1274,18 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   }
 
   // test.
-  private BuildContext createBuildContext(BuildRule javaLibrary, @Nullable String bootclasspath) {
+  private BuildContext createBuildContext(@Nullable String bootclasspath) {
     AndroidPlatformTarget platformTarget = EasyMock.createMock(AndroidPlatformTarget.class);
     ImmutableList<Path> bootclasspathEntries =
         (bootclasspath == null)
             ? ImmutableList.of(Paths.get("I am not used"))
             : ImmutableList.of(Paths.get(bootclasspath));
-    expect(platformTarget.getBootclasspathEntries()).andReturn(bootclasspathEntries).anyTimes();
+    expect(platformTarget.getBootclasspathEntries()).andStubReturn(bootclasspathEntries);
     replay(platformTarget);
 
-    // TODO(mbolin): Create a utility that populates a BuildContext.Builder with fakes.
-    return BuildContext.builder()
-        .setActionGraph(new ActionGraph(ImmutableList.of(javaLibrary)))
-        .setSourcePathResolver(new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
-        .setJavaPackageFinder(EasyMock.createMock(JavaPackageFinder.class))
-        .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(platformTarget))
-        .setEventBus(BuckEventBusFactory.newInstance())
-        .build();
+    return FakeBuildContext.withSourcePathResolver(
+            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
+        .withAndroidPlatformTargetSupplier(Suppliers.ofInstance(platformTarget));
   }
 
   private abstract static class AnnotationProcessorTarget {
@@ -1371,8 +1372,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     public ImmutableList<String> buildAndGetCompileParameters()
         throws InterruptedException, IOException, NoSuchBuildTargetException {
       ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot().toPath());
-      BuildRule javaLibrary = createJavaLibraryRule(projectFilesystem);
-      BuildContext buildContext = createBuildContext(javaLibrary, /* bootclasspath */ null);
+      DefaultJavaLibrary javaLibrary = createJavaLibraryRule(projectFilesystem);
+      BuildContext buildContext = createBuildContext(/* bootclasspath */ null);
       List<Step> steps = javaLibrary.getBuildSteps(buildContext, new FakeBuildableContext());
       JavacStep javacCommand = lastJavacCommand(steps);
 
@@ -1389,7 +1390,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
       return options;
     }
 
-    private BuildRule createJavaLibraryRule(ProjectFilesystem projectFilesystem)
+    private DefaultJavaLibrary createJavaLibraryRule(ProjectFilesystem projectFilesystem)
         throws IOException, NoSuchBuildTargetException {
       BuildTarget buildTarget = BuildTargetFactory.newInstance(ANNOTATION_SCENARIO_TARGET);
       annotationProcessingParamsBuilder.setOwnerTarget(buildTarget);
@@ -1409,7 +1410,12 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
               .build();
 
       DefaultJavaLibrary javaLibrary =
-          DefaultJavaLibrary.builder(buildRuleParams, ruleResolver, testJavaBuckConfig)
+          DefaultJavaLibrary.builder(
+                  TargetGraph.EMPTY,
+                  buildRuleParams,
+                  ruleResolver,
+                  TestCellPathResolver.get(projectFilesystem),
+                  testJavaBuckConfig)
               .setJavacOptions(options)
               .setSrcs(ImmutableSortedSet.of(new FakeSourcePath(src)))
               .setResources(ImmutableSortedSet.of())

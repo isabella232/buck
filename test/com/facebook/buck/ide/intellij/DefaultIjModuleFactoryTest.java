@@ -23,11 +23,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBinaryBuilder;
-import com.facebook.buck.android.AndroidBinaryDescription;
+import com.facebook.buck.android.AndroidBinaryDescriptionArg;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarBuilder;
-import com.facebook.buck.android.AndroidResourceDescription;
+import com.facebook.buck.android.AndroidResourceDescriptionArg;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
@@ -250,11 +250,13 @@ public class DefaultIjModuleFactoryTest {
             .addDep(buildTargetGuava)
             .build();
 
+    BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//java/com/example/test:keystore");
     TargetNode<?, ?> androidBinary =
         AndroidBinaryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/example/test:test"))
             .setManifest(new FakeSourcePath("java/com/example/test/AndroidManifest.xml"))
             .setOriginalDeps(ImmutableSortedSet.of(javaLibBase.getBuildTarget()))
+            .setKeystore(keystoreTarget)
             .build();
 
     IjModule moduleJavaLib =
@@ -268,7 +270,8 @@ public class DefaultIjModuleFactoryTest {
         ImmutableMap.of(buildTargetGuava, DependencyType.PROD), moduleJavaLib.getDependencies());
 
     assertEquals(
-        ImmutableMap.of(javaLibBase.getBuildTarget(), DependencyType.PROD),
+        ImmutableMap.of(
+            javaLibBase.getBuildTarget(), DependencyType.PROD, keystoreTarget, DependencyType.PROD),
         moduleFromBinary.getDependencies());
   }
 
@@ -521,6 +524,7 @@ public class DefaultIjModuleFactoryTest {
         AndroidBinaryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/example:droid"))
             .setManifest(manifestPath)
+            .setKeystore(BuildTargetFactory.newInstance("//java/com/example:keystore"))
             .build();
 
     Path moduleBasePath = Paths.get("java/com/example");
@@ -648,9 +652,15 @@ public class DefaultIjModuleFactoryTest {
     IjProjectConfig projectConfig =
         buckConfig == null
             ? IjProjectBuckConfig.create(
-                FakeBuckConfig.builder().build(), AggregationMode.AUTO, null, false, false, false)
+                FakeBuckConfig.builder().build(),
+                AggregationMode.AUTO,
+                null,
+                false,
+                false,
+                false,
+                true)
             : IjProjectBuckConfig.create(
-                buckConfig, AggregationMode.AUTO, null, false, false, false);
+                buckConfig, AggregationMode.AUTO, null, false, false, false, true);
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(
             projectFilesystem,
@@ -662,31 +672,32 @@ public class DefaultIjModuleFactoryTest {
 
               @Override
               public Path getAndroidManifestPath(
-                  TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
-                return ((FakeSourcePath) targetNode.getConstructorArg().manifest).getRelativePath();
+                  TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
+                return ((FakeSourcePath) targetNode.getConstructorArg().getManifest())
+                    .getRelativePath();
               }
 
               @Override
               public Optional<Path> getLibraryAndroidManifestPath(
-                  TargetNode<AndroidLibraryDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidLibraryDescription.CoreArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getProguardConfigPath(
-                  TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getAndroidResourcePath(
-                  TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 
               @Override
               public Optional<Path> getAssetsPath(
-                  TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
+                  TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
                 return Optional.empty();
               }
 

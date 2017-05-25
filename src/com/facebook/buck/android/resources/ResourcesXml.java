@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * ResourcesXml handles Android's compiled xml format. It consists of: ResChunk_header u16
@@ -101,6 +102,47 @@ public class ResourcesXml extends ResChunk {
     this.strings = strings;
     this.refMap = refMap;
     this.nodeBuf = nodeBuf;
+  }
+
+  public void transformReferences(RefTransformer visitor) {
+    refMap.ifPresent(m -> m.visitReferences(visitor));
+    int offset = 0;
+    while (offset < nodeBuf.limit()) {
+      int type = nodeBuf.getShort(offset);
+      if (type == XML_START_ELEMENT) {
+        int nodeHeaderSize = nodeBuf.getShort(offset + 2);
+
+        int extOffset = offset + nodeHeaderSize;
+        int attrStart = extOffset + nodeBuf.getShort(extOffset + 8);
+        Preconditions.checkState(attrStart == extOffset + 20);
+        int attrCount = nodeBuf.getShort(extOffset + 12);
+        for (int i = 0; i < attrCount; i++) {
+          int attrOffset = attrStart + i * 20;
+          int attrType = nodeBuf.get(attrOffset + 15);
+          switch (attrType) {
+            case RES_REFERENCE:
+            case RES_ATTRIBUTE:
+              transformEntryDataOffset(nodeBuf, attrOffset + 16, visitor);
+              break;
+            case RES_DYNAMIC_ATTRIBUTE:
+            case RES_DYNAMIC_REFERENCE:
+              throw new UnsupportedOperationException();
+            default:
+              break;
+          }
+        }
+      }
+      int chunkSize = nodeBuf.getInt(offset + 4);
+      offset += chunkSize;
+    }
+  }
+
+  public void visitReferences(RefVisitor visitor) {
+    transformReferences(
+        i -> {
+          visitor.visit(i);
+          return i;
+        });
   }
 
   public void dump(PrintStream out) {
@@ -198,8 +240,9 @@ public class ResourcesXml extends ResChunk {
         rawValue == null ? "" : String.format(" (Raw: \"%s\")", rawValue));
   }
 
+  @Nullable
   private static String getValueForDump(
-      StringPool strings, String rawValue, int attrType, int data) {
+      StringPool strings, @Nullable String rawValue, int attrType, int data) {
     switch (attrType) {
       case RES_REFERENCE:
         return String.format("@0x%x", data);
@@ -247,6 +290,12 @@ public class ResourcesXml extends ResChunk {
         return buf.getInt(getHeaderSize() + index * 4);
       }
       return -1;
+    }
+
+    public void visitReferences(RefTransformer visitor) {
+      for (int i = 0; i < refCount; i++) {
+        transformEntryDataOffset(buf, getHeaderSize() + i * 4, visitor);
+      }
     }
   }
 }

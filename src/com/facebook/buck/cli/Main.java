@@ -40,6 +40,7 @@ import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.CacheRateStatsListener;
+import com.facebook.buck.event.listener.ChromeTraceBuckConfig;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
@@ -74,6 +75,7 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.ActionGraphCache;
+import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -662,6 +664,7 @@ public final class Main {
         try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
                 GlobalStateManager.singleton()
                     .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
+            BuildInfoStoreManager storeManager = new BuildInfoStoreManager();
             AbstractConsoleEventBusListener consoleListener =
                 createConsoleEventListener(
                     clock,
@@ -925,6 +928,7 @@ public final class Main {
                         .setKnownBuildRuleTypesFactory(factory)
                         .setInvocationInfo(Optional.of(invocationInfo))
                         .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
+                        .setBuildInfoStoreManager(storeManager)
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             exitCode = INTERRUPTED_EXIT_CODE;
@@ -1150,7 +1154,7 @@ public final class Main {
         } else {
           androidPlatformTargetId = AndroidPlatformTarget.DEFAULT_ANDROID_PLATFORM_TARGET;
           eventBus.post(
-              ConsoleEvent.warning(
+              ConsoleEvent.fine(
                   "No Android platform target specified. Using default: %s",
                   androidPlatformTargetId));
         }
@@ -1301,19 +1305,19 @@ public final class Main {
       ) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
-            .add(new JavaUtilsLoggingBuildListener())
             .add(consoleEventBusListener)
             .add(new LoggingBuildListener());
 
-    if (buckConfig.isChromeTraceCreationEnabled()) {
+    if (buckConfig.getBooleanValue("log", "jul_build_log", false)) {
+      eventListenersBuilder.add(new JavaUtilsLoggingBuildListener());
+    }
+
+    ChromeTraceBuckConfig chromeTraceConfig = buckConfig.getView(ChromeTraceBuckConfig.class);
+    if (chromeTraceConfig.isChromeTraceCreationEnabled()) {
       try {
         eventListenersBuilder.add(
             new ChromeTraceBuildListener(
-                projectFilesystem,
-                invocationInfo,
-                clock,
-                buckConfig.getMaxTraces(),
-                buckConfig.getCompressTraces()));
+                projectFilesystem, invocationInfo, clock, chromeTraceConfig));
       } catch (IOException e) {
         LOG.error("Unable to create ChromeTrace listener!");
       }

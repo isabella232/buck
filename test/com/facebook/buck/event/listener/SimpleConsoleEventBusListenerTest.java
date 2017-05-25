@@ -16,9 +16,6 @@
 package com.facebook.buck.event.listener;
 
 import static com.facebook.buck.event.TestEventConfigurator.configureTestEventAtTime;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreFinished;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreScheduled;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreStarted;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.CacheResult;
@@ -68,6 +65,9 @@ public class SimpleConsoleEventBusListenerTest {
   private static final String TARGET_ONE = "TARGET_ONE";
   private static final String TARGET_TWO = "TARGET_TWO";
   private static final String SEVERE_MESSAGE = "This is a sample severe message.";
+
+  private static final String FINISHED_DOWNLOAD_STRING =
+      "[-] DOWNLOADING... (0.00 B/S AVG, TOTAL: 0.00 B, 0 Artifacts)";
 
   private BuildRuleDurationTracker durationTracker;
 
@@ -137,13 +137,13 @@ public class SimpleConsoleEventBusListenerTest {
         configureTestEventAtTime(started, 600L, TimeUnit.MILLISECONDS, threadId));
 
     HttpArtifactCacheEvent.Scheduled storeScheduledOne =
-        postStoreScheduled(eventBus, threadId, TARGET_ONE, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_ONE, 700L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
-        postStoreScheduled(eventBus, threadId, TARGET_TWO, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_TWO, 700L);
 
     HttpArtifactCacheEvent.Started storeStartedOne =
-        postStoreStarted(eventBus, threadId, 710L, storeScheduledOne);
+        ArtifactCacheTestUtils.postStoreStarted(eventBus, threadId, 710L, storeScheduledOne);
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -154,6 +154,7 @@ public class SimpleConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -167,7 +168,9 @@ public class SimpleConsoleEventBusListenerTest {
     expectedOutput +=
         "BUILT  0.4s //banana:stand\n"
             + "[-] BUILDING...FINISHED 0.8s\n"
-            + "WAITING FOR HTTP CACHE UPLOADS 0.00 B (0 COMPLETE/0 FAILED/1 UPLOADING/1 PENDING)\n";
+            + "WAITING FOR HTTP CACHE UPLOADS 0.00 B (0 COMPLETE/0 FAILED/1 UPLOADING/1 PENDING)\n"
+            + FINISHED_DOWNLOAD_STRING
+            + "\n";
     assertOutput(expectedOutput, console);
 
     eventBus.postWithoutConfiguring(
@@ -195,13 +198,15 @@ public class SimpleConsoleEventBusListenerTest {
     assertOutput(expectedOutput, console);
 
     long artifactSizeOne = SizeUnit.MEGABYTES.toBytes(1.5);
-    postStoreFinished(eventBus, threadId, artifactSizeOne, 5015L, true, storeStartedOne);
+    ArtifactCacheTestUtils.postStoreFinished(
+        eventBus, threadId, artifactSizeOne, 5015L, true, storeStartedOne);
 
     HttpArtifactCacheEvent.Started storeStartedTwo =
-        postStoreStarted(eventBus, threadId, 5020L, storeScheduledTwo);
+        ArtifactCacheTestUtils.postStoreStarted(eventBus, threadId, 5020L, storeScheduledTwo);
 
     long artifactSizeTwo = 600;
-    postStoreFinished(eventBus, threadId, artifactSizeTwo, 5020L, false, storeStartedTwo);
+    ArtifactCacheTestUtils.postStoreFinished(
+        eventBus, threadId, artifactSizeTwo, 5020L, false, storeStartedTwo);
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -235,7 +240,10 @@ public class SimpleConsoleEventBusListenerTest {
             /* threadId */ 0L));
 
     assertOutput(
-        "[-] BUILDING...FINISHED 1.0s (0/10 JOBS, 0 UPDATED, 0 [0.0%] CACHE MISS)\n", console);
+        "[-] BUILDING...FINISHED 1.0s (0/10 JOBS, 0 UPDATED, 0 [0.0%] CACHE MISS)\n"
+            + FINISHED_DOWNLOAD_STRING
+            + "\n",
+        console);
   }
 
   @Test
@@ -281,6 +289,7 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
     expectedOutput += "[-] BUILDING...FINISHED 0.1s\n";
+    expectedOutput += FINISHED_DOWNLOAD_STRING + "\n";
     assertOutput(expectedOutput, console);
   }
 

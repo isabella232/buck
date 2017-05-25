@@ -20,6 +20,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.CommandTool;
@@ -28,12 +29,10 @@ import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -63,7 +62,6 @@ public class ShTest extends NoopBuildRule
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
   private final SourcePathRuleFinder ruleFinder;
-  @AddToRuleKey private final SourcePath test;
   @AddToRuleKey private final ImmutableList<Arg> args;
   @AddToRuleKey private final ImmutableMap<String, Arg> env;
 
@@ -79,7 +77,6 @@ public class ShTest extends NoopBuildRule
   protected ShTest(
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
-      SourcePath test,
       ImmutableList<Arg> args,
       ImmutableMap<String, Arg> env,
       ImmutableSortedSet<? extends SourcePath> resources,
@@ -89,7 +86,6 @@ public class ShTest extends NoopBuildRule
       ImmutableSet<String> contacts) {
     super(params);
     this.ruleFinder = ruleFinder;
-    this.test = test;
     this.args = args;
     this.env = env;
     this.resources = resources;
@@ -113,7 +109,7 @@ public class ShTest extends NoopBuildRule
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
-      SourcePathResolver pathResolver,
+      BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     return new ImmutableList.Builder<Step>()
         .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
@@ -121,9 +117,8 @@ public class ShTest extends NoopBuildRule
             // Return a single command that runs an .sh file with no arguments.
             new RunShTestAndRecordResultStep(
                 getProjectFilesystem(),
-                pathResolver.getAbsolutePath(test),
-                Arg.stringify(args, pathResolver),
-                Arg.stringify(env, pathResolver),
+                Arg.stringify(args, buildContext.getSourcePathResolver()),
+                Arg.stringify(env, buildContext.getSourcePathResolver()),
                 testRuleTimeoutMs,
                 getBuildTarget().getFullyQualifiedName(),
                 getPathToTestOutputResult()))
@@ -180,9 +175,7 @@ public class ShTest extends NoopBuildRule
   @Override
   public Tool getExecutableCommand() {
     CommandTool.Builder builder =
-        new CommandTool.Builder()
-            .addArg(SourcePathArg.of(test))
-            .addDeps(ruleFinder.filterBuildRuleInputs(resources));
+        new CommandTool.Builder().addDeps(ruleFinder.filterBuildRuleInputs(resources));
 
     for (Arg arg : args) {
       builder.addArg(arg);
@@ -197,13 +190,12 @@ public class ShTest extends NoopBuildRule
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
       TestRunningOptions testRunningOptions,
-      SourcePathResolver pathResolver) {
+      BuildContext buildContext) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("custom")
-        .addCommand(pathResolver.getAbsolutePath(test).toString())
-        .addAllCommand(Arg.stringify(args, pathResolver))
-        .setEnv(Arg.stringify(env, pathResolver))
+        .addAllCommand(Arg.stringify(args, buildContext.getSourcePathResolver()))
+        .setEnv(Arg.stringify(env, buildContext.getSourcePathResolver()))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();

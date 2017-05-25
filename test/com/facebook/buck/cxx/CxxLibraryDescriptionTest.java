@@ -140,7 +140,7 @@ public class CxxLibraryDescriptionTest {
     Assume.assumeFalse("This test assumes no sandboxing", cxxBuckConfig.sandboxSources());
 
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     // Setup a genrule the generates a header we'll list.
     String genHeaderName = "test/foo.h";
@@ -209,8 +209,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem, targetGraph);
 
     // Verify public preprocessor input.
-    CxxPreprocessorInput publicInput =
-        rule.getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC);
+    CxxPreprocessorInput publicInput = rule.getCxxPreprocessorInput(cxxPlatform);
     assertThat(
         publicInput.getFrameworks(),
         containsInAnyOrder(
@@ -233,8 +232,7 @@ public class CxxLibraryDescriptionTest {
         equalTo(getHeaderMaps(filesystem, target, resolver, cxxPlatform, HeaderVisibility.PUBLIC)));
 
     // Verify private preprocessor input.
-    CxxPreprocessorInput privateInput =
-        rule.getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
+    CxxPreprocessorInput privateInput = rule.getPrivateCxxPreprocessorInput(cxxPlatform);
     assertThat(
         privateInput.getFrameworks(),
         containsInAnyOrder(
@@ -316,7 +314,7 @@ public class CxxLibraryDescriptionTest {
   public void overrideSoname() throws Exception {
 
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     String soname = "test_soname";
 
@@ -346,22 +344,20 @@ public class CxxLibraryDescriptionTest {
   @Test
   public void linkWhole() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     // Setup the target name and build params.
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
 
     // First, create a cxx library without using link whole.
-    CxxLibraryBuilder normalBuilder = new CxxLibraryBuilder(target, cxxBuckConfig);
+    CxxLibraryBuilder normalBuilder =
+        new CxxLibraryBuilder(target, cxxBuckConfig)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))));
     TargetGraph normalGraph = TargetGraphFactory.newInstance(normalBuilder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(normalGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    CxxLibrary normal =
-        (CxxLibrary)
-            normalBuilder
-                .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test.cpp"))))
-                .build(resolver, filesystem, normalGraph);
+    CxxLibrary normal = (CxxLibrary) normalBuilder.build(resolver, filesystem, normalGraph);
 
     // Lookup the link whole flags.
     Linker linker = cxxPlatform.getLd().resolve(resolver);
@@ -405,7 +401,7 @@ public class CxxLibraryDescriptionTest {
     Assume.assumeFalse("This test assumes no sandboxing", cxxBuckConfig.sandboxSources());
 
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     // Setup a normal C++ source
     String sourceName = "test/bar.cpp";
@@ -483,8 +479,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem, targetGraph);
 
     // Verify the C/C++ preprocessor input is setup correctly.
-    CxxPreprocessorInput publicInput =
-        rule.getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC);
+    CxxPreprocessorInput publicInput = rule.getCxxPreprocessorInput(cxxPlatform);
     assertThat(
         publicInput.getFrameworks(),
         containsInAnyOrder(
@@ -678,7 +673,7 @@ public class CxxLibraryDescriptionTest {
     CxxLibrary lib = (CxxLibrary) libBuilder.build(resolver, filesystem, targetGraph);
     NativeLinkableInput nativeLinkableInput =
         lib.getNativeLinkableInput(
-            CxxLibraryBuilder.createDefaultPlatform(), Linker.LinkableDepType.STATIC_PIC);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC);
     Arg firstArg = nativeLinkableInput.getArgs().get(0);
     assertThat(firstArg, instanceOf(FileListableLinkerInputArg.class));
     ImmutableCollection<BuildRule> deps = firstArg.getDeps(new SourcePathRuleFinder(resolver));
@@ -726,7 +721,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar")
             .withFlavors(
                 CxxDescriptionEnhancer.SHARED_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     ExportFileBuilder locBuilder = ExportFileBuilder.newExportFileBuilder(location);
     locBuilder.setOut("somewhere.over.the.rainbow");
@@ -762,7 +757,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar")
             .withFlavors(
                 CxxDescriptionEnhancer.SHARED_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     ExportFileBuilder locBuilder = ExportFileBuilder.newExportFileBuilder(location);
     locBuilder.setOut("somewhere.over.the.rainbow");
@@ -773,7 +768,7 @@ public class CxxLibraryDescriptionTest {
     libBuilder.setPlatformLinkerFlags(
         PatternMatchedCollection.<ImmutableList<StringWithMacros>>builder()
             .add(
-                Pattern.compile(CxxLibraryBuilder.createDefaultPlatform().getFlavor().toString()),
+                Pattern.compile(CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString()),
                 ImmutableList.of(
                     StringWithMacrosUtils.format(
                         "-Wl,--version-script=%s", LocationMacro.of(location))))
@@ -806,7 +801,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar")
             .withFlavors(
                 CxxDescriptionEnhancer.SHARED_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     ExportFileBuilder locBuilder = ExportFileBuilder.newExportFileBuilder(location);
     locBuilder.setOut("somewhere.over.the.rainbow");
@@ -864,7 +859,7 @@ public class CxxLibraryDescriptionTest {
 
     NativeLinkableInput nativeLinkableInput =
         lib.getNativeLinkableInput(
-            CxxLibraryBuilder.createDefaultPlatform(), Linker.LinkableDepType.SHARED);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     assertThat(
         FluentIterable.from(nativeLinkableInput.getArgs())
@@ -895,7 +890,7 @@ public class CxxLibraryDescriptionTest {
     libBuilder.setExportedPlatformLinkerFlags(
         PatternMatchedCollection.<ImmutableList<StringWithMacros>>builder()
             .add(
-                Pattern.compile(CxxLibraryBuilder.createDefaultPlatform().getFlavor().toString()),
+                Pattern.compile(CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString()),
                 ImmutableList.of(
                     StringWithMacrosUtils.format(
                         "-Wl,--version-script=%s", LocationMacro.of(location))))
@@ -909,7 +904,7 @@ public class CxxLibraryDescriptionTest {
 
     NativeLinkableInput nativeLinkableInput =
         lib.getNativeLinkableInput(
-            CxxLibraryBuilder.createDefaultPlatform(), Linker.LinkableDepType.SHARED);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     assertThat(
         FluentIterable.from(nativeLinkableInput.getArgs())
@@ -931,7 +926,7 @@ public class CxxLibraryDescriptionTest {
     BuildTarget location = BuildTargetFactory.newInstance("//:loc");
     BuildTarget target =
         BuildTargetFactory.newInstance("//foo:bar")
-            .withFlavors(CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+            .withFlavors(CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     ExportFileBuilder locBuilder = ExportFileBuilder.newExportFileBuilder(location);
     locBuilder.setOut("somewhere.over.the.rainbow");
@@ -956,7 +951,7 @@ public class CxxLibraryDescriptionTest {
 
     NativeLinkableInput nativeLinkableInput =
         lib.getNativeLinkableInput(
-            CxxLibraryBuilder.createDefaultPlatform(), Linker.LinkableDepType.SHARED);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     assertThat(
         FluentIterable.from(nativeLinkableInput.getArgs())
@@ -980,7 +975,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar")
             .withFlavors(
                 CxxDescriptionEnhancer.STATIC_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxLibraryBuilder libBuilder = new CxxLibraryBuilder(target, cxxBuckConfig);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libBuilder.build());
@@ -997,7 +992,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//foo:bar")
             .withFlavors(
                 CxxDescriptionEnhancer.STATIC_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxLibraryBuilder libBuilder = new CxxLibraryBuilder(target, cxxBuckConfig);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libBuilder.build());
@@ -1024,12 +1019,11 @@ public class CxxLibraryDescriptionTest {
                 .setDeps(ImmutableSortedSet.of(dep.getBuildTarget()))
                 .build(resolver);
     assertThat(
-        rule.getNativeLinkableDepsForPlatform(CxxLibraryBuilder.createDefaultPlatform()),
+        rule.getNativeLinkableDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.contains(dep));
     assertThat(
         ImmutableList.copyOf(
-            rule.getNativeLinkableExportedDepsForPlatform(
-                CxxLibraryBuilder.createDefaultPlatform())),
+            rule.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)),
         Matchers.<NativeLinkable>empty());
   }
 
@@ -1048,10 +1042,10 @@ public class CxxLibraryDescriptionTest {
                 .build(resolver);
     assertThat(
         ImmutableList.copyOf(
-            rule.getNativeLinkableDepsForPlatform(CxxLibraryBuilder.createDefaultPlatform())),
+            rule.getNativeLinkableDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)),
         empty());
     assertThat(
-        rule.getNativeLinkableExportedDepsForPlatform(CxxLibraryBuilder.createDefaultPlatform()),
+        rule.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.contains(dep));
   }
 
@@ -1088,8 +1082,7 @@ public class CxxLibraryDescriptionTest {
                     ImmutableSortedSet.of(dep.getBuildTarget(), exportedDep.getBuildTarget()))
                 .build(resolver);
     assertThat(
-        ImmutableList.copyOf(
-            rule.getNativeLinkTargetDeps(CxxLibraryBuilder.createDefaultPlatform())),
+        ImmutableList.copyOf(rule.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM)),
         hasItems(dep, exportedDep));
   }
 
@@ -1132,7 +1125,7 @@ public class CxxLibraryDescriptionTest {
   @Test
   public void sharedLibraryShouldLinkOwnRequiredLibraries() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform platform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform platform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     CxxLibraryBuilder libraryBuilder =
         new CxxLibraryBuilder(
@@ -1162,7 +1155,7 @@ public class CxxLibraryDescriptionTest {
   @Test
   public void sharedLibraryShouldLinkOwnRequiredLibrariesForCxxLibrary() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform platform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform platform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     ImmutableSortedSet<FrameworkPath> libraries =
         ImmutableSortedSet.of(
@@ -1192,8 +1185,7 @@ public class CxxLibraryDescriptionTest {
             new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     CxxLibrary rule = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem);
-    CxxPreprocessorInput input =
-        rule.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, HeaderVisibility.PUBLIC);
+    CxxPreprocessorInput input = rule.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM);
     assertThat(getHeaderNames(input.getIncludes()), empty());
     assertThat(ImmutableSortedSet.copyOf(input.getDeps(resolver, ruleFinder)), empty());
   }
@@ -1206,7 +1198,7 @@ public class CxxLibraryDescriptionTest {
         BuildTargetFactory.newInstance("//:rule")
             .withFlavors(
                 CxxDescriptionEnhancer.STATIC_FLAVOR,
-                CxxLibraryBuilder.createDefaultPlatform().getFlavor());
+                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor());
     CxxLibraryBuilder libBuilder =
         new CxxLibraryBuilder(
             target,

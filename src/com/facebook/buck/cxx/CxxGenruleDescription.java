@@ -56,6 +56,7 @@ import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatorOverridingDescription;
 import com.facebook.buck.versions.VersionPropagator;
@@ -76,12 +77,12 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.immutables.value.Value;
 
-public class CxxGenruleDescription
-    extends AbstractGenruleDescription<AbstractGenruleDescription.Arg>
+public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenruleDescriptionArg>
     implements Flavored,
-        VersionPropagator<AbstractGenruleDescription.Arg>,
-        TargetTranslatorOverridingDescription<AbstractGenruleDescription.Arg> {
+        VersionPropagator<CxxGenruleDescriptionArg>,
+        TargetTranslatorOverridingDescription<CxxGenruleDescriptionArg> {
 
   private static final MacroFinder MACRO_FINDER = new MacroFinder();
 
@@ -163,8 +164,8 @@ public class CxxGenruleDescription
   }
 
   @Override
-  public Class<Arg> getConstructorArgType() {
-    return Arg.class;
+  public Class<CxxGenruleDescriptionArg> getConstructorArgType() {
+    return CxxGenruleDescriptionArg.class;
   }
 
   @Override
@@ -201,13 +202,17 @@ public class CxxGenruleDescription
   }
 
   @Override
-  protected MacroHandler getMacroHandler(
+  protected Optional<MacroHandler> getMacroHandler(
       BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver,
       TargetGraph targetGraph,
-      Arg args) {
-    CxxPlatform cxxPlatform = cxxPlatforms.getRequiredValue(buildTarget);
+      CxxGenruleDescriptionArg args) {
+    Optional<CxxPlatform> maybeCxxPlatform = cxxPlatforms.getValue(buildTarget);
+    if (!maybeCxxPlatform.isPresent()) {
+      return Optional.empty();
+    }
+    CxxPlatform cxxPlatform = maybeCxxPlatform.get();
     ImmutableMap.Builder<String, MacroExpander> macros = ImmutableMap.builder();
     macros.put("exe", new ExecutableMacroExpander());
     macros.put("location", new CxxLocationMacroExpander(cxxPlatform));
@@ -246,10 +251,10 @@ public class CxxGenruleDescription
                 depType.toString().toLowerCase().replace('_', '-'),
                 filter == Filter.PARAM ? "-filter" : ""),
             new CxxLinkerFlagsExpander(
-                buildTarget, filesystem, cxxPlatform, depType, args.out, filter));
+                buildTarget, filesystem, cxxPlatform, depType, args.getOut(), filter));
       }
     }
-    return new MacroHandler(macros.build());
+    return Optional.of(new MacroHandler(macros.build()));
   }
 
   @Override
@@ -258,7 +263,7 @@ public class CxxGenruleDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      Arg args)
+      CxxGenruleDescriptionArg args)
       throws NoSuchBuildTargetException {
     Optional<CxxPlatform> cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget());
     if (cxxPlatform.isPresent()) {
@@ -269,14 +274,14 @@ public class CxxGenruleDescription
           cellRoots,
           args);
     }
-    return new CxxGenrule(params, resolver, args.out);
+    return new CxxGenrule(params, resolver, args.getOut());
   }
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg,
+      CxxGenruleDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add in all parse time deps from the C/C++ platforms.
@@ -347,26 +352,32 @@ public class CxxGenruleDescription
   }
 
   @Override
-  public Optional<Arg> translateConstructorArg(
+  public Optional<CxxGenruleDescriptionArg> translateConstructorArg(
       BuildTarget target,
       CellPathResolver cellNames,
       TargetNodeTranslator translator,
-      Arg constructorArg) {
-    Arg newConstructorArg = new Arg();
+      CxxGenruleDescriptionArg constructorArg) {
+    CxxGenruleDescriptionArg.Builder newConstructorArgBuilder = CxxGenruleDescriptionArg.builder();
     translator.translateConstructorArg(
         cellNames,
         BuildTargetPatternParser.forBaseName(target.getBaseName()),
         constructorArg,
-        newConstructorArg);
-    newConstructorArg.cmd =
-        newConstructorArg.cmd.map(c -> translateCmd(target, cellNames, translator, "cmd", c));
-    newConstructorArg.bash =
-        newConstructorArg.bash.map(c -> translateCmd(target, cellNames, translator, "bash", c));
-    newConstructorArg.cmdExe =
-        newConstructorArg.cmdExe.map(
-            c -> translateCmd(target, cellNames, translator, "cmd_exe", c));
-    return Optional.of(newConstructorArg);
+        newConstructorArgBuilder);
+    CxxGenruleDescriptionArg newIntermediate = newConstructorArgBuilder.build();
+    newConstructorArgBuilder.setCmd(
+        newIntermediate.getCmd().map(c -> translateCmd(target, cellNames, translator, "cmd", c)));
+    newConstructorArgBuilder.setBash(
+        newIntermediate.getBash().map(c -> translateCmd(target, cellNames, translator, "bash", c)));
+    newConstructorArgBuilder.setCmdExe(
+        newIntermediate
+            .getCmdExe()
+            .map(c -> translateCmd(target, cellNames, translator, "cmd_exe", c)));
+    return Optional.of(newConstructorArgBuilder.build());
   }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractCxxGenruleDescriptionArg extends AbstractGenruleDescription.CommonArg {}
 
   /**
    * A build target macro expander just used at parse time to extract deps from the preprocessor

@@ -25,13 +25,10 @@ import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.LeafEvent;
-import com.facebook.buck.event.NetworkEvent;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleCacheEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.TestRunEvent;
@@ -46,8 +43,9 @@ import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
-import com.facebook.buck.util.unit.SizeUnit;
+import com.facebook.buck.util.versioncontrol.SparseSummary;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
@@ -81,7 +79,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
-import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 /** Console that provides rich, updating ansi output about the current build. */
@@ -98,6 +95,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @VisibleForTesting static final String EMOJI_SNAIL = "\uD83D\uDC0C";
   @VisibleForTesting static final String EMOJI_WHALE = "\uD83D\uDC33";
   @VisibleForTesting static final String EMOJI_BEACH = "\uD83C\uDFD6";
+  @VisibleForTesting static final String EMOJI_DESERT = "\uD83C\uDFDD";
+  @VisibleForTesting static final String EMOJI_ROLODEX = "\uD83D\uDCC7";
 
   @VisibleForTesting
   static final Optional<String> NEW_DAEMON_INSTANCE_MSG =
@@ -144,6 +143,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private int lastNumLinesPrinted;
 
   private Optional<String> parsingStatus = Optional.empty();
+  private Optional<SparseSummary> autoSparseSummary = Optional.empty();
   // Save if Watchman reported zero file changes in case we receive an ActionGraphCache hit. This
   // way the user can know that their changes, if they made any, were not picked up from Watchman.
   private boolean isZeroFileChanges = false;
@@ -307,7 +307,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
     logEventPair(
         "REFRESHING SPARSE CHECKOUT",
-        /* suffix */ Optional.empty(),
+        createAutoSparseStatusMessage(autoSparseSummary),
         currentTimeMillis,
         /* offsetMs */ 0L,
         autoSparseState.values(),
@@ -443,36 +443,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
   }
 
-  private String getNetworkStatsLine(@Nullable BuildEvent.Finished finishedEvent) {
-    String parseLine = (finishedEvent != null ? "[-] " : "[+] ") + "DOWNLOADING" + "...";
-    List<String> columns = new ArrayList<>();
-    if (finishedEvent != null) {
-      Pair<Double, SizeUnit> avgDownloadSpeed = networkStatsKeeper.getAverageDownloadSpeed();
-      Pair<Double, SizeUnit> readableSpeed =
-          SizeUnit.getHumanReadableSize(avgDownloadSpeed.getFirst(), avgDownloadSpeed.getSecond());
-      columns.add(
-          String.format(
-              locale, "%s/S " + "AVG", SizeUnit.toHumanReadableString(readableSpeed, locale)));
-    } else {
-      Pair<Double, SizeUnit> downloadSpeed = networkStatsKeeper.getDownloadSpeed();
-      Pair<Double, SizeUnit> readableDownloadSpeed =
-          SizeUnit.getHumanReadableSize(downloadSpeed.getFirst(), downloadSpeed.getSecond());
-      columns.add(
-          String.format(
-              locale, "%s/S", SizeUnit.toHumanReadableString(readableDownloadSpeed, locale)));
-    }
-    Pair<Long, SizeUnit> bytesDownloaded = networkStatsKeeper.getBytesDownloaded();
-    Pair<Double, SizeUnit> readableBytesDownloaded =
-        SizeUnit.getHumanReadableSize(bytesDownloaded.getFirst(), bytesDownloaded.getSecond());
-    columns.add(
-        String.format(
-            locale, "TOTAL: %s", SizeUnit.toHumanReadableString(readableBytesDownloaded, locale)));
-    columns.add(
-        String.format(
-            locale, "%d Artifacts", networkStatsKeeper.getDownloadedArtifactDownloaded()));
-    return parseLine + " " + "(" + Joiner.on(", ").join(columns) + ")";
-  }
-
   private Optional<String> getOptionalDistBuildLineSuffix() {
     String parseLine;
     List<String> columns = new ArrayList<>();
@@ -482,6 +452,43 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         columns.add("STATUS: INIT");
       } else {
         columns.add("STATUS: " + distBuildStatus.get().getStatus());
+
+        int totalUploadErrorsCount = 0;
+        ImmutableList.Builder<CacheRateStatsKeeper.CacheRateStatsUpdateEvent> slaveCacheStats =
+            new ImmutableList.Builder<>();
+
+        for (BuildSlaveStatus slaveStatus : distBuildStatus.get().getSlaveStatuses()) {
+          totalUploadErrorsCount += slaveStatus.getHttpArtifactUploadsFailureCount();
+
+          if (slaveStatus.isSetCacheRateStats()) {
+            slaveCacheStats.add(
+                CacheRateStatsKeeper.getCacheRateStatsUpdateEventFromSerializedStats(
+                    slaveStatus.getCacheRateStats()));
+          }
+        }
+
+        CacheRateStatsKeeper.CacheRateStatsUpdateEvent aggregatedCacheStats =
+            CacheRateStatsKeeper.getAggregatedCacheRateStats(slaveCacheStats.build());
+
+        if (aggregatedCacheStats.getTotalRulesCount() != 0) {
+          columns.add(
+              String.format(
+                  "%d [%.1f%%] CACHE MISS",
+                  aggregatedCacheStats.getCacheMissCount(),
+                  aggregatedCacheStats.getCacheMissRate()));
+
+          if (aggregatedCacheStats.getCacheErrorCount() != 0) {
+            columns.add(
+                String.format(
+                    "%d [%.1f%%] CACHE ERRORS",
+                    aggregatedCacheStats.getCacheErrorCount(),
+                    aggregatedCacheStats.getCacheErrorRate()));
+          }
+        }
+
+        if (totalUploadErrorsCount > 0) {
+          columns.add(String.format("%d UPLOAD ERRORS", totalUploadErrorsCount));
+        }
 
         if (distBuildStatus.get().getMessage().isPresent()) {
           columns.add("[" + distBuildStatus.get().getMessage().get() + "]");
@@ -581,6 +588,18 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       result.append(ansi.clearLine());
     }
     return result.toString();
+  }
+
+  @Override
+  @Subscribe
+  public void autoSparseStateSparseRefreshFinished(
+      AutoSparseStateEvents.SparseRefreshFinished finished) {
+    super.autoSparseStateSparseRefreshFinished(finished);
+    autoSparseSummary =
+        Optional.of(
+            autoSparseSummary
+                .map(s -> s.combineSummaries(finished.summary))
+                .orElse(finished.summary));
   }
 
   @Override
@@ -769,11 +788,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   @Subscribe
-  public void bytesReceived(NetworkEvent.BytesReceivedEvent bytesReceivedEvent) {
-    networkStatsKeeper.bytesReceived(bytesReceivedEvent);
-  }
-
-  @Subscribe
   @SuppressWarnings("unused")
   public void actionGraphCacheHit(ActionGraphEvent.Cache.Hit event) {
     parsingStatus =
@@ -788,15 +802,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   @Subscribe
-  @SuppressWarnings("unused")
   public void watchmanFileCreation(WatchmanStatusEvent.FileCreation event) {
-    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File added");
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File added: " + event.getFilename());
   }
 
   @Subscribe
-  @SuppressWarnings("unused")
   public void watchmanFileDeletion(WatchmanStatusEvent.FileDeletion event) {
-    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File removed");
+    parsingStatus = createParsingMessage(EMOJI_SNAIL, "File removed: " + event.getFilename());
   }
 
   @Subscribe
@@ -835,6 +847,23 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         return Optional.of("(SLOW) " + reason);
       }
     }
+  }
+
+  static Optional<String> createAutoSparseStatusMessage(Optional<SparseSummary> summary) {
+    if (!summary.isPresent()) {
+      return Optional.empty();
+    }
+    SparseSummary sparse_summary = summary.get();
+    // autosparse only ever exports include rules, we are only interested in added include rules and
+    // the files added count.
+    if (sparse_summary.getIncludeRulesAdded() == 0 && sparse_summary.getFilesAdded() == 0) {
+      return createParsingMessage(EMOJI_DESERT, "Working copy size unchanged");
+    }
+    return createParsingMessage(
+        EMOJI_ROLODEX,
+        String.format(
+            "%d new sparse rules imported, %d files added to the working copy",
+            sparse_summary.getIncludeRulesAdded(), sparse_summary.getFilesAdded()));
   }
 
   @VisibleForTesting

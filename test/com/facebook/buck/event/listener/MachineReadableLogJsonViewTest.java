@@ -18,6 +18,7 @@ package com.facebook.buck.event.listener;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.event.ParsingEvent;
@@ -39,6 +40,7 @@ import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
+import com.facebook.buck.util.versioncontrol.SparseSummary;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.common.hash.HashCode;
@@ -108,7 +110,12 @@ public class MachineReadableLogJsonViewTest {
     AutoSparseStateEvents.SparseRefreshStarted startEvent =
         new AutoSparseStateEvents.SparseRefreshStarted();
     AutoSparseStateEvents finishedEvent =
-        new AutoSparseStateEvents.SparseRefreshFinished(startEvent);
+        new AutoSparseStateEvents.SparseRefreshFinished(
+            startEvent, SparseSummary.of(0, 5, 0, 10, 0, 0));
+    String expectedSummary =
+        "{"
+            + "\"profiles_added\":0,\"include_rules_added\":5,\"exclude_rules_added\":0,"
+            + "\"files_added\":10,\"files_dropped\":0,\"files_conflicting\":0}";
     AutoSparseStateEvents failedEvent =
         new AutoSparseStateEvents.SparseRefreshFailed(startEvent, "output string\n");
 
@@ -117,16 +124,25 @@ public class MachineReadableLogJsonViewTest {
     failedEvent.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
 
     assertJsonEquals("{%s}", WRITER.writeValueAsString(startEvent));
-    assertJsonEquals("{%s}", WRITER.writeValueAsString(finishedEvent));
+    assertJsonEquals(
+        "{%s,\"summary\":" + expectedSummary + "}", WRITER.writeValueAsString(finishedEvent));
     assertJsonEquals(
         "{%s,\"output\":\"output string\\n\"}", WRITER.writeValueAsString(failedEvent));
   }
 
   @Test
-  public void testBuildRuleEvent() throws IOException {
+  public void testBuildRuleEvent() throws IOException, InterruptedException {
     BuildRule rule = new FakeBuildRule("//fake:rule");
+    long durationMillis = 5;
+    long durationNanos = 5 * 1000 * 1000;
+
     BuildRuleEvent.Started started = BuildRuleEvent.started(rule, durationTracker);
-    started.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+    started.configure(
+        timestamp - durationMillis,
+        nanoTime - durationNanos,
+        threadUserNanoTime - durationNanos,
+        threadId,
+        buildId);
     BuildRuleEvent.Finished event =
         BuildRuleEvent.finished(
             started,
@@ -138,11 +154,13 @@ public class MachineReadableLogJsonViewTest {
             CacheResult.of(
                 CacheResultType.MISS,
                 Optional.of("my-secret-source"),
+                Optional.of(ArtifactCacheMode.dir),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
             Optional.empty(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+            false,
             Optional.of(HashCode.fromString("abcd42")),
             Optional.empty(),
             Optional.empty());
@@ -150,8 +168,10 @@ public class MachineReadableLogJsonViewTest {
     String message = WRITER.writeValueAsString(event);
     assertJsonEquals(
         "{%s,\"status\":\"SUCCESS\",\"cacheResult\":{\"type\":\"MISS\","
-            + "\"cacheSource\":\"my-secret-source\"},"
-            + "\"buildRule\":{\"name\":\"//fake:rule\"},"
+            + "\"cacheSource\":\"my-secret-source\","
+            + "\"cacheMode\":\"dir\"},"
+            + String.format("\"duration\":{\"wallMillisDuration\":%d},", durationMillis)
+            + "\"buildRule\":{\"type\":\"fake_build_rule\",\"name\":\"//fake:rule\"},"
             + "\"ruleKeys\":{\"ruleKey\":{\"hashCode\":\"aaaa\"},"
             + "\"inputRuleKey\":{\"hashCode\":\"bbbb\"}},"
             + "\"outputHash\":\"abcd42\"},",

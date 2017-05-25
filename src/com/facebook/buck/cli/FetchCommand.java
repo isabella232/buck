@@ -84,7 +84,6 @@ public class FetchCommand extends BuildCommand {
                     getEnableParserProfiling(),
                     pool.getExecutor(),
                     parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
-                    /* ignoreBuckAutodepsFiles */ false,
                     parserConfig.getDefaultFlavorsMode());
         if (params.getBuckConfig().getBuildVersions()) {
           result = toVersionedTargetGraph(params, result);
@@ -124,6 +123,7 @@ public class FetchCommand extends BuildCommand {
                   cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
                   cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
                   actionGraphAndResolver.getResolver(),
+                  params.getBuildInfoStoreManager(),
                   cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                   RuleKeyFactories.of(
                       params.getBuckConfig().getKeySeed(),
@@ -134,7 +134,6 @@ public class FetchCommand extends BuildCommand {
           Build build =
               createBuild(
                   params.getBuckConfig(),
-                  actionGraphAndResolver.getActionGraph(),
                   actionGraphAndResolver.getResolver(),
                   params.getCell(),
                   params.getAndroidPlatformTargetSupplier(),

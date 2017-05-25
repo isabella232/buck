@@ -18,9 +18,9 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
-import com.sun.source.tree.ModifiersTree;
+import com.sun.source.tree.AnnotationTree;
+import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
-import com.sun.source.util.TreePath;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,10 +41,10 @@ class TreeBackedTypeParameterElement extends TreeBackedElement implements TypePa
 
   public TreeBackedTypeParameterElement(
       TypeParameterElement underlyingElement,
-      TreePath path,
+      Tree tree,
       TreeBackedElement enclosingElement,
       TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, path, resolver);
+    super(underlyingElement, enclosingElement, tree, resolver);
     this.underlyingElement = underlyingElement;
     typeVar = resolver.createType(this);
 
@@ -58,9 +58,8 @@ class TreeBackedTypeParameterElement extends TreeBackedElement implements TypePa
   }
 
   @Override
-  @Nullable
-  protected ModifiersTree getModifiersTree() {
-    return null;
+  protected List<? extends AnnotationTree> getAnnotationTrees() {
+    throw new UnsupportedOperationException();
   }
 
   @Override

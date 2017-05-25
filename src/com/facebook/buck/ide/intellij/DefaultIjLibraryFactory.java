@@ -17,10 +17,12 @@
 package com.facebook.buck.ide.intellij;
 
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
+import com.facebook.buck.android.AndroidPrebuiltAarDescriptionArg;
 import com.facebook.buck.ide.intellij.model.IjLibrary;
 import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
 import com.facebook.buck.ide.intellij.model.IjLibraryFactoryResolver;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
+import com.facebook.buck.jvm.java.PrebuiltJarDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
@@ -135,7 +137,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
   }
 
   private class AndroidPrebuiltAarLibraryRule
-      extends TypedIjLibraryRule<AndroidPrebuiltAarDescription.Arg> {
+      extends TypedIjLibraryRule<AndroidPrebuiltAarDescriptionArg> {
 
     @Override
     public Class<? extends Description<?>> getDescriptionClass() {
@@ -144,18 +146,19 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
 
     @Override
     public void apply(
-        TargetNode<AndroidPrebuiltAarDescription.Arg, ?> targetNode, IjLibrary.Builder library) {
+        TargetNode<AndroidPrebuiltAarDescriptionArg, ?> targetNode, IjLibrary.Builder library) {
       Optional<SourcePath> libraryPath = libraryFactoryResolver.getPathIfJavaLibrary(targetNode);
       libraryPath.ifPresent(path -> library.addBinaryJars(libraryFactoryResolver.getPath(path)));
 
-      AndroidPrebuiltAarDescription.Arg arg = targetNode.getConstructorArg();
-      arg.sourceJar.ifPresent(
-          sourcePath -> library.addSourceJars(libraryFactoryResolver.getPath(sourcePath)));
-      arg.javadocUrl.ifPresent(library::addJavadocUrls);
+      AndroidPrebuiltAarDescriptionArg arg = targetNode.getConstructorArg();
+      arg.getSourceJar()
+          .ifPresent(
+              sourcePath -> library.addSourceJars(libraryFactoryResolver.getPath(sourcePath)));
+      arg.getJavadocUrl().ifPresent(library::addJavadocUrls);
     }
   }
 
-  private class PrebuiltJarLibraryRule extends TypedIjLibraryRule<PrebuiltJarDescription.Arg> {
+  private class PrebuiltJarLibraryRule extends TypedIjLibraryRule<PrebuiltJarDescriptionArg> {
 
     @Override
     public Class<? extends Description<?>> getDescriptionClass() {
@@ -164,12 +167,12 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
 
     @Override
     public void apply(
-        TargetNode<PrebuiltJarDescription.Arg, ?> targetNode, IjLibrary.Builder library) {
-      PrebuiltJarDescription.Arg arg = targetNode.getConstructorArg();
-      library.addBinaryJars(libraryFactoryResolver.getPath(arg.binaryJar));
-      arg.sourceJar.ifPresent(
-          sourceJar -> library.addSourceJars(libraryFactoryResolver.getPath(sourceJar)));
-      arg.javadocUrl.ifPresent(library::addJavadocUrls);
+        TargetNode<PrebuiltJarDescriptionArg, ?> targetNode, IjLibrary.Builder library) {
+      PrebuiltJarDescriptionArg arg = targetNode.getConstructorArg();
+      library.addBinaryJars(libraryFactoryResolver.getPath(arg.getBinaryJar()));
+      arg.getSourceJar()
+          .ifPresent(sourceJar -> library.addSourceJars(libraryFactoryResolver.getPath(sourceJar)));
+      arg.getJavadocUrl().ifPresent(library::addJavadocUrls);
     }
   }
 }

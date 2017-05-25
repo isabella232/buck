@@ -25,9 +25,11 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,17 +40,18 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
-import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 public class DefaultJavaLibraryBuilder {
-  private final BuildRuleParams params;
+  protected final BuildRuleParams initialParams;
   @Nullable private final JavaBuckConfig javaBuckConfig;
+  protected final TargetGraph targetGraph;
   protected final BuildRuleResolver buildRuleResolver;
   protected final SourcePathResolver sourcePathResolver;
+  protected final CellPathResolver cellRoots;
   protected final SourcePathRuleFinder ruleFinder;
   protected ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
   protected ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
@@ -66,12 +69,18 @@ public class DefaultJavaLibraryBuilder {
   protected ImmutableSet<Pattern> classesToRemoveFromJar = ImmutableSet.of();
   protected JavacOptionsAmender javacOptionsAmender = JavacOptionsAmender.IDENTITY;
   @Nullable protected JavacOptions javacOptions = null;
-  @Nullable private JavaLibraryDescription.Arg args = null;
+  @Nullable private JavaLibraryDescription.CoreArg args = null;
 
   protected DefaultJavaLibraryBuilder(
-      BuildRuleParams params, BuildRuleResolver buildRuleResolver, JavaBuckConfig javaBuckConfig) {
-    this.params = params;
+      TargetGraph targetGraph,
+      BuildRuleParams initialParams,
+      BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
+      JavaBuckConfig javaBuckConfig) {
+    this.targetGraph = targetGraph;
+    this.initialParams = initialParams;
     this.buildRuleResolver = buildRuleResolver;
+    this.cellRoots = cellRoots;
     this.javaBuckConfig = javaBuckConfig;
 
     ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
@@ -79,26 +88,32 @@ public class DefaultJavaLibraryBuilder {
     setCompileAgainstAbis(javaBuckConfig.shouldCompileAgainstAbis());
   }
 
-  protected DefaultJavaLibraryBuilder(BuildRuleParams params, BuildRuleResolver buildRuleResolver) {
-    this.params = params;
+  protected DefaultJavaLibraryBuilder(
+      TargetGraph targetGraph,
+      BuildRuleParams initialParams,
+      BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots) {
+    this.targetGraph = targetGraph;
+    this.initialParams = initialParams;
     this.buildRuleResolver = buildRuleResolver;
+    this.cellRoots = cellRoots;
 
     ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     sourcePathResolver = new SourcePathResolver(ruleFinder);
     javaBuckConfig = null;
   }
 
-  public DefaultJavaLibraryBuilder setArgs(JavaLibraryDescription.Arg args) {
+  public DefaultJavaLibraryBuilder setArgs(JavaLibraryDescription.CoreArg args) {
     this.args = args;
-    return setSrcs(args.srcs)
-        .setResources(args.resources)
-        .setResourcesRoot(args.resourcesRoot)
-        .setProguardConfig(args.proguardConfig)
-        .setPostprocessClassesCommands(args.postprocessClassesCommands)
-        .setExportedDeps(args.exportedDeps)
-        .setProvidedDeps(args.providedDeps)
-        .setManifestFile(args.manifestFile)
-        .setMavenCoords(args.mavenCoords);
+    return setSrcs(args.getSrcs())
+        .setResources(args.getResources())
+        .setResourcesRoot(args.getResourcesRoot())
+        .setProguardConfig(args.getProguardConfig())
+        .setPostprocessClassesCommands(args.getPostprocessClassesCommands())
+        .setExportedDeps(args.getExportedDeps())
+        .setProvidedDeps(args.getProvidedDeps())
+        .setManifestFile(args.getManifestFile())
+        .setMavenCoords(args.getMavenCoords());
   }
 
   public DefaultJavaLibraryBuilder setJavacOptions(JavacOptions javacOptions) {
@@ -119,7 +134,7 @@ public class DefaultJavaLibraryBuilder {
   public DefaultJavaLibraryBuilder setResources(ImmutableSortedSet<SourcePath> resources) {
     this.resources =
         ResourceValidator.validateResources(
-            sourcePathResolver, params.getProjectFilesystem(), resources);
+            sourcePathResolver, initialParams.getProjectFilesystem(), resources);
     return this;
   }
 
@@ -241,7 +256,7 @@ public class DefaultJavaLibraryBuilder {
 
     protected BuildRule buildAbi() throws NoSuchBuildTargetException {
 
-      BuildTarget buildTarget = params.getBuildTarget();
+      BuildTarget buildTarget = initialParams.getBuildTarget();
       if (HasJavaAbi.isClassAbiTarget(buildTarget)) {
         return buildAbiFromClasses();
       } else if (HasJavaAbi.isSourceAbiTarget(buildTarget)) {
@@ -253,7 +268,7 @@ public class DefaultJavaLibraryBuilder {
         buildRuleResolver.addToIndex(sourceAbi);
 
         return new CompareAbis(
-            params.copyReplacingDeclaredAndExtraDeps(
+            initialParams.copyReplacingDeclaredAndExtraDeps(
                 () -> ImmutableSortedSet.of(classAbi, sourceAbi), ImmutableSortedSet::of),
             sourcePathResolver,
             classAbi.getSourcePathToOutput(),
@@ -267,7 +282,7 @@ public class DefaultJavaLibraryBuilder {
 
     protected BuildTarget getAbiJar() {
       if (abiJar == null) {
-        BuildTarget libraryTarget = params.getBuildTarget();
+        BuildTarget libraryTarget = initialParams.getBuildTarget();
         if (shouldBuildAbiFromSource()) {
           JavaBuckConfig.SourceAbiVerificationMode sourceAbiVerificationMode =
               javaBuckConfig.getSourceAbiVerificationMode();
@@ -295,21 +310,18 @@ public class DefaultJavaLibraryBuilder {
     }
 
     private boolean sourceAbisEnabled() {
-      return EnumSet.of(
-              JavaBuckConfig.AbiGenerationMode.SOURCE,
-              JavaBuckConfig.AbiGenerationMode.SOURCE_WITH_DEPS)
-          .contains(Preconditions.checkNotNull(javaBuckConfig).getAbiGenerationMode());
+      return javaBuckConfig != null && javaBuckConfig.shouldGenerateAbisFromSource();
     }
 
     private boolean argsAllowSourceAbis() {
-      return Preconditions.checkNotNull(args).generateAbiFromSource.orElse(true);
+      return args == null || args.getGenerateAbiFromSource().orElse(true);
     }
 
     private boolean pluginsSupportSourceAbis() {
       ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
           Preconditions.checkNotNull(javacOptions)
               .getAnnotationProcessingParams()
-              .getAnnotationProcessors(params.getProjectFilesystem(), sourcePathResolver);
+              .getAnnotationProcessors(initialParams.getProjectFilesystem(), sourcePathResolver);
 
       for (ResolvedJavacPluginProperties annotationProcessor : annotationProcessors) {
         if (!annotationProcessor.getDoesNotAffectAbi()
@@ -323,7 +335,7 @@ public class DefaultJavaLibraryBuilder {
     }
 
     private BuildRule buildAbiFromSource() throws NoSuchBuildTargetException {
-      BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(params.getBuildTarget());
+      BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(initialParams.getBuildTarget());
       BuildTarget abiTarget = HasJavaAbi.getSourceAbiJar(libraryTarget);
       JavacToJarStepFactory compileStepFactory = (JavacToJarStepFactory) getCompileStepFactory();
       return new CalculateAbiFromSource(
@@ -339,15 +351,18 @@ public class DefaultJavaLibraryBuilder {
     }
 
     private BuildRule buildAbiFromClasses() throws NoSuchBuildTargetException {
-      BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(params.getBuildTarget());
+      BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(initialParams.getBuildTarget());
       BuildTarget abiTarget = HasJavaAbi.getClassAbiJar(libraryTarget);
       BuildRule libraryRule = buildRuleResolver.requireRule(libraryTarget);
 
       return CalculateAbiFromClasses.of(
           abiTarget,
           ruleFinder,
-          params,
-          Preconditions.checkNotNull(libraryRule.getSourcePathToOutput()));
+          initialParams,
+          Preconditions.checkNotNull(libraryRule.getSourcePathToOutput()),
+          javaBuckConfig != null
+              && javaBuckConfig.getSourceAbiVerificationMode()
+                  != JavaBuckConfig.SourceAbiVerificationMode.OFF);
     }
 
     protected final BuildRuleParams getFinalParams() throws NoSuchBuildTargetException {
@@ -360,14 +375,17 @@ public class DefaultJavaLibraryBuilder {
 
     protected final ImmutableSortedSet<BuildRule> getFinalFullJarDeclaredDeps() {
       if (finalFullJarDeclaredDeps == null) {
-        finalFullJarDeclaredDeps =
-            ImmutableSortedSet.copyOf(
-                Iterables.concat(
-                    params.getDeclaredDeps().get(),
-                    getCompileStepFactory().getDeclaredDeps(ruleFinder)));
+        finalFullJarDeclaredDeps = buildFinalFullJarDeclaredDeps();
       }
 
       return finalFullJarDeclaredDeps;
+    }
+
+    protected ImmutableSortedSet<BuildRule> buildFinalFullJarDeclaredDeps() {
+      return ImmutableSortedSet.copyOf(
+          Iterables.concat(
+              initialParams.getDeclaredDeps().get(),
+              getCompileStepFactory().getDeclaredDeps(ruleFinder)));
     }
 
     protected final ImmutableSortedSet<SourcePath> getFinalCompileTimeClasspathSourcePaths()
@@ -431,14 +449,15 @@ public class DefaultJavaLibraryBuilder {
         // don't want to end up with both full & ABI rules
         extraDepsBuilder.addAll(
             Sets.difference(
-                params.getExtraDeps().get(), Sets.union(fullJarProvidedDeps, fullJarExportedDeps)));
+                initialParams.getExtraDeps().get(),
+                Sets.union(fullJarProvidedDeps, fullJarExportedDeps)));
       } else {
         declaredDepsBuilder.addAll(getFinalFullJarDeclaredDeps());
         extraDepsBuilder
-            .addAll(params.getExtraDeps().get())
+            .addAll(initialParams.getExtraDeps().get())
             .addAll(
                 Sets.difference(
-                    getCompileTimeClasspathUnfilteredFullDeps(), params.getBuildDeps()));
+                    getCompileTimeClasspathUnfilteredFullDeps(), initialParams.getBuildDeps()));
       }
       ImmutableSortedSet<BuildRule> declaredDeps = declaredDepsBuilder.build();
 
@@ -457,7 +476,7 @@ public class DefaultJavaLibraryBuilder {
               .addAll(getCompileStepFactory().getExtraDeps(ruleFinder))
               .build();
 
-      return params.copyReplacingDeclaredAndExtraDeps(() -> declaredDeps, () -> extraDeps);
+      return initialParams.copyReplacingDeclaredAndExtraDeps(() -> declaredDeps, () -> extraDeps);
     }
 
     protected final ImmutableSortedSet<BuildRule> getCompileTimeClasspathUnfilteredFullDeps() {
@@ -491,9 +510,11 @@ public class DefaultJavaLibraryBuilder {
 
     protected CompileToJarStepFactory buildCompileStepFactory() {
       return new JavacToJarStepFactory(
-          JavacFactory.create(ruleFinder, Preconditions.checkNotNull(javaBuckConfig), args),
-          Preconditions.checkNotNull(javacOptions),
-          javacOptionsAmender);
+          getJavac(), Preconditions.checkNotNull(javacOptions), javacOptionsAmender);
     }
+  }
+
+  protected Javac getJavac() {
+    return JavacFactory.create(ruleFinder, Preconditions.checkNotNull(javaBuckConfig), args);
   }
 }

@@ -18,6 +18,7 @@ package com.facebook.buck.event.listener;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.rules.BuildEvent;
@@ -59,6 +60,7 @@ public class CacheRateStatsKeeperTest {
         cacheResult,
         Optional.empty(),
         Optional.empty(),
+        false,
         Optional.empty(),
         Optional.empty(),
         Optional.empty());
@@ -68,7 +70,8 @@ public class CacheRateStatsKeeperTest {
   public void cacheMissHitWithNoCount() {
     CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
     cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.miss()));
-    cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.hit("dir")));
+    cacheRateStatsKeeper.buildRuleFinished(
+        finishedEvent(CacheResult.hit("dir", ArtifactCacheMode.dir)));
 
     CacheRateStatsKeeper.CacheRateStatsUpdateEvent stats = cacheRateStatsKeeper.getStats();
 
@@ -85,7 +88,8 @@ public class CacheRateStatsKeeperTest {
     CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
     cacheRateStatsKeeper.ruleCountCalculated(
         BuildEvent.RuleCountCalculated.ruleCountCalculated(ImmutableSet.of(), 4));
-    cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.hit("dir")));
+    cacheRateStatsKeeper.buildRuleFinished(
+        finishedEvent(CacheResult.hit("dir", ArtifactCacheMode.dir)));
 
     CacheRateStatsKeeper.CacheRateStatsUpdateEvent stats = cacheRateStatsKeeper.getStats();
 
@@ -119,7 +123,8 @@ public class CacheRateStatsKeeperTest {
     CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
     cacheRateStatsKeeper.ruleCountCalculated(
         BuildEvent.RuleCountCalculated.ruleCountCalculated(ImmutableSet.of(), 4));
-    cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.error("dir", "error")));
+    cacheRateStatsKeeper.buildRuleFinished(
+        finishedEvent(CacheResult.error("dir", ArtifactCacheMode.dir, "error")));
 
     CacheRateStatsKeeper.CacheRateStatsUpdateEvent stats = cacheRateStatsKeeper.getStats();
 

@@ -67,6 +67,7 @@ import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -101,13 +102,12 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
   private final ProjectFilesystem projectFilesystem;
   private final Clock clock;
-  private final int tracesToKeep;
-  private final boolean compressTraces;
   private final ThreadLocal<SimpleDateFormat> dateFormat;
   private final Path tracePath;
   private final OutputStream traceStream;
   private final JsonGenerator jsonGenerator;
   private final InvocationInfo invocationInfo;
+  private final ChromeTraceBuckConfig config;
 
   private final ExecutorService outputExecutor;
 
@@ -115,17 +115,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
       Clock clock,
-      int tracesToKeep,
-      boolean compressTraces)
+      ChromeTraceBuckConfig config)
       throws IOException {
-    this(
-        projectFilesystem,
-        invocationInfo,
-        clock,
-        Locale.US,
-        TimeZone.getDefault(),
-        tracesToKeep,
-        compressTraces);
+    this(projectFilesystem, invocationInfo, clock, Locale.US, TimeZone.getDefault(), config);
   }
 
   @VisibleForTesting
@@ -135,8 +127,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       Clock clock,
       final Locale locale,
       final TimeZone timeZone,
-      int tracesToKeep,
-      boolean compressTraces)
+      ChromeTraceBuckConfig config)
       throws IOException {
     this.invocationInfo = invocationInfo;
     this.projectFilesystem = projectFilesystem;
@@ -150,8 +141,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
             return dateFormat;
           }
         };
-    this.tracesToKeep = tracesToKeep;
-    this.compressTraces = compressTraces;
+    this.config = config;
     this.outputExecutor =
         MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()));
     TracePathAndStream tracePathAndStream = createPathAndStream(invocationInfo);
@@ -192,7 +182,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
               "build.*.trace",
               PathListing.GET_PATH_MODIFIED_TIME,
               PathListing.FilterMode.EXCLUDE,
-              Optional.of(tracesToKeep),
+              Optional.of(config.getMaxTraces()),
               Optional.empty())) {
         projectFilesystem.deleteFileAtPath(path);
       }
@@ -205,14 +195,14 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     String filenameTime = dateFormat.get().format(new Date(clock.currentTimeMillis()));
     String traceName =
         String.format("build.%s.%s.trace", filenameTime, invocationInfo.getBuildId());
-    if (compressTraces) {
+    if (config.getCompressTraces()) {
       traceName = traceName + ".gz";
     }
     Path tracePath = invocationInfo.getLogDirectoryPath().resolve(traceName);
     try {
       projectFilesystem.createParentDirs(tracePath);
       OutputStream stream = projectFilesystem.newFileOutputStream(tracePath);
-      if (compressTraces) {
+      if (config.getCompressTraces()) {
         stream = new BestCompressionGZIPOutputStream(stream, true);
       }
       return new TracePathAndStream(tracePath, stream);
@@ -237,7 +227,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       jsonGenerator.writeEndArray();
       jsonGenerator.close();
       traceStream.close();
-      String symlinkName = compressTraces ? "build.trace.gz" : "build.trace";
+      uploadTraceIfConfigured(buildId);
+
+      String symlinkName = config.getCompressTraces() ? "build.trace.gz" : "build.trace";
       Path symlinkPath = projectFilesystem.getBuckPaths().getLogDir().resolve(symlinkName);
       projectFilesystem.createSymLink(
           projectFilesystem.resolve(symlinkPath), projectFilesystem.resolve(tracePath), true);
@@ -317,6 +309,19 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
   @Subscribe
   public void ruleSuspended(BuildRuleEvent.Suspended suspended) {
+    // Because RuleKeyCalculationEvent.Finished is a subclass of BuildRuleEvent.Suspended, both
+    // events get issued. If we wrote the trace events in the order they come in on the event bus,
+    // we'd create an incorrect trace where the rule section ends before the rule_key_calc section
+    // it encloses. Instead, when we see a BuildRuleEvent.Suspended that is also a
+    // RuleKeyCalculationEvent.Finished, we let ruleKeyCalculationFinished log them both in the
+    // correct order. TODO(jkeljo): Fix this in a less hacky way.
+    if (suspended instanceof RuleKeyCalculationEvent.Finished) {
+      return;
+    }
+    writeRuleSuspended(suspended);
+  }
+
+  private void writeRuleSuspended(BuildRuleEvent.Suspended suspended) {
     BuildRule buildRule = suspended.getBuildRule();
     writeChromeTraceEvent(
         "buck",
@@ -725,6 +730,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   public void ruleKeyCalculationFinished(RuleKeyCalculationEvent.Finished finished) {
     writeChromeTraceEvent(
         "buck", finished.getCategory(), ChromeTraceEvent.Phase.END, ImmutableMap.of(), finished);
+    if (finished instanceof BuildRuleEvent.Suspended) {
+      writeRuleSuspended((BuildRuleEvent.Suspended) finished);
+    }
   }
 
   private void writeChromeTraceEvent(
@@ -759,6 +767,40 @@ public class ChromeTraceBuildListener implements BuckEventListener {
               }
               return null;
             });
+  }
+
+  private void uploadTraceIfConfigured(BuildId buildId) {
+    Optional<URI> traceUploadUri = config.getTraceUploadUri();
+    if (!traceUploadUri.isPresent()) {
+      return;
+    }
+
+    Path fullPath = projectFilesystem.resolve(tracePath);
+    Path logFile =
+        projectFilesystem.resolve(
+            invocationInfo.getLogDirectoryPath().resolve("upload-build-trace.log"));
+    LOG.debug("Uploading build trace in the background. Upload will log to %s", logFile);
+
+    try {
+      String[] args = {
+        "java",
+        "-cp",
+        System.getenv("BUCK_CLASSPATH"),
+        "com.facebook.buck.util.trace.uploader.Main",
+        "--buildId",
+        buildId.toString(),
+        "--traceFilePath",
+        fullPath.toString(),
+        "--baseUrl",
+        traceUploadUri.get().toString(),
+        "--log",
+        logFile.toString()
+      };
+
+      Runtime.getRuntime().exec(args);
+    } catch (IOException e) {
+      LOG.error(e, e.getMessage());
+    }
   }
 
   private static class TracePathAndStream {

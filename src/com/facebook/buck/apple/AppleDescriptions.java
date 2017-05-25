@@ -19,11 +19,11 @@ package com.facebook.buck.apple;
 import static com.facebook.buck.swift.SwiftDescriptions.SWIFT_EXTENSION;
 
 import com.facebook.buck.cxx.BuildRuleWithBinary;
-import com.facebook.buck.cxx.CxxBinaryDescription;
+import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
-import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.FrameworkDependencies;
@@ -77,6 +77,7 @@ import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Common logic for a {@link com.facebook.buck.rules.Description} that creates Apple target rules.
@@ -104,34 +105,35 @@ public class AppleDescriptions {
 
   public static Path getHeaderPathPrefix(
       AppleNativeTargetDescriptionArg arg, BuildTarget buildTarget) {
-    return Paths.get(arg.headerPathPrefix.orElse(buildTarget.getShortName()));
+    return Paths.get(arg.getHeaderPathPrefix().orElse(buildTarget.getShortName()));
   }
 
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPublicCxxHeaders(
       Function<SourcePath, Path> pathResolver,
       Path headerPathPrefix,
-      CxxLibraryDescription.Arg arg) {
+      CxxLibraryDescription.CommonArg arg) {
     // The exported headers in the populated cxx constructor arg will contain exported headers from
     // the apple constructor arg with the public include style.
     return AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
-        pathResolver, headerPathPrefix, arg.exportedHeaders);
+        pathResolver, headerPathPrefix, arg.getExportedHeaders());
   }
 
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPrivateCxxHeaders(
       Function<SourcePath, Path> pathResolver,
       Path headerPathPrefix,
-      CxxLibraryDescription.Arg arg) {
+      CxxLibraryDescription.CommonArg arg) {
     // The private headers will contain exported headers with the private include style and private
     // headers with both styles.
     return ImmutableSortedMap.<String, SourcePath>naturalOrder()
         .putAll(
-            AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(pathResolver, arg.headers))
+            AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                pathResolver, arg.getHeaders()))
         .putAll(
             AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
-                pathResolver, headerPathPrefix, arg.headers))
+                pathResolver, headerPathPrefix, arg.getHeaders()))
         .putAll(
             AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
-                pathResolver, arg.exportedHeaders))
+                pathResolver, arg.getExportedHeaders()))
         .build();
   }
 
@@ -200,9 +202,11 @@ public class AppleDescriptions {
 
   public static void populateCxxConstructorArg(
       SourcePathResolver resolver,
-      CxxConstructorArg output,
       AppleNativeTargetDescriptionArg arg,
-      BuildTarget buildTarget) {
+      BuildTarget buildTarget,
+      Consumer<ImmutableSortedSet<SourceWithFlags>> setSrcs,
+      Consumer<SourceList> setHeaders,
+      Consumer<String> setHeaderNamespace) {
     Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
     // The resulting cxx constructor arg will have no exported headers and both headers and exported
     // headers specified in the apple arg will be available with both public and private include
@@ -218,80 +222,56 @@ public class AppleDescriptions {
             .build();
 
     ImmutableSortedSet.Builder<SourceWithFlags> nonSwiftSrcs = ImmutableSortedSet.naturalOrder();
-    for (SourceWithFlags src : arg.srcs) {
+    for (SourceWithFlags src : arg.getSrcs()) {
       if (!MorePaths.getFileExtension(resolver.getAbsolutePath(src.getSourcePath()))
           .equalsIgnoreCase(SWIFT_EXTENSION)) {
         nonSwiftSrcs.add(src);
       }
     }
-    output.srcs = nonSwiftSrcs.build();
+    setSrcs.accept(nonSwiftSrcs.build());
 
-    output.platformSrcs = arg.platformSrcs;
-    output.headers = SourceList.ofNamedSources(headerMap);
-    output.platformHeaders = arg.platformHeaders;
-    output.prefixHeader = arg.prefixHeader;
-    output.compilerFlags = arg.compilerFlags;
-    output.platformCompilerFlags = arg.platformCompilerFlags;
-    output.langCompilerFlags = arg.langCompilerFlags;
-    output.preprocessorFlags = arg.preprocessorFlags;
-    output.platformPreprocessorFlags = arg.platformPreprocessorFlags;
-    output.langPreprocessorFlags = arg.langPreprocessorFlags;
-    output.linkerFlags = arg.linkerFlags;
-    output.platformLinkerFlags = arg.platformLinkerFlags;
-    output.frameworks = arg.frameworks;
-    output.libraries = arg.libraries;
-    output.deps = arg.deps;
+    setHeaders.accept(SourceList.ofNamedSources(headerMap));
     // This is intentionally an empty string; we put all prefixes into
     // the header map itself.
-    output.headerNamespace = Optional.of("");
-    output.cxxRuntimeType = arg.cxxRuntimeType;
-    output.tests = arg.tests;
-    output.precompiledHeader = arg.precompiledHeader;
+    setHeaderNamespace.accept("");
   }
 
   public static void populateCxxBinaryDescriptionArg(
       SourcePathResolver resolver,
-      CxxBinaryDescription.Arg output,
+      CxxBinaryDescriptionArg.Builder output,
       AppleNativeTargetDescriptionArg arg,
       BuildTarget buildTarget) {
-    populateCxxConstructorArg(resolver, output, arg, buildTarget);
-    output.defaultPlatform = Optional.empty();
-    output.linkStyle = arg.linkStyle;
-    output.thinLto = arg.thinLto;
+    populateCxxConstructorArg(
+        resolver,
+        arg,
+        buildTarget,
+        output::setSrcs,
+        output::setHeaders,
+        output::setHeaderNamespace);
+    output.setDefaultPlatform(Optional.empty());
   }
 
   public static void populateCxxLibraryDescriptionArg(
       SourcePathResolver resolver,
-      CxxLibraryDescription.Arg output,
+      CxxLibraryDescriptionArg.Builder output,
       AppleNativeTargetDescriptionArg arg,
       BuildTarget buildTarget) {
-    populateCxxConstructorArg(resolver, output, arg, buildTarget);
+    populateCxxConstructorArg(
+        resolver,
+        arg,
+        buildTarget,
+        output::setSrcs,
+        output::setHeaders,
+        output::setHeaderNamespace);
     Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
-    output.headers =
+    output.setHeaders(
         SourceList.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
-                resolver::getRelativePath, headerPathPrefix, arg));
-    output.exportedDeps = arg.exportedDeps;
-    output.exportedPreprocessorFlags = arg.exportedPreprocessorFlags;
-    output.exportedHeaders =
+                resolver::getRelativePath, headerPathPrefix, arg)));
+    output.setExportedHeaders(
         SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
-                resolver::getRelativePath, headerPathPrefix, arg));
-    output.exportedPlatformHeaders = arg.exportedPlatformHeaders;
-    output.exportedPlatformPreprocessorFlags = arg.exportedPlatformPreprocessorFlags;
-    output.exportedLangPreprocessorFlags = arg.exportedLangPreprocessorFlags;
-    output.exportedLinkerFlags = arg.exportedLinkerFlags;
-    output.exportedPlatformLinkerFlags = arg.exportedPlatformLinkerFlags;
-    output.soname = arg.soname;
-    output.forceStatic = arg.forceStatic;
-    output.preferredLinkage = arg.preferredLinkage;
-    output.linkWhole = arg.linkWhole;
-    output.thinLto = arg.thinLto;
-    output.supportedPlatformsRegex = arg.supportedPlatformsRegex;
-    output.canBeAsset = arg.canBeAsset;
-    output.exportedDeps = arg.exportedDeps;
-    output.xcodePublicHeadersSymlinks = arg.xcodePublicHeadersSymlinks;
-    output.xcodePrivateHeadersSymlinks = arg.xcodePrivateHeadersSymlinks;
+                resolver::getRelativePath, headerPathPrefix, arg)));
   }
 
   public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
@@ -299,10 +279,11 @@ public class AppleDescriptions {
       BuildRuleParams params,
       SourcePathResolver sourcePathResolver,
       ApplePlatform applePlatform,
+      String targetSDKVersion,
       Tool actool) {
     TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
-    ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogArgs =
+    ImmutableSet<AppleAssetCatalogDescriptionArg> assetCatalogArgs =
         AppleBuildRules.collectRecursiveAssetCatalogs(
             targetGraph, Optional.empty(), ImmutableList.of(targetNode));
 
@@ -314,33 +295,33 @@ public class AppleDescriptions {
 
     AppleAssetCatalogDescription.Optimization optimization = null;
 
-    for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
+    for (AppleAssetCatalogDescriptionArg arg : assetCatalogArgs) {
       if (optimization == null) {
-        optimization = arg.optimization;
+        optimization = arg.getOptimization();
       }
 
-      assetCatalogDirsBuilder.addAll(arg.dirs);
-      if (arg.appIcon.isPresent()) {
+      assetCatalogDirsBuilder.addAll(arg.getDirs());
+      if (arg.getAppIcon().isPresent()) {
         if (appIcon.isPresent()) {
           throw new HumanReadableException(
               "At most one asset catalog in the dependencies of %s " + "can have a app_icon",
               params.getBuildTarget());
         }
 
-        appIcon = arg.appIcon;
+        appIcon = arg.getAppIcon();
       }
 
-      if (arg.launchImage.isPresent()) {
+      if (arg.getLaunchImage().isPresent()) {
         if (launchImage.isPresent()) {
           throw new HumanReadableException(
               "At most one asset catalog in the dependencies of %s " + "can have a launch_image",
               params.getBuildTarget());
         }
 
-        launchImage = arg.launchImage;
+        launchImage = arg.getLaunchImage();
       }
 
-      if (arg.optimization != optimization) {
+      if (arg.getOptimization() != optimization) {
         throw new HumanReadableException(
             "At most one asset catalog optimisation style can be "
                 + "specified in the dependencies %s",
@@ -376,6 +357,7 @@ public class AppleDescriptions {
         new AppleAssetCatalog(
             assetCatalogParams,
             applePlatform.getName(),
+            targetSDKVersion,
             actool,
             assetCatalogDirs,
             appIcon,
@@ -415,7 +397,7 @@ public class AppleDescriptions {
               moduleName,
               coreDataModelArgs
                   .stream()
-                  .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
+                  .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.getPath()))
                   .collect(MoreCollectors.toImmutableSet())));
     }
   }
@@ -447,7 +429,7 @@ public class AppleDescriptions {
               appleCxxPlatform,
               sceneKitAssetsArgs
                   .stream()
-                  .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
+                  .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.getPath()))
                   .collect(MoreCollectors.toImmutableSet())));
     }
   }
@@ -627,15 +609,15 @@ public class AppleDescriptions {
     // This change simply treats all the immediate prebuilt framework dependencies as wishing to be
     // embedded, but in the future this should be dealt with with some greater sophistication.
     for (BuildTarget dep : deps) {
-      Optional<TargetNode<PrebuiltAppleFrameworkDescription.Arg, ?>> prebuiltNode =
+      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg, ?>> prebuiltNode =
           targetGraph
               .getOptional(dep)
-              .flatMap(node -> node.castArg(PrebuiltAppleFrameworkDescription.Arg.class));
+              .flatMap(node -> node.castArg(PrebuiltAppleFrameworkDescriptionArg.class));
       if (prebuiltNode.isPresent()
           && !prebuiltNode
               .get()
               .getConstructorArg()
-              .preferredLinkage
+              .getPreferredLinkage()
               .equals(NativeLinkable.Linkage.STATIC)) {
         frameworksBuilder.add(resolver.requireRule(dep).getSourcePathToOutput());
       }
@@ -652,6 +634,7 @@ public class AppleDescriptions {
             paramsWithoutBundleSpecificFlavors,
             sourcePathResolver,
             appleCxxPlatform.getAppleSdk().getApplePlatform(),
+            appleCxxPlatform.getMinVersion(),
             appleCxxPlatform.getActool());
     addToIndex(resolver, assetCatalog);
 

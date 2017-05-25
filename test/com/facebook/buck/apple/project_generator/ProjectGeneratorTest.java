@@ -40,7 +40,7 @@ import com.facebook.buck.apple.AppleBundleBuilder;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleLibraryBuilder;
-import com.facebook.buck.apple.AppleLibraryDescription;
+import com.facebook.buck.apple.AppleLibraryDescriptionArg;
 import com.facebook.buck.apple.AppleResourceBuilder;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.apple.CoreDataModelBuilder;
@@ -52,6 +52,7 @@ import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildFile;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXBuildPhase;
+import com.facebook.buck.apple.xcode.xcodeproj.PBXContainerItemProxy;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXCopyFilesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXFileReference;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXGroup;
@@ -105,7 +106,7 @@ import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.ExportFileBuilder;
-import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDescriptionArg;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
@@ -264,6 +265,7 @@ public class ProjectGeneratorTest {
             .setSrcs(
                 ImmutableList.of(
                     new FakeSourcePath("foo/foo.json"), new FakeSourcePath("bar.json")))
+            .setOut("out")
             .build();
 
     ProjectGenerator projectGenerator =
@@ -3448,28 +3450,28 @@ public class ProjectGeneratorTest {
     BuildTarget headerTarget = BuildTarget.builder(rootPath, "//Vendor", "header").build();
     BuildTarget libTarget = BuildTarget.builder(rootPath, "//Libraries", "foo").build();
 
-    TargetNode<ExportFileDescription.Arg, ?> source1 =
+    TargetNode<ExportFileDescriptionArg, ?> source1 =
         ExportFileBuilder.newExportFileBuilder(source1Target)
             .setSrc(new PathSourcePath(projectFilesystem, Paths.get("Vendor/sources/source1")))
             .build();
 
-    TargetNode<ExportFileDescription.Arg, ?> source2 =
+    TargetNode<ExportFileDescriptionArg, ?> source2 =
         ExportFileBuilder.newExportFileBuilder(source2Target)
             .setSrc(new PathSourcePath(projectFilesystem, Paths.get("Vendor/source2")))
             .build();
 
-    TargetNode<ExportFileDescription.Arg, ?> source2Ref =
+    TargetNode<ExportFileDescriptionArg, ?> source2Ref =
         ExportFileBuilder.newExportFileBuilder(source2RefTarget)
             .setSrc(new DefaultBuildTargetSourcePath(source2Target))
             .build();
 
-    TargetNode<ExportFileDescription.Arg, ?> source3 =
+    TargetNode<ExportFileDescriptionArg, ?> source3 =
         ExportFileBuilder.newExportFileBuilder(source3Target).build();
 
-    TargetNode<ExportFileDescription.Arg, ?> header =
+    TargetNode<ExportFileDescriptionArg, ?> header =
         ExportFileBuilder.newExportFileBuilder(headerTarget).build();
 
-    TargetNode<AppleLibraryDescription.Arg, ?> library =
+    TargetNode<AppleLibraryDescriptionArg, ?> library =
         AppleLibraryBuilder.createBuilder(libTarget)
             .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
             .setSrcs(
@@ -3532,6 +3534,8 @@ public class ProjectGeneratorTest {
 
     PBXTarget testPBXTarget =
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:AppTest");
+    assertPBXTargetHasDependency(
+        projectGenerator.getGeneratedProject(), testPBXTarget, "//foo:HostApp");
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, testPBXTarget, "Debug");
     // Check starts with as the remainder depends on the bundle style at build time.
@@ -3560,7 +3564,7 @@ public class ProjectGeneratorTest {
             .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
             .setInfoPlist(new FakeSourcePath("Info.plist"))
             .setTestHostApp(Optional.of(hostAppTarget))
-            .isUiTest(Optional.of(true))
+            .isUiTest(true)
             .build();
 
     ProjectGenerator projectGenerator =
@@ -3572,6 +3576,8 @@ public class ProjectGeneratorTest {
     PBXTarget testPBXTarget =
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:AppTest");
     assertEquals(testPBXTarget.getProductType(), ProductType.UI_TEST);
+    assertPBXTargetHasDependency(
+        projectGenerator.getGeneratedProject(), testPBXTarget, "//foo:HostApp");
 
     ImmutableMap<String, String> settings = getBuildSettings(testTarget, testPBXTarget, "Debug");
     // Check starts with as the remainder depends on the bundle style at build time.
@@ -4616,5 +4622,16 @@ public class ProjectGeneratorTest {
     assertHasConfigurations(target, config);
     return ProjectGeneratorTestUtils.getBuildSettings(
         projectFilesystem, buildTarget, target, config);
+  }
+
+  private void assertPBXTargetHasDependency(
+      PBXProject project, PBXTarget pbxTarget, String dependencyTargetName) {
+
+    assertEquals(pbxTarget.getDependencies().size(), 1);
+    PBXContainerItemProxy dependencyProxy = pbxTarget.getDependencies().get(0).getTargetProxy();
+
+    PBXTarget dependency = assertTargetExistsAndReturnTarget(project, dependencyTargetName);
+    assertEquals(dependencyProxy.getRemoteGlobalIDString(), dependency.getGlobalID());
+    assertEquals(dependencyProxy.getContainerPortal(), project);
   }
 }

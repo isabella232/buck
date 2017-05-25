@@ -74,23 +74,17 @@ public class ArtifactCacheBuckConfigTest {
   public void testMode() throws IOException {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "mode = http");
     assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(true));
-    assertThat(
-        config.getArtifactCacheModes(),
-        Matchers.contains(ArtifactCacheBuckConfig.ArtifactCacheMode.http));
+    assertThat(config.getArtifactCacheModes(), Matchers.contains(ArtifactCacheMode.http));
 
     config = createFromText("[cache]", "mode = dir");
     assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(false));
-    assertThat(
-        config.getArtifactCacheModes(),
-        Matchers.contains(ArtifactCacheBuckConfig.ArtifactCacheMode.dir));
+    assertThat(config.getArtifactCacheModes(), Matchers.contains(ArtifactCacheMode.dir));
 
     config = createFromText("[cache]", "mode = dir, http");
     assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(true));
     assertThat(
         config.getArtifactCacheModes(),
-        Matchers.containsInAnyOrder(
-            ArtifactCacheBuckConfig.ArtifactCacheMode.dir,
-            ArtifactCacheBuckConfig.ArtifactCacheMode.http));
+        Matchers.containsInAnyOrder(ArtifactCacheMode.dir, ArtifactCacheMode.http));
   }
 
   @Test
@@ -265,65 +259,6 @@ public class ArtifactCacheBuckConfigTest {
         "User home cache directory must be expanded.",
         config.getCacheEntries().getDirCacheEntries().stream().findFirst().get().getCacheDir(),
         Matchers.equalTo(MorePaths.expandHomeDir(Paths.get("~/cache_dir"))));
-  }
-
-  @Test
-  public void testNamedHttpCachesOnly() throws IOException {
-    ArtifactCacheBuckConfig config =
-        createFromText(
-            "[cache]",
-            "http_cache_names = bob, fred",
-            "",
-            "[cache#bob]",
-            "http_url = http://bob.com/",
-            "",
-            "[cache#fred]",
-            "http_url = http://fred.com/",
-            "http_timeout_seconds = 42",
-            "http_mode = readonly",
-            "blacklisted_wifi_ssids = yolo",
-            "",
-            "[cache#ignoreme]",
-            "http_url = http://ignored.com/");
-
-    ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
-    assertThat(httpCacheEntries, Matchers.hasSize(2));
-
-    HttpCacheEntry bobCache = FluentIterable.from(httpCacheEntries).get(0);
-    assertThat(bobCache.getUrl(), Matchers.equalTo(URI.create("http://bob.com/")));
-    assertThat(bobCache.getCacheReadMode(), Matchers.equalTo(CacheReadMode.READWRITE));
-    assertThat(bobCache.getTimeoutSeconds(), Matchers.is(3));
-
-    HttpCacheEntry fredCache = FluentIterable.from(httpCacheEntries).get(1);
-    assertThat(fredCache.getUrl(), Matchers.equalTo(URI.create("http://fred.com/")));
-    assertThat(fredCache.getTimeoutSeconds(), Matchers.is(42));
-    assertThat(fredCache.getCacheReadMode(), Matchers.equalTo(CacheReadMode.READONLY));
-    assertThat(fredCache.isWifiUsableForDistributedCache(Optional.of("wsad")), Matchers.is(true));
-    assertThat(fredCache.isWifiUsableForDistributedCache(Optional.of("yolo")), Matchers.is(false));
-  }
-
-  @Test
-  public void testNamedAndLegacyCaches() throws IOException {
-    ArtifactCacheBuckConfig config =
-        createFromText(
-            "[cache]",
-            "http_timeout_seconds = 42",
-            "http_cache_names = bob",
-            "",
-            "[cache#bob]",
-            "http_url = http://bob.com/");
-
-    ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
-    assertThat(httpCacheEntries, Matchers.hasSize(2));
-
-    HttpCacheEntry legacyCache = FluentIterable.from(httpCacheEntries).get(0);
-    assertThat(legacyCache.getUrl(), Matchers.equalTo(URI.create("http://localhost:8080/")));
-    assertThat(legacyCache.getTimeoutSeconds(), Matchers.is(42));
-
-    HttpCacheEntry bobCache = FluentIterable.from(httpCacheEntries).get(1);
-    assertThat(bobCache.getUrl(), Matchers.equalTo(URI.create("http://bob.com/")));
-    assertThat(bobCache.getCacheReadMode(), Matchers.equalTo(CacheReadMode.READWRITE));
-    assertThat(bobCache.getTimeoutSeconds(), Matchers.is(3));
   }
 
   @Test

@@ -22,6 +22,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
@@ -34,6 +35,7 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -63,8 +65,8 @@ import java.util.function.Predicate;
  *       it is not very flexible.
  * </ul>
  *
- * While the problems are not impossible to overcome, PCH generation is fast enough that it isn't a
- * significant problem. The PCH file is only generated when a source file needs to be compiled,
+ * <p>While the problems are not impossible to overcome, PCH generation is fast enough that it isn't
+ * a significant problem. The PCH file is only generated when a source file needs to be compiled,
  * anyway.
  *
  * <p>Additionally, since PCH files contain information like timestamps, absolute paths, and
@@ -85,7 +87,6 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
 
   // Fields that are not added to the rule key.
   private final DebugPathSanitizer compilerSanitizer;
-  private final DebugPathSanitizer assemblerSanitizer;
   private final Path output;
 
   /**
@@ -103,9 +104,10 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
       CxxToolFlags compilerFlags,
       SourcePath input,
       CxxSource.Type inputType,
-      DebugPathSanitizer compilerSanitizer,
-      DebugPathSanitizer assemblerSanitizer) {
+      DebugPathSanitizer compilerSanitizer) {
     super(buildRuleParams);
+    Preconditions.checkArgument(
+        !inputType.isAssembly(), "Asm files do not use precompiled headers.");
     this.preprocessorDelegate = preprocessorDelegate;
     this.compilerDelegate = compilerDelegate;
     this.compilerFlags = compilerFlags;
@@ -113,7 +115,6 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
     this.input = input;
     this.inputType = inputType;
     this.compilerSanitizer = compilerSanitizer;
-    this.assemblerSanitizer = assemblerSanitizer;
   }
 
   @Override
@@ -176,8 +177,8 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
-      throws IOException {
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+      BuildContext context, CellPathResolver cellPathResolver) throws IOException {
     try {
       return ImmutableList.<SourcePath>builder()
           .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines(context)))
@@ -226,32 +227,29 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
   @VisibleForTesting
   CxxPreprocessAndCompileStep makeMainStep(SourcePathResolver resolver, Path scratchDir) {
     return new CxxPreprocessAndCompileStep(
+        getBuildTarget(),
         getProjectFilesystem(),
         CxxPreprocessAndCompileStep.Operation.GENERATE_PCH,
         resolver.getRelativePath(getSourcePathToOutput()),
-        getDepFilePath(resolver),
+        Optional.of(getDepFilePath(resolver)),
         // TODO(10194465): This uses relative path so as to get relative paths in the dep file
         resolver.getRelativePath(input),
         inputType,
-        Optional.of(
-            new CxxPreprocessAndCompileStep.ToolCommand(
-                preprocessorDelegate.getCommandPrefix(),
-                ImmutableList.copyOf(
-                    CxxToolFlags.explicitBuilder()
-                        .addAllRuleFlags(
-                            getCxxIncludePaths()
-                                .getFlags(resolver, preprocessorDelegate.getPreprocessor()))
-                        .addAllRuleFlags(
-                            preprocessorDelegate.getArguments(
-                                compilerFlags, /* no pch */ Optional.empty()))
-                        .build()
-                        .getAllFlags()),
-                preprocessorDelegate.getEnvironment(),
-                preprocessorDelegate.getFlagsForColorDiagnostics())),
-        Optional.empty(),
+        new CxxPreprocessAndCompileStep.ToolCommand(
+            preprocessorDelegate.getCommandPrefix(),
+            ImmutableList.copyOf(
+                CxxToolFlags.explicitBuilder()
+                    .addAllRuleFlags(
+                        getCxxIncludePaths()
+                            .getFlags(resolver, preprocessorDelegate.getPreprocessor()))
+                    .addAllRuleFlags(
+                        preprocessorDelegate.getArguments(
+                            compilerFlags, /* no pch */ Optional.empty()))
+                    .build()
+                    .getAllFlags()),
+            preprocessorDelegate.getEnvironment()),
         preprocessorDelegate.getHeaderPathNormalizer(),
         compilerSanitizer,
-        assemblerSanitizer,
         scratchDir,
         /* useArgFile*/ true,
         compilerDelegate.getCompiler());
@@ -260,9 +258,13 @@ public class CxxPrecompiledHeader extends AbstractBuildRule
   /**
    * Helper method for dealing with compiler flags in a precompiled header build.
    *
+   * <p>
+   *
    * <p>Triage the given list of compiler flags, and divert {@code -I} flags' arguments to {@code
    * iDirsBuilder}, do similar for {@code -isystem} flags and {@code iSystemDirsBuilder}, and
    * finally output other non-include-path related stuff to {@code nonIncludeFlagsBuilder}.
+   *
+   * <p>
    *
    * <p>Note that while Buck doesn't tend to produce {@code -I} and {@code -isystem} flags without a
    * space between the flag and its argument, though historically compilers have accepted that.

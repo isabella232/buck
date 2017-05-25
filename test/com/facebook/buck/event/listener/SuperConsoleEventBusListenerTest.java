@@ -16,10 +16,9 @@
 package com.facebook.buck.event.listener;
 
 import static com.facebook.buck.event.TestEventConfigurator.configureTestEventAtTime;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreFinished;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreScheduled;
-import static com.facebook.buck.event.listener.ConsoleTestUtils.postStoreStarted;
 import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.EMOJI_BUNNY;
+import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.EMOJI_DESERT;
+import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.EMOJI_ROLODEX;
 import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.EMOJI_SNAIL;
 import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.EMOJI_WHALE;
 import static com.facebook.buck.event.listener.SuperConsoleEventBusListener.NEW_DAEMON_INSTANCE_MSG;
@@ -30,6 +29,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.DirArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
@@ -87,6 +87,7 @@ import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
+import com.facebook.buck.util.versioncontrol.SparseSummary;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -308,7 +309,7 @@ public class SuperConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             dirArtifactCacheEventFactory.newFetchFinishedEvent(
-                dirFetchStarted, CacheResult.hit("dir")),
+                dirFetchStarted, CacheResult.hit("dir", ArtifactCacheMode.dir)),
             742L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -354,6 +355,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -389,6 +391,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -444,13 +447,13 @@ public class SuperConsoleEventBusListenerTest {
         ImmutableList.of(parsingLine, FINISHED_DOWNLOAD_STRING, buildingLine, installingFinished));
 
     HttpArtifactCacheEvent.Scheduled storeScheduledOne =
-        postStoreScheduled(eventBus, 0L, TARGET_ONE, 6000L);
+        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_ONE, 6000L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
-        postStoreScheduled(eventBus, 0L, TARGET_TWO, 6010L);
+        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_TWO, 6010L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledThree =
-        postStoreScheduled(eventBus, 0L, TARGET_THREE, 6020L);
+        ArtifactCacheTestUtils.postStoreScheduled(eventBus, 0L, TARGET_THREE, 6020L);
 
     validateConsole(
         listener,
@@ -463,7 +466,7 @@ public class SuperConsoleEventBusListenerTest {
             "[+] HTTP CACHE UPLOAD...0.00 B (0 COMPLETE/0 FAILED/0 UPLOADING/3 PENDING)"));
 
     HttpArtifactCacheEvent.Started storeStartedOne =
-        postStoreStarted(eventBus, 0, 6025L, storeScheduledOne);
+        ArtifactCacheTestUtils.postStoreStarted(eventBus, 0, 6025L, storeScheduledOne);
 
     validateConsole(
         listener,
@@ -476,7 +479,8 @@ public class SuperConsoleEventBusListenerTest {
             "[+] HTTP CACHE UPLOAD...0.00 B (0 COMPLETE/0 FAILED/1 UPLOADING/2 PENDING)"));
 
     long artifactSizeOne = SizeUnit.KILOBYTES.toBytes(1.5);
-    postStoreFinished(eventBus, 0, artifactSizeOne, 7020L, true, storeStartedOne);
+    ArtifactCacheTestUtils.postStoreFinished(
+        eventBus, 0, artifactSizeOne, 7020L, true, storeStartedOne);
 
     validateConsole(
         listener,
@@ -489,9 +493,10 @@ public class SuperConsoleEventBusListenerTest {
             "[+] HTTP CACHE UPLOAD...1.50 KB (1 COMPLETE/0 FAILED/0 UPLOADING/2 PENDING)"));
 
     HttpArtifactCacheEvent.Started storeStartedTwo =
-        postStoreStarted(eventBus, 0, 7030L, storeScheduledTwo);
+        ArtifactCacheTestUtils.postStoreStarted(eventBus, 0, 7030L, storeScheduledTwo);
     long artifactSizeTwo = SizeUnit.KILOBYTES.toBytes(1.6);
-    postStoreFinished(eventBus, 0, artifactSizeTwo, 7030L, false, storeStartedTwo);
+    ArtifactCacheTestUtils.postStoreFinished(
+        eventBus, 0, artifactSizeTwo, 7030L, false, storeStartedTwo);
 
     validateConsole(
         listener,
@@ -504,9 +509,10 @@ public class SuperConsoleEventBusListenerTest {
             "[+] HTTP CACHE UPLOAD...1.50 KB (1 COMPLETE/1 FAILED/0 UPLOADING/1 PENDING)"));
 
     HttpArtifactCacheEvent.Started storeStartedThree =
-        postStoreStarted(eventBus, 0, 7040L, storeScheduledThree);
+        ArtifactCacheTestUtils.postStoreStarted(eventBus, 0, 7040L, storeScheduledThree);
     long artifactSizeThree = SizeUnit.KILOBYTES.toBytes(0.6);
-    postStoreFinished(eventBus, 0, artifactSizeThree, 7040L, true, storeStartedThree);
+    ArtifactCacheTestUtils.postStoreFinished(
+        eventBus, 0, artifactSizeThree, 7040L, true, storeStartedThree);
 
     validateConsole(
         listener,
@@ -639,6 +645,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -678,6 +685,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -891,24 +899,25 @@ public class SuperConsoleEventBusListenerTest {
         timeMillis,
         ImmutableList.of(
             parsingLine,
-            "[+] DISTBUILD...1.3s [33%] (STATUS: BUILDING, [step 2])",
+            "[+] DISTBUILD...1.3s [33%] (STATUS: BUILDING, 1 [3.3%] CACHE MISS, [step 2])",
             " SERVER 0)=> IDLE... (BUILT 5/10 JOBS, 1 [10.0%] CACHE MISS)",
             " SERVER 1)=> WORKING ON 5 JOBS... (BUILT 5/20 JOBS, 1 JOBS FAILED, 0 [0.0%] CACHE MISS)"));
 
     timeMillis += 100;
-    slave1.setTotalRulesCount(10);
     slave1.setRulesStartedCount(1);
     slave1.setRulesFinishedCount(9);
-    slave1.setRulesSuccessCount(10);
+    slave1.setRulesSuccessCount(9);
     cacheRateStatsForSlave1.setUpdatedRulesCount(9);
     cacheRateStatsForSlave1.setCacheHitsCount(8);
     cacheRateStatsForSlave1.setCacheMissesCount(1);
 
-    slave2.setTotalRulesCount(20);
     slave2.setRulesStartedCount(0);
     slave2.setRulesFinishedCount(20);
     slave2.setRulesSuccessCount(19);
-    slave2.setRulesFailureCount(1);
+    slave2.setHttpArtifactUploadsScheduledCount(3);
+    slave2.setHttpArtifactUploadsOngoingCount(1);
+    slave2.setHttpArtifactUploadsSuccessCount(1);
+    slave2.setHttpArtifactUploadsFailureCount(1);
     cacheRateStatsForSlave2.setUpdatedRulesCount(20);
     cacheRateStatsForSlave2.setCacheHitsCount(19);
     cacheRateStatsForSlave2.setCacheMissesCount(0);
@@ -932,12 +941,19 @@ public class SuperConsoleEventBusListenerTest {
         timeMillis,
         ImmutableList.of(
             parsingLine,
-            "[+] DISTBUILD...1.5s [96%] (STATUS: CUSTOM, [step 2])",
+            "[+] DISTBUILD...1.5s [96%] (STATUS: CUSTOM,"
+                + " 1 [3.3%] CACHE MISS, 1 [3.4%] CACHE ERRORS, 1 UPLOAD ERRORS, [step 2])",
             " SERVER 0)=> WORKING ON 1 JOBS... (BUILT 9/10 JOBS, 1 [10.0%] CACHE MISS)",
             " SERVER 1)=> IDLE... (BUILT 20/20 JOBS, 1 JOBS FAILED, 0 [0.0%] CACHE MISS, "
-                + "1 [5.0%] CACHE ERRORS)"));
+                + "1 [5.0%] CACHE ERRORS, 1/3 UPLOADED, 1 UPLOAD ERRORS)"));
 
     timeMillis += 100;
+    slave1.setRulesStartedCount(0);
+    slave1.setRulesFinishedCount(10);
+    slave1.setRulesSuccessCount(10);
+    cacheRateStatsForSlave1.setUpdatedRulesCount(10);
+    cacheRateStatsForSlave1.setCacheHitsCount(9);
+
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             new DistBuildStatusEvent(
@@ -959,7 +975,8 @@ public class SuperConsoleEventBusListenerTest {
 
     timeMillis += 100;
     final String distbuildLine =
-        "[-] DISTBUILD...FINISHED 1.6s [100%] (STATUS: FINISHED_SUCCESSFULLY, [step 3])";
+        "[-] DISTBUILD...FINISHED 1.6s [100%] (STATUS: FINISHED_SUCCESSFULLY,"
+            + " 1 [3.3%] CACHE MISS, 1 [3.3%] CACHE ERRORS, 1 UPLOAD ERRORS, [step 3])";
     validateConsole(
         listener,
         timeMillis,
@@ -1083,6 +1100,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -1333,6 +1351,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -1597,6 +1616,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -1891,6 +1911,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty()),
@@ -1939,11 +1960,15 @@ public class SuperConsoleEventBusListenerTest {
 
     // file added scenario
     eventBus.post(WatchmanStatusEvent.fileCreation("and you know you're going to fall"));
-    assertEquals(createParsingMessage(EMOJI_SNAIL, "File added"), listener.getParsingStatus());
+    assertEquals(
+        createParsingMessage(EMOJI_SNAIL, "File added: and you know you're going to fall"),
+        listener.getParsingStatus());
 
     // file removed scenario
     eventBus.post(WatchmanStatusEvent.fileDeletion("Tell 'em a hookah-smoking"));
-    assertEquals(createParsingMessage(EMOJI_SNAIL, "File removed"), listener.getParsingStatus());
+    assertEquals(
+        createParsingMessage(EMOJI_SNAIL, "File removed: Tell 'em a hookah-smoking"),
+        listener.getParsingStatus());
 
     // symlink invalidation scenario
     eventBus.post(ParsingEvent.symlinkInvalidation("caterpillar has given you the call"));
@@ -1977,29 +2002,47 @@ public class SuperConsoleEventBusListenerTest {
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            new AutoSparseStateEvents.SparseRefreshFinished(sparseRefreshStarted),
+            new AutoSparseStateEvents.SparseRefreshFinished(
+                sparseRefreshStarted, SparseSummary.of()),
             500L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
     validateConsole(
-        listener, 500L, ImmutableList.of("[-] REFRESHING SPARSE CHECKOUT...FINISHED 0.5s"));
+        listener,
+        500L,
+        ImmutableList.of(
+            "[-] REFRESHING SPARSE CHECKOUT...FINISHED 0.5s "
+                + createParsingMessage(EMOJI_DESERT, "Working copy size unchanged").get()));
 
     // starting a new refresh adds on to running time
     sparseRefreshStarted = new AutoSparseStateEvents.SparseRefreshStarted();
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             sparseRefreshStarted, 1000L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
-    validateConsole(listener, 1000L, ImmutableList.of("[+] REFRESHING SPARSE CHECKOUT...0.5s"));
+    validateConsole(
+        listener,
+        1000L,
+        ImmutableList.of(
+            "[+] REFRESHING SPARSE CHECKOUT...0.5s "
+                + createParsingMessage(EMOJI_DESERT, "Working copy size unchanged").get()));
 
     // ending a new refresh shows the total running time for both events
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            new AutoSparseStateEvents.SparseRefreshFinished(sparseRefreshStarted),
+            new AutoSparseStateEvents.SparseRefreshFinished(
+                sparseRefreshStarted, SparseSummary.of(0, 10, 0, 42, 0, 0)),
             1500L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
     validateConsole(
-        listener, 1500L, ImmutableList.of("[-] REFRESHING SPARSE CHECKOUT...FINISHED 1.0s"));
+        listener,
+        1500L,
+        ImmutableList.of(
+            "[-] REFRESHING SPARSE CHECKOUT...FINISHED 1.0s "
+                + createParsingMessage(
+                        EMOJI_ROLODEX,
+                        "10 new sparse rules imported, 42 files added to the working copy")
+                    .get()));
   }
 
   @Test

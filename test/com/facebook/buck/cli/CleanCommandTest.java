@@ -26,11 +26,11 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.event.listener.BroadcastEventListener;
-import com.facebook.buck.ide.intellij.IjAndroidHelper;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
+import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
@@ -91,24 +91,6 @@ public class CleanCommandTest extends EasyMockSupport {
   }
 
   @Test
-  public void testCleanCommandWithProjectArgument()
-      throws CmdLineException, IOException, InterruptedException {
-    CleanCommand cleanCommand = createCommandFromArgs("--project");
-    CommandRunnerParams params = createCommandRunnerParams(cleanCommand);
-
-    // Set up mocks.
-    projectFilesystem.mkdirs(IjAndroidHelper.getAndroidGenPath(projectFilesystem));
-    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getAnnotationDir());
-
-    // Simulate `buck clean --project`.
-    int exitCode = cleanCommand.run(params);
-    assertEquals(0, exitCode);
-
-    assertFalse(projectFilesystem.exists(IjAndroidHelper.getAndroidGenPath(projectFilesystem)));
-    assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getAnnotationDir()));
-  }
-
-  @Test
   public void testCleanCommandWithAdditionalPaths()
       throws CmdLineException, IOException, InterruptedException {
     Path additionalPath = projectFilesystem.getPath("foo");
@@ -150,6 +132,7 @@ public class CleanCommandTest extends EasyMockSupport {
         AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
     return CommandRunnerParams.builder()
         .setConsole(new TestConsole())
+        .setBuildInfoStoreManager(new BuildInfoStoreManager())
         .setStdIn(new ByteArrayInputStream("".getBytes("UTF-8")))
         .setCell(cell)
         .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)

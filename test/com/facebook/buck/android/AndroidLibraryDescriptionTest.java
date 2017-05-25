@@ -23,21 +23,19 @@ import static org.easymock.EasyMock.verify;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -117,16 +115,16 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
   @Test
   public void rulesMatchingDepQueryBecomeFirstOrderDeps() throws Exception {
     // Set up target graph: rule -> lib -> sublib -> bottom
-    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> bottomNode =
+    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> bottomNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:bottom"), javaBuckConfig)
             .build();
-    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> sublibNode =
+    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> sublibNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:sublib"), javaBuckConfig)
             .addDep(bottomNode.getBuildTarget())
             .build();
-    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> libNode =
+    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> libNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"), javaBuckConfig)
             .addDep(sublibNode.getBuildTarget())
             .build();
@@ -209,14 +207,6 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void bootClasspathAppenderAddsLibsFromAndroidPlatformTarget() {
-    BuildContext.Builder builder = BuildContext.builder();
-
-    // Set to non-null values.
-    builder.setActionGraph(createMock(ActionGraph.class));
-    builder.setSourcePathResolver(createMock(SourcePathResolver.class));
-    builder.setJavaPackageFinder(createMock(JavaPackageFinder.class));
-    builder.setEventBus(BuckEventBusFactory.newInstance());
-
     AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
     List<Path> entries =
         ImmutableList.of(
@@ -227,13 +217,15 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
     replay(androidPlatformTarget);
 
-    builder.setAndroidPlatformTargetSupplier(Suppliers.ofInstance(androidPlatformTarget));
-
     BootClasspathAppender appender = new BootClasspathAppender();
 
     JavacOptions options =
         JavacOptions.builder().setSourceLevel("1.7").setTargetLevel("1.7").build();
-    JavacOptions updated = appender.amend(options, builder.build());
+    JavacOptions updated =
+        appender.amend(
+            options,
+            FakeBuildContext.NOOP_CONTEXT.withAndroidPlatformTargetSupplier(
+                Suppliers.ofInstance(androidPlatformTarget)));
 
     assertEquals(
         Optional.of(
@@ -250,7 +242,7 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void testClasspathContainsOnlyJavaTargets() throws Exception {
-    TargetNode<AndroidResourceDescription.Arg, AndroidResourceDescription> resourceRule =
+    TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> resourceRule =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:res")).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceRule);

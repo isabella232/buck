@@ -122,8 +122,7 @@ public class ResolverIntegrationTest {
             new DefaultTypeCoercerFactory(),
             ImmutableMap.of(),
             BuckEventBusFactory.newInstance(),
-            new DefaultProcessExecutor(new TestConsole()),
-            /* ignoreBuckAutodepsFiles */ false);
+            new DefaultProcessExecutor(new TestConsole()));
   }
 
   @AfterClass
@@ -203,7 +202,6 @@ public class ResolverIntegrationTest {
     assertEquals("no-deps-1.0.jar", rule.get("binaryJar"));
 
     // There was no source jar in the repo
-    assertTrue(rule.containsKey("sourceJar"));
     assertNull(rule.get("sourceJar"));
 
     // It's a library that's requested on the CLI, so it gets full visibility.

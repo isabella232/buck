@@ -117,20 +117,13 @@ public class RuleKeyLoggerListenerTest {
     BuildRuleEvent.Started started =
         TestEventConfigurator.configureTestEvent(BuildRuleEvent.started(rule, durationTracker));
     return BuildRuleEvent.finished(
-        started, keys, null, null, Optional.empty(), null, null, null, Optional.empty());
+        started, keys, null, null, Optional.empty(), null, false, null, null, Optional.empty());
   }
 
   private HttpArtifactCacheEvent.Finished createArtifactCacheEvent(CacheResultType type) {
-    RuleKey ruleKey = new RuleKey("abababab42");
-    HttpArtifactCacheEvent.Started startedEvent =
-        HttpArtifactCacheEvent.newFetchStartedEvent(ruleKey);
-    HttpArtifactCacheEvent.Finished.Builder builder =
-        HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent);
-    builder
-        .getFetchBuilder()
-        .setFetchResult(
-            CacheResult.builder().setType(type).setCacheSource("random source").build());
-    return builder.build();
+    return ArtifactCacheTestUtils.newFetchFinishedEvent(
+        ArtifactCacheTestUtils.newFetchStartedEvent(new RuleKey("abababab42")),
+        CacheResult.builder().setType(type).setCacheSource("random source").build());
   }
 
   private RuleKeyLoggerListener newInstance(int minLinesForAutoFlush) {

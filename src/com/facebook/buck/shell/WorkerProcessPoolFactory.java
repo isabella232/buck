@@ -56,15 +56,15 @@ public class WorkerProcessPoolFactory {
    * a new one.
    */
   public WorkerProcessPool getWorkerProcessPool(
-      final ExecutionContext context, WorkerJobParams paramsToUse) {
+      final ExecutionContext context, WorkerProcessParams paramsToUse) {
     ConcurrentMap<String, WorkerProcessPool> processPoolMap;
     final String key;
     final HashCode workerHash;
-    if (paramsToUse.getPersistentWorkerKey().isPresent()
+    if (paramsToUse.getWorkerProcessIdentity().isPresent()
         && context.getPersistentWorkerPools().isPresent()) {
       processPoolMap = context.getPersistentWorkerPools().get();
-      key = paramsToUse.getPersistentWorkerKey().get();
-      workerHash = paramsToUse.getWorkerHash().get();
+      key = paramsToUse.getWorkerProcessIdentity().get().getPersistentWorkerKey();
+      workerHash = paramsToUse.getWorkerProcessIdentity().get().getWorkerHash();
     } else {
       processPoolMap = context.getWorkerProcessPools();
       key = Joiner.on(' ').join(getCommand(context.getPlatform(), paramsToUse));
@@ -99,7 +99,7 @@ public class WorkerProcessPoolFactory {
 
   private WorkerProcessPool createWorkerProcessPool(
       final ExecutionContext context,
-      final WorkerJobParams paramsToUse,
+      final WorkerProcessParams paramsToUse,
       ConcurrentMap<String, WorkerProcessPool> processPoolMap,
       String key,
       final HashCode workerHash) {
@@ -131,7 +131,7 @@ public class WorkerProcessPoolFactory {
     return previousPool == null ? newPool : previousPool;
   }
 
-  public ImmutableList<String> getCommand(Platform platform, WorkerJobParams paramsToUse) {
+  public ImmutableList<String> getCommand(Platform platform, WorkerProcessParams paramsToUse) {
     ImmutableList<String> executionArgs =
         platform == Platform.WINDOWS
             ? ImmutableList.of("cmd.exe", "/c")
@@ -149,7 +149,7 @@ public class WorkerProcessPoolFactory {
 
   @VisibleForTesting
   ImmutableMap<String, String> getEnvironmentForProcess(
-      ExecutionContext context, WorkerJobParams workerJobParams) {
+      ExecutionContext context, WorkerProcessParams workerJobParams) {
     Path tmpDir = workerJobParams.getTempDir();
 
     Map<String, String> envVars = Maps.newHashMap(context.getEnvironment());

@@ -28,18 +28,17 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -398,7 +397,6 @@ public class TargetsCommand extends AbstractCommand {
                           x -> true,
                           BuildFileSpec.fromRecursivePath(
                               Paths.get(""), params.getCell().getRoot()))),
-                  false,
                   parserConfig.getDefaultFlavorsMode());
       SortedMap<String, TargetNode<?, ?>> matchingNodes =
           getMatchingNodes(params, completeTargetGraphAndBuildTargets, descriptionClasses);
@@ -418,8 +416,7 @@ public class TargetsCommand extends AbstractCommand {
               params.getCell(),
               getEnableParserProfiling(),
               executor,
-              parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
-              false);
+              parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()));
     }
   }
 
@@ -477,7 +474,6 @@ public class TargetsCommand extends AbstractCommand {
       throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
           VersionException {
     ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
-    boolean ignoreBuckAutodepsFiles = false;
     // Parse the entire action graph, or (if targets are specified), only the specified targets and
     // their dependencies. If we're detecting test changes we need the whole graph as tests are not
     // dependencies.
@@ -499,7 +495,6 @@ public class TargetsCommand extends AbstractCommand {
                                   x -> true,
                                   BuildFileSpec.fromRecursivePath(
                                       Paths.get(""), params.getCell().getRoot()))),
-                          ignoreBuckAutodepsFiles,
                           parserConfig.getDefaultFlavorsMode())
                       .getTargetGraph())
               .build();
@@ -513,7 +508,6 @@ public class TargetsCommand extends AbstractCommand {
                   getEnableParserProfiling(),
                   executor,
                   parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
-                  ignoreBuckAutodepsFiles,
                   parserConfig.getDefaultFlavorsMode());
     }
     return params.getBuckConfig().getTargetsVersions()
@@ -806,9 +800,14 @@ public class TargetsCommand extends AbstractCommand {
     Optional<DefaultRuleKeyFactory> ruleKeyFactory = Optional.empty();
     if (isShowRuleKey() || isShowOutput() || isShowFullOutput()) {
       ActionGraphAndResolver result =
-          Preconditions.checkNotNull(
-              ActionGraphCache.getFreshActionGraph(
-                  params.getBuckEventBus(), targetGraphAndTargetNodes.getTargetGraph()));
+          params
+              .getActionGraphCache()
+              .getActionGraph(
+                  params.getBuckEventBus(),
+                  params.getBuckConfig().isActionGraphCheckingEnabled(),
+                  params.getBuckConfig().isSkipActionGraphCache(),
+                  targetGraphAndTargetNodes.getTargetGraph(),
+                  params.getBuckConfig().getKeySeed());
       actionGraph = Optional.of(result.getActionGraph());
       buildRuleResolver = Optional.of(result.getResolver());
       if (isShowRuleKey()) {

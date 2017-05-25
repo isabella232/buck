@@ -61,12 +61,52 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
+  public void simpleBinaryUnflavored() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
+    workspace.setUp();
+
+    workspace
+        .runBuckCommand("build", "--config", "rust.unflavored_binaries=true", "//:xyzzy")
+        .assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:xyzzy");
+    workspace.resetBuildLogFile();
+
+    ProcessExecutor.Result result =
+        workspace.runCommand(workspace.resolve("buck-out/gen/xyzzy#binary/xyzzy").toString());
+    assertThat(result.getExitCode(), Matchers.equalTo(0));
+    assertThat(result.getStdout().get(), Matchers.containsString("Hello, world!"));
+    assertThat(result.getStderr().get(), Matchers.blankString());
+  }
+
+  @Test
   public void simpleBinaryCheck() throws IOException, InterruptedException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
 
     workspace.runBuckBuild("//:xyzzy#check").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:xyzzy#check");
+    workspace.resetBuildLogFile();
+
+    thrown.expect(IOException.class);
+    thrown.expectMessage(Matchers.containsString("No such file or directory"));
+
+    workspace.runCommand(
+        workspace.resolve("buck-out/gen/xyzzy#binary,check,default/xyzzy").toString());
+  }
+
+  @Test
+  public void simpleBinaryCheckUnflavored() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
+    workspace.setUp();
+
+    workspace
+        .runBuckCommand("build", "--config", "rust.unflavored_binaries=true", "//:xyzzy#check")
+        .assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//:xyzzy#check");
     workspace.resetBuildLogFile();
@@ -87,10 +127,9 @@ public class RustBinaryIntegrationTest {
     assertThat(
         workspace.runBuckBuild("//:xyzzy").assertSuccess().getStderr(),
         Matchers.allOf(
+            Matchers.containsString("warning: constant item is never used: `foo`"),
             Matchers.containsString(
-                "warning: constant item is never used: `foo`, #[warn(dead_code)] on by default"),
-            Matchers.containsString(
-                "warning: constant `foo` should have an upper case name such as `FOO`,")));
+                "warning: constant `foo` should have an upper case name such as `FOO`")));
 
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//:xyzzy");

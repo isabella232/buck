@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
 import javax.annotation.processing.RoundEnvironment;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
@@ -88,6 +89,16 @@ public class PostEnterTaskListenerTest {
   }
 
   @Test
+  public void testCallbackIssuedForPackageIfPackageInfoFilePresent() throws IOException {
+    compiler.addSourceFileContents("package-info.java", "package com.example.buck;");
+    compiler.setProcessors(ImmutableList.of());
+    addCallback("callback");
+    compiler.compile();
+
+    assertThat(callbacksIssued, Matchers.contains("callback: buck"));
+  }
+
+  @Test
   public void testCallbackIssuedAfterEnterWithAPs() throws IOException {
     // We add an unrelated source file here to make the compiler do something
     compiler.addSourceFileContents("Bar.java", "class Bar { }");
@@ -124,14 +135,14 @@ public class PostEnterTaskListenerTest {
 
   private void addCallback(String name) {
     compiler.addPostEnterCallback(
-        topLevelTypes ->
+        topLevelElements ->
             callbacksIssued.add(
                 String.format(
                     "%s: %s",
                     name,
-                    topLevelTypes
+                    topLevelElements
                         .stream()
-                        .map(TypeElement::getSimpleName)
+                        .map(Element::getSimpleName)
                         .collect(Collectors.joining(", ")))));
   }
 }

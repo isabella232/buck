@@ -92,8 +92,6 @@ public class BuckConfig implements ConfigPathGetter {
    */
   private static final Pattern ALIAS_PATTERN = Pattern.compile("[a-zA-Z_-][a-zA-Z0-9_-]*");
 
-  private static final String DEFAULT_MAX_TRACES = "25";
-
   private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART;
 
   private final CellPathResolver cellPathResolver;
@@ -242,7 +240,7 @@ public class BuckConfig implements ConfigPathGetter {
           rawPaths
               .get()
               .stream()
-              .map(input -> convertPath(input, true))
+              .map(input -> convertPath(input, true, section, field))
               .collect(MoreCollectors.toImmutableList());
       return Optional.of(paths);
     }
@@ -453,14 +451,6 @@ public class BuckConfig implements ConfigPathGetter {
 
   private static final String LOG_SECTION = "log";
 
-  public int getMaxTraces() {
-    return parseInt(getValue(LOG_SECTION, "max_traces").orElse(DEFAULT_MAX_TRACES));
-  }
-
-  public boolean isChromeTraceCreationEnabled() {
-    return getBooleanValue(LOG_SECTION, "chrome_trace_generation", true);
-  }
-
   public boolean isPublicAnnouncementsEnabled() {
     return getBooleanValue(LOG_SECTION, "public_announcements", true);
   }
@@ -484,10 +474,6 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isMachineReadableLoggerEnabled() {
     return getBooleanValue(LOG_SECTION, "machine_readable_logger_enabled", true);
-  }
-
-  public boolean getCompressTraces() {
-    return getBooleanValue("log", "compress_traces", false);
   }
 
   public ProjectTestsMode xcodeProjectTestsMode() {
@@ -641,17 +627,7 @@ public class BuckConfig implements ConfigPathGetter {
   }
 
   public ImmutableMap<String, String> getMap(String section, String field) {
-    Optional<String> value = getValue(section, field);
-    if (value.isPresent()) {
-      return ImmutableMap.copyOf(
-          Splitter.on(',')
-              .omitEmptyStrings()
-              .withKeyValueSeparator("=>")
-              .split(value.get().trim())
-              .entrySet());
-    } else {
-      return ImmutableMap.of();
-    }
+    return config.getMap(section, field);
   }
 
   private <T> T required(String section, String field, Optional<T> value) {
@@ -871,11 +847,17 @@ public class BuckConfig implements ConfigPathGetter {
         : getPathFromVfs(pathString);
   }
 
-  private Path convertPath(String pathString, boolean isCellRootRelative) {
+  private Path convertPath(
+      String pathString, boolean isCellRootRelative, String section, String field) {
     return convertPathWithError(
         pathString,
         isCellRootRelative,
-        isCellRootRelative ? "Cell-relative path not found: " : "Path not found: ");
+        String.format(
+            isCellRootRelative
+                ? "Error in %s.%s: Cell-relative path not found: "
+                : "Error in %s.%s: Path not found: ",
+            section,
+            field));
   }
 
   public Optional<Path> checkPathExists(String pathString, String errorMsg) {
@@ -1033,10 +1015,6 @@ public class BuckConfig implements ConfigPathGetter {
             .orElse(estimated.getDiskIO()),
         getInteger(BuckConfig.RESOURCES_SECTION_HEADER, "max_network_io_resource")
             .orElse(estimated.getNetworkIO()));
-  }
-
-  public boolean getIncludeAutodepsSignature() {
-    return getBooleanValue("autodeps", "include_signature", true);
   }
 
   /** @return whether to enabled versions on build/test command. */

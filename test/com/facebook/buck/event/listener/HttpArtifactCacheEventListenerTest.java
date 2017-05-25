@@ -19,6 +19,7 @@ package com.facebook.buck.event.listener;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent.Finished;
@@ -62,10 +63,12 @@ public class HttpArtifactCacheEventListenerTest {
     String errorMsg = "My super cool error message!!!";
 
     HttpArtifactCacheEvent.Started startedEvent =
-        HttpArtifactCacheEvent.newFetchStartedEvent(new RuleKey("1234"));
-    startedEvent.configure(-1, -1, -1, -1, null);
+        ArtifactCacheTestUtils.newFetchConfiguredStartedEvent(new RuleKey("1234"));
     Finished.Builder builder = HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent);
-    builder.getFetchBuilder().setFetchResult(CacheResult.hit("http")).setErrorMessage(errorMsg);
+    builder
+        .getFetchBuilder()
+        .setFetchResult(CacheResult.hit("http", ArtifactCacheMode.http))
+        .setErrorMessage(errorMsg);
     Finished event = builder.build();
     event.configure(-1, -1, -1, -1, BUILD_ID);
     listener.onHttpArtifactCacheEvent(event);

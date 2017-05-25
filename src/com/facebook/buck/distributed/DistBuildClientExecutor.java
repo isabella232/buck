@@ -19,6 +19,7 @@ package com.facebook.buck.distributed;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildJobState;
+import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventsQuery;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
@@ -67,6 +68,7 @@ public class DistBuildClientExecutor {
   private final DistBuildLogStateTracker distBuildLogStateTracker;
   private final BuildJobState buildJobState;
   private final BuckVersion buckVersion;
+  private final DistBuildClientStatsTracker distBuildClientStats;
   private final ScheduledExecutorService scheduler;
   private final int statusPollIntervalMillis;
   private final Map<RunId, Integer> nextEventIdBySlaveRunId = new HashMap<>();
@@ -86,12 +88,14 @@ public class DistBuildClientExecutor {
       DistBuildService distBuildService,
       DistBuildLogStateTracker distBuildLogStateTracker,
       BuckVersion buckVersion,
+      DistBuildClientStatsTracker distBuildClientStats,
       ScheduledExecutorService scheduler,
       int statusPollIntervalMillis) {
     this.buildJobState = buildJobState;
     this.distBuildService = distBuildService;
     this.distBuildLogStateTracker = distBuildLogStateTracker;
     this.buckVersion = buckVersion;
+    this.distBuildClientStats = distBuildClientStats;
     this.scheduler = scheduler;
     this.statusPollIntervalMillis = statusPollIntervalMillis;
   }
@@ -101,12 +105,14 @@ public class DistBuildClientExecutor {
       DistBuildService distBuildService,
       DistBuildLogStateTracker distBuildLogStateTracker,
       BuckVersion buckVersion,
+      DistBuildClientStatsTracker distBuildClientStats,
       ScheduledExecutorService scheduler) {
     this(
         buildJobState,
         distBuildService,
         distBuildLogStateTracker,
         buckVersion,
+        distBuildClientStats,
         scheduler,
         DEFAULT_STATUS_POLL_INTERVAL_MILLIS);
   }
@@ -115,25 +121,34 @@ public class DistBuildClientExecutor {
       ListeningExecutorService networkExecutorService,
       ProjectFilesystem projectFilesystem,
       FileHashCache fileHashCache,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      BuildMode buildMode,
+      int numberOfMinions)
       throws IOException, InterruptedException {
-    BuildJob job = distBuildService.createBuild();
+
+    distBuildClientStats.startCreateBuildTimer();
+    BuildJob job = distBuildService.createBuild(buildMode, numberOfMinions);
+    distBuildClientStats.stopCreateBuildTimer();
+
     final StampedeId stampedeId = job.getStampedeId();
+    distBuildClientStats.setStampedeId(stampedeId.getId());
     LOG.info("Created job. Build id = " + stampedeId.getId());
     logDebugInfo(job);
     postDistBuildStatusEvent(eventBus, job, ImmutableList.of(), "UPLOADING DATA");
 
     List<ListenableFuture<?>> asyncJobs = new LinkedList<>();
+
     LOG.info("Uploading local changes.");
     asyncJobs.add(
-        distBuildService.uploadMissingFilesAsync(buildJobState.fileHashes, networkExecutorService));
+        distBuildService.uploadMissingFilesAsync(
+            buildJobState.fileHashes, distBuildClientStats, networkExecutorService));
 
     LOG.info("Uploading target graph.");
     asyncJobs.add(
         networkExecutorService.submit(
             () -> {
               try {
-                distBuildService.uploadTargetGraph(buildJobState, stampedeId);
+                distBuildService.uploadTargetGraph(buildJobState, stampedeId, distBuildClientStats);
               } catch (IOException e) {
                 throw new RuntimeException("Failed to upload target graph with exception.", e);
               }
@@ -142,7 +157,11 @@ public class DistBuildClientExecutor {
     LOG.info("Uploading buck dot-files.");
     asyncJobs.add(
         distBuildService.uploadBuckDotFilesAsync(
-            stampedeId, projectFilesystem, fileHashCache, networkExecutorService));
+            stampedeId,
+            projectFilesystem,
+            fileHashCache,
+            distBuildClientStats,
+            networkExecutorService));
 
     try {
       Futures.allAsList(asyncJobs).get();
@@ -152,20 +171,22 @@ public class DistBuildClientExecutor {
     }
     postDistBuildStatusEvent(eventBus, job, ImmutableList.of(), "STARTING REMOTE BUILD");
 
-    distBuildService.setBuckVersion(stampedeId, buckVersion);
+    distBuildService.setBuckVersion(stampedeId, buckVersion, distBuildClientStats);
     LOG.info("Set Buck Version. Build status: " + job.getStatus().toString());
 
+    distBuildClientStats.startPerformDistributedBuildTimer();
     job = distBuildService.startBuild(stampedeId);
     LOG.info("Started job. Build status: " + job.getStatus().toString());
     logDebugInfo(job);
     return job;
   }
 
-  private void checkTerminateScheduledUpdates(BuildJob job) {
+  private void checkTerminateScheduledUpdates(
+      BuildJob job, Optional<List<BuildSlaveStatus>> slaveStatuses) {
     if (job.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY)
         || job.getStatus().equals(BuildStatus.FAILED)) {
       // Terminate scheduled tasks with a custom exception to indicate success.
-      throw new JobCompletedException(job);
+      throw new JobCompletedException(job, slaveStatuses);
     }
   }
 
@@ -182,7 +203,7 @@ public class DistBuildClientExecutor {
 
     if (!job.isSetSlaveInfoByRunId()) {
       postDistBuildStatusEvent(eventBus, job, ImmutableList.of());
-      checkTerminateScheduledUpdates(job);
+      checkTerminateScheduledUpdates(job, Optional.empty());
       return job;
     }
 
@@ -193,8 +214,10 @@ public class DistBuildClientExecutor {
     ListenableFuture<?> logStreamingFuture =
         fetchAndProcessRealTimeSlaveLogsAsync(job, networkExecutorService);
 
+    List<BuildSlaveStatus> slaveStatuses = ImmutableList.of();
     try {
-      postDistBuildStatusEvent(eventBus, job, slaveStatusesFuture.get());
+      slaveStatuses = slaveStatusesFuture.get();
+      postDistBuildStatusEvent(eventBus, job, slaveStatuses);
       slaveEventsFuture.get();
       logStreamingFuture.get();
     } catch (ExecutionException e) {
@@ -203,7 +226,7 @@ public class DistBuildClientExecutor {
       throw new RuntimeException(e);
     }
 
-    checkTerminateScheduledUpdates(job);
+    checkTerminateScheduledUpdates(job, Optional.of(slaveStatuses));
     return job;
   }
 
@@ -211,12 +234,19 @@ public class DistBuildClientExecutor {
       ListeningExecutorService networkExecutorService,
       ProjectFilesystem projectFilesystem,
       FileHashCache fileHashCache,
-      BuckEventBus eventBus)
+      BuckEventBus eventBus,
+      BuildMode buildMode,
+      int numberOfMinions)
       throws IOException, InterruptedException {
 
     final BuildJob initJob =
-        initBuild(networkExecutorService, projectFilesystem, fileHashCache, eventBus);
-    BuildJob finalJob;
+        initBuild(
+            networkExecutorService,
+            projectFilesystem,
+            fileHashCache,
+            eventBus,
+            buildMode,
+            numberOfMinions);
 
     nextEventIdBySlaveRunId.clear();
     ScheduledFuture<?> distBuildStatusUpdatingFuture =
@@ -226,6 +256,8 @@ public class DistBuildClientExecutor {
             statusPollIntervalMillis,
             TimeUnit.MILLISECONDS);
 
+    final List<BuildSlaveStatus> buildSlaveStatusList;
+    BuildJob finalJob;
     try {
       distBuildStatusUpdatingFuture.get();
       throw new RuntimeException("Unreachable State.");
@@ -233,20 +265,26 @@ public class DistBuildClientExecutor {
       if (e.getCause() instanceof JobCompletedException) {
         // Everything is awesome.
         finalJob = ((JobCompletedException) e.getCause()).getDistBuildJob();
+        buildSlaveStatusList =
+            ((JobCompletedException) e.getCause())
+                .getBuildSlaveStatuses()
+                .orElse(ImmutableList.of());
       } else {
         throw new HumanReadableException(e, "Failed to fetch build information from server.");
       }
+    } finally {
+      distBuildClientStats.stopPerformDistributedBuildTimer();
     }
 
-    postDistBuildStatusEvent(eventBus, finalJob, ImmutableList.of(), "FETCHING LOG DIRS");
+    postDistBuildStatusEvent(eventBus, finalJob, buildSlaveStatusList, "FETCHING LOG DIRS");
     materializeSlaveLogDirs(finalJob);
 
     if (finalJob.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY)) {
       LOG.info("DistBuild was successful!");
-      postDistBuildStatusEvent(eventBus, finalJob, ImmutableList.of(), "FINISHED");
+      postDistBuildStatusEvent(eventBus, finalJob, buildSlaveStatusList, "FINISHED");
     } else {
       LOG.info("DistBuild was not successful!");
-      postDistBuildStatusEvent(eventBus, finalJob, ImmutableList.of(), "FAILED");
+      postDistBuildStatusEvent(eventBus, finalJob, buildSlaveStatusList, "FAILED");
     }
 
     logDebugInfo(finalJob);
@@ -434,6 +472,8 @@ public class DistBuildClientExecutor {
       return;
     }
 
+    distBuildClientStats.startMaterializeSlaveLogsTimer();
+
     try {
       MultiGetBuildSlaveLogDirResponse logDirsResponse =
           distBuildService.fetchBuildSlaveLogDir(job.stampedeId, runIds);
@@ -443,19 +483,27 @@ public class DistBuildClientExecutor {
     } catch (IOException ex) {
       LOG.error(ex, "Error fetching slave log directories from frontend.");
     }
+    distBuildClientStats.stopMaterializeSlaveLogsTimer();
   }
 
   public static final class JobCompletedException extends RuntimeException {
 
     private final BuildJob job;
+    private final Optional<List<BuildSlaveStatus>> buildSlaveStatuses;
 
-    private JobCompletedException(BuildJob job) {
+    private JobCompletedException(
+        BuildJob job, Optional<List<BuildSlaveStatus>> buildSlaveStatuses) {
       super(String.format("DistBuild job completed with status: [%s]", job.getStatus().toString()));
       this.job = job;
+      this.buildSlaveStatuses = buildSlaveStatuses;
     }
 
     public BuildJob getDistBuildJob() {
       return job;
+    }
+
+    public Optional<List<BuildSlaveStatus>> getBuildSlaveStatuses() {
+      return buildSlaveStatuses;
     }
   }
 }

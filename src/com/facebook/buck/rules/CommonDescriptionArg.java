@@ -18,11 +18,20 @@ package com.facebook.buck.rules;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
+import java.util.Set;
 import org.immutables.value.Value;
 
 public interface CommonDescriptionArg {
+  String getName();
+
   ImmutableSet<SourcePath> getLicenses();
 
   @Value.NaturalOrder
   ImmutableSortedSet<String> getLabels();
+
+  @Value.Derived
+  default boolean labelsContainsAnyOf(Set<String> labels) {
+    return !Sets.intersection(this.getLabels(), labels).isEmpty();
+  }
 }

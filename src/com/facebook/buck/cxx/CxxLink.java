@@ -52,6 +52,7 @@ public class CxxLink extends AbstractBuildRule
   private final Path output;
 
   @AddToRuleKey private final ImmutableList<Arg> args;
+  @AddToRuleKey private final Optional<LinkOutputPostprocessor> postprocessor;
   private final Optional<RuleScheduleInfo> ruleScheduleInfo;
   private final boolean cacheable;
   @AddToRuleKey private boolean thinLto;
@@ -61,6 +62,7 @@ public class CxxLink extends AbstractBuildRule
       Linker linker,
       Path output,
       ImmutableList<Arg> args,
+      Optional<LinkOutputPostprocessor> postprocessor,
       Optional<RuleScheduleInfo> ruleScheduleInfo,
       boolean cacheable,
       boolean thinLto) {
@@ -68,6 +70,7 @@ public class CxxLink extends AbstractBuildRule
     this.linker = linker;
     this.output = output;
     this.args = args;
+    this.postprocessor = postprocessor;
     this.ruleScheduleInfo = ruleScheduleInfo;
     this.cacheable = cacheable;
     this.thinLto = thinLto;
@@ -108,6 +111,9 @@ public class CxxLink extends AbstractBuildRule
                 BuildTargets.getScratchPath(
                     getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt"));
 
+    boolean requiresPostprocessing = postprocessor.isPresent();
+    Path linkOutput = requiresPostprocessing ? scratchDir.resolve("link-output") : output;
+
     // Try to find all the cell roots used during the link.  This isn't technically correct since,
     // in theory not all inputs need to come from build rules, but it probably works in practice.
     // One way that we know would work is exposing every known cell root paths, since the only rules
@@ -127,7 +133,7 @@ public class CxxLink extends AbstractBuildRule
                 argFilePath,
                 fileListPath,
                 linker.fileList(fileListPath),
-                output,
+                linkOutput,
                 args,
                 linker,
                 getBuildTarget().getCellPath(),
@@ -139,6 +145,15 @@ public class CxxLink extends AbstractBuildRule
                 linker.getCommandPrefix(context.getSourcePathResolver()),
                 argFilePath,
                 getProjectFilesystem().getRootPath().resolve(scratchDir)))
+        .addAll(
+            postprocessor
+                .map(
+                    p ->
+                        p.getSteps(
+                            context,
+                            getProjectFilesystem().resolve(linkOutput),
+                            getProjectFilesystem().resolve(output)))
+                .orElse(ImmutableList.of()))
         .add(
             new FileScrubberStep(
                 getProjectFilesystem(), output, linker.getScrubbers(cellRoots.build())))

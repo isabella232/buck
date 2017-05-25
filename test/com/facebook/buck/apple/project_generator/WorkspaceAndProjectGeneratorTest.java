@@ -31,15 +31,15 @@ import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
 import com.facebook.buck.apple.AppleBundleExtension;
 import com.facebook.buck.apple.AppleLibraryBuilder;
-import com.facebook.buck.apple.AppleLibraryDescription;
+import com.facebook.buck.apple.AppleLibraryDescriptionArg;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.apple.XcodeWorkspaceConfigBuilder;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
+import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
 import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
-import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.event.BuckEventBus;
@@ -60,6 +60,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.GenruleDescription;
+import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.IncrementingFakeClock;
@@ -96,9 +97,9 @@ public class WorkspaceAndProjectGeneratorTest {
   private SwiftBuckConfig swiftBuckConfig;
 
   private TargetGraph targetGraph;
-  private TargetNode<XcodeWorkspaceConfigDescription.Arg, XcodeWorkspaceConfigDescription>
+  private TargetNode<XcodeWorkspaceConfigDescriptionArg, XcodeWorkspaceConfigDescription>
       workspaceNode;
-  private TargetNode<XcodeWorkspaceConfigDescription.Arg, XcodeWorkspaceConfigDescription>
+  private TargetNode<XcodeWorkspaceConfigDescriptionArg, XcodeWorkspaceConfigDescription>
       workspaceWithExtraSchemeNode;
 
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -108,7 +109,7 @@ public class WorkspaceAndProjectGeneratorTest {
     rootCell = (new TestCellBuilder()).build();
     ProjectFilesystem projectFilesystem = rootCell.getFilesystem();
     halideBuckConfig = HalideLibraryBuilder.createDefaultHalideConfig(projectFilesystem);
-    cxxBuckConfig = CxxLibraryBuilder.createDefaultConfig();
+    cxxBuckConfig = new CxxBuckConfig(FakeBuckConfig.builder().build());
     BuckConfig fakeBuckConfig = FakeBuckConfig.builder().build();
     swiftBuckConfig = new SwiftBuckConfig(fakeBuckConfig);
     setUpWorkspaceAndProjects();
@@ -416,18 +417,18 @@ public class WorkspaceAndProjectGeneratorTest {
   @Test
   public void requiredBuildTargets() throws IOException, InterruptedException {
     BuildTarget genruleTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "gen").build();
-    TargetNode<GenruleDescription.Arg, ?> genrule =
+    TargetNode<GenruleDescriptionArg, GenruleDescription> genrule =
         GenruleBuilder.newGenruleBuilder(genruleTarget).setOut("source.m").build();
 
     BuildTarget libraryTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "lib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> library =
+    TargetNode<AppleLibraryDescriptionArg, ?> library =
         AppleLibraryBuilder.createBuilder(libraryTarget)
             .setSrcs(
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(new DefaultBuildTargetSourcePath(genruleTarget))))
             .build();
 
-    TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode =
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
         XcodeWorkspaceConfigBuilder.createBuilder(
                 BuildTarget.builder(rootCell.getRoot(), "//foo", "workspace").build())
             .setSrcTarget(Optional.of(libraryTarget))
@@ -462,18 +463,18 @@ public class WorkspaceAndProjectGeneratorTest {
   @Test
   public void requiredBuildTargetsForCombinedProject() throws IOException, InterruptedException {
     BuildTarget genruleTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "gen").build();
-    TargetNode<GenruleDescription.Arg, ?> genrule =
+    TargetNode<GenruleDescriptionArg, GenruleDescription> genrule =
         GenruleBuilder.newGenruleBuilder(genruleTarget).setOut("source.m").build();
 
     BuildTarget libraryTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "lib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> library =
+    TargetNode<AppleLibraryDescriptionArg, ?> library =
         AppleLibraryBuilder.createBuilder(libraryTarget)
             .setSrcs(
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(new DefaultBuildTargetSourcePath(genruleTarget))))
             .build();
 
-    TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode =
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
         XcodeWorkspaceConfigBuilder.createBuilder(
                 BuildTarget.builder(rootCell.getRoot(), "//foo", "workspace").build())
             .setSrcTarget(Optional.of(libraryTarget))
@@ -713,20 +714,20 @@ public class WorkspaceAndProjectGeneratorTest {
   @Test
   public void targetsForWorkspaceWithExtraTargets() throws IOException, InterruptedException {
     BuildTarget fooLibTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "FooLib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> fooLib =
+    TargetNode<AppleLibraryDescriptionArg, ?> fooLib =
         AppleLibraryBuilder.createBuilder(fooLibTarget).build();
 
     BuildTarget barLibTarget = BuildTarget.builder(rootCell.getRoot(), "//bar", "BarLib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> barLib =
+    TargetNode<AppleLibraryDescriptionArg, ?> barLib =
         AppleLibraryBuilder.createBuilder(barLibTarget).build();
 
     BuildTarget bazLibTarget = BuildTarget.builder(rootCell.getRoot(), "//baz", "BazLib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> bazLib =
+    TargetNode<AppleLibraryDescriptionArg, ?> bazLib =
         AppleLibraryBuilder.createBuilder(bazLibTarget)
             .setDeps(ImmutableSortedSet.of(barLibTarget))
             .build();
 
-    TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode =
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
         XcodeWorkspaceConfigBuilder.createBuilder(
                 BuildTarget.builder(rootCell.getRoot(), "//foo", "workspace").build())
             .setWorkspaceName(Optional.of("workspace"))
@@ -795,10 +796,10 @@ public class WorkspaceAndProjectGeneratorTest {
   @Test
   public void enablingParallelizeBuild() throws IOException, InterruptedException {
     BuildTarget fooLibTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "FooLib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> fooLib =
+    TargetNode<AppleLibraryDescriptionArg, ?> fooLib =
         AppleLibraryBuilder.createBuilder(fooLibTarget).build();
 
-    TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode =
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
         XcodeWorkspaceConfigBuilder.createBuilder(
                 BuildTarget.builder(rootCell.getRoot(), "//foo", "workspace").build())
             .setWorkspaceName(Optional.of("workspace"))
@@ -844,10 +845,10 @@ public class WorkspaceAndProjectGeneratorTest {
   @Test
   public void customRunnableSettings() throws IOException, InterruptedException {
     BuildTarget fooLibTarget = BuildTarget.builder(rootCell.getRoot(), "//foo", "FooLib").build();
-    TargetNode<AppleLibraryDescription.Arg, ?> fooLib =
+    TargetNode<AppleLibraryDescriptionArg, ?> fooLib =
         AppleLibraryBuilder.createBuilder(fooLibTarget).build();
 
-    TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> workspaceNode =
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
         XcodeWorkspaceConfigBuilder.createBuilder(
                 BuildTarget.builder(rootCell.getRoot(), "//foo", "workspace").build())
             .setWorkspaceName(Optional.of("workspace"))

@@ -24,12 +24,10 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
 import com.facebook.buck.cxx.Archive;
-import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxSymlinkTreeHeaders;
-import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkableInput;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -85,7 +83,7 @@ public class HalideLibraryDescriptionTest {
     HalideLibrary lib = (HalideLibrary) libBuilder.build(resolver, filesystem, targetGraph);
 
     // Check that the library rule has the correct preprocessor input.
-    CxxPlatform cxxPlatform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
     String headerName = "rule.h";
     BuildTarget flavoredLibTarget =
         libTarget.withFlavors(
@@ -94,8 +92,7 @@ public class HalideLibraryDescriptionTest {
         HalideCompile.headerOutputPath(
             flavoredLibTarget, lib.getProjectFilesystem(), Optional.empty());
     CxxSymlinkTreeHeaders publicHeaders =
-        (CxxSymlinkTreeHeaders)
-            lib.getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC).getIncludes().get(0);
+        (CxxSymlinkTreeHeaders) lib.getCxxPreprocessorInput(cxxPlatform).getIncludes().get(0);
     assertThat(
         publicHeaders.getIncludeType(), Matchers.equalTo(CxxPreprocessables.IncludeType.SYSTEM));
     assertThat(

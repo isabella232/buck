@@ -27,8 +27,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.util.Optional;
-import javax.annotation.Nullable;
 import org.stringtemplate.v4.AutoIndentWriter;
 import org.stringtemplate.v4.ST;
 import org.stringtemplate.v4.STGroup;
@@ -64,19 +62,19 @@ public class BuckPyFunction {
                   '<',
                   '>'));
   private final TypeCoercerFactory typeCoercerFactory;
+  private final CoercedTypeCache coercedTypeCache;
 
-  public BuckPyFunction(TypeCoercerFactory typeCoercerFactory) {
+  public BuckPyFunction(TypeCoercerFactory typeCoercerFactory, CoercedTypeCache coercedTypeCache) {
     this.typeCoercerFactory = typeCoercerFactory;
+    this.coercedTypeCache = coercedTypeCache;
   }
 
   public String toPythonFunction(BuildRuleType type, Class<?> dtoClass) {
-    @Nullable TargetName defaultName = dtoClass.getAnnotation(TargetName.class);
-
     ImmutableList.Builder<StParamInfo> mandatory = ImmutableList.builder();
     ImmutableList.Builder<StParamInfo> optional = ImmutableList.builder();
     for (ParamInfo param :
         ImmutableSortedSet.copyOf(
-            CoercedTypeCache.INSTANCE.getAllParamInfo(typeCoercerFactory, dtoClass).values())) {
+            coercedTypeCache.getAllParamInfo(typeCoercerFactory, dtoClass).values())) {
       if (isSkippable(param)) {
         continue;
       }
@@ -86,7 +84,6 @@ public class BuckPyFunction {
         mandatory.add(new StParamInfo(param));
       }
     }
-    optional.add(StParamInfo.ofOptionalValue("autodeps", "autodeps"));
     optional.add(StParamInfo.ofOptionalValue("visibility", "visibility"));
     optional.add(StParamInfo.ofOptionalValue("within_view", "within_view"));
 
@@ -103,7 +100,6 @@ public class BuckPyFunction {
         "params",
         ImmutableList.builder().addAll(mandatory.build()).addAll(optional.build()).build());
     st.add("typePropName", TYPE_PROPERTY_NAME);
-    st.add("defaultName", defaultName == null ? null : defaultName.name());
     StringWriter stringWriter = new StringWriter();
     try {
       st.write(new AutoIndentWriter(stringWriter, "\n"));
@@ -117,18 +113,6 @@ public class BuckPyFunction {
     if ("name".equals(param.getName())) {
       if (!String.class.equals(param.getResultClass())) {
         throw new HumanReadableException("'name' parameter must be a java.lang.String");
-      }
-      return true;
-    }
-
-    // Normally, the implicit "autodeps" parameter is all a rule needs, but some Descriptions will
-    // also declare it explicitly as a field on its Arg. Normally, this happens when Buck needs
-    // access to the value in Java, such as the JavaDepsFinder that powers `buck autodeps`.
-    if ("autodeps".equals(param.getName())) {
-      if (!Optional.class.equals(param.getResultClass())) {
-        throw new HumanReadableException(
-            "'autodeps' parameter must be a java.util.Optional<Boolean> but was %s",
-            param.getResultClass());
       }
       return true;
     }

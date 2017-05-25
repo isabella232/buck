@@ -30,6 +30,7 @@ import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetGraph;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetNode;
+import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventType;
@@ -83,6 +84,7 @@ public class DistBuildClientExecutorTest {
   private FakeFileHashCache fakeFileHashCache;
   private BuckEventBus mockEventBus;
   private StampedeId stampedeId;
+  private DistBuildClientStatsTracker distBuildClientStatsTracker;
 
   @Before
   public void setUp() {
@@ -92,9 +94,16 @@ public class DistBuildClientExecutorTest {
     buckVersion = new BuckVersion();
     buckVersion.setGitHash("thishashisamazing");
     buildJobState = createMinimalFakeBuildJobState();
+    distBuildClientStatsTracker = new DistBuildClientStatsTracker();
     distBuildClientExecutor =
         new DistBuildClientExecutor(
-            buildJobState, mockDistBuildService, mockLogStateTracker, buckVersion, scheduler, 1);
+            buildJobState,
+            mockDistBuildService,
+            mockLogStateTracker,
+            buckVersion,
+            distBuildClientStatsTracker,
+            scheduler,
+            1);
 
     directExecutor = MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService());
     fakeProjectFilesystem = new FakeProjectFilesystem();
@@ -359,6 +368,8 @@ public class DistBuildClientExecutorTest {
    * Fetches the status of the build, status of the slaves, console events and real-time logs in
    * every status loop. 4. Materializes log directories once the build finishes.
    *
+   * <p>
+   *
    * <p>Individual methods for fetching the status, logs, posting the events, etc. are tested
    * separately.
    */
@@ -369,16 +380,22 @@ public class DistBuildClientExecutorTest {
     BuildJob job = new BuildJob();
     job.setStampedeId(stampedeId);
 
-    expect(mockDistBuildService.createBuild()).andReturn(job);
-    expect(mockDistBuildService.uploadMissingFilesAsync(buildJobState.fileHashes, directExecutor))
+    expect(mockDistBuildService.createBuild(BuildMode.REMOTE_BUILD, 1)).andReturn(job);
+    expect(
+            mockDistBuildService.uploadMissingFilesAsync(
+                buildJobState.fileHashes, distBuildClientStatsTracker, directExecutor))
         .andReturn(Futures.immediateFuture(null));
     expect(
             mockDistBuildService.uploadBuckDotFilesAsync(
-                stampedeId, fakeProjectFilesystem, fakeFileHashCache, directExecutor))
+                stampedeId,
+                fakeProjectFilesystem,
+                fakeFileHashCache,
+                distBuildClientStatsTracker,
+                directExecutor))
         .andReturn(Futures.immediateFuture(null));
-    mockDistBuildService.uploadTargetGraph(buildJobState, stampedeId);
+    mockDistBuildService.uploadTargetGraph(buildJobState, stampedeId, distBuildClientStatsTracker);
     expectLastCall().once();
-    mockDistBuildService.setBuckVersion(stampedeId, buckVersion);
+    mockDistBuildService.setBuckVersion(stampedeId, buckVersion, distBuildClientStatsTracker);
     expectLastCall().once();
 
     // There's no point checking the DistBuildStatusEvent, since we don't know what 'stage' the
@@ -455,7 +472,12 @@ public class DistBuildClientExecutorTest {
     replay(mockLogStateTracker);
 
     distBuildClientExecutor.executeAndPrintFailuresToEventBus(
-        directExecutor, fakeProjectFilesystem, fakeFileHashCache, mockEventBus);
+        directExecutor,
+        fakeProjectFilesystem,
+        fakeFileHashCache,
+        mockEventBus,
+        BuildMode.REMOTE_BUILD,
+        1);
 
     verify(mockDistBuildService);
     verify(mockLogStateTracker);

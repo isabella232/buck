@@ -63,4 +63,9 @@ struct BuildSlaveStatus {
     14: optional i32 rulesFailureCount;
 
     20: optional CacheRateStats cacheRateStats;
+    21: optional i64 httpArtifactTotalBytesUploaded;
+    22: optional i32 httpArtifactUploadsScheduledCount;
+    23: optional i32 httpArtifactUploadsOngoingCount;
+    24: optional i32 httpArtifactUploadsSuccessCount;
+    25: optional i32 httpArtifactUploadsFailureCount;
 }

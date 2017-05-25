@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.resources.ResourcesZipBuilder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -32,30 +33,28 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.zip.CustomZipEntry;
-import com.facebook.buck.zip.CustomZipOutputStream;
-import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.TreeMultimap;
-import com.google.common.io.ByteStreams;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
+import com.google.common.io.ByteSource;
 import com.google.common.io.Files;
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.zip.CRC32;
+import java.util.Collections;
+import java.util.Optional;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 
 /**
  * MergeAssets adds the assets for an APK into the output of aapt.
@@ -69,18 +68,18 @@ public class MergeAssets extends AbstractBuildRule {
   // shouldn't actually be necessary anymore as we can just take the full list of source paths
   // directly here.
   @AddToRuleKey private final ImmutableSet<SourcePath> assetsDirectories;
-  @AddToRuleKey private SourcePath baseApk;
+  @AddToRuleKey private Optional<SourcePath> baseApk;
 
   public MergeAssets(
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      SourcePath baseApk,
+      Optional<SourcePath> baseApk,
       ImmutableSortedSet<SourcePath> assetsDirectories) {
     super(
         buildRuleParams.copyAppendingExtraDeps(
             ImmutableSortedSet.copyOf(
                 ruleFinder.filterBuildRuleInputs(
-                    FluentIterable.from(assetsDirectories).append(baseApk)))));
+                    FluentIterable.from(assetsDirectories).append(baseApk.orElse(null))))));
     this.baseApk = baseApk;
     this.assetsDirectories = assetsDirectories;
   }
@@ -128,7 +127,7 @@ public class MergeAssets extends AbstractBuildRule {
     steps.add(
         new MergeAssetsStep(
             getProjectFilesystem().getPathForRelativePath(getPathToMergedAssets()),
-            pathResolver.getAbsolutePath(baseApk),
+            baseApk.map(pathResolver::getAbsolutePath),
             assets));
     buildableContext.recordArtifact(getPathToMergedAssets());
     return steps.build();
@@ -153,11 +152,11 @@ public class MergeAssets extends AbstractBuildRule {
             "3gpp2", "amr", "awb", "wma", "wmv", "webm", "mkv");
 
     private final Path pathToMergedAssets;
-    private final Path pathToBaseApk;
+    private final Optional<Path> pathToBaseApk;
     private final TreeMultimap<Path, Path> assets;
 
     public MergeAssetsStep(
-        Path pathToMergedAssets, Path pathToBaseApk, TreeMultimap<Path, Path> assets) {
+        Path pathToMergedAssets, Optional<Path> pathToBaseApk, TreeMultimap<Path, Path> assets) {
       super("merging_assets");
       this.pathToMergedAssets = pathToMergedAssets;
       this.pathToBaseApk = pathToBaseApk;
@@ -167,56 +166,52 @@ public class MergeAssets extends AbstractBuildRule {
     @Override
     public StepExecutionResult execute(ExecutionContext context)
         throws IOException, InterruptedException {
-      try (CustomZipOutputStream output = ZipOutputStreams.newOutputStream(pathToMergedAssets)) {
-        try (ZipInputStream base =
-            new ZipInputStream(
-                new BufferedInputStream(new FileInputStream(pathToBaseApk.toFile())))) {
-          for (ZipEntry inputEntry = base.getNextEntry();
-              inputEntry != null;
-              base.closeEntry(), inputEntry = base.getNextEntry()) {
-            byte[] data = ByteStreams.toByteArray(base);
-            addEntry(
-                output,
-                data,
-                inputEntry.getName(),
-                inputEntry.getMethod() == ZipEntry.STORED ? 0 : Deflater.BEST_COMPRESSION,
-                inputEntry.isDirectory());
+      try (ResourcesZipBuilder output = new ResourcesZipBuilder(pathToMergedAssets)) {
+        if (pathToBaseApk.isPresent()) {
+          try (ZipFile base = new ZipFile(pathToBaseApk.get().toFile())) {
+            for (ZipEntry inputEntry : Collections.list(base.entries())) {
+              String extension = Files.getFileExtension(inputEntry.getName());
+              // Only compress if aapt compressed it and the extension looks compressible.
+              // This is a workaround for aapt2 compressing everything.
+              boolean shouldCompress =
+                  inputEntry.getMethod() != ZipEntry.STORED
+                      && !NO_COMPRESS_EXTENSIONS.contains(extension);
+              try (InputStream stream = base.getInputStream(inputEntry)) {
+                output.addEntry(
+                    stream,
+                    inputEntry.getSize(),
+                    inputEntry.getCrc(),
+                    inputEntry.getName(),
+                    shouldCompress ? Deflater.BEST_COMPRESSION : 0,
+                    inputEntry.isDirectory());
+              }
+            }
           }
         }
         Path assetsZipRoot = Paths.get("assets");
         for (Path assetRoot : assets.keySet()) {
           for (Path asset : assets.get(assetRoot)) {
-            File file = assetRoot.resolve(asset).toFile();
-            byte[] data = Files.toByteArray(file);
+            ByteSource assetSource = Files.asByteSource(assetRoot.resolve(asset).toFile());
+            HashCode assetCrc32 = assetSource.hash(Hashing.crc32());
             String extension = Files.getFileExtension(asset.toString());
             int compression =
                 NO_COMPRESS_EXTENSIONS.contains(extension) ? 0 : Deflater.BEST_COMPRESSION;
-            addEntry(output, data, assetsZipRoot.resolve(asset).toString(), compression, false);
+            try (InputStream assetStream = assetSource.openStream()) {
+              output.addEntry(
+                  assetStream,
+                  assetSource.size(),
+                  // CRC32s are only 32 bits, but setCrc() takes a
+                  // long.  Avoid sign-extension here during the
+                  // conversion to long by masking off the high 32 bits.
+                  assetCrc32.asInt() & 0xFFFFFFFFL,
+                  assetsZipRoot.resolve(asset).toString(),
+                  compression,
+                  false);
+            }
           }
         }
-        return StepExecutionResult.SUCCESS;
       }
-    }
-
-    private void addEntry(
-        CustomZipOutputStream output,
-        byte[] data,
-        String name,
-        int compressionLevel,
-        boolean isDirectory)
-        throws IOException {
-      CustomZipEntry outputEntry = new CustomZipEntry(Paths.get(name), isDirectory);
-      outputEntry.setCompressionLevel(compressionLevel);
-      CRC32 crc = new CRC32();
-      crc.update(data);
-      outputEntry.setCrc(crc.getValue());
-      if (compressionLevel == 0) {
-        outputEntry.setCompressedSize(data.length);
-      }
-      outputEntry.setSize(data.length);
-      output.putNextEntry(outputEntry);
-      output.write(data);
-      output.closeEntry();
+      return StepExecutionResult.SUCCESS;
     }
   }
 }

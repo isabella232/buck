@@ -28,6 +28,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.util.ThrowingPrintWriter;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -41,7 +42,6 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.SortedSetMultimap;
 import com.google.common.collect.TreeMultimap;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -251,7 +251,8 @@ public class MergeAndroidResourcesStep implements Step {
     for (String rDotJavaPackage : packageToResources.keySet()) {
       Path outputFile = getPathToRDotJava(rDotJavaPackage);
       filesystem.mkdirs(outputFile.getParent());
-      try (PrintWriter writer = new PrintWriter(filesystem.newFileOutputStream(outputFile))) {
+      try (ThrowingPrintWriter writer =
+          new ThrowingPrintWriter(filesystem.newFileOutputStream(outputFile))) {
         writer.format("package %s;\n\n", rDotJavaPackage);
         writer.format("public class %s {\n", rName);
 
@@ -338,7 +339,7 @@ public class MergeAndroidResourcesStep implements Step {
     SortedSetMultimap<RDotTxtEntry, Path> bannedDuplicateResourceToSymbolsFiles =
         TreeMultimap.create();
 
-    HashMap<RDotTxtEntry, String> resourceToIdValuesMap = new HashMap<>();
+    HashMap<RDotTxtEntry, RDotTxtEntry> resourceToIdValuesMap = new HashMap<>();
 
     for (Map.Entry<Path, String> entry : symbolsFileToRDotJavaPackage.entrySet()) {
       Path symbolsFile = entry.getKey();
@@ -375,15 +376,15 @@ public class MergeAndroidResourcesStep implements Step {
         } else if (useOldStyleableFormat) { // NOPMD  more readable this way, IMO.
           // Nothing extra to do in this case.
 
-        } else if (resourceToIdValuesMap.get(resource) != null) {
-          resource = resource.copyWithNewIdValue(resourceToIdValuesMap.get(resource));
+        } else if (resourceToIdValuesMap.containsKey(resource)) {
+          resource = resourceToIdValuesMap.get(resource);
 
         } else if (resource.idType == IdType.INT_ARRAY && resource.type == RType.STYLEABLE) {
           Map<RDotTxtEntry, String> styleableResourcesMap =
               getStyleableResources(resourceToIdValuesMap, linesInSymbolsFile, resource, index + 1);
 
           for (RDotTxtEntry styleableResource : styleableResourcesMap.keySet()) {
-            resourceToIdValuesMap.put(styleableResource, styleableResource.idValue);
+            resourceToIdValuesMap.put(styleableResource, styleableResource);
           }
 
           // int[] styleable entry is not added to the cache as
@@ -400,7 +401,7 @@ public class MergeAndroidResourcesStep implements Step {
           resource = resource.copyWithNewIdValue(String.format("0x%08x", enumerator.next()));
 
           // Add resource to cache so that the id value is consistent across all R.txt
-          resourceToIdValuesMap.put(resource, resource.idValue);
+          resourceToIdValuesMap.put(resource, resource);
         }
 
         if (bannedDuplicateResourceTypes.contains(resource.type)) {
@@ -439,7 +440,7 @@ public class MergeAndroidResourcesStep implements Step {
   }
 
   private static Map<RDotTxtEntry, String> getStyleableResources(
-      Map<RDotTxtEntry, String> resourceToIdValuesMap,
+      Map<RDotTxtEntry, RDotTxtEntry> resourceToIdValuesMap,
       List<String> linesInSymbolsFile,
       RDotTxtEntry resource,
       int index) {
@@ -451,8 +452,9 @@ public class MergeAndroidResourcesStep implements Step {
         styleableIndex + index < linesInSymbolsFile.size();
         styleableIndex++) {
 
-      RDotTxtEntry styleableResource =
-          getResourceAtIndex(linesInSymbolsFile, styleableIndex + index);
+      RDotTxtEntry styleableResource = getResourceAtIndex(linesInSymbolsFile,
+          styleableIndex + index)
+          .copyWithNewParent(resource.name);
 
       String styleablePrefix = resource.name + "_";
 
@@ -461,11 +463,15 @@ public class MergeAndroidResourcesStep implements Step {
           && styleableResource.name.startsWith(styleablePrefix)) {
 
         String attrName = styleableResource.name.substring(styleablePrefix.length());
+
         RDotTxtEntry attrResource = new RDotTxtEntry(IdType.INT, RType.ATTR, attrName, "");
 
-        String attrIdValue = resourceToIdValuesMap.get(attrResource);
-        if (attrIdValue == null) {
+        if (resourceToIdValuesMap.containsKey(attrResource)) {
+          attrResource = resourceToIdValuesMap.get(attrResource);
+        }
 
+        if (Strings.isNullOrEmpty(attrResource.idValue)) {
+          String attrIdValue;
           if (givenResourceIds == null) {
             if (resource.idValue.startsWith("{") && resource.idValue.endsWith("}")) {
               givenResourceIds =
@@ -494,11 +500,13 @@ public class MergeAndroidResourcesStep implements Step {
           }
 
           // Add resource to cache so that the id value is consistent across all R.txt
-          resourceToIdValuesMap.put(attrResource.copyWithNewIdValue(attrIdValue), attrIdValue);
+          attrResource = attrResource.copyWithNewIdValue(attrIdValue);
+          resourceToIdValuesMap.put(attrResource, attrResource);
         }
 
         styleableResourceMap.put(
-            styleableResource.copyWithNewIdValue(String.valueOf(styleableIndex)), attrIdValue);
+            styleableResource.copyWithNewIdValue(String.valueOf(styleableIndex)),
+            attrResource.idValue);
 
       } else {
         break;

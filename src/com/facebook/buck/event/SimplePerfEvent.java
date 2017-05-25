@@ -540,7 +540,9 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
     @Override
     public String getEventName() {
       return new StringBuilder("PerfEvent")
+          .append('.')
           .append(perfEventId.getValue())
+          .append('.')
           .append(perfEventType.getValue())
           .toString();
     }
@@ -631,7 +633,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
     }
   }
 
-  private static class Finished extends AbstractChainablePerfEvent {
+  public static class Finished extends AbstractChainablePerfEvent {
 
     public Finished(StartedImpl started, ImmutableMap<String, Object> finishedInfo) {
       super(started.getEventKey(), started.getEventId(), Type.FINISHED, finishedInfo);

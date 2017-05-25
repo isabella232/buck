@@ -28,7 +28,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
@@ -148,7 +147,7 @@ public class PythonTestDescriptionTest {
     SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     PythonTest test = builder.build(resolver, filesystem, targetGraph);
     PythonBinary binary = test.getBinary();
-    ImmutableList<Step> buildSteps =
+    ImmutableList<? extends Step> buildSteps =
         binary.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
     PexStep pexStep = RichStream.from(buildSteps).filter(PexStep.class).toImmutableList().get(0);
@@ -396,7 +395,7 @@ public class PythonTestDescriptionTest {
     SourcePath unmatchedSource = new FakeSourcePath("foo/b.py");
     GenruleBuilder depBuilder =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep")).setOut("out");
-    AbstractNodeBuilder<?, ?, ?> builder =
+    PythonTestBuilder builder =
         PythonTestBuilder.create(target)
             .setVersionedSrcs(
                 VersionMatchedCollection.<SourceList>builder()
@@ -412,7 +411,7 @@ public class PythonTestDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     depBuilder.build(resolver, filesystem, targetGraph);
-    PythonTest test = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    PythonTest test = builder.build(resolver, filesystem, targetGraph);
     assertThat(
         test.getBinary().getComponents().getModules().values(),
         Matchers.allOf(
@@ -427,7 +426,7 @@ public class PythonTestDescriptionTest {
     SourcePath unmatchedSource = new FakeSourcePath("foo/b.py");
     GenruleBuilder depBuilder =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep")).setOut("out");
-    AbstractNodeBuilder<?, ?, ?> builder =
+    PythonTestBuilder builder =
         PythonTestBuilder.create(target)
             .setVersionedResources(
                 VersionMatchedCollection.<SourceList>builder()
@@ -443,7 +442,7 @@ public class PythonTestDescriptionTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     depBuilder.build(resolver, filesystem, targetGraph);
-    PythonTest test = (PythonTest) builder.build(resolver, filesystem, targetGraph);
+    PythonTest test = builder.build(resolver, filesystem, targetGraph);
     assertThat(
         test.getBinary().getComponents().getResources().values(),
         Matchers.allOf(

@@ -23,7 +23,6 @@ import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
@@ -52,9 +51,7 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
   private final BuildRuleResolver ruleResolver;
   private final Optional<Pattern> supportedPlatformsRegex;
 
-  private final LoadingCache<
-          CxxPreprocessables.CxxPreprocessorInputCacheKey,
-          ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
       transitiveCxxPreprocessorInputCache =
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
@@ -74,7 +71,7 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
   }
 
   @Override
-  public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
@@ -82,35 +79,26 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility)
+  public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform)
       throws NoSuchBuildTargetException {
     if (!isPlatformSupported(cxxPlatform)) {
       return CxxPreprocessorInput.EMPTY;
     }
-    switch (headerVisibility) {
-      case PUBLIC:
-        return CxxPreprocessables.getCxxPreprocessorInput(
-            params,
-            ruleResolver,
-            /* hasHeaderSymlinkTree */ true,
-            cxxPlatform,
-            headerVisibility,
-            CxxPreprocessables.IncludeType.SYSTEM,
-            ImmutableMultimap.of(),
-            ImmutableList.of());
-      case PRIVATE:
-        return CxxPreprocessorInput.EMPTY;
-    }
-
-    throw new RuntimeException("Invalid header visibility: " + headerVisibility);
+    return CxxPreprocessables.getCxxPreprocessorInput(
+        params,
+        ruleResolver,
+        /* hasHeaderSymlinkTree */ true,
+        cxxPlatform,
+        HeaderVisibility.PUBLIC,
+        CxxPreprocessables.IncludeType.SYSTEM,
+        ImmutableMultimap.of(),
+        ImmutableList.of());
   }
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility) {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(
-        ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
+      CxxPlatform cxxPlatform) {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
   }
 
   @Override

@@ -86,14 +86,60 @@ public class NdkCxxPlatforms {
   public static final String DEFAULT_TARGET_APP_PLATFORM = "android-9";
   public static final ImmutableSet<String> DEFAULT_CPU_ABIS =
       ImmutableSet.of("arm", "armv7", "x86");
-  public static final NdkCxxPlatforms.CxxRuntime DEFAULT_CXX_RUNTIME =
-      NdkCxxPlatforms.CxxRuntime.GNUSTL;
+  public static final NdkCxxRuntime DEFAULT_CXX_RUNTIME = NdkCxxRuntime.GNUSTL;
 
   private static final ImmutableMap<Platform, Host> BUILD_PLATFORMS =
       ImmutableMap.of(
           Platform.LINUX, Host.LINUX_X86_64,
           Platform.MACOS, Host.DARWIN_X86_64,
           Platform.WINDOWS, Host.WINDOWS_X86_64);
+
+  // TODO(cjhopman): Does the preprocessor need the -std= flags? Right now we don't send them.
+  /** Defaults for c and c++ flags */
+  public static final ImmutableList<String> DEFAULT_COMMON_CFLAGS =
+      ImmutableList.of(
+          // Default to the C11 standard.
+          "-std=gnu11");
+
+  public static final ImmutableList<String> DEFAULT_COMMON_CXXFLAGS =
+      ImmutableList.of(
+          // Default to the C++11 standard.
+          "-std=gnu++11", "-fno-exceptions", "-fno-rtti");
+
+  public static final ImmutableList<String> DEFAULT_COMMON_CPPFLAGS =
+      ImmutableList.of(
+          // Disable searching for headers provided by the system.  This limits headers to just
+          // those provided by the NDK and any library dependencies.
+          "-nostdinc",
+          // Default macro definitions applied to all builds.
+          "-DNDEBUG",
+          "-DANDROID");
+
+  public static final ImmutableList<String> DEFAULT_COMMON_CXXPPFLAGS = DEFAULT_COMMON_CPPFLAGS;
+
+  /** Flags used when compiling either C or C++ sources. */
+  public static final ImmutableList<String> DEFAULT_COMMON_COMPILER_FLAGS =
+      ImmutableList.of(
+          // Default compiler flags provided by the NDK build makefiles.
+          "-ffunction-sections", "-funwind-tables", "-fomit-frame-pointer", "-fno-strict-aliasing");
+
+  /** Default linker flags added by the NDK. */
+  public static final ImmutableList<String> DEFAULT_COMMON_LDFLAGS =
+      ImmutableList.of(
+          // Add a deterministic build ID to Android builds.
+          // We use it to find symbols from arbitrary binaries.
+          "-Wl,--build-id",
+          // Enforce the NX (no execute) security feature
+          "-Wl,-z,noexecstack",
+          // Strip unused code
+          "-Wl,--gc-sections",
+          // Refuse to produce dynamic objects with undefined symbols
+          "-Wl,-z,defs",
+          // Forbid dangerous copy "relocations"
+          "-Wl,-z,nocopyreloc",
+          // We always pass the runtime library on the command line, so setting this flag
+          // means the resulting link will only use it if it was actually needed it.
+          "-Wl,--as-needed");
 
   // Utility class, do not instantiate.
   private NdkCxxPlatforms() {}
@@ -128,25 +174,26 @@ public class NdkCxxPlatforms {
     return "3.8";
   }
 
-  public static boolean isSupportedConfiguration(Path ndkRoot, CxxRuntime cxxRuntime) {
+  public static boolean isSupportedConfiguration(Path ndkRoot, NdkCxxRuntime cxxRuntime) {
     // TODO(12846101): With ndk r12, Android has started to use libc++abi. Buck
     // needs to figure out how to support that.
     String ndkVersion = readVersion(ndkRoot);
-    return !(cxxRuntime == NdkCxxPlatforms.CxxRuntime.LIBCXX
-        && getNdkMajorVersion(ndkVersion) >= 12);
+    return !(cxxRuntime == NdkCxxRuntime.LIBCXX && getNdkMajorVersion(ndkVersion) >= 12);
   }
 
   public static ImmutableMap<TargetCpuType, NdkCxxPlatform> getPlatforms(
       CxxBuckConfig config,
+      AndroidBuckConfig androidConfig,
       ProjectFilesystem filesystem,
       Path ndkRoot,
       NdkCxxPlatformCompiler compiler,
-      CxxRuntime cxxRuntime,
+      NdkCxxRuntime cxxRuntime,
       String androidPlatform,
       Set<String> cpuAbis,
       Platform platform) {
     return getPlatforms(
         config,
+        androidConfig,
         filesystem,
         ndkRoot,
         compiler,
@@ -161,10 +208,11 @@ public class NdkCxxPlatforms {
   /** @return the map holding the available {@link NdkCxxPlatform}s. */
   public static ImmutableMap<TargetCpuType, NdkCxxPlatform> getPlatforms(
       CxxBuckConfig config,
+      AndroidBuckConfig androidConfig,
       ProjectFilesystem filesystem,
       Path ndkRoot,
       NdkCxxPlatformCompiler compiler,
-      CxxRuntime cxxRuntime,
+      NdkCxxRuntime cxxRuntime,
       String androidPlatform,
       Set<String> cpuAbis,
       Platform platform,
@@ -180,6 +228,7 @@ public class NdkCxxPlatforms {
       NdkCxxPlatform armeabi =
           build(
               config,
+              androidConfig,
               filesystem,
               InternalFlavor.of("android-arm"),
               platform,
@@ -198,6 +247,7 @@ public class NdkCxxPlatforms {
       NdkCxxPlatform armeabiv7 =
           build(
               config,
+              androidConfig,
               filesystem,
               InternalFlavor.of("android-armv7"),
               platform,
@@ -216,6 +266,7 @@ public class NdkCxxPlatforms {
       NdkCxxPlatform arm64 =
           build(
               config,
+              androidConfig,
               filesystem,
               InternalFlavor.of("android-arm64"),
               platform,
@@ -234,6 +285,7 @@ public class NdkCxxPlatforms {
       NdkCxxPlatform x86 =
           build(
               config,
+              androidConfig,
               filesystem,
               InternalFlavor.of("android-x86"),
               platform,
@@ -255,6 +307,7 @@ public class NdkCxxPlatforms {
           // CHECKSTYLE.ON
           build(
               config,
+              androidConfig,
               filesystem,
               InternalFlavor.of("android-x86_64"),
               platform,
@@ -269,7 +322,8 @@ public class NdkCxxPlatforms {
     return ndkCxxPlatformBuilder.build();
   }
 
-  private static NdkCxxPlatformTargetConfiguration getTargetConfiguration(
+  @VisibleForTesting
+  static NdkCxxPlatformTargetConfiguration getTargetConfiguration(
       TargetCpuType targetCpuType, NdkCxxPlatformCompiler compiler, String androidPlatform) {
     switch (targetCpuType) {
       case ARM:
@@ -436,12 +490,13 @@ public class NdkCxxPlatforms {
   @VisibleForTesting
   static NdkCxxPlatform build(
       CxxBuckConfig config,
+      AndroidBuckConfig androidConfig,
       ProjectFilesystem filesystem,
       Flavor flavor,
       Platform platform,
       Path ndkRoot,
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      CxxRuntime cxxRuntime,
+      NdkCxxRuntime cxxRuntime,
       ExecutableFinder executableFinder,
       boolean strictToolchainPaths) {
     // Create a version string to use when generating rule keys via the NDK tools we'll generate
@@ -520,13 +575,14 @@ public class NdkCxxPlatforms {
         .addAllAsflags(getAsflags(targetConfiguration, toolchainPaths))
         .setAspp(cpp)
         .setCc(cc)
-        .addAllCflags(getCflagsInternal(targetConfiguration, toolchainPaths))
+        .addAllCflags(getCCompilationFlags(targetConfiguration, toolchainPaths, androidConfig))
         .setCpp(cpp)
-        .addAllCppflags(getCppflags(targetConfiguration, toolchainPaths))
+        .addAllCppflags(getCPreprocessorFlags(targetConfiguration, toolchainPaths, androidConfig))
         .setCxx(cxx)
-        .addAllCxxflags(getCxxflagsInternal(targetConfiguration, toolchainPaths))
+        .addAllCxxflags(getCxxCompilationFlags(targetConfiguration, toolchainPaths, androidConfig))
         .setCxxpp(cxxpp)
-        .addAllCxxppflags(getCxxppflags(targetConfiguration, toolchainPaths))
+        .addAllCxxppflags(
+            getCxxPreprocessorFlags(targetConfiguration, toolchainPaths, androidConfig))
         .setLd(
             new DefaultLinkerProvider(
                 LinkerProvider.Type.GNU,
@@ -538,23 +594,7 @@ public class NdkCxxPlatforms {
                         version,
                         cxxRuntime,
                         executableFinder))))
-        .addAllLdflags(targetConfiguration.getLinkerFlags(compilerType))
-        // Default linker flags added by the NDK
-        .addLdflags(
-            // Add a deterministic build ID to Android builds.
-            // We use it to find symbols from arbitrary binaries.
-            "-Wl,--build-id",
-            // Enforce the NX (no execute) security feature
-            "-Wl,-z,noexecstack",
-            // Strip unused code
-            "-Wl,--gc-sections",
-            // Refuse to produce dynamic objects with undefined symbols
-            "-Wl,-z,defs",
-            // Forbid dangerous copy "relocations"
-            "-Wl,-z,nocopyreloc",
-            // We always pass the runtime library on the command line, so setting this flag
-            // means the resulting link will only use it if it was actually needed it.
-            "-Wl,--as-needed")
+        .addAllLdflags(getLdFlags(targetConfiguration, androidConfig))
         .setStrip(getGccTool(toolchainPaths, "strip", version, executableFinder))
         .setSymbolNameTool(
             new PosixNmSymbolNameTool(getGccTool(toolchainPaths, "nm", version, executableFinder)))
@@ -596,7 +636,7 @@ public class NdkCxxPlatforms {
     LOG.debug(
         "Headers verification platform whitelist: %s", headerVerification.getPlatformWhitelist());
 
-    if (cxxRuntime != CxxRuntime.SYSTEM) {
+    if (cxxRuntime != NdkCxxRuntime.SYSTEM) {
       cxxPlatformBuilder.putRuntimeLdflags(
           Linker.LinkableDepType.SHARED, "-l" + cxxRuntime.getSharedName());
       cxxPlatformBuilder.putRuntimeLdflags(
@@ -610,7 +650,7 @@ public class NdkCxxPlatforms {
         .setCxxPlatform(cxxPlatform)
         .setCxxRuntime(cxxRuntime)
         .setObjdump(getGccTool(toolchainPaths, "objdump", version, executableFinder));
-    if (cxxRuntime != CxxRuntime.SYSTEM) {
+    if (cxxRuntime != NdkCxxRuntime.SYSTEM) {
       builder.setCxxSharedRuntimePath(
           toolchainPaths.getCxxRuntimeLibsDirectory().resolve(cxxRuntime.getSoname()));
     }
@@ -716,7 +756,7 @@ public class NdkCxxPlatforms {
       NdkCxxToolchainPaths toolchainPaths,
       String tool,
       String version,
-      CxxRuntime cxxRuntime,
+      NdkCxxRuntime cxxRuntime,
       ExecutableFinder executableFinder) {
 
     ImmutableList.Builder<String> flags = ImmutableList.builder();
@@ -735,7 +775,7 @@ public class NdkCxxPlatforms {
     }
 
     // Add the path to the C/C++ runtime libraries, if necessary.
-    if (cxxRuntime != CxxRuntime.SYSTEM) {
+    if (cxxRuntime != NdkCxxRuntime.SYSTEM) {
       flags.add("-L" + toolchainPaths.getCxxRuntimeLibsDirectory().toString());
     }
 
@@ -746,6 +786,15 @@ public class NdkCxxPlatforms {
             .setVersion(version)
             .setExtraArgs(flags.build())
             .build());
+  }
+
+  private static ImmutableList<String> getLdFlags(
+      NdkCxxPlatformTargetConfiguration targetConfiguration, AndroidBuckConfig config) {
+    return ImmutableList.<String>builder()
+        .addAll(targetConfiguration.getLinkerFlags(targetConfiguration.getCompiler().getType()))
+        .addAll(DEFAULT_COMMON_LDFLAGS)
+        .addAll(config.getExtraNdkLdFlags())
+        .build();
   }
 
   /** Flags to be used when either preprocessing or compiling C or C++ sources. */
@@ -781,40 +830,6 @@ public class NdkCxxPlatforms {
     return flags.build();
   }
 
-  /** Flags to be used when either preprocessing or compiling C sources. */
-  private static ImmutableList<String> getCommonCFlags() {
-    return ImmutableList.of(
-        // Default to the newer C11 standard.  This is *not* a default set in the NDK.
-        // Since this flag can be used multiple times, and because the compiler just uses
-        // whichever standard was specified last, cxx_library rules can override this from
-        // their BUCK-file definitions.
-        "-std=gnu11");
-  }
-
-  /** Flags to be used when either preprocessing or compiling C++ sources. */
-  private static ImmutableList<String> getCommonCxxFlags() {
-    return ImmutableList.of(
-        // Default to the newer C++11 standard.  This is *not* a default set in the NDK.
-        // Since this flag can be used multiple times, and because the compiler just uses
-        // whichever standard was specified last, cxx_library rules can override this from
-        // their BUCK-file definitions.
-        "-std=gnu++11",
-        // By default, Android builds disable exceptions and runtime type identification.
-        "-fno-exceptions",
-        "-fno-rtti");
-  }
-
-  /** Flags to be used when preprocessing C or C++ sources. */
-  private static ImmutableList<String> getCommonPreprocessorFlags() {
-    return ImmutableList.of(
-        // Disable searching for headers provided by the system.  This limits headers to just
-        // those provided by the NDK and any library dependencies.
-        "-nostdinc",
-        // Default macro definitions applied to all builds.
-        "-DNDEBUG",
-        "-DANDROID");
-  }
-
   private static ImmutableList<String> getCommonIncludes(NdkCxxToolchainPaths toolchainPaths) {
     return ImmutableList.of(
         "-isystem",
@@ -837,56 +852,69 @@ public class NdkCxxPlatforms {
         .build();
   }
 
-  private static ImmutableList<String> getCppflags(
-      NdkCxxPlatformTargetConfiguration targetConfiguration, NdkCxxToolchainPaths toolchainPaths) {
+  // TODO(cjhopman): The way that c/cpp/cxx/cxxpp flags work is rather unintuitive. The
+  // documentation states that cflags/cxxflags are added to both preprocess and compile,
+  // cppflags/cxxppflags are added only to the preprocessor flags. At runtime, we typically do
+  // preprocess+compile, and in that case we're going to add both the preprocess and the compile
+  // flags to the command line. Still, BUCK expects that a CxxPlatform can do all of
+  // preprocess/compile/preprocess+compile. Many of the flags are duplicated across both preprocess
+  // and compile to support that (and then typically our users have to deal with ridiculously long
+  // command lines because we only ever do preprocess+compile).
+  private static ImmutableList<String> getCPreprocessorFlags(
+      NdkCxxPlatformTargetConfiguration targetConfiguration,
+      NdkCxxToolchainPaths toolchainPaths,
+      AndroidBuckConfig config) {
     return ImmutableList.<String>builder()
         .addAll(getCommonIncludes(toolchainPaths))
-        .addAll(getCommonPreprocessorFlags())
+        .addAll(DEFAULT_COMMON_CPPFLAGS)
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
-        .addAll(getCommonCFlags())
+        .addAll(DEFAULT_COMMON_CFLAGS)
         .addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
+        .addAll(config.getExtraNdkCFlags())
         .build();
   }
 
-  private static ImmutableList<String> getCxxppflags(
-      NdkCxxPlatformTargetConfiguration targetConfiguration, NdkCxxToolchainPaths toolchainPaths) {
+  private static ImmutableList<String> getCxxPreprocessorFlags(
+      NdkCxxPlatformTargetConfiguration targetConfiguration,
+      NdkCxxToolchainPaths toolchainPaths,
+      AndroidBuckConfig config) {
     ImmutableList.Builder<String> flags = ImmutableList.builder();
     flags.addAll(getCxxRuntimeIncludeFlags(targetConfiguration, toolchainPaths));
     flags.addAll(getCommonIncludes(toolchainPaths));
-    flags.addAll(getCommonPreprocessorFlags());
+    flags.addAll(DEFAULT_COMMON_CXXPPFLAGS);
     flags.addAll(getCommonFlags(targetConfiguration, toolchainPaths));
-    flags.addAll(getCommonCxxFlags());
+    flags.addAll(DEFAULT_COMMON_CXXFLAGS);
     if (targetConfiguration.getCompiler().getType() == NdkCxxPlatformCompiler.Type.GCC) {
       flags.add("-Wno-literal-suffix");
     }
     flags.addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()));
+    flags.addAll(config.getExtraNdkCxxFlags());
     return flags.build();
   }
 
-  /** Flags used when compiling either C or C++ sources. */
-  private static ImmutableList<String> getCommonNdkCxxPlatformCompilerFlags() {
-    return ImmutableList.of(
-        // Default compiler flags provided by the NDK build makefiles.
-        "-ffunction-sections", "-funwind-tables", "-fomit-frame-pointer", "-fno-strict-aliasing");
-  }
-
-  private static ImmutableList<String> getCflagsInternal(
-      NdkCxxPlatformTargetConfiguration targetConfiguration, NdkCxxToolchainPaths toolchainPaths) {
+  private static ImmutableList<String> getCCompilationFlags(
+      NdkCxxPlatformTargetConfiguration targetConfiguration,
+      NdkCxxToolchainPaths toolchainPaths,
+      AndroidBuckConfig config) {
     return ImmutableList.<String>builder()
         .addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
-        .addAll(getCommonCFlags())
+        .addAll(DEFAULT_COMMON_CFLAGS)
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
-        .addAll(getCommonNdkCxxPlatformCompilerFlags())
+        .addAll(DEFAULT_COMMON_COMPILER_FLAGS)
+        .addAll(config.getExtraNdkCFlags())
         .build();
   }
 
-  private static ImmutableList<String> getCxxflagsInternal(
-      NdkCxxPlatformTargetConfiguration targetConfiguration, NdkCxxToolchainPaths toolchainPaths) {
+  private static ImmutableList<String> getCxxCompilationFlags(
+      NdkCxxPlatformTargetConfiguration targetConfiguration,
+      NdkCxxToolchainPaths toolchainPaths,
+      AndroidBuckConfig config) {
     return ImmutableList.<String>builder()
         .addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
-        .addAll(getCommonCxxFlags())
+        .addAll(DEFAULT_COMMON_CXXFLAGS)
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
-        .addAll(getCommonNdkCxxPlatformCompilerFlags())
+        .addAll(DEFAULT_COMMON_COMPILER_FLAGS)
+        .addAll(config.getExtraNdkCxxFlags())
         .build();
   }
 
@@ -980,47 +1008,6 @@ public class NdkCxxPlatforms {
     }
   }
 
-  /** The C/C++ runtime library to link against. */
-  public enum CxxRuntime {
-    SYSTEM("system", "system", "system"),
-    GABIXX("gabi++", "gabi++_shared", "gabi++_static"),
-    STLPORT("stlport", "stlport_shared", "stlport_static"),
-    GNUSTL("gnu-libstdc++", "gnustl_shared", "gnustl_static"),
-    LIBCXX("llvm-libc++", "c++_shared", "c++_static"),
-    ;
-
-    private final String name;
-    private final String sharedName;
-    private final String staticName;
-
-    /**
-     * @param name the runtimes directory name in the NDK.
-     * @param sharedName the shared library name used for this runtime.
-     * @param staticName the the static library used for this runtime.
-     */
-    CxxRuntime(String name, String sharedName, String staticName) {
-      this.name = name;
-      this.sharedName = sharedName;
-      this.staticName = staticName;
-    }
-
-    public String getName() {
-      return name;
-    }
-
-    public String getStaticName() {
-      return staticName;
-    }
-
-    public String getSharedName() {
-      return sharedName;
-    }
-
-    public String getSoname() {
-      return "lib" + sharedName + ".so";
-    }
-  }
-
   /** The toolchains name for the platform being targeted. */
   public enum ToolchainTarget {
     I686_LINUX_ANDROID("i686-linux-android"),
@@ -1046,7 +1033,7 @@ public class NdkCxxPlatforms {
     private String ndkVersion;
     private NdkCxxPlatformTargetConfiguration targetConfiguration;
     private String hostName;
-    private CxxRuntime cxxRuntime;
+    private NdkCxxRuntime cxxRuntime;
     private Map<String, Path> cachedPaths;
     private boolean strict;
     private int ndkMajorVersion;
@@ -1057,7 +1044,7 @@ public class NdkCxxPlatforms {
         Path ndkRoot,
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
-        CxxRuntime cxxRuntime,
+        NdkCxxRuntime cxxRuntime,
         boolean strict) {
       this(
           filesystem,
@@ -1075,7 +1062,7 @@ public class NdkCxxPlatforms {
         String ndkVersion,
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
-        CxxRuntime cxxRuntime,
+        NdkCxxRuntime cxxRuntime,
         boolean strict) {
       this.filesystem = filesystem;
       this.cachedPaths = new HashMap<>();
@@ -1210,7 +1197,7 @@ public class NdkCxxPlatforms {
     }
 
     private Path getCxxRuntimeDirectory() {
-      if (cxxRuntime == CxxRuntime.GNUSTL) {
+      if (cxxRuntime == NdkCxxRuntime.GNUSTL) {
         return processPathPattern(
             "sources/cxx-stl/" + cxxRuntime.getName() + "/{gcc_compiler_version}");
       } else {
@@ -1234,7 +1221,7 @@ public class NdkCxxPlatforms {
       return ndkRoot;
     }
 
-    public CxxRuntime getCxxRuntime() {
+    public NdkCxxRuntime getCxxRuntime() {
       return cxxRuntime;
     }
   }

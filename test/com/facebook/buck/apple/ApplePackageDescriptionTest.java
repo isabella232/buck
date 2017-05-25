@@ -31,9 +31,10 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
@@ -52,10 +53,14 @@ public class ApplePackageDescriptionTest {
             AppleBundleBuilder.createBuilder(bundleBuildTarget)
                 .setBinary(binaryBuildTarget)
                 .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+                .setInfoPlist(new FakeSourcePath("Info.plist"))
                 .build());
 
-    ApplePackageDescription.Arg arg = new ApplePackageDescription.Arg();
-    arg.bundle = bundleBuildTarget;
+    ApplePackageDescriptionArg arg =
+        ApplePackageDescriptionArg.builder()
+            .setName("package")
+            .setBundle(bundleBuildTarget)
+            .build();
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
@@ -66,7 +71,7 @@ public class ApplePackageDescriptionTest {
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
     description.findDepsForTargetFromConstructorArgs(
         packageBuildTarget,
-        new FakeCellPathResolver(params.getProjectFilesystem()),
+        TestCellPathResolver.get(params.getProjectFilesystem()),
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());
@@ -99,10 +104,14 @@ public class ApplePackageDescriptionTest {
             AppleBundleBuilder.createBuilder(bundleBuildTarget)
                 .setBinary(binaryBuildTarget)
                 .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+                .setInfoPlist(new FakeSourcePath("Info.plist"))
                 .build());
 
-    ApplePackageDescription.Arg arg = new ApplePackageDescription.Arg();
-    arg.bundle = bundleBuildTarget;
+    ApplePackageDescriptionArg arg =
+        ApplePackageDescriptionArg.builder()
+            .setName("package")
+            .setBundle(bundleBuildTarget)
+            .build();
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
@@ -113,7 +122,7 @@ public class ApplePackageDescriptionTest {
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
     description.findDepsForTargetFromConstructorArgs(
         packageBuildTarget,
-        new FakeCellPathResolver(params.getProjectFilesystem()),
+        TestCellPathResolver.get(params.getProjectFilesystem()),
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());

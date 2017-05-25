@@ -34,7 +34,9 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.zip.ZipFile;
 import org.junit.Before;
@@ -101,6 +103,179 @@ public class ResourceTableTest {
                       .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
                       .iterator());
       MoreAsserts.assertLargeStringsEqual(expected + "\n", content);
+    }
+  }
+
+  @Test
+  public void testRewriteResources() throws Exception {
+    try (ZipFile apkZip = new ZipFile(apkPath.toFile())) {
+      ByteBuffer buf =
+          ResChunk.wrap(
+              ByteStreams.toByteArray(apkZip.getInputStream(apkZip.getEntry("resources.arsc"))));
+      ResourceTable resourceTable = ResourceTable.get(buf);
+
+      ReferenceMapper reversingMapper = ReversingMapper.construct(resourceTable);
+      resourceTable.reassignIds(reversingMapper);
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      resourceTable.dump(new PrintStream(baos));
+      String content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      Path resourcesOutput =
+          filesystem.resolve(filesystem.getPath(APK_NAME + ".resources.reversed"));
+
+      // We don't care about dumping the correct config string.
+      Pattern re = Pattern.compile("      config.*:");
+      String expected =
+          Joiner.on("\n")
+              .join(
+                  Files.readAllLines(resourcesOutput)
+                      .stream()
+                      .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
+                      .iterator());
+      MoreAsserts.assertLargeStringsEqual(expected + "\n", content);
+    }
+  }
+
+  @Test
+  public void testDoubleReverseResources() throws Exception {
+    try (ZipFile apkZip = new ZipFile(apkPath.toFile())) {
+      ByteBuffer buf =
+          ResChunk.wrap(
+              ByteStreams.toByteArray(apkZip.getInputStream(apkZip.getEntry("resources.arsc"))));
+      ResourceTable resourceTable = ResourceTable.get(buf);
+
+      ReferenceMapper reversingMapper = ReversingMapper.construct(resourceTable);
+      resourceTable.reassignIds(reversingMapper);
+      resourceTable.reassignIds(reversingMapper);
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      resourceTable.dump(new PrintStream(baos));
+      String content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      Path resourcesOutput = filesystem.resolve(filesystem.getPath(APK_NAME + ".resources"));
+
+      // We don't care about dumping the correct config string.
+      Pattern re = Pattern.compile("      config.*:");
+      String expected =
+          Joiner.on("\n")
+              .join(
+                  Files.readAllLines(resourcesOutput)
+                      .stream()
+                      .map((s) -> re.matcher(s).matches() ? "      config (unknown):" : s)
+                      .iterator());
+      MoreAsserts.assertLargeStringsEqual(expected + "\n", content);
+    }
+  }
+
+  @Test
+  public void testFullSliceResourceTable() throws Exception {
+    try (ZipFile apkZip = new ZipFile(apkPath.toFile())) {
+      ByteBuffer buf =
+          ResChunk.wrap(
+              ByteStreams.toByteArray(apkZip.getInputStream(apkZip.getEntry("resources.arsc"))));
+      ResourceTable resourceTable = ResourceTable.get(buf);
+      Map<Integer, Integer> counts = new HashMap<>();
+      for (ResTableTypeSpec spec : resourceTable.getPackage().getTypeSpecs()) {
+        counts.put(spec.getResourceType(), spec.getEntryCount());
+      }
+      // When we slice a resource table, we sort the string pool. The offsets into the
+      // string pool are part of the dump output. For this test, we compare a single slice of
+      // everything to a double slice so that the reordering is ignored.
+      resourceTable = ResourceTable.slice(resourceTable, counts);
+      ResourceTable copy = ResourceTable.slice(resourceTable, counts);
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      resourceTable.dump(new PrintStream(baos));
+      String expected = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      baos = new ByteArrayOutputStream();
+      copy.dump(new PrintStream(baos));
+      String content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      MoreAsserts.assertLargeStringsEqual(expected, content);
+    }
+  }
+
+  @Test
+  public void testSliceResourceTable() throws Exception {
+    try (ZipFile apkZip = new ZipFile(apkPath.toFile())) {
+      ByteBuffer buf =
+          ResChunk.wrap(
+              ByteStreams.toByteArray(apkZip.getInputStream(apkZip.getEntry("resources.arsc"))));
+      ResourceTable resourceTable = ResourceTable.get(buf);
+      Map<Integer, Integer> counts = new HashMap<>();
+      for (ResTableTypeSpec spec : resourceTable.getPackage().getTypeSpecs()) {
+        counts.put(spec.getResourceType(), Math.min(spec.getEntryCount(), 1));
+      }
+      resourceTable = ResourceTable.slice(resourceTable, counts);
+      Path resourcesOutput = filesystem.resolve(filesystem.getPath(APK_NAME + ".resources.sliced"));
+      String expected = filesystem.readFileIfItExists(resourcesOutput).get();
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      resourceTable.dump(new PrintStream(baos));
+      String content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      MoreAsserts.assertLargeStringsEqual(expected, content);
+    }
+  }
+
+  @Test
+  public void testSliceResourceTableStringsAreOptimized() throws Exception {
+    try (ZipFile apkZip = new ZipFile(apkPath.toFile())) {
+      ByteBuffer buf =
+          ResChunk.wrap(
+              ByteStreams.toByteArray(apkZip.getInputStream(apkZip.getEntry("resources.arsc"))));
+      ResourceTable resourceTable = ResourceTable.get(buf);
+      Map<Integer, Integer> counts = new HashMap<>();
+      for (ResTableTypeSpec spec : resourceTable.getPackage().getTypeSpecs()) {
+        counts.put(spec.getResourceType(), Math.min(spec.getEntryCount(), 1));
+      }
+      resourceTable = ResourceTable.slice(resourceTable, counts);
+
+      resourceTable.getStrings().dump(System.out);
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+      resourceTable.getStrings().dump(new PrintStream(baos));
+      String content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      assertEquals(
+          "String pool of 4 unique UTF-8 non-sorted strings, "
+              + "4 entries and 0 styles using 120 bytes:\n"
+              + "String #0: \n"
+              + "String #1: res/drawable/aaa_image.png\n"
+              + "String #2: res/xml/meta_xml.xml\n"
+              + "String #3: some other string\n",
+          content);
+
+      baos = new ByteArrayOutputStream();
+      resourceTable.getPackage().getKeys().dump(new PrintStream(baos));
+      content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      assertEquals(
+          "String pool of 5 unique UTF-8 non-sorted strings, "
+              + "5 entries and 0 styles using 112 bytes:\n"
+              + "String #0: aaa_array\n"
+              + "String #1: aaa_image\n"
+              + "String #2: aaa_string_other\n"
+              + "String #3: meta_xml\n"
+              + "String #4: some_id\n",
+          content);
+
+      baos = new ByteArrayOutputStream();
+      resourceTable.getPackage().getTypes().dump(new PrintStream(baos));
+      content = new String(baos.toByteArray(), Charsets.UTF_8);
+
+      assertEquals(
+          "String pool of 6 unique UTF-8 non-sorted strings, "
+              + "6 entries and 0 styles using 100 bytes:\n"
+              + "String #0: attr\n"
+              + "String #1: drawable\n"
+              + "String #2: xml\n"
+              + "String #3: string\n"
+              + "String #4: array\n"
+              + "String #5: id\n",
+          content);
     }
   }
 }

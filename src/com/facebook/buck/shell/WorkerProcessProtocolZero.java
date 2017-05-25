@@ -16,7 +16,7 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ProcessExecutor;
+import com.google.common.base.Preconditions;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import java.io.BufferedReader;
@@ -35,23 +35,21 @@ public class WorkerProcessProtocolZero implements WorkerProcessProtocol {
   private static final String TYPE_ERROR = "error";
   private static final String PROTOCOL_VERSION = "0";
 
-  private final ProcessExecutor executor;
-  private final ProcessExecutor.LaunchedProcess launchedProcess;
   private final JsonWriter processStdinWriter;
   private final JsonReader processStdoutReader;
   private final Path stdErr;
+  private final Runnable cleanUp;
+  private boolean isClosed = false;
 
   public WorkerProcessProtocolZero(
-      ProcessExecutor executor,
-      ProcessExecutor.LaunchedProcess launchedProcess,
       JsonWriter processStdinWriter,
       JsonReader processStdoutReader,
-      Path stdErr) {
-    this.executor = executor;
-    this.launchedProcess = launchedProcess;
+      Path stdErr,
+      Runnable cleanUp) {
     this.processStdinWriter = processStdinWriter;
     this.processStdoutReader = processStdoutReader;
     this.stdErr = stdErr;
+    this.cleanUp = cleanUp;
   }
 
   /*
@@ -362,13 +360,19 @@ public class WorkerProcessProtocolZero implements WorkerProcessProtocol {
   */
   @Override
   public void close() throws IOException {
+    Preconditions.checkArgument(
+        !isClosed,
+        "%s (%d) has been already closed",
+        getClass().getSimpleName(),
+        System.identityHashCode(this));
     try {
       processStdinWriter.endArray();
       processStdinWriter.close();
       processStdoutReader.endArray();
       processStdoutReader.close();
     } finally {
-      executor.destroyLaunchedProcess(launchedProcess);
+      cleanUp.run();
+      isClosed = true;
     }
   }
 

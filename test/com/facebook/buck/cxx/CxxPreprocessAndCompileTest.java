@@ -28,6 +28,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
@@ -41,6 +42,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -154,7 +156,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
 
     // Verify that changing the compiler causes a rulekey change.
@@ -173,7 +174,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
     assertNotEquals(defaultRuleKey, compilerChange);
 
@@ -204,7 +204,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT_TYPE,
                     Optional.empty(),
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
     assertNotEquals(defaultRuleKey, operationChange);
 
@@ -227,7 +226,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
     assertNotEquals(defaultRuleKey, platformFlagsChange);
 
@@ -250,7 +248,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT,
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
     assertNotEquals(defaultRuleKey, ruleFlagsChange);
 
@@ -270,7 +267,6 @@ public class CxxPreprocessAndCompileTest {
                     new FakeSourcePath("different"),
                     DEFAULT_INPUT_TYPE,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
     assertNotEquals(defaultRuleKey, inputChange);
   }
@@ -324,7 +320,6 @@ public class CxxPreprocessAndCompileTest {
                     DEFAULT_INPUT_TYPE,
                     Optional.empty(),
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                    CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                     Optional.empty()));
       }
     }
@@ -368,7 +363,6 @@ public class CxxPreprocessAndCompileTest {
             new FakeSourcePath(input.toString()),
             DEFAULT_INPUT_TYPE,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             Optional.empty());
 
     ImmutableList<String> expectedCompileCommand =
@@ -378,9 +372,6 @@ public class CxxPreprocessAndCompileTest {
             .add("-O3")
             .add("-x", "c++")
             .add("-c")
-            .add("-MD")
-            .add("-MF")
-            .add("test.o.dep")
             .add(input.toString())
             .add("-o", output.toString())
             .build();
@@ -393,7 +384,7 @@ public class CxxPreprocessAndCompileTest {
   public void compilerAndPreprocessorAreAlwaysReturnedFromGetInputsAfterBuildingLocally()
       throws Exception {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     SourcePath preprocessor = new PathSourcePath(filesystem, filesystem.getPath("preprocessor"));
     Tool preprocessorTool = new CommandTool.Builder().addInput(preprocessor).build();
 
@@ -438,9 +429,10 @@ public class CxxPreprocessAndCompileTest {
             DEFAULT_INPUT_TYPE,
             Optional.empty(),
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             Optional.empty());
-    assertThat(cxxPreprocess.getInputsAfterBuildingLocally(context), hasItem(preprocessor));
+    assertThat(
+        cxxPreprocess.getInputsAfterBuildingLocally(context, cellPathResolver),
+        hasItem(preprocessor));
 
     CxxPreprocessAndCompile cxxCompile =
         CxxPreprocessAndCompile.compile(
@@ -454,9 +446,9 @@ public class CxxPreprocessAndCompileTest {
             fakeInput,
             DEFAULT_INPUT_TYPE,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             Optional.empty());
-    assertThat(cxxCompile.getInputsAfterBuildingLocally(context), hasItem(compiler));
+    assertThat(
+        cxxCompile.getInputsAfterBuildingLocally(context, cellPathResolver), hasItem(compiler));
   }
 
   @Test
@@ -487,27 +479,18 @@ public class CxxPreprocessAndCompileTest {
             new FakeSourcePath(input.toString()),
             DEFAULT_INPUT_TYPE,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             Optional.empty());
 
     ImmutableList<String> command =
         buildRule
             .makeMainStep(pathResolver, buildRule.getProjectFilesystem().getRootPath(), false)
-            .makeCompileArguments(
-                input.toString(),
-                "c++",
-                /* preprocessable */ true,
-                /* allowColorsInDiagnostics */ false);
+            .getArguments(/* allowColorsInDiagnostics */ false);
     assertThat(command, not(hasItem(CompilerWithColorSupport.COLOR_FLAG)));
 
     command =
         buildRule
             .makeMainStep(pathResolver, scratchDir, false)
-            .makeCompileArguments(
-                input.toString(),
-                "c++",
-                /* preprocessable */ true,
-                /* allowColorsInDiagnostics */ true);
+            .getArguments(/* allowColorsInDiagnostics */ true);
     assertThat(command, hasItem(CompilerWithColorSupport.COLOR_FLAG));
   }
 
@@ -547,27 +530,25 @@ public class CxxPreprocessAndCompileTest {
             DEFAULT_INPUT_TYPE,
             Optional.empty(),
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             Optional.empty());
 
     ImmutableList<String> command =
         buildRule
             .makeMainStep(pathResolver, scratchDir, false)
-            .makeCompileArguments(
-                input.toString(),
-                "c++",
-                /* preprocessable */ true,
-                /* allowColorsInDiagnostics */ false);
+            .getArguments(/* allowColorsInDiagnostics */ false);
     assertThat(command, not(hasItem(PreprocessorWithColorSupport.COLOR_FLAG)));
 
     command =
         buildRule
             .makeMainStep(pathResolver, scratchDir, false)
-            .makeCompileArguments(
-                input.toString(),
-                "c++",
-                /* preprocessable */ true,
-                /* allowColorsInDiagnostics */ true);
+            .getArguments(/* allowColorsInDiagnostics */ true);
     assertThat(command, hasItem(CompilerWithColorSupport.COLOR_FLAG));
+  }
+
+  @Test
+  public void testGetGcnoFile() throws Exception {
+    Path input = Paths.get("foo/bar.m.o");
+    Path output = CxxPreprocessAndCompile.getGcnoPath(input);
+    assertEquals(Paths.get("foo/bar.m.gcno"), output);
   }
 }

@@ -25,15 +25,19 @@ import com.facebook.buck.distributed.BuckVersionUtil;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
 import com.facebook.buck.distributed.DistBuildCellIndexer;
 import com.facebook.buck.distributed.DistBuildClientExecutor;
+import com.facebook.buck.distributed.DistBuildClientStatsEvent;
+import com.facebook.buck.distributed.DistBuildClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildFileHashes;
 import com.facebook.buck.distributed.DistBuildLogStateTracker;
+import com.facebook.buck.distributed.DistBuildPostBuildAnalysis;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -46,7 +50,6 @@ import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEvent;
@@ -81,6 +84,7 @@ import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Verbosity;
@@ -93,6 +97,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -292,7 +297,6 @@ public class BuildCommand extends AbstractCommand {
 
   Build createBuild(
       BuckConfig buckConfig,
-      ActionGraph graph,
       BuildRuleResolver ruleResolver,
       Cell rootCell,
       Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier,
@@ -312,7 +316,6 @@ public class BuildCommand extends AbstractCommand {
       console.getStdErr().printf("Creating a build with %d threads.\n", buckConfig.getNumThreads());
     }
     return new Build(
-        graph,
         ruleResolver,
         rootCell,
         targetDevice,
@@ -335,6 +338,7 @@ public class BuildCommand extends AbstractCommand {
         adbOptions,
         targetDeviceOptions,
         persistentWorkerPools,
+        new DefaultProcessExecutor(console),
         executors);
   }
 
@@ -475,14 +479,31 @@ public class BuildCommand extends AbstractCommand {
     int exitCode;
     if (useDistributedBuild) {
       BuildJobState jobState = computeDistBuildState(params, graphs, executorService);
-      exitCode =
-          executeDistBuild(
-              params,
-              graphs,
-              executorService,
-              params.getCell().getFilesystem(),
-              params.getFileHashCache(),
-              jobState);
+      DistBuildClientStatsTracker distBuildClientStatsTracker = new DistBuildClientStatsTracker();
+      try {
+        exitCode =
+            executeDistBuild(
+                params,
+                graphs,
+                executorService,
+                params.getCell().getFilesystem(),
+                params.getFileHashCache(),
+                jobState,
+                distBuildClientStatsTracker);
+      } catch (Throwable ex) {
+        distBuildClientStatsTracker.setBuckClientError(true);
+        String stackTrace = Throwables.getStackTraceAsString(ex);
+        distBuildClientStatsTracker.setBuckClientErrorMessage(ex.toString() + "\n" + stackTrace);
+        throw ex;
+      } finally {
+        if (distBuildClientStatsTracker.hasStampedeId()) {
+          params
+              .getBuckEventBus()
+              .post(new DistBuildClientStatsEvent(distBuildClientStatsTracker.generateStats()));
+        } else {
+          LOG.error("Failed to published DistBuildClientStatsEvent as no Stampede ID was received");
+        }
+      }
     } else {
       exitCode = executeLocalBuild(params, graphs.actionGraph, executorService);
     }
@@ -600,64 +621,102 @@ public class BuildCommand extends AbstractCommand {
       WeightedListeningExecutorService executorService,
       ProjectFilesystem filesystem,
       FileHashCache fileHashCache,
-      BuildJobState jobState)
+      BuildJobState jobState,
+      DistBuildClientStatsTracker distBuildClientStats)
       throws IOException, InterruptedException {
     if (distributedBuildStateFile != null) {
       Path stateDumpPath = Paths.get(distributedBuildStateFile);
       BuildJobStateSerializer.serialize(jobState, filesystem.newFileOutputStream(stateDumpPath));
       return 0;
-
-    } else {
-      BuildEvent.DistBuildStarted started = BuildEvent.distBuildStarted();
-      params.getBuckEventBus().post(started);
-
-      int distBuildExitCode = 1;
-      DistBuildClientExecutor.ExecutionResult distBuildResult;
-      BuckVersion buckVersion = getBuckVersion();
-      Preconditions.checkArgument(params.getInvocationInfo().isPresent());
-
-      try (DistBuildService service = DistBuildFactory.newDistBuildService(params);
-          DistBuildLogStateTracker distBuildLogStateTracker =
-              DistBuildFactory.newDistBuildLogStateTracker(
-                  params.getInvocationInfo().get().getLogDirectoryPath(), filesystem)) {
-        DistBuildClientExecutor build =
-            new DistBuildClientExecutor(
-                jobState,
-                service,
-                distBuildLogStateTracker,
-                buckVersion,
-                Executors.newScheduledThreadPool(1));
-        distBuildResult =
-            build.executeAndPrintFailuresToEventBus(
-                executorService, filesystem, fileHashCache, params.getBuckEventBus());
-        distBuildExitCode = distBuildResult.exitCode;
-      } finally {
-        BuildEvent.DistBuildFinished finished =
-            BuildEvent.distBuildFinished(started, distBuildExitCode);
-        params.getBuckEventBus().post(finished);
-      }
-
-      DistBuildConfig distBuildConfig = new DistBuildConfig(params.getBuckConfig());
-      // After dist-build is complete, start build locally and we'll find everything in the cache.
-      if (distBuildConfig.isSlowLocalBuildFallbackModeEnabled() || distBuildExitCode == 0) {
-        if (distBuildExitCode != 0) {
-          String errorMessage =
-              String.format(
-                  "The remote/distributed build with Stampede ID [%s] "
-                      + "failed with exit code [%d] trying to build "
-                      + "targets [%s]. This program will continue now by falling back to a "
-                      + "local build because config "
-                      + "[stampede.enable_slow_local_build_fallback=true]. ",
-                  distBuildResult.stampedeId, distBuildExitCode, Joiner.on(" ").join(arguments));
-          params.getConsole().printErrorText(errorMessage);
-          LOG.error(errorMessage);
-        }
-
-        return executeLocalBuild(params, graphs.actionGraph, executorService);
-      } else {
-        return distBuildExitCode;
-      }
     }
+
+    BuildEvent.DistBuildStarted started = BuildEvent.distBuildStarted();
+    params.getBuckEventBus().post(started);
+
+    int distBuildExitCode = 1;
+    DistBuildClientExecutor.ExecutionResult distBuildResult;
+    BuckVersion buckVersion = getBuckVersion();
+    Preconditions.checkArgument(params.getInvocationInfo().isPresent());
+
+    DistBuildLogStateTracker distBuildLogStateTracker =
+        DistBuildFactory.newDistBuildLogStateTracker(
+            params.getInvocationInfo().get().getLogDirectoryPath(), filesystem);
+    try (DistBuildService service = DistBuildFactory.newDistBuildService(params)) {
+      DistBuildClientExecutor build =
+          new DistBuildClientExecutor(
+              jobState,
+              service,
+              distBuildLogStateTracker,
+              buckVersion,
+              distBuildClientStats,
+              Executors.newScheduledThreadPool(1));
+      DistBuildConfig distBuildConfig = new DistBuildConfig(params.getBuckConfig());
+      distBuildResult =
+          build.executeAndPrintFailuresToEventBus(
+              executorService,
+              filesystem,
+              fileHashCache,
+              params.getBuckEventBus(),
+              distBuildConfig.getBuildMode(),
+              distBuildConfig.getNumberOfMinions());
+      distBuildExitCode = distBuildResult.exitCode;
+    } finally {
+      BuildEvent.DistBuildFinished finished =
+          BuildEvent.distBuildFinished(started, distBuildExitCode);
+      params.getBuckEventBus().post(finished);
+    }
+
+    DistBuildConfig distBuildConfig = new DistBuildConfig(params.getBuckConfig());
+    distBuildClientStats.setIsLocalFallbackBuildEnabled(
+        distBuildConfig.isSlowLocalBuildFallbackModeEnabled());
+    distBuildClientStats.setDistributedBuildExitCode(distBuildExitCode);
+    // After dist-build is complete, start build locally and we'll find everything in the cache.
+    int exitCode = distBuildExitCode;
+    if (distBuildConfig.isSlowLocalBuildFallbackModeEnabled() || distBuildExitCode == 0) {
+      if (distBuildExitCode != 0) {
+        String errorMessage =
+            String.format(
+                "The remote/distributed build with Stampede ID [%s] "
+                    + "failed with exit code [%d] trying to build "
+                    + "targets [%s]. This program will continue now by falling back to a "
+                    + "local build because config "
+                    + "[stampede.enable_slow_local_build_fallback=true]. ",
+                distBuildResult.stampedeId, distBuildExitCode, Joiner.on(" ").join(arguments));
+        params.getConsole().printErrorText(errorMessage);
+        LOG.error(errorMessage);
+      }
+
+      distBuildClientStats.startPerformLocalBuildTimer();
+      int localBuildExitCode = executeLocalBuild(params, graphs.actionGraph, executorService);
+      distBuildClientStats.stopPerformLocalBuildTimer();
+      distBuildClientStats.setLocalBuildExitCode(localBuildExitCode);
+      distBuildClientStats.setPerformedLocalBuild(true);
+
+      DistBuildPostBuildAnalysis postBuildAnalysis =
+          new DistBuildPostBuildAnalysis(
+              params.getInvocationInfo().get().getBuildId(),
+              distBuildResult.stampedeId,
+              filesystem.resolve(params.getInvocationInfo().get().getLogDirectoryPath()),
+              distBuildLogStateTracker.getRunIdsWithLogDirs(),
+              DistBuildCommand.class.getSimpleName().toLowerCase());
+
+      Path analysisSummaryFile =
+          postBuildAnalysis.dumpResultsToLogFile(postBuildAnalysis.runAnalysis());
+      Path relativePathToSummaryFile = filesystem.getRootPath().relativize(analysisSummaryFile);
+      params
+          .getBuckEventBus()
+          .post(
+              ConsoleEvent.warning(
+                  "Details of distributed build analysis: %s",
+                  relativePathToSummaryFile.toString()));
+
+      exitCode = localBuildExitCode;
+    }
+
+    params
+        .getBuckEventBus()
+        .post(new DistBuildClientStatsEvent(distBuildClientStats.generateStats()));
+    return exitCode;
   }
 
   private BuckVersion getBuckVersion() throws IOException {
@@ -734,7 +793,6 @@ public class BuildCommand extends AbstractCommand {
               getEnableParserProfiling(),
               executor,
               parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
-              /* ignoreBuckAutodepsFiles */ false,
               parserConfig.getDefaultFlavorsMode());
     } catch (BuildTargetException | BuildFileParseException e) {
       throw new ActionGraphCreationException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
@@ -830,6 +888,7 @@ public class BuildCommand extends AbstractCommand {
                 cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
                 cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
                 actionGraphAndResolver.getResolver(),
+                params.getBuildInfoStoreManager(),
                 cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                 RuleKeyFactories.of(
                     rootCellBuckConfig.getKeySeed(),
@@ -840,7 +899,6 @@ public class BuildCommand extends AbstractCommand {
         Build build =
             createBuild(
                 rootCellBuckConfig,
-                actionGraphAndResolver.getActionGraph(),
                 actionGraphAndResolver.getResolver(),
                 params.getCell(),
                 params.getAndroidPlatformTargetSupplier(),

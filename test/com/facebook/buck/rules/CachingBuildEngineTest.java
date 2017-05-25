@@ -30,12 +30,14 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
 import com.facebook.buck.artifact_cache.CacheReadMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.InMemoryArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.cli.CommandThreadManager;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusFactory;
@@ -46,10 +48,11 @@ import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
@@ -85,6 +88,7 @@ import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.NullFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
+import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
@@ -117,6 +121,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -127,6 +133,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -143,6 +150,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 /**
  * Ensuring that build rule caching works correctly in Buck is imperative for both its performance
@@ -175,13 +183,15 @@ public class CachingBuildEngineTest {
       new DefaultDependencyFileRuleKeyFactory(
           FIELD_LOADER, new NullFileHashCache(), DEFAULT_SOURCE_PATH_RESOLVER, DEFAULT_RULE_FINDER);
 
+  @RunWith(Parameterized.class)
   public abstract static class CommonFixture extends EasyMockSupport {
     @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
     protected final InMemoryArtifactCache cache = new InMemoryArtifactCache();
     protected final FakeBuckEventListener listener = new FakeBuckEventListener();
     protected FakeProjectFilesystem filesystem;
-    protected FilesystemBuildInfoStore buildInfoStore;
+    protected BuildInfoStoreManager buildInfoStoreManager;
+    protected BuildInfoStore buildInfoStore;
     protected FileHashCache fileHashCache;
     protected BuildEngineBuildContext buildContext;
     protected BuildRuleResolver resolver;
@@ -190,11 +200,25 @@ public class CachingBuildEngineTest {
     protected DefaultRuleKeyFactory defaultRuleKeyFactory;
     protected InputBasedRuleKeyFactory inputBasedRuleKeyFactory;
     protected BuildRuleDurationTracker durationTracker;
+    protected CachingBuildEngine.MetadataStorage metadataStorage;
+
+    @Parameterized.Parameters(name = "{0}")
+    public static Collection<Object[]> data() {
+      return Arrays.stream(CachingBuildEngine.MetadataStorage.values())
+          .map(v -> new Object[] {v})
+          .collect(MoreCollectors.toImmutableList());
+    }
+
+    public CommonFixture(CachingBuildEngine.MetadataStorage metadataStorage) throws IOException {
+      this.metadataStorage = metadataStorage;
+    }
 
     @Before
-    public void setUp() {
+    public void setUp() throws IOException {
       filesystem = new FakeProjectFilesystem(tmp.getRoot());
-      buildInfoStore = new FilesystemBuildInfoStore(filesystem);
+      buildInfoStoreManager = new BuildInfoStoreManager();
+      Files.createDirectories(filesystem.resolve(filesystem.getBuckPaths().getScratchDir()));
+      buildInfoStore = buildInfoStoreManager.get(filesystem, metadataStorage);
       fileHashCache =
           new StackedFileHashCache(
               ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
@@ -219,7 +243,7 @@ public class CachingBuildEngineTest {
     }
 
     protected CachingBuildEngineFactory cachingBuildEngineFactory() {
-      return new CachingBuildEngineFactory(resolver)
+      return new CachingBuildEngineFactory(resolver, buildInfoStoreManager)
           .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache));
     }
 
@@ -235,6 +259,10 @@ public class CachingBuildEngineTest {
   }
 
   public static class OtherTests extends CommonFixture {
+    public OtherTests(CachingBuildEngine.MetadataStorage metadataStorage) throws IOException {
+      super(metadataStorage);
+    }
+
     /**
      * Tests what should happen when a rule is built for the first time: it should have no cached
      * RuleKey, nor should it have any artifact in the ArtifactCache. The sequence of events should
@@ -277,7 +305,8 @@ public class CachingBuildEngineTest {
               ImmutableSet.of(dep),
               buildSteps,
               /* postBuildSteps */ ImmutableList.of(),
-              pathToOutputFile);
+              pathToOutputFile,
+              ImmutableList.of());
       verifyAll();
       resetAll();
 
@@ -307,6 +336,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), ruleToTest)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       buckEventBus.post(
@@ -333,6 +363,7 @@ public class CachingBuildEngineTest {
                   CacheResult.miss(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -366,7 +397,9 @@ public class CachingBuildEngineTest {
       CachingBuildEngine cachingBuildEngine =
           cachingBuildEngineFactory().setExecutorService(service).build();
       ListenableFuture<BuildResult> buildResult =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), buildRule);
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), buildRule)
+              .getResult();
 
       BuildResult result = buildResult.get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
@@ -387,6 +420,7 @@ public class CachingBuildEngineTest {
                   CacheResult.miss(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -410,7 +444,8 @@ public class CachingBuildEngineTest {
               /* deps */ ImmutableSet.of(),
               ImmutableList.of(step),
               /* postBuildSteps */ ImmutableList.of(),
-              /* pathToOutputFile */ null);
+              /* pathToOutputFile */ null,
+              ImmutableList.of());
 
       // Simulate successfully fetching the output file from the ArtifactCache.
       ArtifactCache artifactCache = createMock(ArtifactCache.class);
@@ -421,26 +456,20 @@ public class CachingBuildEngineTest {
               BuildInfo.MetadataKey.BUILD_ID,
               buildContext.getBuildId().toString(),
               BuildInfo.MetadataKey.ORIGIN_BUILD_ID,
-              buildContext.getBuildId().toString(),
-              BuildInfo.MetadataKey.RECORDED_PATHS,
-              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()));
+              buildContext.getBuildId().toString());
       ImmutableMap<Path, String> desiredZipEntries =
           ImmutableMap.of(
+              BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget(), filesystem)
+                  .resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()),
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
               "Imagine this is the contents of a valid JAR file.");
       expect(artifactCache.fetch(eq(defaultRuleKeyFactory.build(buildRule)), isA(LazyPath.class)))
           .andDelegateTo(new FakeArtifactCacheThatWritesAZipFile(desiredZipEntries, metadata));
 
-      BuckEventBus buckEventBus = BuckEventBusFactory.newInstance();
       BuildEngineBuildContext buildContext =
           BuildEngineBuildContext.builder()
-              .setBuildContext(
-                  BuildContext.builder()
-                      .setActionGraph(new ActionGraph(ImmutableList.of(buildRule)))
-                      .setSourcePathResolver(pathResolver)
-                      .setJavaPackageFinder(createMock(JavaPackageFinder.class))
-                      .setEventBus(buckEventBus)
-                      .build())
+              .setBuildContext(FakeBuildContext.withSourcePathResolver(pathResolver))
               .setClock(new DefaultClock())
               .setBuildId(new BuildId())
               .setArtifactCache(artifactCache)
@@ -452,9 +481,15 @@ public class CachingBuildEngineTest {
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
 
       ListenableFuture<BuildResult> buildResult =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), buildRule);
-      buckEventBus.post(
-          CommandEvent.finished(CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), buildRule)
+              .getResult();
+      buildContext
+          .getBuildContext()
+          .getEventBus()
+          .post(
+              CommandEvent.finished(
+                  CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
 
       BuildResult result = buildResult.get();
       verifyAll();
@@ -472,8 +507,6 @@ public class CachingBuildEngineTest {
     @Test
     public void testArtifactFetchedFromCacheStillRunsPostBuildSteps()
         throws InterruptedException, ExecutionException, IOException {
-      BuckEventBus buckEventBus = BuckEventBusFactory.newInstance();
-
       // Add a post build step so we can verify that it's steps are executed.
       Step buildStep = createMock(Step.class);
       expect(buildStep.getDescription(anyObject(ExecutionContext.class)))
@@ -491,7 +524,8 @@ public class CachingBuildEngineTest {
               /* deps */ ImmutableSet.of(),
               /* buildSteps */ ImmutableList.of(),
               /* postBuildSteps */ ImmutableList.of(buildStep),
-              /* pathToOutputFile */ null);
+              /* pathToOutputFile */ null,
+              ImmutableList.of());
 
       // Simulate successfully fetching the output file from the ArtifactCache.
       ArtifactCache artifactCache = createMock(ArtifactCache.class);
@@ -501,12 +535,13 @@ public class CachingBuildEngineTest {
               defaultRuleKeyFactory.build(buildRule).toString(),
               BuildInfo.MetadataKey.BUILD_ID,
               buildContext.getBuildId().toString(),
-              BuildInfo.MetadataKey.RECORDED_PATHS,
-              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()),
               BuildInfo.MetadataKey.ORIGIN_BUILD_ID,
               buildContext.getBuildId().toString());
       ImmutableMap<Path, String> desiredZipEntries =
           ImmutableMap.of(
+              BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget(), filesystem)
+                  .resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()),
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
               "Imagine this is the contents of a valid JAR file.");
       expect(artifactCache.fetch(eq(defaultRuleKeyFactory.build(buildRule)), isA(LazyPath.class)))
@@ -514,13 +549,7 @@ public class CachingBuildEngineTest {
 
       BuildEngineBuildContext buildContext =
           BuildEngineBuildContext.builder()
-              .setBuildContext(
-                  BuildContext.builder()
-                      .setActionGraph(new ActionGraph(ImmutableList.of(buildRule)))
-                      .setSourcePathResolver(pathResolver)
-                      .setJavaPackageFinder(createMock(JavaPackageFinder.class))
-                      .setEventBus(buckEventBus)
-                      .build())
+              .setBuildContext(FakeBuildContext.withSourcePathResolver(pathResolver))
               .setClock(new DefaultClock())
               .setBuildId(new BuildId())
               .setArtifactCache(artifactCache)
@@ -530,9 +559,15 @@ public class CachingBuildEngineTest {
       replayAll();
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
       ListenableFuture<BuildResult> buildResult =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), buildRule);
-      buckEventBus.post(
-          CommandEvent.finished(CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), buildRule)
+              .getResult();
+      buildContext
+          .getBuildContext()
+          .getEventBus()
+          .post(
+              CommandEvent.finished(
+                  CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
 
       BuildResult result = buildResult.get();
       verifyAll();
@@ -566,7 +601,10 @@ public class CachingBuildEngineTest {
       // Run the build.
       replayAll();
       BuildResult result =
-          cachingBuildEngine.build(context, TestExecutionContext.newInstance(), ruleToTest).get();
+          cachingBuildEngine
+              .build(context, TestExecutionContext.newInstance(), ruleToTest)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, result.getSuccess());
       verifyAll();
 
@@ -587,6 +625,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -620,6 +659,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), ruleToTest)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, result.getSuccess());
 
@@ -639,6 +679,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -656,6 +697,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -707,6 +749,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), ruleToTest)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, result.getSuccess());
 
@@ -726,6 +769,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -743,6 +787,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -760,6 +805,7 @@ public class CachingBuildEngineTest {
                   CacheResult.localKeyUnchangedHit(),
                   Optional.empty(),
                   Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
+                  false,
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty())));
@@ -783,7 +829,8 @@ public class CachingBuildEngineTest {
               /* deps */ ImmutableSet.of(),
               /* buildSteps */ ImmutableList.of(failingStep),
               /* postBuildSteps */ ImmutableList.of(),
-              /* pathToOutputFile */ null);
+              /* pathToOutputFile */ null,
+              ImmutableList.of());
       resolver.addToIndex(ruleToTest);
 
       FakeBuildRule withRuntimeDep =
@@ -797,6 +844,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), withRuntimeDep)
+              .getResult()
               .get();
 
       assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
@@ -804,6 +852,69 @@ public class CachingBuildEngineTest {
       assertThat(
           ((StepFailedException) result.getFailure()).getStep().getShortName(),
           equalTo(description));
+    }
+
+    @Test
+    public void pendingWorkIsCancelledOnFailures() throws Exception {
+      final String description = "failing step";
+      AtomicInteger failedSteps = new AtomicInteger(0);
+      Step failingStep =
+          new AbstractExecutionStep(description) {
+            @Override
+            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              System.out.println("Failing");
+              failedSteps.incrementAndGet();
+              return StepExecutionResult.ERROR;
+            }
+          };
+      ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
+      for (int i = 0; i < 20; i++) {
+        BuildRule failingDep =
+            createRule(
+                filesystem,
+                resolver,
+                pathResolver,
+                /* deps */ ImmutableSet.of(),
+                /* buildSteps */ ImmutableList.of(failingStep),
+                /* postBuildSteps */ ImmutableList.of(),
+                /* pathToOutputFile */ null,
+                ImmutableList.of(InternalFlavor.of("failing-" + i)));
+        resolver.addToIndex(failingDep);
+        depsBuilder.add(failingDep);
+      }
+
+      FakeBuildRule withFailingDeps =
+          new FakeBuildRule(
+              BuildTargetFactory.newInstance("//:with_failing_deps"),
+              pathResolver,
+              depsBuilder.build());
+
+      // Use a CommandThreadManager to closely match the real-world CachingBuildEngine experience.
+      // Limit it to 1 thread so that we don't start multiple deps at the same time.
+      try (CommandThreadManager threadManager =
+          new CommandThreadManager(
+              "cachingBuildEngingTest",
+              new ConcurrencyLimit(
+                  1,
+                  ResourceAllocationFairness.FAIR,
+                  1,
+                  ResourceAmounts.of(100, 100, 100, 100),
+                  ResourceAmounts.of(0, 0, 0, 0)))) {
+        CachingBuildEngine cachingBuildEngine =
+            cachingBuildEngineFactory().setExecutorService(threadManager.getExecutor()).build();
+        BuildResult result =
+            cachingBuildEngine
+                .build(buildContext, TestExecutionContext.newInstance(), withFailingDeps)
+                .getResult()
+                .get();
+
+        assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
+        assertThat(result.getFailure(), instanceOf(StepFailedException.class));
+        assertThat(failedSteps.get(), equalTo(1));
+        assertThat(
+            ((StepFailedException) result.getFailure()).getStep().getShortName(),
+            equalTo(description));
+      }
     }
 
     @Test
@@ -825,7 +936,8 @@ public class CachingBuildEngineTest {
               /* deps */ ImmutableSet.of(),
               /* buildSteps */ ImmutableList.of(failingStep),
               /* postBuildSteps */ ImmutableList.of(),
-              /* pathToOutputFile */ null);
+              /* pathToOutputFile */ null,
+              ImmutableList.of());
       resolver.addToIndex(ruleToTest);
 
       FakeBuildRule withRuntimeDep =
@@ -839,6 +951,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), withRuntimeDep)
+              .getResult()
               .get();
 
       assertThat(result.getStatus(), equalTo(BuildRuleStatus.SUCCESS));
@@ -862,7 +975,8 @@ public class CachingBuildEngineTest {
               /* deps */ ImmutableSet.of(),
               /* buildSteps */ ImmutableList.of(),
               /* postBuildSteps */ ImmutableList.of(failingStep),
-              /* pathToOutputFile */ null);
+              /* pathToOutputFile */ null,
+              ImmutableList.of());
       BuildInfoRecorder recorder = createBuildInfoRecorder(ruleToTest.getBuildTarget());
 
       recorder.addBuildMetadata(
@@ -877,6 +991,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext, TestExecutionContext.newInstance(), ruleToTest)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, result.getSuccess());
     }
@@ -888,7 +1003,7 @@ public class CachingBuildEngineTest {
           new NoopArtifactCache() {
             @Override
             public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
-              return CacheResult.error("cache", "error");
+              return CacheResult.error("cache", ArtifactCacheMode.dir, "error");
             }
           };
 
@@ -902,7 +1017,10 @@ public class CachingBuildEngineTest {
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
 
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
       assertThat(result.getCacheResult().getType(), equalTo(CacheResultType.ERROR));
     }
@@ -932,6 +1050,7 @@ public class CachingBuildEngineTest {
           cachingBuildEngineFactory()
               .build()
               .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get()
               .getFailure();
       assertThat(thrown.getCause(), new IsInstanceOf(IllegalArgumentException.class));
@@ -943,6 +1062,7 @@ public class CachingBuildEngineTest {
           cachingBuildEngineFactory()
               .build()
               .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get()
               .getFailure();
       assertEquals(throwable.get(), thrown);
@@ -953,6 +1073,7 @@ public class CachingBuildEngineTest {
           cachingBuildEngineFactory()
               .build()
               .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get()
               .getFailure();
       assertEquals(throwable.get(), thrown);
@@ -975,7 +1096,10 @@ public class CachingBuildEngineTest {
           };
       CachingBuildEngine cachingBuildEngine =
           cachingBuildEngineFactory().setCachingBuildEngineDelegate(testDelegate).build();
-      cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+      cachingBuildEngine
+          .build(buildContext, TestExecutionContext.newInstance(), rule)
+          .getResult()
+          .get();
       assertThat(lastRuleToBeBuilt.get(), is(rule));
     }
 
@@ -998,7 +1122,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify that we have a new hash.
@@ -1062,7 +1189,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertTrue(service.shutdownNow().isEmpty());
       assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
       assertThat(
@@ -1140,7 +1270,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertTrue(service.shutdownNow().isEmpty());
       assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
       assertThat(
@@ -1211,7 +1344,10 @@ public class CachingBuildEngineTest {
 
       // Verify that after building successfully, nothing is cached.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
       assertTrue(cache.isEmpty());
     }
@@ -1228,11 +1364,15 @@ public class CachingBuildEngineTest {
       // Run an initial build to seed the cache.
       CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Clear the file system.
       filesystem.clear();
+      buildInfoStore.deleteMetadata(target);
 
       // Now run a second build that gets a cache hit.  We use an empty `FakeFileHashCache` which
       // does *not* contain the path, so any attempts to hash it will fail.
@@ -1242,7 +1382,10 @@ public class CachingBuildEngineTest {
               .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fakeFileHashCache))
               .build();
       result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.FETCHED_FROM_CACHE, result.getSuccess());
 
       // Verify that the cache hit caused the file hash cache to contain the path.
@@ -1251,6 +1394,11 @@ public class CachingBuildEngineTest {
   }
 
   public static class InputBasedRuleKeyTests extends CommonFixture {
+    public InputBasedRuleKeyTests(CachingBuildEngine.MetadataStorage metadataStorage)
+        throws IOException {
+      super(metadataStorage);
+    }
+
     @Test
     public void inputBasedRuleKeyAndArtifactAreWrittenForSupportedRules() throws Exception {
       // Create a simple rule which just writes a file.
@@ -1286,7 +1434,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify that the artifact was indexed in the cache by the input rule key.
@@ -1337,7 +1488,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.MATCHING_INPUT_BASED_RULE_KEY, result.getSuccess());
 
       // Verify the input-based and actual rule keys were updated on disk.
@@ -1407,7 +1561,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.FETCHED_FROM_CACHE_INPUT_BASED, result.getSuccess());
 
       // Verify the input-based and actual rule keys were updated on disk.
@@ -1499,7 +1656,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify the input-based and actual rule keys were updated on disk.
@@ -1541,6 +1701,10 @@ public class CachingBuildEngineTest {
   public static class DepFileTests extends CommonFixture {
 
     private DefaultDependencyFileRuleKeyFactory depFileFactory;
+
+    public DepFileTests(CachingBuildEngine.MetadataStorage metadataStorage) throws IOException {
+      super(metadataStorage);
+    }
 
     @Before
     public void setUpDepFileFixture() {
@@ -1587,7 +1751,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
 
@@ -1606,7 +1771,10 @@ public class CachingBuildEngineTest {
               .build(rule, ImmutableList.of(DependencyFileEntry.of(input, Optional.empty())))
               .getRuleKey();
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
 
       // Verify the dep file rule key and dep file contents were written to disk.
@@ -1673,7 +1841,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
 
@@ -1700,7 +1869,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.MATCHING_DEP_FILE_RULE_KEY, result.getSuccess());
     }
 
@@ -1744,7 +1916,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
 
@@ -1779,7 +1952,10 @@ public class CachingBuildEngineTest {
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
     }
 
@@ -1816,7 +1992,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of();
             }
 
@@ -1855,7 +2032,10 @@ public class CachingBuildEngineTest {
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
 
       // The dep file should still be empty, yet the target will rebuild because of the change
       // to the non-dep-file-eligible input file
@@ -1909,7 +2089,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of();
             }
 
@@ -1950,7 +2131,10 @@ public class CachingBuildEngineTest {
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileFactory);
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
     }
 
@@ -1994,7 +2178,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of();
             }
 
@@ -2035,7 +2220,10 @@ public class CachingBuildEngineTest {
       // Run the build.
       CachingBuildEngine cachingBuildEngine = engineWithDepFileFactory(depFileRuleKeyFactory);
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, getSuccess(result));
 
       // Verify the input-based and actual rule keys were updated on disk.
@@ -2060,6 +2248,10 @@ public class CachingBuildEngineTest {
   }
 
   public static class ManifestTests extends CommonFixture {
+    public ManifestTests(CachingBuildEngine.MetadataStorage metadataStorage) throws IOException {
+      super(metadataStorage);
+    }
+
     @Test
     public void manifestIsWrittenWhenBuiltLocally() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
@@ -2110,7 +2302,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(path);
             }
 
@@ -2131,7 +2324,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(getSuccess(result), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
 
       OnDiskBuildInfo onDiskBuildInfo =
@@ -2205,7 +2401,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
 
@@ -2243,7 +2440,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(getSuccess(result), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
 
       OnDiskBuildInfo onDiskBuildInfo =
@@ -2316,7 +2516,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(new PathSourcePath(filesystem, input));
             }
 
@@ -2356,7 +2557,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(getSuccess(result), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
 
       OnDiskBuildInfo onDiskBuildInfo =
@@ -2417,7 +2621,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(input);
             }
 
@@ -2490,7 +2695,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(
           getSuccess(result), equalTo(BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED));
 
@@ -2554,7 +2762,8 @@ public class CachingBuildEngineTest {
             }
 
             @Override
-            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+            public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+                BuildContext context, CellPathResolver cellPathResolver) {
               return ImmutableList.of(input);
             }
 
@@ -2589,7 +2798,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertThat(getSuccess(result), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
 
       // Verify there's no stale entry in the manifest.
@@ -2603,6 +2815,11 @@ public class CachingBuildEngineTest {
   }
 
   public static class UncachableRuleTests extends CommonFixture {
+    public UncachableRuleTests(CachingBuildEngine.MetadataStorage metadataStorage)
+        throws IOException {
+      super(metadataStorage);
+    }
+
     @Test
     public void uncachableRulesDoNotTouchTheCache() throws Exception {
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -2618,7 +2835,10 @@ public class CachingBuildEngineTest {
                       NOOP_DEP_FILE_RULE_KEY_FACTORY))
               .build();
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       assertEquals(
           "Should not attempt to fetch from cache",
@@ -2650,8 +2870,8 @@ public class CachingBuildEngineTest {
       }
 
       @Override
-      public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
-          throws IOException {
+      public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+          BuildContext context, CellPathResolver cellPathResolver) throws IOException {
         return ImmutableList.of();
       }
 
@@ -2663,6 +2883,10 @@ public class CachingBuildEngineTest {
   }
 
   public static class ScheduleOverrideTests extends CommonFixture {
+    public ScheduleOverrideTests(CachingBuildEngine.MetadataStorage metadataStorage)
+        throws IOException {
+      super(metadataStorage);
+    }
 
     @Test
     public void customWeights() throws Exception {
@@ -2697,11 +2921,15 @@ public class CachingBuildEngineTest {
                       NOOP_DEP_FILE_RULE_KEY_FACTORY))
               .build();
       ListenableFuture<BuildResult> result1 =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule1);
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule1)
+              .getResult();
       rule1.waitForStart();
       assertThat(rule1.hasStarted(), equalTo(true));
       ListenableFuture<BuildResult> result2 =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule2);
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule2)
+              .getResult();
       Thread.sleep(250);
       assertThat(semaphore.getQueueLength(), equalTo(1));
       assertThat(rule2.hasStarted(), equalTo(false));
@@ -2774,6 +3002,11 @@ public class CachingBuildEngineTest {
     // the build engine issues begin and end rule events on different threads.
     private static final ListeningExecutorService SERVICE = new NewThreadExecutorService();
 
+    public BuildRuleEventTests(CachingBuildEngine.MetadataStorage metadataStorage)
+        throws IOException {
+      super(metadataStorage);
+    }
+
     @Test
     public void eventsForBuiltLocallyRuleAreOnCorrectThreads() throws Exception {
       // Create a noop simple rule.
@@ -2797,7 +3030,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify that events have correct thread IDs
@@ -2835,7 +3071,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, result.getSuccess());
 
       // Verify that events have correct thread IDs
@@ -2875,7 +3114,10 @@ public class CachingBuildEngineTest {
 
       // Run the build.
       BuildResult result =
-          cachingBuildEngine.build(buildContext, TestExecutionContext.newInstance(), rule).get();
+          cachingBuildEngine
+              .build(buildContext, TestExecutionContext.newInstance(), rule)
+              .getResult()
+              .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
 
       // Verify that events have correct thread IDs
@@ -2901,6 +3143,7 @@ public class CachingBuildEngineTest {
       BuildResult result =
           cachingBuildEngine
               .build(buildContext.withBuildId(buildId), TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       BuildRuleEvent.Finished event =
@@ -2930,6 +3173,7 @@ public class CachingBuildEngineTest {
       BuildResult result1 =
           cachingBuildEngine1
               .build(buildContext.withBuildId(buildId1), TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result1.getSuccess());
 
@@ -2939,6 +3183,7 @@ public class CachingBuildEngineTest {
       BuildResult result2 =
           cachingBuildEngine2
               .build(buildContext.withBuildId(buildId2), TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.MATCHING_RULE_KEY, getSuccess(result2));
       BuildRuleEvent.Finished event =
@@ -2968,10 +3213,12 @@ public class CachingBuildEngineTest {
       BuildResult result1 =
           cachingBuildEngine1
               .build(buildContext.withBuildId(buildId1), TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result1.getSuccess());
 
       filesystem.clear();
+      buildInfoStore.deleteMetadata(target);
 
       // Run the build and extract the event.
       CachingBuildEngine cachingBuildEngine2 = cachingBuildEngineFactory().build();
@@ -2979,6 +3226,7 @@ public class CachingBuildEngineTest {
       BuildResult result2 =
           cachingBuildEngine2
               .build(buildContext.withBuildId(buildId2), TestExecutionContext.newInstance(), rule)
+              .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.FETCHED_FROM_CACHE, getSuccess(result2));
       BuildRuleEvent.Finished event =
@@ -2990,37 +3238,6 @@ public class CachingBuildEngineTest {
 
       // Verify we found the correct build id.
       assertThat(event.getOrigin(), equalTo(Optional.of(buildId1)));
-    }
-
-    @Test
-    public void outputHashNotCalculatedWhenCacheNotWritable() throws Exception {
-
-      // Create a noop simple rule.
-      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-      Path output = filesystem.getPath("output/path");
-      BuildRuleParams params =
-          new FakeBuildRuleParamsBuilder(target).setProjectFilesystem(filesystem).build();
-      BuildRule rule = new WriteFile(params, "something else", output, /* executable */ false);
-
-      // Run the build and extract the event.
-      CachingBuildEngine cachingBuildEngine = cachingBuildEngineFactory().build();
-      BuildResult result =
-          cachingBuildEngine
-              .build(
-                  buildContext.withArtifactCache(new NoopArtifactCache()),
-                  TestExecutionContext.newInstance(),
-                  rule)
-              .get();
-      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
-      BuildRuleEvent.Finished event =
-          RichStream.from(listener.getEvents())
-              .filter(BuildRuleEvent.Finished.class)
-              .filter(e -> e.getBuildRule().equals(rule))
-              .findAny()
-              .orElseThrow(AssertionError::new);
-
-      // Verify we found the correct build id.
-      assertThat(event.getOutputHash(), equalTo(Optional.empty()));
     }
 
     /** Verify that the begin and end events in build rule event pairs occur on the same thread. */
@@ -3159,12 +3376,13 @@ public class CachingBuildEngineTest {
       ImmutableSet<BuildRule> deps,
       List<Step> buildSteps,
       ImmutableList<Step> postBuildSteps,
-      @Nullable String pathToOutputFile) {
+      @Nullable String pathToOutputFile,
+      ImmutableList<Flavor> flavors) {
     Comparator<BuildRule> comparator = RetainOrderComparator.createComparator(deps);
     ImmutableSortedSet<BuildRule> sortedDeps = ImmutableSortedSet.copyOf(comparator, deps);
 
     BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(BUILD_TARGET)
+        new FakeBuildRuleParamsBuilder(BUILD_TARGET.withFlavors(flavors))
             .setProjectFilesystem(filesystem)
             .setDeclaredDeps(sortedDeps)
             .build();
@@ -3296,7 +3514,7 @@ public class CachingBuildEngineTest {
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
-      return CacheResult.hit("dir").withMetadata(metadata);
+      return CacheResult.hit("dir", ArtifactCacheMode.dir).withMetadata(metadata);
     }
 
     @Override
