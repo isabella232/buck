@@ -1818,13 +1818,14 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'intellij' /}
-  {param name: 'generated_srcs_map' /}
-  {param example_value: '//path/to/target1 => __%name%_target1__, \n                       //path/to/target2 => __%name%_target2__' /}
+  {param name: 'generated_sources_label_map' /}
+  {param example_value: 'generated_code_1 => __%name%_target1__, \n                       generated_code2 => __%name%_target2__' /}
   {param description}
     Allows adding folders with generated source code to IntelliJ project. These folders are added
-    only if a module depends on a key target. In the example below, if
-    module <code>//app/target</code> depends on <code>//path/to/target1</code>
-    folder <code>buck-out/gen/app/lib/__lib_target1__</code> will be added to IntelliJ project.
+    when a target has a label specified in this option. In the example below, if
+    target <code>//app/target</code> has
+    label <code>generated_code1</code> folder <code>buck-out/gen/app/lib/__lib_target1__</code> will
+    be added to IntelliJ project.
   {/param}
 {/call}
 
@@ -1834,6 +1835,19 @@ cxx_library(
   {param example_value: 'true' /}
   {param description}
     Removes unused libraries from .idea/libraries.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'aggregate_android_resource_modules' /}
+  {param example_value: 'true' /}
+  {param description}
+    Forces <code>buck project</code> to aggregate modules with Android resources. This aggregation
+    is performed only if aggregation mode is not <code>none</code>.
+    <p/>
+    <b>Note:</b> using this type of aggregation disables Android layout editor provided by Android
+    plugin. The layout files can still be edited using the XML editor.
   {/param}
 {/call}
 

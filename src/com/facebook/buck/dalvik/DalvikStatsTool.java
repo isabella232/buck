@@ -30,12 +30,15 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
+import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
+import org.objectweb.asm.TypePath;
 
 /** Tool to get stats about dalvik classes. */
 public class DalvikStatsTool {
@@ -61,106 +64,9 @@ public class DalvikStatsTool {
               Type.getType(Class.class),
               Type.getType("[" + Type.INT_TYPE.getDescriptor()))
           .getDescriptor();
-
-  public static class MethodReference {
-
-    public final String className;
-    public final String methodName;
-    public final String methodDesc;
-
-    public MethodReference(String className, String methodName, String methodDesc) {
-      this.className = className;
-      this.methodName = methodName;
-      this.methodDesc = methodDesc;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) {
-        return true;
-      }
-      if (!(o instanceof MethodReference)) {
-        return false;
-      }
-
-      MethodReference that = (MethodReference) o;
-
-      if (className != null ? !className.equals(that.className) : that.className != null) {
-        return false;
-      }
-      if (methodDesc != null ? !methodDesc.equals(that.methodDesc) : that.methodDesc != null) {
-        return false;
-      }
-      if (methodName != null ? !methodName.equals(that.methodName) : that.methodName != null) {
-        return false;
-      }
-
-      return true;
-    }
-
-    @Override
-    public int hashCode() {
-      int result = className != null ? className.hashCode() : 0;
-      result = 31 * result + (methodName != null ? methodName.hashCode() : 0);
-      result = 31 * result + (methodDesc != null ? methodDesc.hashCode() : 0);
-      return result;
-    }
-
-    @Override
-    public String toString() {
-      return className + "." + methodName + ":" + methodDesc;
-    }
-  }
-
-  public static class FieldReference {
-
-    public final String className;
-    public final String fieldName;
-    public final String fieldDesc;
-
-    public FieldReference(String className, String fieldName, String fieldDesc) {
-      this.className = className;
-      this.fieldName = fieldName;
-      this.fieldDesc = fieldDesc;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) {
-        return true;
-      }
-      if (!(o instanceof FieldReference)) {
-        return false;
-      }
-
-      FieldReference that = (FieldReference) o;
-
-      if (className != null ? !className.equals(that.className) : that.className != null) {
-        return false;
-      }
-      if (fieldDesc != null ? !fieldDesc.equals(that.fieldDesc) : that.fieldDesc != null) {
-        return false;
-      }
-      if (fieldName != null ? !fieldName.equals(that.fieldName) : that.fieldName != null) {
-        return false;
-      }
-
-      return true;
-    }
-
-    @Override
-    public int hashCode() {
-      int result = className != null ? className.hashCode() : 0;
-      result = 31 * result + (fieldName != null ? fieldName.hashCode() : 0);
-      result = 31 * result + (fieldDesc != null ? fieldDesc.hashCode() : 0);
-      return result;
-    }
-
-    @Override
-    public String toString() {
-      return className + "." + fieldName + ":" + fieldDesc;
-    }
-  }
+  // The MULTINEWARRAY call has (e.g.) Integer.TYPE as an argument.
+  private static final String PRIMITIVE_TYPE_FIELD_NAME = "TYPE";
+  private static final String MULTIARRAY_ARG_TYPE = Type.getType(Class.class).getDescriptor();
 
   /** Stats about a java class. */
   public static class Stats {
@@ -171,15 +77,15 @@ public class DalvikStatsTool {
     public final int estimatedLinearAllocSize;
 
     /** Methods referenced by the class. */
-    public final ImmutableSet<MethodReference> methodReferences;
+    public final ImmutableSet<DalvikMemberReference> methodReferences;
 
     /** Fields referenced by the class. */
-    public final ImmutableSet<FieldReference> fieldReferences;
+    public final ImmutableSet<DalvikMemberReference> fieldReferences;
 
     public Stats(
         int estimatedLinearAllocSize,
-        Set<MethodReference> methodReferences,
-        Set<FieldReference> fieldReferences) {
+        Set<DalvikMemberReference> methodReferences,
+        Set<DalvikMemberReference> fieldReferences) {
       this.estimatedLinearAllocSize = estimatedLinearAllocSize;
       this.methodReferences = ImmutableSet.copyOf(methodReferences);
       this.fieldReferences = ImmutableSet.copyOf(fieldReferences);
@@ -188,6 +94,8 @@ public class DalvikStatsTool {
 
   /** CLI wrapper to run against every class in a set of JARs. */
   public static void main(String[] args) throws IOException {
+    ImmutableSet.Builder<DalvikMemberReference> allFields = ImmutableSet.builder();
+
     for (String fname : args) {
       try (ZipFile inJar = new ZipFile(fname)) {
         for (ZipEntry entry : Collections.list(inJar.entries())) {
@@ -195,11 +103,20 @@ public class DalvikStatsTool {
             continue;
           }
           InputStream rawClass = inJar.getInputStream(entry);
-          int footprint = getEstimate(rawClass).estimatedLinearAllocSize;
-          System.out.println(footprint + "\t" + entry.getName().replace(".class", ""));
+          Stats stats = getEstimate(rawClass);
+          System.out.println(
+              stats.estimatedLinearAllocSize + "\t" + entry.getName().replace(".class", ""));
+          allFields.addAll(stats.fieldReferences);
         }
       }
     }
+
+    // Uncomment to debug fields.
+    //    System.out.println();
+    //
+    //    for (DalvikMemberReference field : allFields.build()) {
+    //      System.out.println(field);
+    //    }
   }
 
   /**
@@ -233,14 +150,39 @@ public class DalvikStatsTool {
         statsVisitor.fieldReferenceBuilder.build());
   }
 
+  @Nullable
+  private static String getBoxingType(final Type type) {
+    switch (type.getSort()) {
+      case Type.BOOLEAN:
+        return "java/lang/Boolean";
+      case Type.BYTE:
+        return "java/lang/Byte";
+      case Type.SHORT:
+        return "java/lang/Short";
+      case Type.CHAR:
+        return "java/lang/Character";
+      case Type.INT:
+        return "java/lang/Integer";
+      case Type.LONG:
+        return "java/lang/Long";
+      case Type.FLOAT:
+        return "java/lang/Float";
+      case Type.DOUBLE:
+        return "java/lang/Double";
+    }
+    return null;
+  }
+
   private static class StatsClassVisitor extends ClassVisitor {
 
     private final ImmutableMap<Pattern, Integer> penalties;
     private final MethodVisitor methodVisitor = new StatsMethodVisitor();
+    private final FieldVisitor fieldVisitor = new StatsFieldVisitor();
+    private final AnnotationVisitor annotationVisitor = new StatsAnnotationVisitor();
     private int footprint;
     private boolean isInterface;
-    private ImmutableSet.Builder<MethodReference> methodReferenceBuilder;
-    private ImmutableSet.Builder<FieldReference> fieldReferenceBuilder;
+    private ImmutableSet.Builder<DalvikMemberReference> methodReferenceBuilder;
+    private ImmutableSet.Builder<DalvikMemberReference> fieldReferenceBuilder;
 
     @Nullable private String className;
 
@@ -286,7 +228,6 @@ public class DalvikStatsTool {
     }
 
     @Override
-    @Nullable
     public FieldVisitor visitField(
         int access, String name, String desc, String signature, Object value) {
       // For non-static fields, Field objects are 16 bytes.
@@ -295,9 +236,9 @@ public class DalvikStatsTool {
       }
 
       Preconditions.checkNotNull(className, "Must not call visitField before visit");
-      fieldReferenceBuilder.add(new FieldReference(className, name, desc));
+      fieldReferenceBuilder.add(DalvikMemberReference.of(className, name, desc));
 
-      return null;
+      return fieldVisitor;
     }
 
     @Override
@@ -316,7 +257,7 @@ public class DalvikStatsTool {
         }
       }
       Preconditions.checkNotNull(className, "Must not call visitMethod before visit");
-      methodReferenceBuilder.add(new MethodReference(className, name, desc));
+      methodReferenceBuilder.add(DalvikMemberReference.of(className, name, desc));
       return methodVisitor;
     }
 
@@ -325,25 +266,36 @@ public class DalvikStatsTool {
       super.visitOuterClass(owner, name, desc);
       if (name != null) {
         Preconditions.checkNotNull(className, "Must not call visitOuterClass before visit");
-        methodReferenceBuilder.add(new MethodReference(className, name, desc));
+        methodReferenceBuilder.add(DalvikMemberReference.of(className, name, desc));
       }
     }
 
-    private class StatsMethodVisitor extends MethodVisitor {
-      @Override
-      public void visitFieldInsn(int opcode, String owner, String name, String desc) {
-        super.visitFieldInsn(opcode, owner, name, desc);
-        fieldReferenceBuilder.add(new FieldReference(owner, name, desc));
-      }
+    @Override
+    public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+      return annotationVisitor;
+    }
 
+    @Override
+    public AnnotationVisitor visitTypeAnnotation(
+        int typeRef, TypePath typePath, String desc, boolean visible) {
+      return annotationVisitor;
+    }
+
+    private class StatsMethodVisitor extends MethodVisitor {
       public StatsMethodVisitor() {
         super(Opcodes.ASM5);
       }
 
       @Override
+      public void visitFieldInsn(int opcode, String owner, String name, String desc) {
+        super.visitFieldInsn(opcode, owner, name, desc);
+        fieldReferenceBuilder.add(DalvikMemberReference.of(owner, name, desc));
+      }
+
+      @Override
       public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
         super.visitMethodInsn(opcode, owner, name, desc, itf);
-        methodReferenceBuilder.add(new MethodReference(owner, name, desc));
+        methodReferenceBuilder.add(DalvikMemberReference.of(owner, name, desc));
       }
 
       @Override
@@ -351,7 +303,97 @@ public class DalvikStatsTool {
         // dx translates this instruction into a method invocation on
         // Array.newInstance(Class clazz, int...dims);
         methodReferenceBuilder.add(
-            new MethodReference(MULTIARRAY_OWNER, MULTIARRAY_NAME, MULTIARRAY_DESC));
+            DalvikMemberReference.of(MULTIARRAY_OWNER, MULTIARRAY_NAME, MULTIARRAY_DESC));
+        String boxingType = getBoxingType(Type.getType(desc).getElementType());
+        if (boxingType != null) {
+          fieldReferenceBuilder.add(
+              DalvikMemberReference.of(boxingType, PRIMITIVE_TYPE_FIELD_NAME, MULTIARRAY_ARG_TYPE));
+        }
+      }
+
+      @Override
+      public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitAnnotationDefault() {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitTypeAnnotation(
+          int typeRef, TypePath typePath, String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitParameterAnnotation(
+          int parameter, String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitInsnAnnotation(
+          int typeRef, TypePath typePath, String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitTryCatchAnnotation(
+          int typeRef, TypePath typePath, String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitLocalVariableAnnotation(
+          int typeRef,
+          TypePath typePath,
+          Label[] start,
+          Label[] end,
+          int[] index,
+          String desc,
+          boolean visible) {
+        return annotationVisitor;
+      }
+    }
+
+    private class StatsFieldVisitor extends FieldVisitor {
+      public StatsFieldVisitor() {
+        super(Opcodes.ASM5);
+      }
+
+      @Override
+      public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
+        return annotationVisitor;
+      }
+
+      @Override
+      public AnnotationVisitor visitTypeAnnotation(
+          int typeRef, TypePath typePath, String desc, boolean visible) {
+        return annotationVisitor;
+      }
+    }
+
+    private class StatsAnnotationVisitor extends AnnotationVisitor {
+      public StatsAnnotationVisitor() {
+        super(Opcodes.ASM5);
+      }
+
+      @Override
+      public AnnotationVisitor visitAnnotation(String name, String desc) {
+        return this;
+      }
+
+      @Override
+      public AnnotationVisitor visitArray(String name) {
+        return this;
+      }
+
+      @Override
+      public void visitEnum(String name, String desc, String value) {
+        String ownerName = Type.getType(desc).getInternalName();
+        fieldReferenceBuilder.add(DalvikMemberReference.of(ownerName, value, desc));
       }
     }
   }

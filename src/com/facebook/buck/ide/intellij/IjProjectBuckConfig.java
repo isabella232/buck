@@ -57,9 +57,6 @@ public class IjProjectBuckConfig {
       excludedResourcePaths = Collections.emptyList();
     }
 
-    Map<String, String> depToGeneratedSourcesMap =
-        buckConfig.getMap(INTELLIJ_BUCK_CONFIG_SECTION, "generated_srcs_map");
-
     Map<String, String> labelToGeneratedSourcesMap =
         buckConfig.getMap(INTELLIJ_BUCK_CONFIG_SECTION, "generated_sources_label_map");
 
@@ -90,7 +87,6 @@ public class IjProjectBuckConfig {
         .setProjectLanguageLevel(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "language_level"))
         .setExcludedResourcePaths(excludedResourcePaths)
-        .setDepToGeneratedSourcesMap(depToGeneratedSourcesMap)
         .setLabelToGeneratedSourcesMap(labelToGeneratedSourcesMap)
         .setAndroidManifest(androidManifest)
         .setCleanerEnabled(isCleanerEnabled)
@@ -105,6 +101,9 @@ public class IjProjectBuckConfig {
         .setIgnoredTargetLabels(
             buckConfig.getListWithoutComments(
                 INTELLIJ_BUCK_CONFIG_SECTION, "ignored_target_labels"))
+        .setAggregatingAndroidResourceModulesEnabled(
+            buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "aggregate_android_resource_modules", false))
         .build();
   }
 

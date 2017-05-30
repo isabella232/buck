@@ -59,8 +59,6 @@ abstract class AbstractIjProjectConfig {
 
   public abstract List<String> getExcludedResourcePaths();
 
-  public abstract ImmutableMap<String, String> getDepToGeneratedSourcesMap();
-
   public abstract ImmutableMap<String, String> getLabelToGeneratedSourcesMap();
 
   public abstract Optional<Path> getAndroidManifest();
@@ -76,6 +74,8 @@ abstract class AbstractIjProjectConfig {
   public abstract AggregationMode getAggregationMode();
 
   public abstract Optional<String> getGeneratedFilesListFilename();
+
+  public abstract boolean isAggregatingAndroidResourceModulesEnabled();
 
   /** Labels that indicate targets that need to be ignored during project generation. */
   public abstract ImmutableSet<String> getIgnoredTargetLabels();

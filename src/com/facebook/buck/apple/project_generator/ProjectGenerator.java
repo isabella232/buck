@@ -115,9 +115,8 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.StringWithMacrosArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacro;
-import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.shell.ExportFileDescriptionArg;
@@ -144,6 +143,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -312,7 +312,7 @@ public class ProjectGenerator {
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.buildRuleResolverForNode = buildRuleResolverForNode;
     this.defaultBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     this.defaultPathResolver =
         new SourcePathResolver(new SourcePathRuleFinder(this.defaultBuildRuleResolver));
     this.buckEventBus = buckEventBus;
@@ -856,12 +856,38 @@ public class ProjectGenerator {
 
   private ImmutableList<String> convertStringWithMacros(
       TargetNode<?, ?> node, Iterable<StringWithMacros> flags) {
+
+    LocationMacroExpander locationMacroExpander = new LocationMacroExpander() {
+      @Override
+      public String expandFrom(
+          BuildTarget target,
+          CellPathResolver cellNames,
+          BuildRuleResolver resolver,
+          LocationMacro input) throws MacroException {
+        BuildTarget locationMacroTarget = input.getTarget();
+
+        try {
+          resolver.requireRule(locationMacroTarget);
+        } catch (NoSuchBuildTargetException | TargetGraph.NoSuchNodeException e) {
+          throw new MacroException(
+              String.format("couldn't find rule referenced by location macro: %s", e.getMessage()),
+              e);
+        }
+
+        requiredBuildTargetsBuilder.add(locationMacroTarget);
+        return super.expandFrom(target, cellNames, resolver, input);
+      }
+    };
+
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
-    ImmutableList<? extends AbstractMacroExpander<? extends Macro>> expanders =
-        ImmutableList.of(new AsIsLocationMacroExpander());
     for (StringWithMacros flag : flags) {
-      StringWithMacrosArg.of(
-              flag, expanders, node.getBuildTarget(), node.getCellNames(), defaultBuildRuleResolver)
+      StringWithMacrosArg
+          .of(
+              flag,
+              ImmutableList.of(locationMacroExpander),
+              node.getBuildTarget(),
+              node.getCellNames(),
+              defaultBuildRuleResolver)
           .appendToCommandLine(result, defaultPathResolver);
     }
     return result.build();
@@ -952,7 +978,19 @@ public class ProjectGenerator {
         frameworksBuilder.addAll(collectRecursiveFrameworkDependencies(targetNode));
         mutator.setFrameworks(frameworksBuilder.build());
 
-        mutator.setArchives(collectRecursiveLibraryDependencies(targetNode));
+        ImmutableSet<PBXFileReference> targetNodeDeps =
+            collectRecursiveLibraryDependencies(targetNode);
+        ImmutableSet<PBXFileReference> excludedDeps = targetNode
+            .castArg(AppleTestDescriptionArg.class)
+            .flatMap(testNode -> {
+              // only application tests share a runtime with their host application and need to
+              // avoid linking dependencies already linked by the host.
+              // we know this is an application test if it is not a UI test and has a bundle loader.
+              return testNode.getConstructorArg().getIsUiTest() ? Optional.empty() : bundleLoaderNode;
+            })
+            .map(this::collectRecursiveLibraryDependencies)
+            .orElse(ImmutableSet.of());
+        mutator.setArchives(Sets.difference(targetNodeDeps, excludedDeps));
       }
 
       // TODO(Task #3772930): Go through all dependencies of the rule
@@ -2701,31 +2739,5 @@ public class ProjectGenerator {
 
   private Path getPathToMergedHeaderMap() {
     return getPathToHeaderMapsRoot().resolve("pub-hmap");
-  }
-
-  /** An expander for the location macro which leaves it as-is. */
-  private static class AsIsLocationMacroExpander extends AbstractMacroExpander<LocationMacro> {
-
-    @Override
-    public Class<LocationMacro> getInputClass() {
-      return LocationMacro.class;
-    }
-
-    @Override
-    protected LocationMacro parse(
-        BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-        throws MacroException {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public String expandFrom(
-        BuildTarget target,
-        CellPathResolver cellNames,
-        BuildRuleResolver resolver,
-        LocationMacro input)
-        throws MacroException {
-      return String.format("$(location %s)", input.getTarget());
-    }
   }
 }
