@@ -16,9 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -28,6 +30,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -52,7 +55,7 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 /** A no-op {@link BuildRule} which houses the logic to run and form the results for C/C++ tests. */
-public abstract class CxxTest extends AbstractBuildRule
+public abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, BinaryBuildRule {
 
   @AddToRuleKey private final ImmutableMap<String, String> env;
@@ -71,6 +74,8 @@ public abstract class CxxTest extends AbstractBuildRule
   private final Optional<Long> testRuleTimeoutMs;
 
   public CxxTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Tool executable,
       ImmutableMap<String, String> env,
@@ -82,7 +87,7 @@ public abstract class CxxTest extends AbstractBuildRule
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
       Optional<Long> testRuleTimeoutMs) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.executable = executable;
     this.env = env;
     this.args = Suppliers.memoize(args);
@@ -135,7 +140,12 @@ public abstract class CxxTest extends AbstractBuildRule
       BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    getPathToTestOutputDirectory())))
         .add(new TouchStep(getProjectFilesystem(), getPathToTestResults()))
         .add(
             new CxxTestStep(
@@ -158,7 +168,9 @@ public abstract class CxxTest extends AbstractBuildRule
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext executionContext, boolean isUsingTestSelectors) {
+      final ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
+      boolean isUsingTestSelectors) {
     return () -> {
       return TestResults.of(
           getBuildTarget(),
@@ -202,7 +214,7 @@ public abstract class CxxTest extends AbstractBuildRule
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return additionalDeps.get().stream().map(BuildRule::getBuildTarget);
   }
 

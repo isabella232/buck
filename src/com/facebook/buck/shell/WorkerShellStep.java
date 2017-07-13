@@ -24,10 +24,16 @@ import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.worker.WorkerJobParams;
+import com.facebook.buck.worker.WorkerJobResult;
+import com.facebook.buck.worker.WorkerProcess;
+import com.facebook.buck.worker.WorkerProcessPool;
+import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 
@@ -61,7 +67,8 @@ public class WorkerShellStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(final ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(final ExecutionContext context)
+      throws IOException, InterruptedException {
     WorkerProcessPool pool = null;
     WorkerProcess process = null;
     try {
@@ -89,8 +96,6 @@ public class WorkerShellStep implements Step {
         }
       }
       return StepExecutionResult.of(result.getExitCode());
-    } catch (Exception e) {
-      throw new HumanReadableException(e, "Error communicating with external process.");
     } finally {
       if (pool != null && process != null) {
         pool.destroyWorkerProcess(process);

@@ -31,6 +31,7 @@ import org.stringtemplate.v4.AutoIndentWriter;
 import org.stringtemplate.v4.ST;
 
 enum StringTemplateFile {
+  ANDROID_MANIFEST("AndroidManifest.st"),
   MODULE_TEMPLATE("ij-module.st"),
   MODULE_INDEX_TEMPLATE("ij-module-index.st"),
   MISC_TEMPLATE("ij-misc.st"),
@@ -50,12 +51,13 @@ enum StringTemplateFile {
   }
 
   public ST getST() throws IOException {
-    URL templateUrl = Resources.getResource(StringTemplateFile.class, fileName);
+    URL templateUrl = Resources.getResource(StringTemplateFile.class, "templates/" + fileName);
     String template = Resources.toString(templateUrl, StandardCharsets.UTF_8);
     return new ST(template, DELIMITER, DELIMITER);
   }
 
-  public static void writeToFile(ProjectFilesystem projectFilesystem, ST contents, Path path)
+  public static void writeToFile(
+      ProjectFilesystem projectFilesystem, ST contents, Path path, Path ideaConfigDir)
       throws IOException {
     StringWriter stringWriter = new StringWriter();
     AutoIndentWriter noIndentWriter = new AutoIndentWriter(stringWriter);
@@ -72,8 +74,7 @@ enum StringTemplateFile {
 
     boolean danglingTempFile = false;
     Path tempFile =
-        projectFilesystem.createTempFile(
-            IjProjectPaths.IDEA_CONFIG_DIR, path.getFileName().toString(), ".tmp");
+        projectFilesystem.createTempFile(ideaConfigDir, path.getFileName().toString(), ".tmp");
     try {
       danglingTempFile = true;
       try (OutputStream outputStream = projectFilesystem.newFileOutputStream(tempFile)) {

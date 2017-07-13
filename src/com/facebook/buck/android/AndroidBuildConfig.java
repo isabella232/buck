@@ -16,9 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -39,7 +41,6 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -134,7 +135,7 @@ import javax.annotation.Nullable;
  * exploit the "final-ness" of the {@code DEBUG} constant in any whole-program optimization that it
  * performs.
  */
-public class AndroidBuildConfig extends AbstractBuildRule {
+public class AndroidBuildConfig extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final String javaPackage;
 
@@ -146,19 +147,20 @@ public class AndroidBuildConfig extends AbstractBuildRule {
   private final Path pathToOutputFile;
 
   protected AndroidBuildConfig(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       String javaPackage,
       BuildConfigFields defaultValues,
       Optional<SourcePath> valuesFile,
       boolean useConstantExpressions) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.javaPackage = javaPackage;
     this.defaultValues = defaultValues;
     this.valuesFile = valuesFile;
     this.useConstantExpressions = useConstantExpressions;
     this.pathToOutputFile =
-        BuildTargets.getGenPath(
-                buildRuleParams.getProjectFilesystem(), buildRuleParams.getBuildTarget(), "__%s__")
+        BuildTargets.getGenPath(projectFilesystem, buildTarget, "__%s__")
             .resolve("BuildConfig.java");
   }
 
@@ -179,7 +181,12 @@ public class AndroidBuildConfig extends AbstractBuildRule {
       totalFields = Suppliers.ofInstance(defaultValues);
     }
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToOutputFile.getParent())));
     steps.add(
         new GenerateBuildConfigStep(
             getProjectFilesystem(),
@@ -225,15 +232,9 @@ public class AndroidBuildConfig extends AbstractBuildRule {
     }
 
     @Override
-    public StepExecutionResult execute(ExecutionContext context) {
-      List<String> lines;
-      try {
-        lines = filesystem.readLines(valuesFile);
-      } catch (IOException e) {
-        context.logError(e, "Error reading %s.", valuesFile);
-        return StepExecutionResult.ERROR;
-      }
-      values = BuildConfigFields.fromFieldDeclarations(lines);
+    public StepExecutionResult execute(ExecutionContext context)
+        throws IOException, InterruptedException {
+      values = BuildConfigFields.fromFieldDeclarations(filesystem.readLines(valuesFile));
       return StepExecutionResult.SUCCESS;
     }
 

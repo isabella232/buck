@@ -42,4 +42,6 @@ abstract class AbstractBuildSlaveFinishedStatus {
   abstract int getExitCode();
 
   abstract CacheRateStats getCacheRateStats();
+
+  abstract FileMaterializationStats getFileMaterializationStats();
 }

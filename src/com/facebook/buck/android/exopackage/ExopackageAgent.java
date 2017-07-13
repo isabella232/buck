@@ -29,26 +29,13 @@ import java.util.Optional;
 class ExopackageAgent {
   private static final Logger LOG = Logger.get(ExopackageInstaller.class);
 
-  /** Prefix of the path to the agent apk on the device. */
-  private static final String AGENT_DEVICE_PATH = "/data/app/" + AgentUtil.AGENT_PACKAGE_NAME;
-  /** Command line to invoke the agent on the device. */
-  static final String JAVA_AGENT_COMMAND =
-      "dalvikvm -classpath "
-          + AGENT_DEVICE_PATH
-          + "-1.apk:"
-          + AGENT_DEVICE_PATH
-          + "-2.apk:"
-          + AGENT_DEVICE_PATH
-          + "-1/base.apk:"
-          + AGENT_DEVICE_PATH
-          + "-2/base.apk "
-          + "com.facebook.buck.android.agent.AgentMain ";
-
   private boolean useNativeAgent;
+  private final String classPath;
   private final String nativeAgentPath;
 
-  public ExopackageAgent(boolean useNativeAgent, String nativeAgentPath) {
+  public ExopackageAgent(boolean useNativeAgent, String classPath, String nativeAgentPath) {
     this.useNativeAgent = useNativeAgent;
+    this.classPath = classPath;
     this.nativeAgentPath = nativeAgentPath;
   }
 
@@ -56,7 +43,7 @@ class ExopackageAgent {
    * Sets {@link #useNativeAgent} to true on pre-L devices, because our native agent is built
    * without -fPIC. The java agent works fine on L as long as we don't use it for mkdir.
    */
-  private static boolean determineBestAgent(ExopackageDevice device) throws Exception {
+  private static boolean determineBestAgent(AndroidDevice device) throws Exception {
     String value = device.getProperty("ro.build.version.sdk");
     try {
       if (Integer.valueOf(value.trim()) > 19) {
@@ -72,7 +59,7 @@ class ExopackageAgent {
     if (useNativeAgent) {
       return nativeAgentPath + "/libagent.so ";
     } else {
-      return JAVA_AGENT_COMMAND;
+      return "dalvikvm -classpath " + classPath + " com.facebook.buck.android.agent.AgentMain ";
     }
   }
 
@@ -81,11 +68,11 @@ class ExopackageAgent {
   }
 
   public static ExopackageAgent installAgentIfNecessary(
-      BuckEventBus eventBus, ExopackageDevice device, Path agentApkPath) {
+      BuckEventBus eventBus, AndroidDevice device, Path agentApkPath) {
     try {
       Optional<PackageInfo> agentInfo = device.getPackageInfo(AgentUtil.AGENT_PACKAGE_NAME);
       if (agentInfo.isPresent()
-          && agentInfo.get().versionCode.equals(AgentUtil.AGENT_VERSION_CODE)) {
+          && !agentInfo.get().versionCode.equals(AgentUtil.AGENT_VERSION_CODE)) {
         LOG.debug(
             "Agent version mismatch. Wanted %s, got %s.",
             AgentUtil.AGENT_VERSION_CODE, agentInfo.get().versionCode);
@@ -99,14 +86,15 @@ class ExopackageAgent {
         installAgentApk(eventBus, device, agentApkPath);
         agentInfo = device.getPackageInfo(AgentUtil.AGENT_PACKAGE_NAME);
       }
-      return new ExopackageAgent(determineBestAgent(device), agentInfo.get().nativeLibPath);
+      return new ExopackageAgent(
+          determineBestAgent(device), agentInfo.get().apkPath, agentInfo.get().nativeLibPath);
     } catch (Exception e) {
       Throwables.throwIfUnchecked(e);
       throw new RuntimeException(e);
     }
   }
 
-  private static void uninstallAgent(BuckEventBus eventBus, ExopackageDevice device)
+  private static void uninstallAgent(BuckEventBus eventBus, AndroidDevice device)
       throws InstallException {
     try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "uninstall_old_agent")) {
       device.uninstallPackage(AgentUtil.AGENT_PACKAGE_NAME);
@@ -114,7 +102,7 @@ class ExopackageAgent {
   }
 
   private static void installAgentApk(
-      BuckEventBus eventBus, ExopackageDevice device, Path agentApkPath) throws Exception {
+      BuckEventBus eventBus, AndroidDevice device, Path agentApkPath) throws Exception {
     try (SimplePerfEvent.Scope ignored = SimplePerfEvent.scope(eventBus, "install_agent_apk")) {
       File apkPath = agentApkPath.toFile();
       boolean success =

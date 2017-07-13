@@ -16,16 +16,16 @@
 
 package com.facebook.buck.jvm.java;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
-
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
@@ -46,9 +46,8 @@ import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 @BuildsAnnotationProcessor
-public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, HasClasspathEntries {
-
-  private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
+public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule, HasClasspathEntries {
 
   @AddToRuleKey private final JavaRuntimeLauncher javaRuntimeLauncher;
 
@@ -67,6 +66,8 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
   private final boolean cache;
 
   public JavaBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       JavaRuntimeLauncher javaRuntimeLauncher,
       @Nullable String mainClass,
@@ -77,7 +78,7 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
       ImmutableSet<JavaLibrary> transitiveClasspathDeps,
       ImmutableSet<SourcePath> transitiveClasspaths,
       boolean cache) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.mainClass = mainClass;
     this.manifestFile = manifestFile;
@@ -93,18 +94,16 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
   }
 
   @Override
-  public BuildableProperties getProperties() {
-    return OUTPUT_TYPE;
-  }
-
-  @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     Path outputDirectory = getOutputDirectory();
-    Step mkdir = MkdirStep.of(getProjectFilesystem(), outputDirectory);
+    Step mkdir =
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory));
     commands.add(mkdir);
 
     ImmutableSortedSet<Path> includePaths;
@@ -112,7 +111,10 @@ public class JavaBinary extends AbstractBuildRule implements BinaryBuildRule, Ha
       Path stagingRoot = outputDirectory.resolve("meta_inf_staging");
       Path stagingTarget = stagingRoot.resolve("META-INF");
 
-      commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), stagingRoot));
+      commands.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), stagingRoot)));
 
       commands.add(
           SymlinkFileStep.builder()

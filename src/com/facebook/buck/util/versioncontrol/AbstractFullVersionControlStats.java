@@ -16,20 +16,14 @@
 
 package com.facebook.buck.util.versioncontrol;
 
-import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.fasterxml.jackson.annotation.JsonView;
-import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
-interface AbstractFullVersionControlStats extends CommonVersionControlStats {
-
-  @JsonView(JsonViews.MachineReadableLog.class)
-  ImmutableSet<String> getPathsChangedInWorkingDirectory();
+interface AbstractFullVersionControlStats extends CommonSlowVersionControlStats {
 
   /* The diff between base and current revision if it exists */
   @JsonIgnore

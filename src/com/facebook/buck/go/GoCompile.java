@@ -16,14 +16,16 @@
 
 package com.facebook.buck.go;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SymlinkTree;
@@ -40,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class GoCompile extends AbstractBuildRule {
+public class GoCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final Tool compiler;
   @AddToRuleKey private final Tool assembler;
   @AddToRuleKey private final Tool packer;
@@ -60,6 +62,8 @@ public class GoCompile extends AbstractBuildRule {
   private final Path output;
 
   public GoCompile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SymlinkTree symlinkTree,
       Path packageName,
@@ -72,7 +76,7 @@ public class GoCompile extends AbstractBuildRule {
       Tool assembler,
       Tool packer,
       GoPlatform platform) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.importPathMap = importPathMap;
     this.srcs = srcs;
     this.symlinkTree = symlinkTree;
@@ -117,7 +121,10 @@ public class GoCompile extends AbstractBuildRule {
     ImmutableList<Path> asmSrcs = asmSrcListBuilder.build();
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
 
     Optional<Path> asmHeaderPath;
 
@@ -130,7 +137,12 @@ public class GoCompile extends AbstractBuildRule {
                       "%s/" + getBuildTarget().getShortName() + "__asm_hdr")
                   .resolve("go_asm.h"));
 
-      steps.add(MkdirStep.of(getProjectFilesystem(), asmHeaderPath.get().getParent()));
+      steps.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  asmHeaderPath.get().getParent())));
     } else {
       asmHeaderPath = Optional.empty();
     }
@@ -162,7 +174,11 @@ public class GoCompile extends AbstractBuildRule {
               getProjectFilesystem(),
               getBuildTarget(),
               "%s/" + getBuildTarget().getShortName() + "__asm_includes");
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), asmIncludeDir));
+
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), asmIncludeDir)));
 
       if (!headerSrcs.isEmpty()) {
         // TODO(mikekap): Allow header-map style input.
@@ -181,7 +197,11 @@ public class GoCompile extends AbstractBuildRule {
               getProjectFilesystem(),
               getBuildTarget(),
               "%s/" + getBuildTarget().getShortName() + "__asm_compile");
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), asmOutputDir));
+
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), asmOutputDir)));
 
       ImmutableList.Builder<Path> asmOutputs = ImmutableList.builder();
       for (Path asmSrc : asmSrcs) {
@@ -220,10 +240,5 @@ public class GoCompile extends AbstractBuildRule {
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return new BuildableProperties(BuildableProperties.Kind.LIBRARY);
   }
 }

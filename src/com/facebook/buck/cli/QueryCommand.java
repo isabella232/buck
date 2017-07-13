@@ -21,7 +21,6 @@ import com.facebook.buck.graph.Dot;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
@@ -125,32 +124,30 @@ public class QueryCommand extends AbstractCommand {
                 pool.getExecutor(),
                 params.getCell(),
                 getEnableParserProfiling(),
-                SpeculativeParsing.of(true))) {
-      BuckQueryEnvironment env =
-          BuckQueryEnvironment.from(params, parserState, getEnableParserProfiling());
+                PerBuildState.SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getExecutor();
-      return formatAndRunQuery(params, env, executor);
+      BuckQueryEnvironment env =
+          BuckQueryEnvironment.from(params, parserState, executor, getEnableParserProfiling());
+      return formatAndRunQuery(params, env);
     } catch (QueryException | BuildFileParseException e) {
       throw new HumanReadableException(e);
     }
   }
 
   @VisibleForTesting
-  int formatAndRunQuery(
-      CommandRunnerParams params, BuckQueryEnvironment env, ListeningExecutorService executor)
+  int formatAndRunQuery(CommandRunnerParams params, BuckQueryEnvironment env)
       throws IOException, InterruptedException, QueryException {
     String queryFormat = arguments.get(0);
     List<String> formatArgs = arguments.subList(1, arguments.size());
     if (queryFormat.contains("%Ss")) {
-      return runSingleQueryWithSet(params, env, executor, queryFormat, formatArgs);
+      return runSingleQueryWithSet(params, env, queryFormat, formatArgs);
     } else if (queryFormat.contains("%s")) {
-      return runMultipleQuery(
-          params, env, executor, queryFormat, formatArgs, shouldGenerateJsonOutput());
+      return runMultipleQuery(params, env, queryFormat, formatArgs, shouldGenerateJsonOutput());
     } else if (formatArgs.size() > 0) {
       throw new HumanReadableException(
           "Must not specify format arguments without a %s or %Ss in the query");
     } else {
-      return runSingleQuery(params, env, executor, queryFormat);
+      return runSingleQuery(params, env, queryFormat);
     }
   }
 
@@ -158,7 +155,6 @@ public class QueryCommand extends AbstractCommand {
   int runSingleQueryWithSet(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
-      ListeningExecutorService executor,
       String queryFormat,
       List<String> formatArgs)
       throws InterruptedException, QueryException, IOException {
@@ -166,7 +162,7 @@ public class QueryCommand extends AbstractCommand {
         Joiner.on(' ').join(Iterables.transform(formatArgs, input -> "'" + input + "'"));
     String setRepresentation = "set(" + argsList + ")";
     String formattedQuery = queryFormat.replace("%Ss", setRepresentation);
-    return runSingleQuery(params, env, executor, formattedQuery);
+    return runSingleQuery(params, env, formattedQuery);
   }
 
   /**
@@ -176,7 +172,6 @@ public class QueryCommand extends AbstractCommand {
   static int runMultipleQuery(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
-      ListeningExecutorService executor,
       String queryFormat,
       List<String> inputsFormattedAsBuildTargets,
       boolean generateJsonOutput)
@@ -196,16 +191,16 @@ public class QueryCommand extends AbstractCommand {
     Set<String> targetLiterals = new LinkedHashSet<>();
     for (String input : inputsFormattedAsBuildTargets) {
       String query = queryFormat.replace("%s", input);
-      QueryExpression expr = QueryExpression.parse(query, env.getFunctions());
+      QueryExpression expr = QueryExpression.parse(query, env);
       expr.collectTargetPatterns(targetLiterals);
     }
-    env.preloadTargetPatterns(targetLiterals, executor);
+    env.preloadTargetPatterns(targetLiterals);
 
     // Now execute the query on the arguments one-by-one.
     TreeMultimap<String, QueryTarget> queryResultMap = TreeMultimap.create();
     for (String input : inputsFormattedAsBuildTargets) {
       String query = queryFormat.replace("%s", input);
-      ImmutableSet<QueryTarget> queryResult = env.evaluateQuery(query, executor);
+      ImmutableSet<QueryTarget> queryResult = env.evaluateQuery(query);
       queryResultMap.putAll(input, queryResult);
     }
 
@@ -218,13 +213,9 @@ public class QueryCommand extends AbstractCommand {
     return 0;
   }
 
-  int runSingleQuery(
-      CommandRunnerParams params,
-      BuckQueryEnvironment env,
-      ListeningExecutorService executor,
-      String query)
+  int runSingleQuery(CommandRunnerParams params, BuckQueryEnvironment env, String query)
       throws IOException, InterruptedException, QueryException {
-    ImmutableSet<QueryTarget> queryResult = env.evaluateQuery(query, executor);
+    ImmutableSet<QueryTarget> queryResult = env.evaluateQuery(query);
 
     LOG.debug("Printing out the following targets: " + queryResult);
     if (shouldOutputAttributes()) {

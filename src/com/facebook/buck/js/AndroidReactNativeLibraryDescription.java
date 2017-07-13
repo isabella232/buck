@@ -16,6 +16,7 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -57,11 +58,13 @@ public class AndroidReactNativeLibraryDescription
   @Override
   public AndroidReactNativeLibrary createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       AndroidReactNativeLibraryDescriptionArg args) {
-    return enhancer.enhanceForAndroid(params, resolver, args);
+    return enhancer.enhanceForAndroid(buildTarget, projectFilesystem, params, resolver, args);
   }
 
   @Override

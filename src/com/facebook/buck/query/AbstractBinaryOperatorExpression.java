@@ -35,8 +35,6 @@ import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -105,13 +103,13 @@ abstract class AbstractBinaryOperatorExpression extends QueryExpression {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> eval(QueryEnvironment env, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
+  ImmutableSet<QueryTarget> eval(QueryEvaluator evaluator, QueryEnvironment env)
+      throws QueryException {
     ImmutableList<QueryExpression> operands = getOperands();
-    Set<QueryTarget> lhsValue = new LinkedHashSet<>(operands.get(0).eval(env, executor));
+    Set<QueryTarget> lhsValue = new LinkedHashSet<>(evaluator.eval(operands.get(0), env));
 
     for (int i = 1; i < operands.size(); i++) {
-      Set<QueryTarget> rhsValue = operands.get(i).eval(env, executor);
+      Set<QueryTarget> rhsValue = evaluator.eval(operands.get(i), env);
       switch (getOperator()) {
         case INTERSECT:
           lhsValue.retainAll(rhsValue);
@@ -130,9 +128,11 @@ abstract class AbstractBinaryOperatorExpression extends QueryExpression {
   }
 
   @Override
-  public void collectTargetPatterns(Collection<String> literals) {
-    for (QueryExpression subExpression : getOperands()) {
-      subExpression.collectTargetPatterns(literals);
+  public void traverse(QueryExpression.Visitor visitor) {
+    if (visitor.visit(this) == VisitResult.CONTINUE) {
+      for (QueryExpression subExpression : getOperands()) {
+        subExpression.traverse(visitor);
+      }
     }
   }
 

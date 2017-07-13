@@ -25,6 +25,7 @@ import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Pair;
@@ -34,6 +35,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -53,6 +55,8 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 
 /** Utilities to generate various kinds of Rust compilation. */
@@ -75,9 +79,10 @@ public class RustCompileUtils {
   // - `-C relocation-model=pic/static/default/dynamic-no-pic` according to flavor
   // - `--emit metadata` if flavor is "check"
   // - `--crate-type lib/rlib/dylib/cdylib/staticlib` according to flavor
-  protected static RustCompileRule createBuild(
+  private static RustCompileRule createBuild(
       BuildTarget target,
       String crateName,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -92,7 +97,7 @@ public class RustCompileUtils {
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule)
       throws NoSuchBuildTargetException {
-    ImmutableSortedSet<BuildRule> ruledeps = params.getBuildDeps();
+    SortedSet<BuildRule> ruledeps = params.getBuildDeps();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
 
     Stream.concat(rustConfig.getLinkerArgs(cxxPlatform).stream(), extraLinkerFlags.stream())
@@ -151,11 +156,9 @@ public class RustCompileUtils {
             .stream()
             .flatMap(r -> r.getBuildDeps().stream())
             .collect(MoreCollectors.toImmutableList())) {
-      private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
-
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) {
-        ImmutableSet<BuildRule> deps = empty;
+        SortedSet<BuildRule> deps = ImmutableSortedSet.of();
         if (rule instanceof RustLinkable) {
           deps = rule.getBuildDeps();
 
@@ -200,7 +203,9 @@ public class RustCompileUtils {
     return resolver.addToIndex(
         RustCompileRule.from(
             ruleFinder,
-            params.withBuildTarget(target),
+            target,
+            projectFilesystem,
+            params,
             filename,
             rustConfig.getRustCompiler().resolve(resolver),
             rustConfig
@@ -215,6 +220,8 @@ public class RustCompileUtils {
   }
 
   public static RustCompileRule requireBuild(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -229,7 +236,7 @@ public class RustCompileUtils {
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule)
       throws NoSuchBuildTargetException {
-    BuildTarget target = getCompileBuildTarget(params.getBuildTarget(), cxxPlatform, crateType);
+    BuildTarget target = getCompileBuildTarget(buildTarget, cxxPlatform, crateType);
 
     // If this rule has already been generated, return it.
     Optional<RustCompileRule> existing =
@@ -241,6 +248,7 @@ public class RustCompileUtils {
     return createBuild(
         target,
         crateName,
+        projectFilesystem,
         params,
         resolver,
         ruleFinder,
@@ -281,6 +289,8 @@ public class RustCompileUtils {
   }
 
   public static BinaryWrapperRule createBinaryBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       RustBuckConfig rustBuckConfig,
@@ -297,9 +307,8 @@ public class RustCompileUtils {
       ImmutableSet<String> defaultRoots,
       boolean isCheck)
       throws NoSuchBuildTargetException {
-    final BuildTarget buildTarget = params.getBuildTarget();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
 
@@ -312,12 +321,11 @@ public class RustCompileUtils {
 
     String crate = crateName.orElse(ruleToCrateName(buildTarget.getShortName()));
 
-    CxxPlatform cxxPlatform =
-        cxxPlatforms.getValue(params.getBuildTarget()).orElse(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(buildTarget).orElse(defaultCxxPlatform);
 
     Pair<SourcePath, ImmutableSortedSet<SourcePath>> rootModuleAndSources =
         getRootModuleAndSources(
-            params.getBuildTarget(),
+            buildTarget,
             resolver,
             pathResolver,
             ruleFinder,
@@ -329,10 +337,8 @@ public class RustCompileUtils {
 
     // The target to use for the link rule.
     BuildTarget binaryTarget =
-        params
-            .getBuildTarget()
-            .withAppendedFlavors(
-                isCheck ? RustDescriptionEnhancer.RFCHECK : RustDescriptionEnhancer.RFBIN);
+        buildTarget.withAppendedFlavors(
+            isCheck ? RustDescriptionEnhancer.RFCHECK : RustDescriptionEnhancer.RFBIN);
 
     if (isCheck || !rustBuckConfig.getUnflavoredBinaries()) {
       binaryTarget = binaryTarget.withAppendedFlavors(cxxPlatform.getFlavor());
@@ -348,9 +354,8 @@ public class RustCompileUtils {
       SymlinkTree sharedLibraries =
           resolver.addToIndex(
               CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
-                  ruleFinder,
-                  params.getBuildTarget(),
-                  params.getProjectFilesystem(),
+                  buildTarget,
+                  projectFilesystem,
                   cxxPlatform,
                   params.getBuildDeps(),
                   RustLinkable.class::isInstance,
@@ -359,10 +364,9 @@ public class RustCompileUtils {
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
       Path absBinaryDir =
-          params
-              .getBuildTarget()
+          buildTarget
               .getCellPath()
-              .resolve(RustCompileRule.getOutputDir(binaryTarget, params.getProjectFilesystem()));
+              .resolve(RustCompileRule.getOutputDir(binaryTarget, projectFilesystem));
 
       linkerArgs.addAll(
           Linkers.iXlinker(
@@ -385,9 +389,10 @@ public class RustCompileUtils {
     }
 
     final RustCompileRule buildRule =
-        RustCompileUtils.createBuild(
+        createBuild(
             binaryTarget,
             crate,
+            projectFilesystem,
             params,
             resolver,
             ruleFinder,
@@ -407,7 +412,8 @@ public class RustCompileUtils {
 
     final CommandTool executable = executableBuilder.build();
 
-    return new BinaryWrapperRule(params.copyAppendingExtraDeps(buildRule), ruleFinder) {
+    return new BinaryWrapperRule(
+        buildTarget, projectFilesystem, params.copyAppendingExtraDeps(buildRule)) {
 
       @Override
       public Tool getExecutableCommand() {
@@ -483,11 +489,9 @@ public class RustCompileUtils {
     ImmutableSortedMap.Builder<String, SourcePath> libs = ImmutableSortedMap.naturalOrder();
 
     new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(inputs) {
-      private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
-
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
-        ImmutableSet<BuildRule> deps = empty;
+        Set<BuildRule> deps = ImmutableSet.of();
         if (rule instanceof RustLinkable) {
           deps = rule.getBuildDeps();
 

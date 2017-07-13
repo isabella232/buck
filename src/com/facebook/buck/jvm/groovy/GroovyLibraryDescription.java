@@ -16,10 +16,12 @@
 
 package com.facebook.buck.jvm.groovy;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -52,19 +54,29 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GroovyLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
     JavacOptions javacOptions =
-        JavacOptionsFactory.create(defaultJavacOptions, params, resolver, args);
+        JavacOptionsFactory.create(
+            defaultJavacOptions, buildTarget, projectFilesystem, resolver, args);
     DefaultGroovyLibraryBuilder defaultGroovyLibraryBuilder =
         new DefaultGroovyLibraryBuilder(
-                targetGraph, params, resolver, cellRoots, javacOptions, groovyBuckConfig)
+                targetGraph,
+                buildTarget,
+                projectFilesystem,
+                params,
+                resolver,
+                cellRoots,
+                javacOptions,
+                groovyBuckConfig)
             .setArgs(args);
 
-    return HasJavaAbi.isAbiTarget(params.getBuildTarget())
+    return HasJavaAbi.isAbiTarget(buildTarget)
         ? defaultGroovyLibraryBuilder.buildAbi()
         : defaultGroovyLibraryBuilder.build();
   }

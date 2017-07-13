@@ -37,7 +37,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -80,21 +79,21 @@ public class DepsFunction implements QueryFunction {
   }
 
   private void forEachDep(
+      QueryEvaluator evaluator,
       QueryEnvironment env,
-      ListeningExecutorService executor,
       QueryExpression depsExpression,
       Iterable<QueryTarget> targets,
       Consumer<? super QueryTarget> consumer)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     for (QueryTarget target : targets) {
       Set<QueryTarget> deps =
-          depsExpression.eval(
+          evaluator.eval(
+              depsExpression,
               new TargetVariablesQueryEnvironment(
                   ImmutableMap.of(
                       FirstOrderDepsFunction.NAME,
                       ImmutableSet.copyOf(env.getFwdDeps(ImmutableList.of(target)))),
-                  env),
-              executor);
+                  env));
       deps.forEach(consumer);
     }
   }
@@ -106,13 +105,13 @@ public class DepsFunction implements QueryFunction {
    */
   @Override
   public ImmutableSet<QueryTarget> eval(
-      QueryEnvironment env, ImmutableList<Argument> args, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
-    Set<QueryTarget> argumentSet = args.get(0).getExpression().eval(env, executor);
+      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+      throws QueryException {
+    Set<QueryTarget> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
     int depthBound = args.size() > 1 ? args.get(1).getInteger() : Integer.MAX_VALUE;
     Optional<QueryExpression> deps =
         args.size() > 2 ? Optional.of(args.get(2).getExpression()) : Optional.empty();
-    env.buildTransitiveClosure(argumentSet, depthBound, executor);
+    env.buildTransitiveClosure(argumentSet, depthBound);
 
     // LinkedHashSet preserves the order of insertion when iterating over the values.
     // The order by which we traverse the result is meaningful because the dependencies are
@@ -131,7 +130,7 @@ public class DepsFunction implements QueryFunction {
             }
           };
       if (deps.isPresent()) {
-        forEachDep(env, executor, deps.get(), current, consumer);
+        forEachDep(evaluator, env, deps.get(), current, consumer);
       } else {
         env.forEachFwdDep(current, consumer);
       }
@@ -168,8 +167,8 @@ public class DepsFunction implements QueryFunction {
 
     @Override
     public ImmutableSet<QueryTarget> eval(
-        QueryEnvironment env, ImmutableList<Argument> args, ListeningExecutorService executor)
-        throws QueryException, InterruptedException {
+        QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+        throws QueryException {
       Preconditions.checkArgument(args.size() == 0);
       return env.resolveTargetVariable(getName());
     }

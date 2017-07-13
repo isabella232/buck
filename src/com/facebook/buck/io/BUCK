@@ -39,7 +39,9 @@ java_library(
         "PUBLIC",
     ],
     deps = [
+        "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/util:exceptions",
+        "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/environment:platform",
         "//third-party/java/guava:guava",
         "//third-party/java/jsr:jsr305",
@@ -97,9 +99,9 @@ java_immutables_library(
     srcs = WATCHMAN_SRCS,
     visibility = [
         "//src/com/facebook/buck/cli:cli",
+        "//src/com/facebook/buck/doctor:doctor",
         "//src/com/facebook/buck/json:json",
         "//src/com/facebook/buck/parser:parser",
-        "//src/com/facebook/buck/rage:rage",
         "//src/com/facebook/buck/rules:types",
         "//src/com/facebook/buck/util:watchman",
         "//test/com/facebook/buck/...",
@@ -175,15 +177,17 @@ java_immutables_library(
             TRANSPORT_SRCS
         ),
     ),
+    exported_deps = [
+        ":BuckPaths",
+        ":MorePaths.java",
+        ":ProjectFilesystemDelegate",
+        ":ProjectFilesystemDelegateFactory",
+    ],
     tests = [
         "//test/com/facebook/buck/io:io",
     ],
     visibility = ["PUBLIC"],
     deps = [
-        ":BuckPaths",
-        ":MorePaths.java",
-        ":ProjectFilesystemDelegate",
-        ":ProjectFilesystemDelegateFactory",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/log:api",

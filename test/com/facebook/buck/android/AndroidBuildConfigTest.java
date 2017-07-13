@@ -27,8 +27,8 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -87,7 +87,7 @@ public class AndroidBuildConfigTest {
   }
 
   @Test
-  public void testReadValuesStep() throws IOException {
+  public void testReadValuesStep() throws Exception {
     Path pathToValues = Paths.get("src/values.txt");
 
     ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
@@ -111,8 +111,10 @@ public class AndroidBuildConfigTest {
 
   private static AndroidBuildConfig createSimpleBuildConfigRule() {
     // First, create the BuildConfig object.
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(BUILD_TARGET).build();
+    BuildRuleParams params = TestBuildRuleParams.create();
     return new AndroidBuildConfig(
+        BUILD_TARGET,
+        new FakeProjectFilesystem(),
         params,
         /* javaPackage */ "com.example",
         /* values */ BuildConfigFields.empty(),

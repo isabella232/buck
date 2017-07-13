@@ -16,10 +16,11 @@
 
 package com.facebook.buck.halide;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class HalideCompile extends AbstractBuildRule {
+public class HalideCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final Tool halideCompiler;
 
@@ -44,12 +45,14 @@ public class HalideCompile extends AbstractBuildRule {
   @AddToRuleKey private final Optional<String> functionNameOverride;
 
   public HalideCompile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Tool halideCompiler,
       String targetPlatform,
       Optional<ImmutableList<String>> compilerInvocationFlags,
       Optional<String> functionNameOverride) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.halideCompiler = halideCompiler;
     this.targetPlatform = targetPlatform;
     this.compilerInvocationFlags = compilerInvocationFlags;
@@ -67,7 +70,10 @@ public class HalideCompile extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
-    commands.addAll(MakeCleanDirectoryStep.of(projectFilesystem, outputDir));
+    commands.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)));
 
     commands.add(
         new HalideCompilerStep(

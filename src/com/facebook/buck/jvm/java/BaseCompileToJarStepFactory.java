@@ -87,7 +87,6 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
         sourceFilePaths,
         invokingRule,
         resolver,
-        ruleFinder,
         filesystem,
         declaredClasspathEntries,
         outputDirectory,
@@ -142,7 +141,7 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
    * @return the bootclasspath.
    */
   @SuppressWarnings("unused")
-  Optional<String> getBootClasspath(BuildContext context) {
+  protected Optional<String> getBootClasspath(BuildContext context) {
     return Optional.empty();
   }
 

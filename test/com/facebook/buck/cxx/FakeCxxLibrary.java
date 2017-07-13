@@ -18,12 +18,13 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -37,7 +38,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /** Fake implementation of {@link CxxLibrary} for testing. */
-public final class FakeCxxLibrary extends NoopBuildRule
+public final class FakeCxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements AbstractCxxLibrary, NativeTestable {
 
   private final BuildTarget publicHeaderTarget;
@@ -55,6 +56,8 @@ public final class FakeCxxLibrary extends NoopBuildRule
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
   public FakeCxxLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildTarget publicHeaderTarget,
       BuildTarget publicHeaderSymlinkTreeTarget,
@@ -65,7 +68,7 @@ public final class FakeCxxLibrary extends NoopBuildRule
       Path sharedLibraryOutput,
       String sharedLibrarySoname,
       ImmutableSortedSet<BuildTarget> tests) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.publicHeaderTarget = publicHeaderTarget;
     this.publicHeaderSymlinkTreeTarget = publicHeaderSymlinkTreeTarget;
     this.privateHeaderTarget = privateHeaderTarget;
@@ -90,6 +93,7 @@ public final class FakeCxxLibrary extends NoopBuildRule
                 .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                 .putNameToPathMap(
                     Paths.get("header.h"), new DefaultBuildTargetSourcePath(publicHeaderTarget))
+                .setBuildTarget(publicHeaderSymlinkTreeTarget)
                 .setRoot(new DefaultBuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
                 .build())
         .build();
@@ -100,6 +104,7 @@ public final class FakeCxxLibrary extends NoopBuildRule
     return CxxPreprocessorInput.builder()
         .addIncludes(
             CxxSymlinkTreeHeaders.builder()
+                .setBuildTarget(privateHeaderSymlinkTreeTarget)
                 .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                 .setRoot(new DefaultBuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
                 .putNameToPathMap(
@@ -126,7 +131,10 @@ public final class FakeCxxLibrary extends NoopBuildRule
 
   @Override
   public NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) {
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<LanguageExtensions> languageExtensions) {
     return type == Linker.LinkableDepType.STATIC
         ? NativeLinkableInput.of(
             ImmutableList.of(SourcePathArg.of(archive.getSourcePathToOutput())),

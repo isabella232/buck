@@ -15,24 +15,28 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.SortedSet;
 
 /**
  * Controls how strip tool is invoked. To have better understanding please refer to `man strip`. If
@@ -48,28 +52,30 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
    */
   public static final Flavor RULE_FLAVOR = InternalFlavor.of("stripped");
 
+  @AddToRuleKey private final SourcePath unstrippedBinary;
   @AddToRuleKey private final StripStyle stripStyle;
-  @AddToRuleKey private final SourcePath cxxLinkSourcePath;
   @AddToRuleKey private final Tool strip;
 
   @AddToRuleKey(stringify = true)
   private final Path output;
 
+  private final SourcePathRuleFinder ruleFinder;
+
   public CxxStrip(
-      BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      SourcePath unstrippedBinary,
+      SourcePathRuleFinder ruleFinder,
       StripStyle stripStyle,
-      SourcePath cxxLinkSourcePath,
       Tool strip,
       Path output) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem);
+    this.unstrippedBinary = unstrippedBinary;
+    this.ruleFinder = ruleFinder;
     this.stripStyle = stripStyle;
-    this.cxxLinkSourcePath = cxxLinkSourcePath;
     this.strip = strip;
     this.output = output;
-    performChecks(buildRuleParams.getBuildTarget());
-  }
 
-  private void performChecks(BuildTarget buildTarget) {
     Preconditions.checkArgument(
         buildTarget.getFlavors().contains(RULE_FLAVOR),
         "CxxStrip rule %s should contain %s flavor",
@@ -82,23 +88,28 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
         StripStyle.FLAVOR_DOMAIN.getFlavors());
   }
 
-  public static BuildRuleParams removeStripStyleFlavorInParams(
-      BuildRuleParams params, Optional<StripStyle> flavoredStripStyle) {
-    params = params.withoutFlavor(CxxStrip.RULE_FLAVOR);
+  public static BuildTarget removeStripStyleFlavorInTarget(
+      BuildTarget buildTarget, Optional<StripStyle> flavoredStripStyle) {
+    buildTarget = buildTarget.withoutFlavors(CxxStrip.RULE_FLAVOR);
     if (flavoredStripStyle.isPresent()) {
-      params = params.withoutFlavor(flavoredStripStyle.get().getFlavor());
+      return buildTarget.withoutFlavors(flavoredStripStyle.get().getFlavor());
     }
-    return params;
+    return buildTarget;
   }
 
-  public static BuildRuleParams restoreStripStyleFlavorInParams(
-      BuildRuleParams params, Optional<StripStyle> flavoredStripStyle) {
+  public static BuildTarget restoreStripStyleFlavorInTarget(
+      BuildTarget buildTarget, Optional<StripStyle> flavoredStripStyle) {
     if (flavoredStripStyle.isPresent()) {
       // we should not append CxxStrip.RULE_FLAVOR here because it must be appended
       // to CxxStrip rule only. Other users of CxxStrip flavors must not append it.
-      params = params.withAppendedFlavor(flavoredStripStyle.get().getFlavor());
+      return buildTarget.withAppendedFlavors(flavoredStripStyle.get().getFlavor());
     }
-    return params;
+    return buildTarget;
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(unstrippedBinary));
   }
 
   @Override
@@ -108,7 +119,7 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
     return ImmutableList.of(
         CopyStep.forFile(
             getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(cxxLinkSourcePath),
+            context.getSourcePathResolver().getAbsolutePath(unstrippedBinary),
             output),
         new StripSymbolsStep(
             output,

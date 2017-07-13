@@ -30,6 +30,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -65,10 +66,11 @@ public class HaskellLibraryDescriptionTest {
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
     HaskellLibrary library = builder.build(resolver);
-    library.getCompileInput(CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC);
+    library.getCompileInput(
+        CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
     BuildTarget compileTarget =
         HaskellDescriptionUtils.getCompileBuildTarget(
-            target, CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC);
+            target, CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
     HaskellCompileRule rule = resolver.getRuleWithType(compileTarget, HaskellCompileRule.class);
     assertThat(rule.getFlags(), Matchers.hasItem(flag));
   }
@@ -99,7 +101,8 @@ public class HaskellLibraryDescriptionTest {
                     HaskellLibraryDescription.Type.SHARED.getFlavor()))
             .build(resolver);
 
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     ImmutableList<Path> outputs =
         ImmutableList.of(
                 Preconditions.checkNotNull(staticLib.getSourcePathToOutput()),
@@ -124,7 +127,8 @@ public class HaskellLibraryDescriptionTest {
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     HaskellLibrary library = builder.build(resolver);
 
     // Lookup the link whole flags.
@@ -235,7 +239,8 @@ public class HaskellLibraryDescriptionTest {
             HaskellDescriptionUtils.getCompileBuildTarget(
                 library.getBuildTarget(),
                 CxxPlatformUtils.DEFAULT_PLATFORM,
-                Linker.LinkableDepType.STATIC)));
+                Linker.LinkableDepType.STATIC,
+                false)));
   }
 
   @Test

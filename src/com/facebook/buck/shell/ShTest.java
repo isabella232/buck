@@ -16,6 +16,8 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -27,8 +29,9 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
@@ -58,12 +61,13 @@ import java.util.stream.Stream;
  * script returns a non-zero error code, the test is considered a failure.
  */
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class ShTest extends NoopBuildRule
+public class ShTest extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
   private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final ImmutableList<Arg> args;
   @AddToRuleKey private final ImmutableMap<String, Arg> env;
+  @AddToRuleKey private final Optional<String> type;
 
   @AddToRuleKey
   @SuppressWarnings("PMD.UnusedPrivateField")
@@ -75,6 +79,8 @@ public class ShTest extends NoopBuildRule
   private final ImmutableSet<String> labels;
 
   protected ShTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<Arg> args,
@@ -83,8 +89,9 @@ public class ShTest extends NoopBuildRule
       Optional<Long> testRuleTimeoutMs,
       boolean runTestSeparately,
       Set<String> labels,
+      Optional<String> type,
       ImmutableSet<String> contacts) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.ruleFinder = ruleFinder;
     this.args = args;
     this.env = env;
@@ -92,6 +99,7 @@ public class ShTest extends NoopBuildRule
     this.testRuleTimeoutMs = testRuleTimeoutMs;
     this.runTestSeparately = runTestSeparately;
     this.labels = ImmutableSet.copyOf(labels);
+    this.type = type;
     this.contacts = contacts;
   }
 
@@ -112,7 +120,12 @@ public class ShTest extends NoopBuildRule
       BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    getPathToTestOutputDirectory())))
         .add(
             // Return a single command that runs an .sh file with no arguments.
             new RunShTestAndRecordResultStep(
@@ -138,7 +151,9 @@ public class ShTest extends NoopBuildRule
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext context, boolean isUsingTestSelectors) {
+      final ExecutionContext context,
+      SourcePathResolver pathResolver,
+      boolean isUsingTestSelectors) {
     return () -> {
       Optional<String> resultsFileContents =
           getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
@@ -163,7 +178,7 @@ public class ShTest extends NoopBuildRule
   // A shell test has no real build dependencies.  Instead interpret the dependencies as runtime
   // dependencies, as these are always components that the shell test needs available to run.
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return getBuildDeps().stream().map(BuildRule::getBuildTarget);
   }
 
@@ -193,7 +208,7 @@ public class ShTest extends NoopBuildRule
       BuildContext buildContext) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
-        .setType("custom")
+        .setType(type.orElse("custom"))
         .addAllCommand(Arg.stringify(args, buildContext.getSourcePathResolver()))
         .setEnv(Arg.stringify(env, buildContext.getSourcePathResolver()))
         .addAllLabels(getLabels())

@@ -16,14 +16,17 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -34,13 +37,12 @@ import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
 
-public class CalculateAbiFromClasses extends AbstractBuildRule
+public class CalculateAbiFromClasses extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements CalculateAbi, InitializableFromDisk<Object>, SupportsInputBasedRuleKey {
 
   @AddToRuleKey private final SourcePath binaryJar;
@@ -54,60 +56,73 @@ public class CalculateAbiFromClasses extends AbstractBuildRule
   private final JarContentsSupplier abiJarContentsSupplier;
 
   public CalculateAbiFromClasses(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       SourcePath binaryJar,
       boolean sourceAbiCompatible) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.binaryJar = binaryJar;
     this.sourceAbiCompatible = sourceAbiCompatible;
-    this.outputPath = getAbiJarPath();
+    this.outputPath = getAbiJarPath(getProjectFilesystem(), getBuildTarget());
     this.abiJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
   }
 
   public static CalculateAbiFromClasses of(
       BuildTarget target,
       SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams libraryParams,
       SourcePath library) {
-    return of(target, ruleFinder, libraryParams, library, false);
+    return of(target, ruleFinder, projectFilesystem, libraryParams, library, false);
   }
 
   public static CalculateAbiFromClasses of(
       BuildTarget target,
       SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams libraryParams,
       SourcePath library,
       boolean sourceAbiCompatible) {
     return new CalculateAbiFromClasses(
+        target,
+        projectFilesystem,
         libraryParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library))),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(ruleFinder),
+            .withDeclaredDeps(ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library)))
+            .withoutExtraDeps(),
+        DefaultSourcePathResolver.from(ruleFinder),
         library,
         sourceAbiCompatible);
   }
 
-  private Path getAbiJarPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
-        .resolve(String.format("%s-abi.jar", getBuildTarget().getShortName()));
+  public static Path getAbiJarPath(ProjectFilesystem filesystem, BuildTarget buildTarget) {
+    return BuildTargets.getGenPath(filesystem, buildTarget, "%s")
+        .resolve(String.format("%s-abi.jar", buildTarget.getShortName()));
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), getAbiJarPath().getParent()),
-        RmStep.of(getProjectFilesystem(), getAbiJarPath()),
-        new CalculateAbiFromClassesStep(
-            buildableContext,
-            getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(binaryJar),
-            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()),
-            sourceAbiCompatible));
+    ImmutableList<Step> result =
+        ImmutableList.of(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    outputPath.getParent())),
+            RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputPath)),
+            new CalculateAbiFromClassesStep(
+                getProjectFilesystem(),
+                context.getSourcePathResolver().getAbsolutePath(binaryJar),
+                outputPath,
+                sourceAbiCompatible));
+
+    buildableContext.recordArtifact(outputPath);
+
+    return result;
   }
 
   @Override

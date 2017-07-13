@@ -16,9 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -31,13 +33,11 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Charsets;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -68,6 +68,7 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
 
   @Override
   public SourcePath createUndefinedSymbolsFile(
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
@@ -76,29 +77,33 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
     UndefinedSymbolsFile rule =
         ruleResolver.addToIndex(
             new UndefinedSymbolsFile(
+                target,
+                projectFilesystem,
                 baseParams
-                    .withBuildTarget(target)
-                    .copyReplacingDeclaredAndExtraDeps(
-                        Suppliers.ofInstance(
-                            ImmutableSortedSet.<BuildRule>naturalOrder()
-                                .addAll(nm.getDeps(ruleFinder))
-                                .addAll(ruleFinder.filterBuildRuleInputs(linkerInputs))
-                                .build()),
-                        Suppliers.ofInstance(ImmutableSortedSet.of())),
+                    .withDeclaredDeps(
+                        ImmutableSortedSet.<BuildRule>naturalOrder()
+                            .addAll(nm.getDeps(ruleFinder))
+                            .addAll(ruleFinder.filterBuildRuleInputs(linkerInputs))
+                            .build())
+                    .withoutExtraDeps(),
                 nm,
                 linkerInputs));
     return rule.getSourcePathToOutput();
   }
 
-  private static class UndefinedSymbolsFile extends AbstractBuildRule {
+  private static class UndefinedSymbolsFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     @AddToRuleKey private final Tool nm;
 
     @AddToRuleKey private final Iterable<? extends SourcePath> inputs;
 
     public UndefinedSymbolsFile(
-        BuildRuleParams buildRuleParams, Tool nm, Iterable<? extends SourcePath> inputs) {
-      super(buildRuleParams);
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
+        BuildRuleParams buildRuleParams,
+        Tool nm,
+        Iterable<? extends SourcePath> inputs) {
+      super(buildTarget, projectFilesystem, buildRuleParams);
       this.nm = nm;
       this.inputs = inputs;
     }
@@ -139,14 +144,16 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
                   .build(),
               nm.getEnvironment(context.getSourcePathResolver())) {
             @Override
-            protected void addOptions(
-                ExecutionContext context, ImmutableSet.Builder<ProcessExecutor.Option> options) {
+            protected void addOptions(ImmutableSet.Builder<ProcessExecutor.Option> options) {
               options.add(ProcessExecutor.Option.EXPECTING_STD_OUT);
             }
           };
 
       // Parse the output from running `nm` and write all symbols to the symbol file.
-      MkdirStep mkdirStep = MkdirStep.of(getProjectFilesystem(), output.getParent());
+      MkdirStep mkdirStep =
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent()));
       WriteFileStep writeFileStep =
           new WriteFileStep(
               getProjectFilesystem(),

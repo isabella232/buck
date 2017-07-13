@@ -16,10 +16,8 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
 import com.facebook.buck.android.AndroidLibraryDescription.JvmLanguage;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
@@ -27,19 +25,19 @@ import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.query.QueryUtils;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
@@ -54,11 +52,10 @@ import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
 import javax.annotation.Nullable;
 
 public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackageable {
-
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, LIBRARY);
 
   /**
    * Manifest to associate with this rule. Ultimately, this will be used with the upcoming manifest
@@ -68,6 +65,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
   public static Builder builder(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
@@ -77,6 +76,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       AndroidLibraryCompilerFactory compilerFactory) {
     return new Builder(
         targetGraph,
+        buildTarget,
+        projectFilesystem,
         params,
         buildRuleResolver,
         cellRoots,
@@ -88,6 +89,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
   @VisibleForTesting
   AndroidLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -95,12 +98,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       Set<? extends SourcePath> resources,
       Optional<SourcePath> proguardConfig,
       ImmutableList<String> postprocessClassesCommands,
-      ImmutableSortedSet<BuildRule> fullJarDeclaredDeps,
+      SortedSet<BuildRule> fullJarDeclaredDeps,
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
       ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths,
-      ImmutableSortedSet<SourcePath> abiInputs,
-      BuildTarget abiJar,
+      ZipArchiveDependencySupplier abiClasspath,
+      @Nullable BuildTarget abiJar,
       JavacOptions javacOptions,
       boolean trackClassUsage,
       CompileToJarStepFactory compileStepFactory,
@@ -109,6 +112,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       Optional<SourcePath> manifestFile,
       ImmutableSortedSet<BuildTarget> tests) {
     super(
+        buildTarget,
+        projectFilesystem,
         params,
         resolver,
         ruleFinder,
@@ -121,7 +126,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         fullJarExportedDeps,
         fullJarProvidedDeps,
         compileTimeClasspathSourcePaths,
-        abiInputs,
+        abiClasspath,
         abiJar,
         trackClassUsage,
         compileStepFactory,
@@ -131,11 +136,6 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         tests,
         javacOptions.getClassesToRemoveFromJar());
     this.manifestFile = manifestFile;
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   public Optional<SourcePath> getManifestFile() {
@@ -152,6 +152,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
     protected Builder(
         TargetGraph targetGraph,
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         BuildRuleResolver buildRuleResolver,
         CellPathResolver cellRoots,
@@ -159,7 +161,14 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         JavacOptions javacOptions,
         AndroidLibraryDescription.CoreArg args,
         AndroidLibraryCompilerFactory compilerFactory) {
-      super(targetGraph, params, buildRuleResolver, cellRoots, javaBuckConfig);
+      super(
+          targetGraph,
+          buildTarget,
+          projectFilesystem,
+          params,
+          buildRuleResolver,
+          cellRoots,
+          javaBuckConfig);
       this.args = args;
       this.compilerFactory = compilerFactory;
       setJavacOptions(javacOptions);
@@ -177,17 +186,11 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       language = androidArgs.getLanguage().orElse(AndroidLibraryDescription.JvmLanguage.JAVA);
 
       if (androidArgs.getProvidedDepsQuery().isPresent()) {
+        Query providedDepsQuery = androidArgs.getProvidedDepsQuery().get();
+        Preconditions.checkNotNull(providedDepsQuery.getResolvedQuery());
         setProvidedDeps(
             RichStream.from(args.getProvidedDeps())
-                .concat(
-                    QueryUtils.resolveDepQuery(
-                            initialParams.getBuildTarget(),
-                            androidArgs.getProvidedDepsQuery().get(),
-                            buildRuleResolver,
-                            cellRoots,
-                            targetGraph,
-                            args.getProvidedDeps())
-                        .map(BuildRule::getBuildTarget))
+                .concat(providedDepsQuery.getResolvedQuery().stream())
                 .toImmutableSortedSet(Ordering.natural()));
       }
       return setManifestFile(androidArgs.getManifest());
@@ -219,6 +222,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       @Override
       protected DefaultJavaLibrary build() throws NoSuchBuildTargetException {
         return new AndroidLibrary(
+            initialBuildTarget,
+            projectFilesystem,
             getFinalParams(),
             sourcePathResolver,
             ruleFinder,
@@ -230,7 +235,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
             fullJarExportedDeps,
             fullJarProvidedDeps,
             getFinalCompileTimeClasspathSourcePaths(),
-            getAbiInputs(),
+            getAbiClasspath(),
             getAbiJar(),
             Preconditions.checkNotNull(javacOptions),
             getAndroidCompiler().trackClassUsage(Preconditions.checkNotNull(javacOptions)),
@@ -251,8 +256,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
       protected AndroidLibraryGraphEnhancer getGraphEnhancer() {
         if (graphEnhancer == null) {
-          BuildTarget buildTarget = initialParams.getBuildTarget();
-          if (HasJavaAbi.isAbiTarget(buildTarget)) {
+          BuildTarget buildTarget = initialBuildTarget;
+          if (HasJavaAbi.isAbiTarget(initialBuildTarget)) {
             buildTarget = HasJavaAbi.getLibraryTarget(buildTarget);
           }
 
@@ -262,13 +267,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
           graphEnhancer =
               new AndroidLibraryGraphEnhancer(
                   buildTarget,
-                  initialParams
-                      .withBuildTarget(buildTarget)
-                      .copyReplacingExtraDeps(
-                          () ->
-                              ImmutableSortedSet.copyOf(
-                                  Iterables.concat(
-                                      queriedDepsSupplier.get(), exportedDepsSupplier.get()))),
+                  projectFilesystem,
+                  initialParams.withExtraDeps(
+                      () ->
+                          ImmutableSortedSet.copyOf(
+                              Iterables.concat(
+                                  queriedDepsSupplier.get(), exportedDepsSupplier.get()))),
                   getJavac(),
                   javacOptions,
                   DependencyMode.FIRST_ORDER,
@@ -284,13 +288,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         return args.getDepsQuery().isPresent()
             ? Suppliers.memoize(
                 () ->
-                    QueryUtils.resolveDepQuery(
-                            initialParams.getBuildTarget(),
-                            args.getDepsQuery().get(),
-                            buildRuleResolver,
-                            cellRoots,
-                            targetGraph,
-                            args.getDeps())
+                    Preconditions.checkNotNull(args.getDepsQuery().get().getResolvedQuery())
+                        .stream()
+                        .map(buildRuleResolver::getRule)
                         .collect(MoreCollectors.toImmutableList()))
             : ImmutableList::of;
       }

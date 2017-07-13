@@ -16,7 +16,9 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -42,6 +44,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
   private AndroidBinary apkUnderTest;
 
   AndroidInstrumentationApk(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> proGuardJarOverride,
@@ -52,6 +56,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
       AndroidGraphEnhancementResult enhancementResult,
       ListeningExecutorService dxExecutorService) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams,
         ruleFinder,
         proGuardJarOverride,

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.python;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
-
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -25,7 +25,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -38,18 +37,15 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 
 public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps {
 
-  private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
-
-  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Tool builder;
   @AddToRuleKey private final ImmutableList<String> buildArgs;
   private final Tool pathToPexExecuter;
@@ -59,9 +55,10 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   private final boolean cache;
 
   private PythonPackagedBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Supplier<ImmutableSortedSet<BuildRule>> originalDeclareDeps,
-      SourcePathRuleFinder ruleFinder,
+      Supplier<? extends SortedSet<BuildRule>> originalDeclareDeps,
       PythonPlatform pythonPlatform,
       Tool builder,
       ImmutableList<String> buildArgs,
@@ -74,6 +71,8 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
       boolean cache,
       boolean legacyOutputPath) {
     super(
+        buildTarget,
+        projectFilesystem,
         params,
         originalDeclareDeps,
         pythonPlatform,
@@ -82,7 +81,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
         preloadLibraries,
         pexExtension,
         legacyOutputPath);
-    this.ruleFinder = ruleFinder;
     this.builder = builder;
     this.buildArgs = buildArgs;
     this.pathToPexExecuter = pathToPexExecuter;
@@ -93,6 +91,8 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   }
 
   static PythonPackagedBinary from(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
@@ -107,15 +107,16 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
       boolean cache,
       boolean legacyOutputPath) {
     return new PythonPackagedBinary(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(
+        buildTarget,
+        projectFilesystem,
+        params
+            .withDeclaredDeps(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(components.getDeps(ruleFinder))
                     .addAll(builder.getDeps(ruleFinder))
-                    .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+                    .build())
+            .withoutExtraDeps(),
         params.getDeclaredDeps(),
-        ruleFinder,
         pythonPlatform,
         builder,
         buildArgs,
@@ -127,11 +128,6 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
         preloadLibraries,
         cache,
         legacyOutputPath);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return OUTPUT_TYPE;
   }
 
   @Override
@@ -149,15 +145,26 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
     Path binPath = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
 
     // Make sure the parent directory exists.
-    steps.add(MkdirStep.of(getProjectFilesystem(), binPath.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), binPath.getParent())));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(RmStep.of(getProjectFilesystem(), binPath).withRecursive(true));
+    steps.add(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), binPath))
+            .withRecursive(true));
 
     Path workingDirectory =
         BuildTargets.getGenPath(
             getProjectFilesystem(), getBuildTarget(), "__%s__working_directory");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), workingDirectory));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), workingDirectory)));
 
     SourcePathResolver resolver = context.getSourcePathResolver();
 
@@ -190,9 +197,9 @@ public class PythonPackagedBinary extends PythonBinary implements HasRuntimeDeps
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return RichStream.<BuildTarget>empty()
-        .concat(super.getRuntimeDeps())
+        .concat(super.getRuntimeDeps(ruleFinder))
         .concat(pathToPexExecuter.getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
   }
 

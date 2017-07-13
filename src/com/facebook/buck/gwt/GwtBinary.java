@@ -16,12 +16,13 @@
 
 package com.facebook.buck.gwt;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -50,7 +51,7 @@ import java.util.List;
  * Buildable that produces a GWT application as a WAR file, which is a zip of the outputs produced
  * by the GWT compiler.
  */
-public class GwtBinary extends AbstractBuildRule {
+public class GwtBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   /**
    * Valid values for the GWT Compiler's {@code -style} flag. Acceptable values are defined in the
@@ -81,6 +82,8 @@ public class GwtBinary extends AbstractBuildRule {
 
   /** @param modules The GWT modules to build with the GWT compiler. */
   GwtBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableSortedSet<String> modules,
       JavaRuntimeLauncher javaRuntimeLauncher,
@@ -92,11 +95,10 @@ public class GwtBinary extends AbstractBuildRule {
       boolean strict,
       List<String> experimentalArgs,
       ImmutableSortedSet<SourcePath> gwtModuleJars) {
-    super(buildRuleParams);
-    BuildTarget buildTarget = buildRuleParams.getBuildTarget();
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.outputFile =
         BuildTargets.getGenPath(
-            buildRuleParams.getProjectFilesystem(),
+            projectFilesystem,
             buildTarget,
             "__gwt_binary_%s__/" + buildTarget.getShortNameAndFlavorPostfix() + ".zip");
     this.modules = modules;
@@ -129,11 +131,17 @@ public class GwtBinary extends AbstractBuildRule {
     Path workingDirectory =
         context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()).getParent();
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
-    steps.addAll(MakeCleanDirectoryStep.of(projectFilesystem, workingDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), workingDirectory)));
 
     // Write the deploy files into a separate directory so that the generated .zip is smaller.
     final Path deployDirectory = workingDirectory.resolve("deploy");
-    steps.add(MkdirStep.of(projectFilesystem, deployDirectory));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), deployDirectory)));
 
     Step javaStep =
         new ShellStep(projectFilesystem.getRootPath()) {

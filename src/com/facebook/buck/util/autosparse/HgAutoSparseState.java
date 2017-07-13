@@ -21,7 +21,6 @@ import com.facebook.buck.util.versioncontrol.HgCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.SparseSummary;
 import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileInputStream;
@@ -33,9 +32,7 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -63,30 +60,36 @@ public class HgAutoSparseState implements AutoSparseState {
 
   private final Path hgRoot;
   private final HgCmdLineInterface hgCmdLine;
+  private final String revisionId;
   private final Set<Path> hgSparseSeen;
-  private final Set<Path> hgKnownDirectories;
-  private final Set<Path> hgDirectParents;
   private final Set<Path> ignoredPaths;
 
-  private Map<Path, ManifestInfo> hgManifest;
+  private ManifestTrie hgManifest;
   private boolean hgManifestLoaded;
 
   public HgAutoSparseState(
-      HgCmdLineInterface hgCmdLineInterface, Path scRoot, AutoSparseConfig autoSparseConfig) {
+      HgCmdLineInterface hgCmdLineInterface,
+      Path scRoot,
+      String revisionId,
+      AutoSparseConfig autoSparseConfig) {
     this.hgRoot = scRoot;
     this.hgCmdLine = hgCmdLineInterface;
+    this.revisionId = revisionId;
     this.hgSparseSeen = new HashSet<Path>();
-    this.hgKnownDirectories = new HashSet<Path>();
-    this.hgDirectParents = new HashSet<Path>();
     this.ignoredPaths = autoSparseConfig.ignoredPaths();
 
-    this.hgManifest = ImmutableMap.<Path, ManifestInfo>of();
+    this.hgManifest = new ManifestTrie();
     this.hgManifestLoaded = false;
   }
 
   @Override
   public Path getSCRoot() throws InterruptedException {
     return Preconditions.checkNotNull(hgCmdLine.getHgRoot());
+  }
+
+  @Override
+  public String getRevisionId() {
+    return revisionId;
   }
 
   @Override
@@ -138,11 +141,11 @@ public class HgAutoSparseState implements AutoSparseState {
       return false;
     }
     Path relativePath = hgRoot.relativize(path);
-    if (hgKnownDirectories.contains(relativePath)) {
+    if (hgManifest.containsDirectory(relativePath)) {
       return true;
     }
     ManifestInfo manifestInfo = getManifestInfoForFile(path);
-    return manifestInfo != null ? true : false;
+    return manifestInfo != null;
   }
 
   @Override
@@ -156,7 +159,7 @@ public class HgAutoSparseState implements AutoSparseState {
       }
       parent = parent.getParent();
     }
-    // Obtain hg manifest and directories
+    // Obtain hg manifest
     try {
       loadHgManifest();
     } catch (VersionControlCommandFailedException | InterruptedException e) {
@@ -166,9 +169,9 @@ public class HgAutoSparseState implements AutoSparseState {
     if (hgManifest.isEmpty()) {
       return;
     }
-    // Any parent files not in the manifest, or not a direct parent of a file in the manifest
+    // Any path not in the manifest, or not a direct parent of a file in the manifest
     // is ignored.
-    if (!hgManifest.containsKey(relativePath) && !hgDirectParents.contains(relativePath)) {
+    if (!hgManifest.containsManifest(relativePath) && !hgManifest.containsLeafNodes(relativePath)) {
       LOG.debug("Not adding unknown file or directory %s to sparse profile", relativePath);
       return;
     }
@@ -177,7 +180,7 @@ public class HgAutoSparseState implements AutoSparseState {
       // don't add the project directory directly
       return;
     }
-    if (hgManifest.containsKey(relativePath)) {
+    if (hgManifest.containsManifest(relativePath)) {
       Path directory = relativePath.getParent();
       if (directory != null && !ignoredPaths.contains(directory)) {
         relativePath = directory;
@@ -199,7 +202,6 @@ public class HgAutoSparseState implements AutoSparseState {
                       // doesn't care what the filesystem encoding is and just stores the raw bytes.
                       System.getProperty("file.encoding", "UTF-8"))); ) {
 
-        hgManifest = new HashMap<Path, ManifestInfo>();
         String line;
         while ((line = reader.readLine()) != null) {
           String parts[] = line.split("\0", 2);
@@ -208,10 +210,10 @@ public class HgAutoSparseState implements AutoSparseState {
             continue;
           }
           Path path = Paths.get(parts[0]);
-          String hash = "";
+          // We ignore the hash portion of the manifest entry, no need to bloat up memory with
+          // data we don't use.
           String flag = "";
           try {
-            hash = parts[1].substring(0, 40);
             flag = parts[1].substring(40);
           } catch (IndexOutOfBoundsException e) {
             // not a valid raw manifest line, skip
@@ -223,13 +225,7 @@ public class HgAutoSparseState implements AutoSparseState {
             continue;
           }
 
-          Path directory = path.getParent();
-          hgDirectParents.add(directory);
-          while (directory != null) {
-            hgKnownDirectories.add(directory);
-            directory = directory.getParent();
-          }
-          hgManifest.put(path, ManifestInfo.of(hash, flag));
+          hgManifest.add(path, ManifestInfo.of(flag));
         }
 
       } catch (IOException e) {

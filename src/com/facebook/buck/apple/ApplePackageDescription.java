@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -72,26 +73,30 @@ public class ApplePackageDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       ApplePackageDescriptionArg args)
       throws NoSuchBuildTargetException {
     final BuildRule bundle =
-        resolver.getRule(propagateFlavorsToTarget(params.getBuildTarget(), args.getBundle()));
+        resolver.getRule(propagateFlavorsToTarget(buildTarget, args.getBundle()));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     final Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
         getApplePackageConfig(
-            params.getBuildTarget(),
+            buildTarget,
             MacroArg.toMacroArgFunction(
                 AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER,
-                params.getBuildTarget(),
+                buildTarget,
                 cellRoots,
                 resolver));
     if (applePackageConfigAndPlatformInfo.isPresent()) {
       return new ExternallyBuiltApplePackage(
-          params.copyReplacingExtraDeps(
+          buildTarget,
+          projectFilesystem,
+          params.withExtraDeps(
               () ->
                   ImmutableSortedSet.<BuildRule>naturalOrder()
                       .add(bundle)
@@ -105,7 +110,7 @@ public class ApplePackageDescription
           Preconditions.checkNotNull(bundle.getSourcePathToOutput()),
           bundle.isCacheable());
     } else {
-      return new BuiltinApplePackage(params, bundle);
+      return new BuiltinApplePackage(buildTarget, projectFilesystem, params, bundle);
     }
   }
 

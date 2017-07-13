@@ -16,21 +16,21 @@
 
 package com.facebook.buck.jvm.java;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
@@ -54,17 +54,16 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
 
 @BuildsAnnotationProcessor
-public class PrebuiltJar extends AbstractBuildRuleWithResolver
+public class PrebuiltJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements AndroidPackageable,
         ExportDependencies,
         HasClasspathEntries,
         InitializableFromDisk<JavaLibrary.Data>,
         JavaLibrary,
         SupportsInputBasedRuleKey {
-
-  private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
   @AddToRuleKey private final SourcePath binaryJar;
   private final JarContentsSupplier binaryJarContentsSupplier;
@@ -84,6 +83,8 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
   private final BuildOutputInitializer<Data> buildOutputInitializer;
 
   public PrebuiltJar(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePath binaryJar,
@@ -92,7 +93,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
       Optional<String> javadocUrl,
       Optional<String> mavenCoords,
       final boolean provided) {
-    super(params, resolver);
+    super(buildTarget, projectFilesystem, params);
     this.binaryJar = binaryJar;
     this.sourceJar = sourceJar;
     this.gwtJar = gwtJar;
@@ -129,12 +130,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
             getProjectFilesystem(), getBuildTarget(), "__%s__/" + fileNameWithJarExtension);
     this.binaryJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
 
-    buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return OUTPUT_TYPE;
+    buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   public Optional<SourcePath> getSourceJar() {
@@ -208,7 +204,7 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getExportedDeps() {
+  public SortedSet<BuildRule> getExportedDeps() {
     return getDeclaredDeps();
   }
 
@@ -235,7 +231,10 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
         copiedBinaryJar);
 
     if (resolver.getFilesystem(binaryJar).isDirectory(resolvedBinaryJar)) {
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), copiedBinaryJar));
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), copiedBinaryJar)));
       steps.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
@@ -256,13 +255,23 @@ public class PrebuiltJar extends AbstractBuildRuleWithResolver
                     getBuildTarget().getFullyQualifiedName()));
       }
 
-      steps.add(MkdirStep.of(getProjectFilesystem(), copiedBinaryJar.getParent()));
+      steps.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  copiedBinaryJar.getParent())));
       steps.add(CopyStep.forFile(getProjectFilesystem(), resolvedBinaryJar, copiedBinaryJar));
     }
     buildableContext.recordArtifact(copiedBinaryJar);
 
     JavaLibraryRules.addAccumulateClassNamesStep(
-        this, buildableContext, context.getSourcePathResolver(), steps);
+        getBuildTarget(),
+        getProjectFilesystem(),
+        getSourcePathToOutput(),
+        buildableContext,
+        context,
+        steps);
 
     return steps.build();
   }

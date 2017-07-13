@@ -18,9 +18,9 @@ package com.facebook.buck.message_ipc;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.shell.FakeWorkerProcess;
-import com.facebook.buck.shell.WorkerJobResult;
-import com.facebook.buck.shell.WorkerProcess;
+import com.facebook.buck.worker.FakeWorkerProcess;
+import com.facebook.buck.worker.WorkerJobResult;
+import com.facebook.buck.worker.WorkerProcess;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 import org.hamcrest.Matchers;
@@ -53,7 +53,8 @@ public class ConnectionTest {
                     Optional.of("{\"type\":\"ReturnResultMessage\",\"value\":42}"),
                     Optional.empty())));
     workerProcess.ensureLaunchAndHandshake();
-    MessageTransport messageTransport = new MessageTransport(workerProcess, messageSerializer);
+    MessageTransport messageTransport =
+        new MessageTransport(workerProcess, messageSerializer, () -> {});
 
     try (Connection<RemoteInterface> connection = new Connection<>(messageTransport)) {
       connection.setRemoteInterface(RemoteInterface.class, RemoteInterface.class.getClassLoader());
@@ -78,7 +79,8 @@ public class ConnectionTest {
                     Optional.of("{\"type\":\"ReturnResultMessage\",\"value\":false}"),
                     Optional.empty())));
     workerProcess.ensureLaunchAndHandshake();
-    MessageTransport messageTransport = new MessageTransport(workerProcess, messageSerializer);
+    MessageTransport messageTransport =
+        new MessageTransport(workerProcess, messageSerializer, () -> {});
 
     try (Connection<RemoteInterface> connection = new Connection<>(messageTransport)) {
       connection.setRemoteInterface(RemoteInterface.class, RemoteInterface.class.getClassLoader());
@@ -100,7 +102,8 @@ public class ConnectionTest {
                     Optional.of("{\"type\":\"ReturnResultMessage\",\"value\":true}"),
                     Optional.empty())));
     workerProcess.ensureLaunchAndHandshake();
-    MessageTransport messageTransport = new MessageTransport(workerProcess, messageSerializer);
+    MessageTransport messageTransport =
+        new MessageTransport(workerProcess, messageSerializer, () -> {});
 
     try (Connection<RemoteInterface> connection = new Connection<>(messageTransport)) {
       connection.setRemoteInterface(RemoteInterface.class, RemoteInterface.class.getClassLoader());

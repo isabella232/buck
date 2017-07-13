@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.OmnibusRoot;
 import com.facebook.buck.cxx.OmnibusRoots;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -170,6 +171,8 @@ public class PythonUtil {
   }
 
   static PythonPackageComponents getAllComponents(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
@@ -184,7 +187,7 @@ public class PythonUtil {
       throws NoSuchBuildTargetException {
 
     final PythonPackageComponents.Builder allComponents =
-        new PythonPackageComponents.Builder(params.getBuildTarget());
+        new PythonPackageComponents.Builder(buildTarget);
 
     final Map<BuildTarget, CxxPythonExtension> extensions = new LinkedHashMap<>();
     final Map<BuildTarget, NativeLinkable> nativeLinkableRoots = new LinkedHashMap<>();
@@ -192,7 +195,7 @@ public class PythonUtil {
     final OmnibusRoots.Builder omnibusRoots = OmnibusRoots.builder(cxxPlatform, preloadDeps);
 
     // Add the top-level components.
-    allComponents.addComponent(packageComponents, params.getBuildTarget());
+    allComponents.addComponent(packageComponents, buildTarget);
 
     // Walk all our transitive deps to build our complete package that we'll
     // turn into an executable.
@@ -245,6 +248,8 @@ public class PythonUtil {
       OmnibusRoots roots = omnibusRoots.build();
       OmnibusLibraries libraries =
           Omnibus.getSharedLibraries(
+              buildTarget,
+              projectFilesystem,
               params,
               ruleResolver,
               ruleFinder,
@@ -265,14 +270,14 @@ public class PythonUtil {
               Preconditions.checkNotNull(
                   roots.getIncludedRoots().get(root.getKey()),
                   "%s: linked unexpected omnibus root: %s",
-                  params.getBuildTarget(),
+                  buildTarget,
                   root.getKey());
           NativeLinkTargetMode mode = target.getNativeLinkTargetMode(cxxPlatform);
           String soname =
               Preconditions.checkNotNull(
                   mode.getLibraryName().orElse(null),
                   "%s: omnibus library for %s was built without soname",
-                  params.getBuildTarget(),
+                  buildTarget,
                   root.getKey());
           allComponents.addNativeLibraries(
               Paths.get(soname), root.getValue().getPath(), root.getKey());
@@ -282,7 +287,7 @@ public class PythonUtil {
       // Add all remaining libraries as native libraries.
       for (OmnibusLibrary library : libraries.getLibraries()) {
         allComponents.addNativeLibraries(
-            Paths.get(library.getSoname()), library.getPath(), params.getBuildTarget());
+            Paths.get(library.getSoname()), library.getPath(), buildTarget);
       }
     } else {
 

@@ -43,7 +43,7 @@ import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
@@ -60,15 +60,10 @@ import com.facebook.buck.rules.BuildRuleCacheEvent;
 import com.facebook.buck.rules.BuildRuleDurationTracker;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
@@ -84,6 +79,7 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
@@ -97,7 +93,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import com.google.gson.Gson;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
@@ -149,22 +144,15 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testSimpleBuild() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
-
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget cachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget, cachedTarget);
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
-    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, pathResolver, ImmutableSortedSet.of());
-    FakeBuildRule cachedRule =
-        new FakeBuildRule(cachedTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, ImmutableSortedSet.of());
+    FakeBuildRule cachedRule = new FakeBuildRule(cachedTarget, ImmutableSortedSet.of());
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
@@ -225,7 +213,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.3s",
-            " |=> //banana:stand...  0.1s (checking_cache)"));
+            " |=> //banana:stand...  0.1s (preparing)"));
 
     BuildRuleCacheEvent.CacheStepStarted cacheStepStarted =
         BuildRuleCacheEvent.started(fakeRule, BuildRuleCacheEvent.CacheStepType.INPUT_BASED);
@@ -255,7 +243,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.3s",
-            " |=> //banana:stand...  0.1s (checking_cache)"));
+            " |=> //banana:stand...  0.1s (preparing)"));
 
     ArtifactCompressionEvent.Started compressStarted =
         ArtifactCompressionEvent.started(
@@ -286,7 +274,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.3s",
-            " |=> //banana:stand...  0.1s (checking_cache)"));
+            " |=> //banana:stand...  0.1s (preparing)"));
 
     DirArtifactCacheEvent.DirArtifactCacheEventFactory dirArtifactCacheEventFactory =
         new DirArtifactCacheEvent.DirArtifactCacheEventFactory();
@@ -321,7 +309,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.4s",
-            " |=> //banana:stand...  0.2s (checking_cache)"));
+            " |=> //banana:stand...  0.2s (preparing)"));
 
     String stepShortName = "doing_something";
     String stepDescription = "working hard";
@@ -380,7 +368,7 @@ public class SuperConsoleEventBusListenerTest {
             DOWNLOAD_STRING,
             "[+] BUILDING...0.7s",
             " |=> IDLE",
-            " |=> //chicken:dance...  0.1s (checking_cache)"));
+            " |=> //chicken:dance...  0.1s (preparing)"));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -539,22 +527,15 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testSimpleBuildWithProgress() throws IOException {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
-
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     BuildTarget cachedTarget = BuildTargetFactory.newInstance("//chicken:dance");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget, cachedTarget);
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
-    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, pathResolver, ImmutableSortedSet.of());
-    FakeBuildRule cachedRule =
-        new FakeBuildRule(cachedTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, ImmutableSortedSet.of());
+    FakeBuildRule cachedRule = new FakeBuildRule(cachedTarget, ImmutableSortedSet.of());
 
     ProgressEstimator e = new ProgressEstimator(getStorageForTest(), eventBus);
     listener.setProgressEstimator(e);
@@ -611,7 +592,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.4s" + " [0%] (0/10 JOBS, 0 UPDATED, " + "0 [0.0%] CACHE MISS)",
-            " |=> //banana:stand...  0.2s (checking_cache)"));
+            " |=> //banana:stand...  0.2s (preparing)"));
 
     String stepShortName = "doing_something";
     String stepDescription = "working hard";
@@ -674,7 +655,7 @@ public class SuperConsoleEventBusListenerTest {
             DOWNLOAD_STRING,
             "[+] BUILDING...0.7s [10%] (1/10 JOBS, 1 UPDATED, 1 [10.0%] CACHE MISS)",
             " |=> IDLE",
-            " |=> //chicken:dance...  0.1s (checking_cache)"));
+            " |=> //chicken:dance...  0.1s (preparing)"));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -710,7 +691,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testSimpleDistBuildWithProgress() throws IOException {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
@@ -1015,20 +996,13 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testSimpleTest() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
-
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
     ImmutableSet<BuildTarget> testTargets = ImmutableSet.of(testTarget);
     Iterable<String> testArgs = Iterables.transform(testTargets, Object::toString);
-    FakeBuildRule testBuildRule =
-        new FakeBuildRule(testTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule testBuildRule = new FakeBuildRule(testTarget, ImmutableSortedSet.of());
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
@@ -1089,7 +1063,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.4s",
-            " |=> //:test...  0.2s (checking_cache)"));
+            " |=> //:test...  0.2s (preparing)"));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -1266,20 +1240,13 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testSkippedTest() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
-
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
     ImmutableSet<BuildTarget> testTargets = ImmutableSet.of(testTarget);
     Iterable<String> testArgs = Iterables.transform(testTargets, Object::toString);
-    FakeBuildRule testBuildRule =
-        new FakeBuildRule(testTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule testBuildRule = new FakeBuildRule(testTarget, ImmutableSortedSet.of());
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
         new ProjectBuildFileParseEvents.Started();
@@ -1340,7 +1307,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.4s",
-            " |=> //:test...  0.2s (checking_cache)"));
+            " |=> //:test...  0.2s (preparing)"));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -1517,20 +1484,14 @@ public class SuperConsoleEventBusListenerTest {
 
   @Test
   public void testFailingTest() {
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     TestConsole console = new TestConsole();
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
     ImmutableSet<BuildTarget> testTargets = ImmutableSet.of(testTarget);
     Iterable<String> testArgs = Iterables.transform(testTargets, Object::toString);
-    FakeBuildRule testBuildRule =
-        new FakeBuildRule(testTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule testBuildRule = new FakeBuildRule(testTarget, ImmutableSortedSet.of());
 
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
@@ -1605,7 +1566,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.4s",
-            " |=> //:test...  0.2s (checking_cache)"));
+            " |=> //:test...  0.2s (preparing)"));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -1790,19 +1751,13 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testBuildRuleSuspendResumeEvents() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
-
-    SourcePathResolver pathResolver =
-        new SourcePathResolver(
-            new SourcePathRuleFinder(
-                new BuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(fakeTarget);
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
-    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, pathResolver, ImmutableSortedSet.of());
+    FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, ImmutableSortedSet.of());
     String stepShortName = "doing_something";
     String stepDescription = "working hard";
     UUID stepUuid = UUID.randomUUID();
@@ -1876,7 +1831,7 @@ public class SuperConsoleEventBusListenerTest {
             parsingLine,
             DOWNLOAD_STRING,
             "[+] BUILDING...0.3s",
-            " |=> //banana:stand...  0.1s (checking_cache)"));
+            " |=> //banana:stand...  0.1s (preparing)"));
 
     // Post events that run another step.
     StepEvent.Started step2EventStarted =
@@ -1929,7 +1884,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void debugConsoleEventShouldNotPrintLogLineToConsole() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     eventBus.postWithoutConfiguring(
@@ -1944,7 +1899,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testParsingStatus() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     // new daemon instance & action graph cache miss
@@ -1990,7 +1945,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testAutoSparseUpdates() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     AutoSparseStateEvents.SparseRefreshStarted sparseRefreshStarted =
@@ -2048,7 +2003,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testProjectGeneration() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     eventBus.postWithoutConfiguring(
@@ -2067,7 +2022,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testProjectGenerationWithProgress() throws IOException {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     Path storagePath = getStorageForTest();
@@ -2079,7 +2034,7 @@ public class SuperConsoleEventBusListenerTest {
                     .put(ProgressEstimator.EXPECTED_NUMBER_OF_GENERATED_PROJECT_FILES, 10)
                     .build())
             .build();
-    String contents = new Gson().toJson(storageContents);
+    String contents = ObjectMappers.WRITER.writeValueAsString(storageContents);
     Files.createDirectories(storagePath.getParent());
     Files.write(storagePath, contents.getBytes(StandardCharsets.UTF_8));
 
@@ -2114,7 +2069,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testPostingEventBeforeAnyLines() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     eventBus.post(ConsoleEvent.info("Hello world!"));
@@ -2137,7 +2092,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void renderLinesWithLineLimit() throws IOException {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     try (SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus)) {
 
       FakeMultiStateRenderer fakeRenderer =
@@ -2218,7 +2173,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void timestampsInLocaleWithDecimalCommaFormatCorrectly() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
             new SuperConsoleConfig(FakeBuckConfig.builder().build()),
@@ -2250,7 +2205,7 @@ public class SuperConsoleEventBusListenerTest {
   @Test
   public void testBuildTimeDoesNotDisplayNegativeOffset() {
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock);
     SuperConsoleEventBusListener listener = createSuperConsole(fakeClock, eventBus);
 
     BuildTarget fakeTarget = BuildTargetFactory.newInstance("//banana:stand");

@@ -16,9 +16,11 @@
 
 package com.facebook.buck.rust;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -61,7 +63,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class RustTest extends AbstractBuildRule
+public class RustTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements BinaryBuildRule, TestRule, ExternalTestRunnerRule, HasRuntimeDeps {
 
   private final ImmutableSet<String> labels;
@@ -74,18 +76,17 @@ public class RustTest extends AbstractBuildRule
   private static final Pattern FAILURES_LIST_PATTERN = Pattern.compile("^failures:$");
   private final Path testOutputFile;
   private final Path testStdoutFile;
-  private final SourcePathRuleFinder ruleFinder;
 
   protected RustTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathRuleFinder ruleFinder,
       BinaryBuildRule testExeBuild,
       ImmutableSet<String> labels,
       ImmutableSet<String> contacts) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
 
     this.testExeBuild = testExeBuild;
-    this.ruleFinder = ruleFinder;
     this.labels = labels;
     this.contacts = contacts;
     this.testOutputFile = getProjectFilesystem().resolve(getPathToTestResults());
@@ -100,7 +101,10 @@ public class RustTest extends AbstractBuildRule
       TestReportingCallback testReportingCallback) {
     Path workingDirectory = getProjectFilesystem().resolve(getPathToTestOutputDirectory());
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), workingDirectory))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), getProjectFilesystem(), workingDirectory)))
         .add(
             new AbstractTestStep(
                 "rust test",
@@ -117,7 +121,9 @@ public class RustTest extends AbstractBuildRule
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      ExecutionContext executionContext, boolean isUsingTestSelectors) {
+      ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
+      boolean isUsingTestSelectors) {
     return () -> {
       ImmutableList<TestCaseSummary> summaries = ImmutableList.of();
       summaries =
@@ -280,7 +286,7 @@ public class RustTest extends AbstractBuildRule
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
             getDeclaredDeps().stream(), getExecutableCommand().getDeps(ruleFinder).stream())
         .map(BuildRule::getBuildTarget);

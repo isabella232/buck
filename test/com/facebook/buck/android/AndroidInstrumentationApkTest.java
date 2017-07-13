@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
@@ -31,14 +32,16 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,14 +56,13 @@ public class AndroidInstrumentationApkTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     BuildTarget javaLibrary1Target = BuildTargetFactory.newInstance("//java/com/example:lib1");
-    final FakeJavaLibrary javaLibrary1 = new FakeJavaLibrary(javaLibrary1Target, pathResolver);
+    final FakeJavaLibrary javaLibrary1 = new FakeJavaLibrary(javaLibrary1Target);
 
     FakeJavaLibrary javaLibrary2 =
         new FakeJavaLibrary(
             BuildTargetFactory.newInstance("//java/com/example:lib2"),
-            pathResolver,
             /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary1)) {
 
           @Override
@@ -71,12 +73,11 @@ public class AndroidInstrumentationApkTest {
         };
 
     BuildTarget javaLibrary3Target = BuildTargetFactory.newInstance("//java/com/example:lib3");
-    final FakeJavaLibrary javaLibrary3 = new FakeJavaLibrary(javaLibrary3Target, pathResolver);
+    final FakeJavaLibrary javaLibrary3 = new FakeJavaLibrary(javaLibrary3Target);
 
     FakeJavaLibrary javaLibrary4 =
         new FakeJavaLibrary(
             BuildTargetFactory.newInstance("//java/com/example:lib4"),
-            pathResolver,
             /* deps */ ImmutableSortedSet.of((BuildRule) javaLibrary3)) {
           @Override
           public ImmutableSet<SourcePath> getTransitiveClasspaths() {
@@ -119,11 +120,11 @@ public class AndroidInstrumentationApkTest {
             .setManifest(new FakeSourcePath("apps/InstrumentationAndroidManifest.xml"))
             .build();
 
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params =
-        new FakeBuildRuleParamsBuilder(buildTarget)
-            .setDeclaredDeps(ruleResolver.getAllRules(apkOriginalDepsTargets))
-            .setExtraDeps(ImmutableSortedSet.of(androidBinary))
-            .build();
+        TestBuildRuleParams.create()
+            .withDeclaredDeps(ruleResolver.getAllRules(apkOriginalDepsTargets))
+            .withExtraDeps(ImmutableSortedSet.of(androidBinary));
     AndroidInstrumentationApk androidInstrumentationApk =
         (AndroidInstrumentationApk)
             new AndroidInstrumentationApkDescription(
@@ -136,9 +137,11 @@ public class AndroidInstrumentationApkTest {
                     new DxConfig(FakeBuckConfig.builder().build()))
                 .createBuildRule(
                     TargetGraph.EMPTY,
+                    buildTarget,
+                    projectFilesystem,
                     params,
                     ruleResolver,
-                    TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+                    TestCellBuilder.createCellRoots(projectFilesystem),
                     arg);
 
     assertEquals(

@@ -17,9 +17,11 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.resources.ResourcesZipBuilder;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -62,7 +64,7 @@ import java.util.zip.ZipFile;
  * <p>Android's ApkBuilder seemingly would do this, but it doesn't actually compress the assets that
  * are added.
  */
-public class MergeAssets extends AbstractBuildRule {
+public class MergeAssets extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   // TODO(cjhopman): This should be an input-based rule, but the asset directories are from symlink
   // trees and the file hash caches don't currently handle those correctly. The symlink trees
   // shouldn't actually be necessary anymore as we can just take the full list of source paths
@@ -71,11 +73,15 @@ public class MergeAssets extends AbstractBuildRule {
   @AddToRuleKey private Optional<SourcePath> baseApk;
 
   public MergeAssets(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> baseApk,
       ImmutableSortedSet<SourcePath> assetsDirectories) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams.copyAppendingExtraDeps(
             ImmutableSortedSet.copyOf(
                 ruleFinder.filterBuildRuleInputs(
@@ -91,35 +97,36 @@ public class MergeAssets extends AbstractBuildRule {
     TreeMultimap<Path, Path> assets = TreeMultimap.create();
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
     steps.addAll(
-        MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToMergedAssets().getParent()));
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                getPathToMergedAssets().getParent())));
     steps.add(
         new AbstractExecutionStep("finding_assets") {
           @Override
           public StepExecutionResult execute(ExecutionContext context)
               throws IOException, InterruptedException {
             for (SourcePath sourcePath : assetsDirectories) {
-              try {
-                Path relativePath = pathResolver.getRelativePath(sourcePath);
-                Path absolutePath = pathResolver.getAbsolutePath(sourcePath);
-                ProjectFilesystem assetFilesystem = pathResolver.getFilesystem(sourcePath);
-                assetFilesystem.walkFileTree(
-                    relativePath,
-                    new SimpleFileVisitor<Path>() {
-                      @Override
-                      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                          throws IOException {
-                        Preconditions.checkState(
-                            !Files.getFileExtension(file.toString()).equals("gz"),
-                            "BUCK doesn't support adding .gz files to assets (%s).",
-                            file);
-                        assets.put(absolutePath, absolutePath.relativize(file));
-                        return super.visitFile(file, attrs);
-                      }
-                    });
-              } catch (IOException e) {
-                throw new RuntimeException(e);
-              }
+              Path relativePath = pathResolver.getRelativePath(sourcePath);
+              Path absolutePath = pathResolver.getAbsolutePath(sourcePath);
+              ProjectFilesystem assetFilesystem = pathResolver.getFilesystem(sourcePath);
+              assetFilesystem.walkFileTree(
+                  relativePath,
+                  new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                        throws IOException {
+                      Preconditions.checkState(
+                          !Files.getFileExtension(file.toString()).equals("gz"),
+                          "BUCK doesn't support adding .gz files to assets (%s).",
+                          file);
+                      assets.put(absolutePath, absolutePath.relativize(file));
+                      return super.visitFile(file, attrs);
+                    }
+                  });
             }
             return StepExecutionResult.SUCCESS;
           }

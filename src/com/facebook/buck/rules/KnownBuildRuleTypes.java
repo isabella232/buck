@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.android.AndroidAarDescription;
+import com.facebook.buck.android.AndroidAppModularityDescription;
 import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidBuildConfigDescription;
@@ -91,6 +92,7 @@ import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.haskell.HaskellBinaryDescription;
 import com.facebook.buck.haskell.HaskellBuckConfig;
+import com.facebook.buck.haskell.HaskellGhciDescription;
 import com.facebook.buck.haskell.HaskellLibraryDescription;
 import com.facebook.buck.haskell.HaskellPrebuiltLibraryDescription;
 import com.facebook.buck.io.ExecutableFinder;
@@ -326,8 +328,7 @@ public class KnownBuildRuleTypes {
           appleCxxPlatform.getCxxPlatform().getFlavor(), appleCxxPlatform.getCxxPlatform());
     }
 
-    CxxPlatform defaultHostCxxPlatform =
-        DefaultCxxPlatforms.build(platform, filesystem, cxxBuckConfig);
+    CxxPlatform defaultHostCxxPlatform = DefaultCxxPlatforms.build(platform, cxxBuckConfig);
     cxxSystemPlatformsBuilder.put(defaultHostCxxPlatform.getFlavor(), defaultHostCxxPlatform);
     ImmutableMap<Flavor, CxxPlatform> cxxSystemPlatformsMap = cxxSystemPlatformsBuilder.build();
 
@@ -436,6 +437,12 @@ public class KnownBuildRuleTypes {
     JavacOptions defaultJavacOptions = javaConfig.getDefaultJavacOptions();
     JavaOptions defaultJavaOptions = javaConfig.getDefaultJavaOptions();
     JavaOptions defaultJavaOptionsForTests = javaConfig.getDefaultJavaOptionsForTests();
+    CxxPlatform defaultJavaCxxPlatform =
+        javaConfig
+            .getDefaultCxxPlatform()
+            .map(InternalFlavor::of)
+            .map(cxxPlatforms::getValue)
+            .orElse(defaultCxxPlatform);
 
     KotlinBuckConfig kotlinBuckConfig = new KotlinBuckConfig(config);
 
@@ -495,10 +502,14 @@ public class KnownBuildRuleTypes {
     builder.register(
         new HaskellBinaryDescription(haskellBuckConfig, cxxPlatforms, defaultCxxPlatform));
     builder.register(new HaskellPrebuiltLibraryDescription());
+    builder.register(
+        new HaskellGhciDescription(
+            haskellBuckConfig, cxxBuckConfig, cxxPlatforms, defaultCxxPlatform));
 
     if (javaConfig.getDxThreadCount().isPresent()) {
       LOG.warn("java.dx_threads has been deprecated. Use dx.max_threads instead");
     }
+
     // Create an executor service exclusively for the smart dexing step.
     ListeningExecutorService dxExecutorService =
         MoreExecutors.listeningDecorator(
@@ -518,6 +529,7 @@ public class KnownBuildRuleTypes {
             javaConfig,
             defaultJavacOptions,
             ndkCxxPlatforms));
+    builder.register(new AndroidAppModularityDescription());
     builder.register(
         new AndroidBinaryDescription(
             javaConfig,
@@ -616,7 +628,7 @@ public class KnownBuildRuleTypes {
     builder.register(new IosReactNativeLibraryDescription(reactNativeBuckConfig));
     builder.register(
         new JavaBinaryDescription(
-            defaultJavaOptions, defaultJavacOptions, defaultCxxPlatform, javaConfig));
+            defaultJavaOptions, defaultJavacOptions, defaultJavaCxxPlatform, javaConfig));
     builder.register(new JavaAnnotationProcessorDescription());
     builder.register(new JavaLibraryDescription(javaConfig, defaultJavacOptions));
     builder.register(
@@ -625,14 +637,16 @@ public class KnownBuildRuleTypes {
             defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
-            defaultCxxPlatform));
+            defaultJavaCxxPlatform));
     builder.register(new JsBundleDescription());
     builder.register(new JsLibraryDescription());
     builder.register(new KeystoreDescription());
-    builder.register(new KotlinLibraryDescription(kotlinBuckConfig));
+    builder.register(
+        new KotlinLibraryDescription(kotlinBuckConfig, javaConfig, defaultJavacOptions));
     builder.register(
         new KotlinTestDescription(
             kotlinBuckConfig,
+            javaConfig,
             defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs));

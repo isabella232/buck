@@ -23,14 +23,15 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
@@ -99,13 +100,13 @@ public class PrecompiledHeaderFeatureTest {
                   "foo.c", preconfiguredCxxSourceBuilder().build());
       boolean hasPchFlag =
           commandLineContainsPchFlag(
-              new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+              DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
               rule,
               toolType,
               headerFilename);
       boolean hasPrefixFlag =
           commandLineContainsPrefixFlag(
-              new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+              DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
               rule,
               toolType,
               headerFilename);
@@ -195,7 +196,7 @@ public class PrecompiledHeaderFeatureTest {
                               250,
                               File.separatorChar,
                               Paths.get("."),
-                              ImmutableBiMap.of(from, Paths.get("melon")))))
+                              ImmutableBiMap.of(from, "melon"))))
                   .setPrefixHeader(new FakeSourcePath(("foo.pch")))
                   .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
                   .build();
@@ -233,7 +234,7 @@ public class PrecompiledHeaderFeatureTest {
               preconfiguredSourceRuleFactoryBuilder(resolver)
                   .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
                   .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
-                  .putAllCompilerFlags(CxxSource.Type.C_CPP_OUTPUT, flags)
+                  .putAllCompilerFlags(CxxSource.Type.C_CPP_OUTPUT, StringArg.from(flags))
                   .setPrefixHeader(new FakeSourcePath(("foo.h")))
                   .build();
           BuildRule rule =
@@ -271,7 +272,8 @@ public class PrecompiledHeaderFeatureTest {
                   .setCxxPreprocessorInput(
                       ImmutableList.of(
                           CxxPreprocessorInput.builder()
-                              .setPreprocessorFlags(ImmutableMultimap.of(CxxSource.Type.C, flags))
+                              .setPreprocessorFlags(
+                                  ImmutableMultimap.of(CxxSource.Type.C, StringArg.of(flags)))
                               .build()))
                   .setPrefixHeader(new FakeSourcePath(("foo.h")))
                   .build();
@@ -388,11 +390,11 @@ public class PrecompiledHeaderFeatureTest {
   private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
       String targetPath, BuildRuleResolver ruleResolver) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance(targetPath);
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     return CxxSourceRuleFactory.builder()
-        .setParams(params)
+        .setProjectFilesystem(new FakeProjectFilesystem())
+        .setBaseBuildTarget(target)
         .setResolver(ruleResolver)
         .setPathResolver(pathResolver)
         .setRuleFinder(ruleFinder)

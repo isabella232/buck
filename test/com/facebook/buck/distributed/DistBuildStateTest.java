@@ -16,6 +16,8 @@
 
 package com.facebook.buck.distributed;
 
+import static com.facebook.buck.distributed.DistBuildConfig.SERVER_BUCKCONFIG_OVERRIDE;
+import static com.facebook.buck.distributed.DistBuildConfig.STAMPEDE_SECTION;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -27,7 +29,7 @@ import com.facebook.buck.config.Config;
 import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
@@ -44,6 +46,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.PathSourcePath;
@@ -66,6 +69,7 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
@@ -129,10 +133,77 @@ public class DistBuildStateTest {
         new TestCellBuilder().setFilesystem(createJavaOnlyFilesystem("/loading")).build();
     DistBuildState distributedBuildState =
         DistBuildState.load(
-            Optional.empty(), dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
+            FakeBuckConfig.builder().build(),
+            dump,
+            rootCellWhenLoading,
+            knownBuildRuleTypesFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(cells.get(0).getBuckConfig(), Matchers.equalTo(buckConfig));
+  }
+
+  @Test
+  public void reconstructedServerConfigIncludesSpecifiedOverride()
+      throws IOException, InterruptedException {
+    ProjectFilesystem filesystem = createJavaOnlyFilesystem("/saving");
+    filesystem.writeLinesToPath(
+        ImmutableList.of(
+            String.format("[%s]", STAMPEDE_SECTION),
+            String.format("%s=%s", SERVER_BUCKCONFIG_OVERRIDE, "dummy_override_value")),
+        filesystem.getRootPath().resolve("server-cfg"));
+
+    Config config =
+        ConfigBuilder.createFromText(
+            String.format("[%s]", STAMPEDE_SECTION),
+            String.format("%s=%s", SERVER_BUCKCONFIG_OVERRIDE, "server-cfg"));
+    BuckConfig buckConfig =
+        new BuckConfig(
+            config,
+            filesystem,
+            Architecture.detect(),
+            Platform.detect(),
+            ImmutableMap.<String, String>builder()
+                .putAll(System.getenv())
+                .put("envKey", "envValue")
+                .build(),
+            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+    Cell rootCellWhenSaving =
+        new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
+
+    Config serverConfig =
+        ConfigBuilder.createFromText(
+            filesystem.readFileIfItExists(filesystem.getPath("server-cfg")).get());
+    BuckConfig serverBuckConfig =
+        new BuckConfig(
+            serverConfig,
+            filesystem,
+            Architecture.detect(),
+            Platform.detect(),
+            ImmutableMap.<String, String>builder()
+                .putAll(System.getenv())
+                .put("envKey", "envValue")
+                .build(),
+            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+
+    BuildJobState dump =
+        DistBuildState.dump(
+            new DistBuildCellIndexer(rootCellWhenSaving),
+            emptyActionGraph(),
+            createDefaultCodec(rootCellWhenSaving, Optional.empty()),
+            createTargetGraph(filesystem),
+            ImmutableSet.of(BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:dummy")));
+    Cell rootCellWhenLoading =
+        new TestCellBuilder().setFilesystem(createJavaOnlyFilesystem("/loading")).build();
+    DistBuildState distributedBuildState =
+        DistBuildState.load(
+            FakeBuckConfig.builder().build(),
+            dump,
+            rootCellWhenLoading,
+            knownBuildRuleTypesFactory);
+    ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
+
+    assertThat(cells, Matchers.aMapWithSize(1));
+    assertThat(cells.get(0).getBuckConfig(), Matchers.equalTo(serverBuckConfig));
   }
 
   @Test
@@ -157,7 +228,7 @@ public class DistBuildStateTest {
             constructorArgMarshaller);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            BuckEventBusFactory.newInstance(),
+            BuckEventBusForTests.newInstance(),
             cell,
             /* enableProfiling */ false,
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
@@ -181,7 +252,10 @@ public class DistBuildStateTest {
         new TestCellBuilder().setFilesystem(createJavaOnlyFilesystem("/loading")).build();
     DistBuildState distributedBuildState =
         DistBuildState.load(
-            Optional.empty(), dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
+            FakeBuckConfig.builder().build(),
+            dump,
+            rootCellWhenLoading,
+            knownBuildRuleTypesFactory);
 
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
@@ -201,35 +275,6 @@ public class DistBuildStateTest {
             .map(p -> new PathSourcePath(reconstructedCellFilesystem, p))
             .map(ImmutableSortedSet::of)
             .collect(Collectors.toList()));
-  }
-
-  @Test
-  public void throwsOnPlatformMismatch() throws IOException, InterruptedException {
-    ProjectFilesystem filesystem = createJavaOnlyFilesystem("/opt/buck");
-    Config config = new Config(ConfigBuilder.rawFromLines());
-    BuckConfig buckConfig =
-        new BuckConfig(
-            config,
-            filesystem,
-            Architecture.MIPSEL,
-            Platform.UNKNOWN,
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            new DefaultCellPathResolver(filesystem.getRootPath(), config));
-    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
-
-    BuildJobState dump =
-        DistBuildState.dump(
-            new DistBuildCellIndexer(cell),
-            emptyActionGraph(),
-            createDefaultCodec(cell, Optional.empty()),
-            createTargetGraph(filesystem),
-            ImmutableSet.of(BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:dummy")));
-
-    expectedException.expect(IllegalStateException.class);
-    DistBuildState.load(Optional.empty(), dump, cell, knownBuildRuleTypesFactory);
   }
 
   @Test
@@ -289,8 +334,7 @@ public class DistBuildStateTest {
                 .build(),
             new DefaultCellPathResolver(cell1Root, localConfig));
     DistBuildState distributedBuildState =
-        DistBuildState.load(
-            Optional.of(localBuckConfig), dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
+        DistBuildState.load(localBuckConfig, dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));
 
@@ -309,7 +353,7 @@ public class DistBuildStateTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");
     Cell rootCell =
         new TestCellBuilder()
@@ -321,7 +365,9 @@ public class DistBuildStateTest {
         sourcePathResolver,
         ruleFinder,
         new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem))),
+            ImmutableList.of(
+                DefaultFileHashCache.createDefaultFileHashCache(
+                    projectFilesystem, FileHashCacheMode.PREFIX_TREE))),
         new DistBuildCellIndexer(rootCell),
         MoreExecutors.newDirectExecutorService(),
         /* keySeed */ 0,
@@ -330,7 +376,7 @@ public class DistBuildStateTest {
 
   public static DistBuildTargetGraphCodec createDefaultCodec(
       final Cell cell, final Optional<Parser> parser) {
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
     Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {

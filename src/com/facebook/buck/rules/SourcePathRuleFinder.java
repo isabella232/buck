@@ -17,13 +17,12 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import java.util.Arrays;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 public class SourcePathRuleFinder {
 
@@ -33,19 +32,19 @@ public class SourcePathRuleFinder {
     this.ruleResolver = ruleResolver;
   }
 
-  public ImmutableSet<BuildRule> filterBuildRuleInputs(Stream<? extends SourcePath> sources) {
+  public final Function<SourcePath, Stream<BuildRule>> FILTER_BUILD_RULE_INPUTS =
+      path -> Optionals.toStream(getRule(path));
+
+  public ImmutableSet<BuildRule> filterBuildRuleInputs(Iterable<? extends SourcePath> sources) {
     return RichStream.from(sources)
-        .filter(BuildTargetSourcePath.class)
-        .map(input -> ruleResolver.getRule(input.getTarget()))
+        .flatMap(FILTER_BUILD_RULE_INPUTS)
         .collect(MoreCollectors.toImmutableSet());
   }
 
-  public ImmutableSet<BuildRule> filterBuildRuleInputs(Iterable<? extends SourcePath> sources) {
-    return filterBuildRuleInputs(StreamSupport.stream(sources.spliterator(), false));
-  }
-
   public ImmutableSet<BuildRule> filterBuildRuleInputs(SourcePath... sources) {
-    return filterBuildRuleInputs(Arrays.stream(sources));
+    return RichStream.of(sources)
+        .flatMap(FILTER_BUILD_RULE_INPUTS)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   /**
@@ -55,14 +54,14 @@ public class SourcePathRuleFinder {
    */
   public Optional<BuildRule> getRule(SourcePath sourcePath) {
     if (sourcePath instanceof BuildTargetSourcePath) {
-      return Optional.of(getRuleOrThrow((BuildTargetSourcePath) sourcePath));
+      return Optional.of(getRule((BuildTargetSourcePath) sourcePath));
     } else {
       return Optional.empty();
     }
   }
 
   /** @return The {@link BuildRule} whose output {@code sourcePath} refers to its output. */
-  public BuildRule getRuleOrThrow(BuildTargetSourcePath sourcePath) {
-    return Preconditions.checkNotNull(ruleResolver.getRule(sourcePath.getTarget()));
+  public BuildRule getRule(BuildTargetSourcePath sourcePath) {
+    return ruleResolver.getRule(sourcePath.getTarget());
   }
 }

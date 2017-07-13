@@ -42,9 +42,9 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
@@ -54,6 +54,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
@@ -73,8 +74,8 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.Verbosity;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.zip.CustomJarOutputStream;
 import com.facebook.buck.zip.ZipOutputStreams;
@@ -314,7 +315,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     JavaLibrary parentRule = (JavaLibrary) ruleResolver.requireRule(parentTarget);
 
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     Path root = libraryOneRule.getProjectFilesystem().getRootPath();
     assertEquals(
@@ -389,7 +390,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         (DefaultJavaLibrary) ruleResolver.requireRule(libraryTwoTarget);
 
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     List<Step> steps =
         libraryTwoRule.getBuildSteps(
@@ -434,7 +435,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     SourcePath sourcePath = annotationProcessorAbiRule.getSourcePathToOutput();
     assertFalse(
         "The predicate for dep file shouldn't contain annotation processor deps",
-        libraryTwo.getCoveredByDepFilePredicate().test(sourcePath));
+        libraryTwo
+            .getCoveredByDepFilePredicate(
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver)))
+            .test(sourcePath));
   }
 
   /** Verify adding an annotation processor java binary with options. */
@@ -530,7 +534,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     BuildRule notIncluded = ruleResolver.requireRule(notIncludedNode.getBuildTarget());
     BuildRule included = ruleResolver.requireRule(includedNode.getBuildTarget());
@@ -656,8 +660,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
 
-    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class)));
-    assertThat(steps, Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacStep.class))));
+    assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacStep.class)));
     assertThat(steps, Matchers.not(Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class))));
   }
 
@@ -680,8 +683,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
 
-    assertThat(
-        steps, Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
     assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacStep.class)));
     assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
   }
@@ -705,8 +706,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ImmutableList<Step> steps =
         javaLibraryBuildRule.getBuildSteps(buildContext, new FakeBuildableContext());
 
-    assertThat(
-        steps, Matchers.not(Matchers.hasItem(Matchers.instanceOf(JavacDirectToJarStep.class))));
     assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JavacStep.class)));
     assertThat(steps, Matchers.hasItem(Matchers.instanceOf(JarDirectoryStep.class)));
   }
@@ -716,7 +715,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   public void testInputBasedRuleKeySourceChange() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Setup a Java library consuming a source generated by a genrule and grab its rule key.
     BuildRule genSrc =
@@ -731,8 +730,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .addSrc(genSrc.getSourcePathToOutput())
             .build(ruleResolver, filesystem);
     FileHashCache originalHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
@@ -752,8 +750,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .addSrc(genSrc.getSourcePathToOutput())
             .build(ruleResolver, filesystem);
     FileHashCache unaffectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, unaffectedHashCache, pathResolver, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
@@ -773,8 +770,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .addSrc(genSrc.getSourcePathToOutput())
             .build(ruleResolver, filesystem);
     FileHashCache affectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, affectedHashCache, pathResolver, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
@@ -799,7 +795,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     JavaLibrary dep = (JavaLibrary) ruleResolver.requireRule(depNode.getBuildTarget());
     JavaLibrary library = (JavaLibrary) ruleResolver.requireRule(libraryNode.getBuildTarget());
@@ -813,8 +809,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "Source.class",
         "ABI JAR contents");
     FileHashCache originalHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
@@ -831,7 +826,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     dep = (JavaLibrary) ruleResolver.requireRule(depNode.getBuildTarget());
     library = (JavaLibrary) ruleResolver.requireRule(libraryNode.getBuildTarget());
@@ -839,8 +834,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     filesystem.writeContentsToPath(
         "different JAR contents", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, unaffectedHashCache, pathResolver, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
@@ -850,7 +844,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     dep = (JavaLibrary) ruleResolver.requireRule(depNode.getBuildTarget());
     library = (JavaLibrary) ruleResolver.requireRule(libraryNode.getBuildTarget());
@@ -862,8 +856,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "Source.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, affectedHashCache, pathResolver, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
@@ -895,7 +888,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     JavaLibrary exportedDep =
         (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
@@ -912,8 +905,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "ABI JAR contents");
 
     FileHashCache originalHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
@@ -931,7 +923,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -940,8 +932,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "different JAR contents",
         pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, unaffectedHashCache, pathResolver, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
@@ -951,7 +942,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -963,8 +954,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, affectedHashCache, pathResolver, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
@@ -1002,7 +992,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     JavaLibrary exportedDep =
         (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
@@ -1018,8 +1008,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "Source1.class",
         "ABI JAR contents");
     FileHashCache originalHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     InputBasedRuleKeyFactory factory =
         new InputBasedRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
     RuleKey originalRuleKey = factory.build(library);
@@ -1037,7 +1026,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -1046,8 +1035,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "different JAR contents",
         pathResolver.getRelativePath(exportedDep.getSourcePathToOutput()));
     FileHashCache unaffectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, unaffectedHashCache, pathResolver, ruleFinder);
     RuleKey unaffectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, equalTo(unaffectedRuleKey));
@@ -1057,7 +1045,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     exportedDep = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:edep"));
     library = (JavaLibrary) ruleResolver.requireRule(BuildTargetFactory.newInstance("//:lib"));
@@ -1069,8 +1057,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "Source1.class",
         "changed ABI JAR contents");
     FileHashCache affectedHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     factory = new InputBasedRuleKeyFactory(0, affectedHashCache, pathResolver, ruleFinder);
     RuleKey affectedRuleKey = factory.build(library);
     assertThat(originalRuleKey, Matchers.not(equalTo(affectedRuleKey)));
@@ -1092,9 +1079,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .toSortedSet(Ordering.natural());
 
     BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(buildTarget)
-            .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
-            .build();
+        TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.copyOf(deps));
 
     JavacOptions javacOptions =
         spoolMode.isPresent()
@@ -1104,6 +1089,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     DefaultJavaLibrary defaultJavaLibrary =
         DefaultJavaLibrary.builder(
                 TargetGraph.EMPTY,
+                buildTarget,
+                new FakeProjectFilesystem(),
                 buildRuleParams,
                 ruleResolver,
                 TestCellPathResolver.get(projectFilesystem),
@@ -1136,7 +1123,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     BuildRuleResolver resolver1 =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder1 = new SourcePathRuleFinder(resolver1);
-    SourcePathResolver pathResolver1 = new SourcePathResolver(ruleFinder1);
+    SourcePathResolver pathResolver1 = DefaultSourcePathResolver.from(ruleFinder1);
     DefaultJavaLibrary rule1 =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//lib:lib"))
             .addSrc(Paths.get("agifhbkjdec.java"))
@@ -1152,7 +1139,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     BuildRuleResolver resolver2 =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder2 = new SourcePathRuleFinder(resolver2);
-    SourcePathResolver pathResolver2 = new SourcePathResolver(ruleFinder2);
+    SourcePathResolver pathResolver2 = DefaultSourcePathResolver.from(ruleFinder2);
     DefaultJavaLibrary rule2 =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//lib:lib"))
             .addSrc(Paths.get("cfiabkjehgd.java"))
@@ -1201,7 +1188,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ImmutableList<Step> steps =
         buildRule.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(
-                new SourcePathResolver(new SourcePathRuleFinder(ruleResolver))),
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))),
             new FakeBuildableContext());
 
     assertEquals(12, steps.size());
@@ -1226,7 +1213,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     BuildRule javac = ruleResolver.requireRule(javacTarget);
     BuildRule rule = ruleResolver.requireRule(libraryOneTarget);
@@ -1235,7 +1222,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ImmutableList<Step> steps =
         buildable.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(
-                new SourcePathResolver(new SourcePathRuleFinder(ruleResolver))),
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))),
             new FakeBuildableContext());
     assertEquals(12, steps.size());
     Javac javacStep = ((JavacStep) steps.get(8)).getJavac();
@@ -1284,7 +1271,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     replay(platformTarget);
 
     return FakeBuildContext.withSourcePathResolver(
-            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver)))
         .withAndroidPlatformTargetSupplier(Suppliers.ofInstance(platformTarget));
   }
 
@@ -1340,9 +1327,8 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
           return CalculateAbiFromClasses.of(
               target,
               new SourcePathRuleFinder(ruleResolver),
-              new FakeBuildRuleParamsBuilder(target)
-                  .setProjectFilesystem(new FakeProjectFilesystem())
-                  .build(),
+              new FakeProjectFilesystem(),
+              TestBuildRuleParams.create(),
               new FakeSourcePath("java/src/com/facebook/somejava/library/library-abi.jar"));
         }
       };
@@ -1404,14 +1390,13 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
       JavacOptions options =
           JavacOptions.builder(DEFAULT_JAVAC_OPTIONS).setAnnotationProcessingParams(params).build();
 
-      BuildRuleParams buildRuleParams =
-          new FakeBuildRuleParamsBuilder(buildTarget)
-              .setProjectFilesystem(projectFilesystem)
-              .build();
+      BuildRuleParams buildRuleParams = TestBuildRuleParams.create();
 
       DefaultJavaLibrary javaLibrary =
           DefaultJavaLibrary.builder(
                   TargetGraph.EMPTY,
+                  buildTarget,
+                  projectFilesystem,
                   buildRuleParams,
                   ruleResolver,
                   TestCellPathResolver.get(projectFilesystem),

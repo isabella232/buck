@@ -38,11 +38,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
@@ -61,7 +61,8 @@ public class AndroidLibraryGraphEnhancerTest {
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             buildTarget,
-            new FakeBuildRuleParamsBuilder(buildTarget).build(),
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             DEFAULT_JAVAC,
             DEFAULT_JAVAC_OPTIONS,
             DependencyMode.FIRST_ORDER,
@@ -82,7 +83,8 @@ public class AndroidLibraryGraphEnhancerTest {
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             buildTarget,
-            new FakeBuildRuleParamsBuilder(buildTarget).build(),
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             DEFAULT_JAVAC,
             DEFAULT_JAVAC_OPTIONS,
             DependencyMode.FIRST_ORDER,
@@ -125,13 +127,13 @@ public class AndroidLibraryGraphEnhancerTest {
                 .build());
 
     BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(buildTarget)
-            .setDeclaredDeps(ImmutableSortedSet.of(resourceRule1, resourceRule2))
-            .build();
+        TestBuildRuleParams.create()
+            .withDeclaredDeps(ImmutableSortedSet.of(resourceRule1, resourceRule2));
 
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             buildTarget,
+            new FakeProjectFilesystem(),
             buildRuleParams,
             DEFAULT_JAVAC,
             DEFAULT_JAVAC_OPTIONS,
@@ -188,13 +190,13 @@ public class AndroidLibraryGraphEnhancerTest {
                 .build());
 
     BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(buildTarget)
-            .setDeclaredDeps(ImmutableSortedSet.of(resourceRule1, resourceRule2))
-            .build();
+        TestBuildRuleParams.create()
+            .withDeclaredDeps(ImmutableSortedSet.of(resourceRule1, resourceRule2));
 
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             buildTarget,
+            new FakeProjectFilesystem(),
             buildRuleParams,
             DEFAULT_JAVAC,
             JavacOptions.builder(ANDROID_JAVAC_OPTIONS)
@@ -224,11 +226,9 @@ public class AndroidLibraryGraphEnhancerTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    FakeBuildRule javacDep =
-        new FakeJavaLibrary(BuildTargetFactory.newInstance("//:javac_dep"), pathResolver);
+    FakeBuildRule javacDep = new FakeJavaLibrary(BuildTargetFactory.newInstance("//:javac_dep"));
     resolver.addToIndex(javacDep);
-    FakeBuildRule dep = new FakeJavaLibrary(BuildTargetFactory.newInstance("//:dep"), pathResolver);
+    FakeBuildRule dep = new FakeJavaLibrary(BuildTargetFactory.newInstance("//:dep"));
     resolver.addToIndex(dep);
     JavaBuckConfig javaConfig =
         FakeBuckConfig.builder()
@@ -240,9 +240,8 @@ public class AndroidLibraryGraphEnhancerTest {
     AndroidLibraryGraphEnhancer graphEnhancer =
         new AndroidLibraryGraphEnhancer(
             target,
-            new FakeBuildRuleParamsBuilder(target)
-                .setDeclaredDeps(ImmutableSortedSet.of(dep))
-                .build(),
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.of(dep)),
             JavacFactory.create(ruleFinder, javaConfig, null),
             options,
             DependencyMode.FIRST_ORDER,

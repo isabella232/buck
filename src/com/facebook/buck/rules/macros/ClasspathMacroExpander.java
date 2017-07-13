@@ -23,8 +23,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.io.File;
 import java.util.Objects;
@@ -34,8 +34,7 @@ import java.util.stream.Collectors;
  * Used to expand the macro {@literal $(classpath //some:target)} to the transitive classpath of
  * that target, expanding all paths to be absolute.
  */
-public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMacro>
-    implements MacroExpanderWithCustomFileOutput {
+public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMacro> {
 
   @Override
   public Class<ClasspathMacro> getInputClass() {
@@ -75,14 +74,15 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      ImmutableList<String> input)
+      ImmutableList<String> input,
+      Object precomputedWork)
       throws MacroException {
     // javac is the canonical reader of classpaths, and its code for reading classpaths from
     // files is a little weird:
     // http://hg.openjdk.java.net/jdk7/jdk7/langtools/file/ce654f4ecfd8/src/share/classes/com/sun/tools/javac/main/CommandLine.java#l74
     // The # characters that might be present in classpaths due to flavoring would be read as
     // comments. As a simple workaround, we quote the entire classpath.
-    return String.format("'%s'", expand(target, cellNames, resolver, input));
+    return String.format("'%s'", expand(target, cellNames, resolver, input, precomputedWork));
   }
 
   @Override
@@ -104,12 +104,11 @@ public class ClasspathMacroExpander extends BuildTargetMacroExpander<ClasspathMa
       BuildRuleResolver resolver,
       ClasspathMacro input)
       throws MacroException {
-    return ImmutableSortedSet.copyOf(
-        getHasClasspathEntries(resolve(resolver, input))
-            .getTransitiveClasspathDeps()
-            .stream()
-            .map(BuildRule::getSourcePathToOutput)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toSet()));
+    return getHasClasspathEntries(resolve(resolver, input))
+        .getTransitiveClasspathDeps()
+        .stream()
+        .map(BuildRule::getSourcePathToOutput)
+        .filter(Objects::nonNull)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 }

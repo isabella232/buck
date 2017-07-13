@@ -73,7 +73,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   }
 
   @Override
-  public CacheResult fetchImpl(
+  protected CacheResult fetchImpl(
       RuleKey ruleKey, LazyPath output, HttpArtifactCacheEvent.Finished.Builder eventBuilder)
       throws IOException {
 
@@ -137,22 +137,48 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
         Path tmp = createTempFileForDownload();
         ThriftArtifactCacheProtocol.Response.ReadPayloadInfo readResult;
         try (OutputStream tmpFile = projectFilesystem.newFileOutputStream(tmp)) {
-          readResult = response.readPayload(tmpFile);
+          try {
+            readResult = response.readPayload(tmpFile);
+          } catch (IOException e) {
+            LOG.debug(e, "encountered an exception while receiving the payload for %s", ruleKey);
+            throw e;
+          }
           LOG.verbose("Successfully read payload: %d bytes.", readResult.getBytesRead());
         }
 
+        if (!fetchResponse.isSetMetadata()) {
+          String msg =
+              String.format(
+                  "ArtifactMetadata section is missing in the response. response=[%s]",
+                  ThriftUtil.thriftToDebugJson(fetchResponse));
+          return CacheResult.error(name, mode, msg);
+        }
         ArtifactMetadata metadata = fetchResponse.getMetadata();
         if (LOG.isVerboseEnabled()) {
           LOG.verbose(
               String.format(
-                  "Fetched artifact with rule key [%s] contains the following metadata: [%s]",
+                  "Fetched artifact with rule key [%s] contains the following metadata: [%s].",
                   ruleKey, ThriftUtil.thriftToDebugJson(metadata)));
+        }
+
+        if (!metadata.isSetRuleKeys()) {
+          return CacheResult.error(name, mode, "Rule key section in the metadata is not set.");
+        }
+        ImmutableSet<RuleKey> associatedRuleKeys = null;
+        try {
+          associatedRuleKeys = toImmutableSet(metadata.getRuleKeys());
+        } catch (IllegalArgumentException e) {
+          String msg =
+              String.format(
+                  "Exception parsing the rule keys in the metadata section [%s] with exception [%s].",
+                  ThriftUtil.thriftToDebugJson(metadata), e.toString());
+          return CacheResult.error(name, mode, msg);
         }
 
         eventBuilder
             .setTarget(Optional.ofNullable(metadata.getBuildTarget()))
             .getFetchBuilder()
-            .setAssociatedRuleKeys(toImmutableSet(metadata.getRuleKeys()))
+            .setAssociatedRuleKeys(associatedRuleKeys)
             .setArtifactSizeBytes(readResult.getBytesRead());
         if (!metadata.isSetArtifactPayloadMd5()) {
           String msg = "Fetched artifact is missing the MD5 hash.";

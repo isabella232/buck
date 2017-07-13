@@ -34,8 +34,6 @@ import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import java.util.Collection;
 import org.immutables.value.Value;
 
 /**
@@ -61,19 +59,21 @@ abstract class AbstractSetExpression extends QueryExpression {
   abstract ImmutableList<TargetLiteral> getWords();
 
   @Override
-  public ImmutableSet<QueryTarget> eval(QueryEnvironment env, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
+  ImmutableSet<QueryTarget> eval(QueryEvaluator evaluator, QueryEnvironment env)
+      throws QueryException {
     ImmutableSet.Builder<QueryTarget> result = new ImmutableSet.Builder<>();
     for (TargetLiteral expr : getWords()) {
-      result.addAll(expr.eval(env, executor));
+      result.addAll(evaluator.eval(expr, env));
     }
     return result.build();
   }
 
   @Override
-  public void collectTargetPatterns(Collection<String> literals) {
-    for (TargetLiteral expr : getWords()) {
-      expr.collectTargetPatterns(literals);
+  public void traverse(QueryExpression.Visitor visitor) {
+    if (visitor.visit(this) == VisitResult.CONTINUE) {
+      for (TargetLiteral word : getWords()) {
+        word.traverse(visitor);
+      }
     }
   }
 

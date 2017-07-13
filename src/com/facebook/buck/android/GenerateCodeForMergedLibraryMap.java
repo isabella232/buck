@@ -16,10 +16,12 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -39,6 +41,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -50,16 +53,23 @@ import java.util.Map;
  * Rule to write the results of library merging to disk and run a user-supplied code generator on
  * it.
  */
-class GenerateCodeForMergedLibraryMap extends AbstractBuildRule {
+class GenerateCodeForMergedLibraryMap extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final ImmutableSortedMap<String, String> mergeResult;
   @AddToRuleKey private final BuildRule codeGenerator;
 
+  @AddToRuleKey
+  private final ImmutableSortedMap<String, ImmutableSortedSet<String>> sharedObjectTargets;
+
   GenerateCodeForMergedLibraryMap(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableSortedMap<String, String> mergeResult,
+      ImmutableSortedMap<String, ImmutableSortedSet<String>> sharedObjectTargets,
       BuildRule codeGenerator) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.mergeResult = mergeResult;
+    this.sharedObjectTargets = sharedObjectTargets;
     this.codeGenerator = codeGenerator;
 
     if (!(codeGenerator instanceof BinaryBuildRule)) {
@@ -76,9 +86,14 @@ class GenerateCodeForMergedLibraryMap extends AbstractBuildRule {
     Path output = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     buildableContext.recordArtifact(output);
     buildableContext.recordArtifact(getMappingPath());
+    buildableContext.recordArtifact(getTargetsPath());
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())))
         .add(new WriteMapDataStep())
+        .add(new WriteTargetsFileStep())
         .add(new RunCodeGenStep(context.getSourcePathResolver()))
         .build();
   }
@@ -94,6 +109,15 @@ class GenerateCodeForMergedLibraryMap extends AbstractBuildRule {
   private Path getMappingPath() {
     return BuildTargets.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/merged_library_map.txt");
+  }
+
+  /**
+   * This file shows which targets went into which libraries. It's just meant for human consumption
+   * when writing merge configs.
+   */
+  private Path getTargetsPath() {
+    return BuildTargets.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s/shared_object_targets.txt");
   }
 
   private class WriteMapDataStep implements Step {
@@ -118,6 +142,38 @@ class GenerateCodeForMergedLibraryMap extends AbstractBuildRule {
     @Override
     public String getShortName() {
       return "write_merged_library_map";
+    }
+
+    @Override
+    public String getDescription(ExecutionContext context) {
+      return String.format("%s > %s", getShortName(), getMappingPath());
+    }
+  }
+
+  private class WriteTargetsFileStep implements Step {
+    @Override
+    public StepExecutionResult execute(ExecutionContext context)
+        throws IOException, InterruptedException {
+      final ProjectFilesystem projectFilesystem = getProjectFilesystem();
+      try (Writer out =
+          new BufferedWriter(
+              new OutputStreamWriter(projectFilesystem.newFileOutputStream(getTargetsPath())))) {
+        for (Map.Entry<String, ImmutableSortedSet<String>> entry : sharedObjectTargets.entrySet()) {
+          out.write(entry.getKey());
+          for (String target : entry.getValue()) {
+            out.write(' ');
+            out.write(target);
+          }
+          out.write('\n');
+        }
+      }
+
+      return StepExecutionResult.SUCCESS;
+    }
+
+    @Override
+    public String getShortName() {
+      return "write_shared_objects_target";
     }
 
     @Override

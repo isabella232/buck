@@ -37,8 +37,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.query.Query;
@@ -128,29 +126,27 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"), javaBuckConfig)
             .addDep(sublibNode.getBuildTarget())
             .build();
-    TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode);
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-
-    FakeBuildRule bottomRule =
-        resolver.addToIndex(new FakeBuildRule(bottomNode.getBuildTarget(), pathResolver));
-    FakeBuildRule sublibRule =
-        resolver.addToIndex(
-            new FakeBuildRule(
-                sublibNode.getBuildTarget(), pathResolver, ImmutableSortedSet.of(bottomRule)));
-    FakeBuildRule libRule =
-        resolver.addToIndex(
-            new FakeBuildRule(
-                libNode.getBuildTarget(), pathResolver, ImmutableSortedSet.of(sublibRule)));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-
-    BuildRule javaLibrary =
+    AndroidLibraryBuilder ruleBuilder =
         AndroidLibraryBuilder.createBuilder(target, javaBuckConfig)
             .addDep(libNode.getBuildTarget())
-            .setDepsQuery(Query.of("filter('.*lib', deps($declared_deps))"))
-            .build(resolver, targetGraph);
+            .setDepsQuery(Query.of("filter('.*lib', deps($declared_deps))"));
+    TargetNode<AndroidLibraryDescriptionArg, AndroidLibraryDescription> rule = ruleBuilder.build();
+
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode, rule);
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+
+    FakeBuildRule bottomRule = resolver.addToIndex(new FakeBuildRule(bottomNode.getBuildTarget()));
+    FakeBuildRule sublibRule =
+        resolver.addToIndex(
+            new FakeBuildRule(sublibNode.getBuildTarget(), ImmutableSortedSet.of(bottomRule)));
+    FakeBuildRule libRule =
+        resolver.addToIndex(
+            new FakeBuildRule(libNode.getBuildTarget(), ImmutableSortedSet.of(sublibRule)));
+
+    BuildRule javaLibrary = ruleBuilder.build(resolver, targetGraph);
 
     assertThat(javaLibrary.getBuildDeps(), Matchers.hasItems(libRule, sublibRule));
     // The bottom rule should be filtered since it does not match the regex
@@ -249,9 +245,8 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
-    resolver.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget(), pathResolver));
+    resolver.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget()));
 
     AndroidLibrary androidLibrary =
         AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:android_lib"))

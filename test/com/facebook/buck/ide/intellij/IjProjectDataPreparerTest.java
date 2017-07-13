@@ -48,6 +48,7 @@ import com.facebook.buck.timing.FakeClock;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -93,10 +94,10 @@ public class IjProjectDataPreparerTest {
         new IjProjectTemplateDataPreparer(
             javaPackageFinder, moduleGraph, filesystem, IjTestProjectConfig.create());
 
-    ContentRoot contentRoot = dataPreparer.getContentRoot(baseModule);
+    ContentRoot contentRoot = dataPreparer.getContentRoots(baseModule).asList().get(0);
     assertEquals("file://$MODULE_DIR$", contentRoot.getUrl());
 
-    IjSourceFolder baseSourceFolder = contentRoot.getFolders().first();
+    IjSourceFolder baseSourceFolder = contentRoot.getFolders().iterator().next();
     assertEquals("sourceFolder", baseSourceFolder.getType());
     assertFalse(baseSourceFolder.getIsTestSource());
     assertEquals("com.example.base", baseSourceFolder.getPackagePrefix());
@@ -223,7 +224,7 @@ public class IjProjectDataPreparerTest {
                         Optional.of(
                             DependencyEntryData.builder()
                                 .setExported(true)
-                                .setName("library_java_com_example_base_tests")
+                                .setName("//java/com/example/base:tests")
                                 .setScope(IjDependencyListBuilder.Scope.PROVIDED)
                                 .build()))))));
 
@@ -433,7 +434,7 @@ public class IjProjectDataPreparerTest {
         containsInAnyOrder(subSourcePath, sourcePath));
   }
 
-  private static ImmutableSet<Path> distillExcludeFolders(ImmutableSet<IjFolder> folders) {
+  private static ImmutableSet<Path> distillExcludeFolders(ImmutableCollection<IjFolder> folders) {
     Preconditions.checkArgument(
         !FluentIterable.from(folders).anyMatch(input -> !(input instanceof ExcludeFolder)));
     return FluentIterable.from(folders).uniqueIndex(IjFolder::getPath).keySet();

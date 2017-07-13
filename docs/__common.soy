@@ -282,10 +282,18 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'prebuilt_jar',
             'prebuilt_native_library',
         ],
+        'kotlin': [
+            'kotlin_library',
+            'kotlin_test',
+        ],
         'lua': [
             'cxx_lua_extension',
             'lua_binary',
             'lua_library',
+        ],
+        'ocaml': [
+            'ocaml_binary',
+            'ocaml_library',
         ],
         'python': [
             'prebuilt_python_library',
@@ -402,18 +410,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {call .navigationLink}
       {param currentnavid: $navid /}
       {param folder: 'concept' /}
-      {param page: 'buckversion' /}
-      {param text: '.buckversion' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'nobuckcheck' /}
-      {param text: '.nobuckcheck' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
       {param page: 'buckjavaargs' /}
       {param text: '.buckjavaargs' /}
     {/call}
@@ -504,8 +500,18 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {/call}
     {call .platformBuildRuleLink}
         {param currentnavid: $navid /}
+        {param platform: 'Kotlin' /}
+        {param rules: $platformRulesMap['kotlin'] /}
+    {/call}
+    {call .platformBuildRuleLink}
+        {param currentnavid: $navid /}
         {param platform: 'Lua' /}
         {param rules: $platformRulesMap['lua'] /}
+    {/call}
+    {call .platformBuildRuleLink}
+        {param currentnavid: $navid /}
+        {param platform: 'OCaml' /}
+        {param rules: $platformRulesMap['ocaml'] /}
     {/call}
     {call .platformBuildRuleLink}
         {param currentnavid: $navid /}
@@ -955,6 +961,16 @@ docsearch({
 /***/
 {template .java_test}
 {call .ruleLink}{param name : 'java_test' /}{/call}
+{/template}
+
+/***/
+{template .kotlin_library}
+{call .ruleLink}{param name : 'kotlin_library' /}{/call}
+{/template}
+
+/***/
+{template .kotlin_test}
+{call .ruleLink}{param name : 'kotlin_test' /}{/call}
 {/template}
 
 /***/

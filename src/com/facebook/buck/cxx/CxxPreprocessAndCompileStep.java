@@ -19,14 +19,12 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,7 +48,6 @@ public class CxxPreprocessAndCompileStep implements Step {
 
   private static final Logger LOG = Logger.get(CxxPreprocessAndCompileStep.class);
 
-  private final BuildTarget target;
   private final ProjectFilesystem filesystem;
   private final Operation operation;
   private final Path output;
@@ -61,6 +58,7 @@ public class CxxPreprocessAndCompileStep implements Step {
   private final HeaderPathNormalizer headerPathNormalizer;
   private final DebugPathSanitizer sanitizer;
   private final Compiler compiler;
+  private final Optional<CxxLogInfo> cxxLogInfo;
 
   /** Directory to use to store intermediate/temp files used for compilation. */
   private final Path scratchDir;
@@ -71,7 +69,6 @@ public class CxxPreprocessAndCompileStep implements Step {
       new FileLastModifiedDateContentsScrubber();
 
   public CxxPreprocessAndCompileStep(
-      BuildTarget target,
       ProjectFilesystem filesystem,
       Operation operation,
       Path output,
@@ -83,8 +80,8 @@ public class CxxPreprocessAndCompileStep implements Step {
       DebugPathSanitizer sanitizer,
       Path scratchDir,
       boolean useArgfile,
-      Compiler compiler) {
-    this.target = target;
+      Compiler compiler,
+      Optional<CxxLogInfo> cxxLogInfo) {
     this.filesystem = filesystem;
     this.operation = operation;
     this.output = output;
@@ -93,10 +90,11 @@ public class CxxPreprocessAndCompileStep implements Step {
     this.inputType = inputType;
     this.command = command;
     this.headerPathNormalizer = headerPathNormalizer;
-    this.sanitizer = sanitizer.withProjectFilesystem(filesystem);
+    this.sanitizer = sanitizer;
     this.scratchDir = scratchDir;
     this.useArgfile = useArgfile;
     this.compiler = compiler;
+    this.cxxLogInfo = cxxLogInfo;
   }
 
   @Override
@@ -120,9 +118,15 @@ public class CxxPreprocessAndCompileStep implements Step {
     // intermediate files.
     env.put("TMPDIR", filesystem.resolve(scratchDir).toString());
 
-    // Add some diagnostic strings into the subprocess's env as well.
-    // Note: the current process's env already contains `BUCK_BUILD_ID`, which will be inherited.
-    env.put("BUCK_BUILD_TARGET", target.toString());
+    if (cxxLogInfo.isPresent()) {
+      // Add some diagnostic strings into the subprocess's env as well.
+      // Note: the current process's env already contains `BUCK_BUILD_ID`, which will be inherited.
+      CxxLogInfo info = cxxLogInfo.get();
+
+      info.getTarget().ifPresent(target -> env.put("BUCK_BUILD_TARGET", target.toString()));
+      info.getSourcePath().ifPresent(path -> env.put("BUCK_BUILD_RULE_SOURCE", path.toString()));
+      info.getOutputPath().ifPresent(path -> env.put("BUCK_BUILD_RULE_OUTPUT", path.toString()));
+    }
 
     return ProcessExecutorParams.builder()
         .setDirectory(filesystem.getRootPath().toAbsolutePath())
@@ -148,7 +152,9 @@ public class CxxPreprocessAndCompileStep implements Step {
                     : Optional.<ImmutableList<String>>empty())
                 .orElseGet(ImmutableList::of))
         .addAll(compiler.languageArgs(inputLanguage))
-        .addAll(sanitizer.getCompilationFlags())
+        .addAll(
+            sanitizer.getCompilationFlags(
+                filesystem.getRootPath(), headerPathNormalizer.getPrefixMap()))
         .add("-c")
         .addAll(
             depFile
@@ -159,7 +165,8 @@ public class CxxPreprocessAndCompileStep implements Step {
         .build();
   }
 
-  private int executeCompilation(ExecutionContext context) throws Exception {
+  private int executeCompilation(ExecutionContext context)
+      throws IOException, InterruptedException {
     ProcessExecutorParams.Builder builder = makeSubprocessBuilder(context);
 
     if (useArgfile) {
@@ -231,38 +238,27 @@ public class CxxPreprocessAndCompileStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
-    try {
-      LOG.debug("%s %s -> %s", operation.toString().toLowerCase(), input, output);
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    LOG.debug("%s %s -> %s", operation.toString().toLowerCase(), input, output);
 
-      int exitCode = executeCompilation(context);
+    int exitCode = executeCompilation(context);
 
-      // If the compilation completed successfully and we didn't effect debug-info normalization
-      // through #line directive modification, perform the in-place update of the compilation per
-      // above.  This locates the relevant debug section and swaps out the expanded actual
-      // compilation directory with the one we really want.
-      if (exitCode == 0 && shouldSanitizeOutputBinary()) {
-        try {
-          Path path = filesystem.getRootPath().toAbsolutePath().resolve(output);
-          sanitizer.restoreCompilationDirectory(path, filesystem.getRootPath().toAbsolutePath());
-          FILE_LAST_MODIFIED_DATE_SCRUBBER.scrubFileWithPath(path);
-        } catch (IOException e) {
-          context.logError(e, "error updating compilation directory");
-          return StepExecutionResult.ERROR;
-        }
-      }
-
-      if (exitCode != 0) {
-        LOG.warn("error %d %s %s", exitCode, operation.toString().toLowerCase(), input);
-      }
-
-      return StepExecutionResult.of(exitCode);
-
-    } catch (Exception e) {
-      MoreThrowables.propagateIfInterrupt(e);
-      context.logError(e, "Build error caused by exception");
-      return StepExecutionResult.ERROR;
+    // If the compilation completed successfully and we didn't effect debug-info normalization
+    // through #line directive modification, perform the in-place update of the compilation per
+    // above.  This locates the relevant debug section and swaps out the expanded actual
+    // compilation directory with the one we really want.
+    if (exitCode == 0 && shouldSanitizeOutputBinary()) {
+      Path path = filesystem.getRootPath().toAbsolutePath().resolve(output);
+      sanitizer.restoreCompilationDirectory(path, filesystem.getRootPath().toAbsolutePath());
+      FILE_LAST_MODIFIED_DATE_SCRUBBER.scrubFileWithPath(path);
     }
+
+    if (exitCode != 0) {
+      LOG.warn("error %d %s %s", exitCode, operation.toString().toLowerCase(), input);
+    }
+
+    return StepExecutionResult.of(exitCode);
   }
 
   ImmutableList<String> getCommand() {

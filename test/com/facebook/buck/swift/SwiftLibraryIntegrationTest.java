@@ -30,15 +30,16 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTargetNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
@@ -69,7 +70,7 @@ public class SwiftLibraryIntegrationTest {
     resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(resolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
   }
 
   @Test
@@ -85,29 +86,29 @@ public class SwiftLibraryIntegrationTest {
 
     HeaderSymlinkTreeWithHeaderMap symlinkTreeBuildRule =
         HeaderSymlinkTreeWithHeaderMap.create(
-            symlinkTarget, projectFilesystem, symlinkTreeRoot, links, ruleFinder);
+            symlinkTarget, projectFilesystem, symlinkTreeRoot, links);
     resolver.addToIndex(symlinkTreeBuildRule);
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
-    BuildRuleParams libParams = new FakeBuildRuleParamsBuilder(libTarget).build();
+    BuildRuleParams libParams = TestBuildRuleParams.create();
     FakeCxxLibrary depRule =
         new FakeCxxLibrary(
+            libTarget,
+            new FakeProjectFilesystem(),
             libParams,
             BuildTargetFactory.newInstance("//:header"),
             symlinkTarget,
             BuildTargetFactory.newInstance("//:privateheader"),
             BuildTargetFactory.newInstance("//:privatesymlink"),
-            new FakeBuildRule("//:archive", pathResolver),
-            new FakeBuildRule("//:shared", pathResolver),
+            new FakeBuildRule("//:archive"),
+            new FakeBuildRule("//:shared"),
             Paths.get("output/path/lib.so"),
             "lib.so",
             ImmutableSortedSet.of());
 
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar#iphoneos-x86_64");
     BuildRuleParams params =
-        new FakeBuildRuleParamsBuilder(buildTarget)
-            .setDeclaredDeps(ImmutableSortedSet.of(depRule))
-            .build();
+        TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.of(depRule));
 
     SwiftLibraryDescriptionArg args = createDummySwiftArg();
 
@@ -115,16 +116,18 @@ public class SwiftLibraryIntegrationTest {
         (SwiftCompile)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
                 TargetGraph.EMPTY,
+                buildTarget,
+                projectFilesystem,
                 params,
                 resolver,
-                TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
 
     ImmutableList<String> swiftIncludeArgs = buildRule.getSwiftIncludeArgs(pathResolver);
 
-    assertThat(swiftIncludeArgs.size(), Matchers.equalTo(1));
-    assertThat(swiftIncludeArgs.get(0), Matchers.startsWith("-I"));
-    assertThat(swiftIncludeArgs.get(0), Matchers.endsWith("symlink.hmap"));
+    assertThat(swiftIncludeArgs.size(), Matchers.equalTo(2));
+    assertThat(swiftIncludeArgs.get(0), Matchers.equalTo("-I"));
+    assertThat(swiftIncludeArgs.get(1), Matchers.endsWith("symlink.hmap"));
   }
 
   @Test
@@ -132,16 +135,19 @@ public class SwiftLibraryIntegrationTest {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar#iphoneos-x86_64");
     BuildTarget swiftCompileTarget =
         buildTarget.withAppendedFlavors(SwiftLibraryDescription.SWIFT_COMPILE_FLAVOR);
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(swiftCompileTarget).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
 
     SwiftLibraryDescriptionArg args = createDummySwiftArg();
     SwiftCompile buildRule =
         (SwiftCompile)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
                 TargetGraph.EMPTY,
+                swiftCompileTarget,
+                projectFilesystem,
                 params,
                 resolver,
-                TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
     resolver.addToIndex(buildRule);
 
@@ -170,14 +176,15 @@ public class SwiftLibraryIntegrationTest {
             pathResolver.getRelativePath(buildRule.getSourcePathToOutput()).resolve("bar.o"));
     assertThat(fileListArg.getPath(), Matchers.equalTo(fileListSourcePath));
 
-    BuildTarget linkTarget = buildTarget.withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR);
     CxxLink linkRule =
         (CxxLink)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
                 TargetGraphFactory.newInstance(FakeTargetNodeBuilder.build(buildRule)),
-                params.withBuildTarget(linkTarget),
+                buildTarget.withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR),
+                projectFilesystem,
+                params,
                 resolver,
-                TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
 
     assertThat(linkRule.getArgs(), Matchers.hasItem(objArg));

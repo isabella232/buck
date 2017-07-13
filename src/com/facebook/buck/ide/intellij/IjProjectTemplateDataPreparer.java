@@ -38,9 +38,13 @@ import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -48,8 +52,10 @@ import java.nio.file.FileVisitor;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -116,11 +122,11 @@ public class IjProjectTemplateDataPreparer {
     return ImmutableSet.copyOf(pathSet);
   }
 
-  public static ImmutableSet<Path> createFilesystemTraversalBoundaryPathSet(
+  public ImmutableSet<Path> createFilesystemTraversalBoundaryPathSet(
       ImmutableSet<IjModule> modules) {
     return Stream.concat(
             modules.stream().map(IjModule::getModuleBasePath),
-            Stream.of(IjProjectPaths.IDEA_CONFIG_DIR))
+            Stream.of(projectConfig.getProjectPaths().getIdeaConfigDir()))
         .collect(MoreCollectors.toImmutableSet());
   }
 
@@ -147,8 +153,8 @@ public class IjProjectTemplateDataPreparer {
     return builder.build();
   }
 
-  private static ImmutableSet<IjModule> createModulesToBeWritten(IjModuleGraph graph) {
-    Path rootModuleBasePath = Paths.get("");
+  private ImmutableSet<IjModule> createModulesToBeWritten(IjModuleGraph graph) {
+    Path rootModuleBasePath = Paths.get(projectConfig.getProjectRoot());
     boolean hasRootModule =
         graph
             .getModules()
@@ -178,30 +184,50 @@ public class IjProjectTemplateDataPreparer {
     return librariesToBeWritten;
   }
 
-  private ContentRoot createContentRoot(
+  private ImmutableList<ContentRoot> createContentRoots(
       final IjModule module,
       Path contentRootPath,
-      ImmutableSet<IjFolder> folders,
+      ImmutableCollection<IjFolder> folders,
       final Path moduleLocationBasePath) {
-    String url = IjProjectPaths.toModuleDirRelativeString(contentRootPath, moduleLocationBasePath);
-    ImmutableSet<IjFolder> simplifiedFolders =
-        sourceRootSimplifier.simplify(contentRootPath.getNameCount(), folders);
+    ImmutableListMultimap<Path, IjFolder> simplifiedFolders =
+        sourceRootSimplifier.simplify(
+            contentRootPath.toString().isEmpty() ? 0 : contentRootPath.getNameCount(),
+            folders,
+            moduleLocationBasePath,
+            filesystemTraversalBoundaryPaths);
     IjFolderToIjSourceFolderTransform transformToFolder =
         new IjFolderToIjSourceFolderTransform(module);
-    ImmutableSortedSet<IjSourceFolder> sourceFolders =
-        simplifiedFolders
-            .stream()
-            .map(transformToFolder::apply)
-            .filter(folder -> !(folder.getType().equals("excludeFolder")
-                && (folder.getUrl().contains("/res")
-                || folder.getUrl().contains("/assets")
-                || folder.getUrl().contains("/src"))))
-            .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
-    return ContentRoot.builder().setUrl(url).setFolders(sourceFolders).build();
+    Map<String, List<IjSourceFolder>> sources = Maps.newTreeMap();
+    sources.put(contentRootPath.toString(), Collections.emptyList());
+    simplifiedFolders
+        .asMap()
+        .forEach(
+            (contentRoot, contentRootFolders) -> {
+              List<IjSourceFolder> sourceFolders =
+                  contentRootFolders
+                      .stream()
+                      .map(transformToFolder::apply)
+                      .filter(folder -> !(folder.getType().equals("excludeFolder")
+                          && (folder.getUrl().contains("/res")
+                          || folder.getUrl().contains("/assets")
+                          || folder.getUrl().contains("/src"))))
+                      .sorted()
+                      .collect(MoreCollectors.toImmutableList());
+              sources.put(contentRoot.toString(), sourceFolders);
+            });
+    ImmutableList.Builder<ContentRoot> contentRootsBuilder = ImmutableList.builder();
+    for (Map.Entry<String, List<IjSourceFolder>> entry : sources.entrySet()) {
+      String url =
+          IjProjectPaths.toModuleDirRelativeString(
+              Paths.get(entry.getKey()), moduleLocationBasePath);
+      contentRootsBuilder.add(
+          ContentRoot.builder().setUrl(url).setFolders(entry.getValue()).build());
+    }
+    return contentRootsBuilder.build();
   }
 
-  public ImmutableSet<IjFolder> createExcludes(final IjModule module) throws IOException {
-    final ImmutableSet.Builder<IjFolder> excludesBuilder = ImmutableSet.builder();
+  public ImmutableCollection<IjFolder> createExcludes(final IjModule module) throws IOException {
+    final ImmutableList.Builder<IjFolder> excludesBuilder = ImmutableList.builder();
     final Path moduleBasePath = module.getModuleBasePath();
     projectFilesystem.walkRelativeFileTree(
         moduleBasePath,
@@ -260,15 +286,16 @@ public class IjProjectTemplateDataPreparer {
     return false;
   }
 
-  public ContentRoot getContentRoot(IjModule module) throws IOException {
+  public ImmutableList<ContentRoot> getContentRoots(IjModule module) throws IOException {
     Path moduleBasePath = module.getModuleBasePath();
     Path moduleLocation = module.getModuleImlFilePath();
     final Path moduleLocationBasePath =
         (moduleLocation.getParent() == null) ? Paths.get("") : moduleLocation.getParent();
-    ImmutableSet<IjFolder> sourcesAndExcludes =
+    ImmutableList<IjFolder> sourcesAndExcludes =
         Stream.concat(module.getFolders().stream(), createExcludes(module).stream())
-            .collect(MoreCollectors.toImmutableSortedSet());
-    return createContentRoot(module, moduleBasePath, sourcesAndExcludes, moduleLocationBasePath);
+            .sorted()
+            .collect(MoreCollectors.toImmutableList());
+    return createContentRoots(module, moduleBasePath, sourcesAndExcludes, moduleLocationBasePath);
   }
 
   public ImmutableSet<IjSourceFolder> getGeneratedSourceFolders(final IjModule module) {
@@ -306,17 +333,28 @@ public class IjProjectTemplateDataPreparer {
   }
 
   public ImmutableSortedSet<ModuleIndexEntry> getModuleIndexEntries() {
+    String moduleGroupName = projectConfig.getModuleGroupName();
+    boolean needToPutModuleToGroup = !moduleGroupName.isEmpty();
     return modulesToBeWritten
         .stream()
         .map(
             module -> {
               Path moduleOutputFilePath = module.getModuleImlFilePath();
-              String fileUrl = IjProjectPaths.toProjectDirRelativeString(moduleOutputFilePath);
+              String fileUrl =
+                  projectConfig.getProjectPaths().toProjectDirRelativeUrl(moduleOutputFilePath);
+              Path moduleOutputFileRelativePath =
+                  Paths.get(
+                      projectConfig
+                          .getProjectPaths()
+                          .toProjectDirRelativeString(moduleOutputFilePath));
               // The root project module cannot belong to any group.
-              String group = (module.getModuleBasePath().toString().isEmpty()) ? null : "modules";
+              String group =
+                  (module.getModuleBasePath().toString().isEmpty() || !needToPutModuleToGroup)
+                      ? null
+                      : moduleGroupName;
               return ModuleIndexEntry.builder()
                   .setFileUrl(fileUrl)
-                  .setFilePath(moduleOutputFilePath)
+                  .setFilePath(moduleOutputFileRelativePath)
                   .setGroup(group)
                   .build();
             })
@@ -336,6 +374,7 @@ public class IjProjectTemplateDataPreparer {
     IjModuleAndroidFacet androidFacet = androidFacetOptional.get();
 
     androidProperties.put("is_android_library_project", androidFacet.isAndroidLibrary());
+    androidProperties.put("project_type", androidFacet.getAndroidProjectType().getId());
     androidProperties.put("autogenerate_sources", androidFacet.autogenerateSources());
     androidProperties.put(
         "disallow_user_configuration",
@@ -471,6 +510,7 @@ public class IjProjectTemplateDataPreparer {
           .setType(folder.getIjName())
           .setUrl(
               IjProjectPaths.toModuleDirRelativeString(folder.getPath(), moduleLocationBasePath))
+          .setPath(folder.getPath())
           .setIsTestSource(folder instanceof TestFolder)
           .setIsAndroidResources(folder instanceof AndroidResourceFolder)
           .setPackagePrefix(packagePrefix)

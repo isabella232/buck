@@ -18,6 +18,8 @@ package com.facebook.buck.slb;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.RetryingException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -27,6 +29,7 @@ import java.util.List;
 import okhttp3.Request;
 
 public class RetryingHttpService implements HttpService {
+  private static final Logger LOG = Logger.get(RetryingHttpService.class);
 
   public static final String COUNTER_CATEGORY = "buck_retry_service_counters";
 
@@ -82,6 +85,8 @@ public class RetryingHttpService implements HttpService {
         return response;
 
       } catch (IOException exception) {
+        LOG.debug(
+            exception, "encountered an exception while connecting to the service for %s", path);
         allExceptions.add(exception);
       }
     }
@@ -98,25 +103,10 @@ public class RetryingHttpService implements HttpService {
     decoratedService.close();
   }
 
-  public static class RetryingHttpServiceException extends IOException {
+  public static class RetryingHttpServiceException extends RetryingException {
+
     public RetryingHttpServiceException(List<IOException> allExceptions) {
-      super(generateMessage(allExceptions), allExceptions.get(allExceptions.size() - 1));
-    }
-
-    @Override
-    public String toString() {
-      return String.format("RetryingHttpServiceException{%s}", getMessage());
-    }
-
-    private static String generateMessage(List<IOException> exceptions) {
-      StringBuilder builder = new StringBuilder();
-      builder.append(
-          String.format("Too many fails after %1$d retries. Exceptions:", exceptions.size()));
-      for (int i = 0; i < exceptions.size(); ++i) {
-        builder.append(String.format(" %d:[%s]", i, exceptions.get(i).toString()));
-      }
-
-      return builder.toString();
+      super(allExceptions);
     }
   }
 }

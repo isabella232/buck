@@ -50,8 +50,8 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -74,6 +74,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -188,7 +189,8 @@ public class AppleCxxPlatformsTest {
 
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+    SourcePathResolver resolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     assertEquals(
         ImmutableList.of("/Developer/usr/bin/actool"),
@@ -284,7 +286,8 @@ public class AppleCxxPlatformsTest {
 
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+    SourcePathResolver resolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     assertEquals(
         ImmutableList.of("/Developer/usr/bin/actool"),
@@ -377,7 +380,7 @@ public class AppleCxxPlatformsTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     assertEquals(
         ImmutableList.of("/Developer/usr/bin/actool"),
@@ -744,27 +747,29 @@ public class AppleCxxPlatformsTest {
 
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructCompileRuleKeys(
-      Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) {
+      Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws IOException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
-            FakeFileHashCache.createFromStrings(
-                ImmutableMap.<String, String>builder()
-                    .put("source.cpp", Strings.repeat("a", 40))
+            new FakeFileHashCache(
+                ImmutableMap.<Path, HashCode>builder()
+                    .put(projectFilesystem.resolve("source.cpp"), HashCode.fromInt(0))
                     .build()),
             pathResolver,
             ruleFinder);
-    BuildTarget target = BuildTargetFactory.newInstance("//:target");
+    BuildTarget target =
+        BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:target");
     ImmutableMap.Builder<Flavor, RuleKey> ruleKeys = ImmutableMap.builder();
     for (Map.Entry<Flavor, AppleCxxPlatform> entry : cxxPlatforms.entrySet()) {
       CxxSourceRuleFactory cxxSourceRuleFactory =
           CxxSourceRuleFactory.builder()
-              .setParams(new FakeBuildRuleParamsBuilder(target).build())
+              .setProjectFilesystem(projectFilesystem)
+              .setBaseBuildTarget(target)
               .setResolver(resolver)
               .setPathResolver(pathResolver)
               .setRuleFinder(ruleFinder)
@@ -778,7 +783,10 @@ public class AppleCxxPlatformsTest {
           rule =
               cxxSourceRuleFactory.createPreprocessAndCompileBuildRule(
                   source,
-                  CxxSource.of(CxxSource.Type.CXX, new FakeSourcePath(source), ImmutableList.of()));
+                  CxxSource.of(
+                      CxxSource.Type.CXX,
+                      new FakeSourcePath(projectFilesystem, source),
+                      ImmutableList.of()));
           break;
         case COMPILE:
           rule =
@@ -786,7 +794,7 @@ public class AppleCxxPlatformsTest {
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,
-                      new FakeSourcePath(source),
+                      new FakeSourcePath(projectFilesystem, source),
                       ImmutableList.of()));
           break;
         default:
@@ -803,7 +811,7 @@ public class AppleCxxPlatformsTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
             0,
@@ -820,7 +828,7 @@ public class AppleCxxPlatformsTest {
           CxxLinkableEnhancer.createCxxLinkableBuildRule(
               CxxPlatformUtils.DEFAULT_CONFIG,
               entry.getValue().getCxxPlatform(),
-              new FakeBuildRuleParamsBuilder(target).build(),
+              new FakeProjectFilesystem(),
               resolver,
               pathResolver,
               ruleFinder,
@@ -833,6 +841,7 @@ public class AppleCxxPlatformsTest {
               ImmutableList.of(),
               Optional.empty(),
               Optional.empty(),
+              ImmutableSet.of(),
               ImmutableSet.of(),
               NativeLinkableInput.builder()
                   .setArgs(SourcePathArg.from(new FakeSourcePath("input.o")))

@@ -19,6 +19,7 @@ package com.facebook.buck.rules.keys;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
@@ -26,7 +27,7 @@ import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.cache.NullFileHashCache;
+import com.facebook.buck.testutil.DummyFileHashCache;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Assert;
@@ -40,7 +41,7 @@ public class RuleKeyDiagnosticsTest {
         new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     RuleKeyAppendable app0 = sink -> sink.setReflectively("k0", "v0");
     RuleKeyAppendable app1 = sink -> sink.setReflectively("k1", "v1");
@@ -59,7 +60,7 @@ public class RuleKeyDiagnosticsTest {
         };
 
     RuleKeyFactoryWithDiagnostics<RuleKey> factory =
-        new DefaultRuleKeyFactory(0, new NullFileHashCache(), sourcePathResolver, ruleFinder);
+        new DefaultRuleKeyFactory(0, new DummyFileHashCache(), sourcePathResolver, ruleFinder);
 
     RuleKeyDiagnostics<RuleKey, String> ruleKeyDiagnostics1 =
         new RuleKeyDiagnostics<>(

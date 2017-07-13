@@ -72,6 +72,7 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPrecompiledHeaderTemplate;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.HasSystemFrameworkAndLibraries;
 import com.facebook.buck.cxx.HeaderVisibility;
@@ -99,10 +100,12 @@ import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasTests;
@@ -259,7 +262,6 @@ public class ProjectGenerator {
   private final ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder =
       ImmutableSet.builder();
   private final Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode;
-  private final BuildRuleResolver defaultBuildRuleResolver;
   private final SourcePathResolver defaultPathResolver;
   private final BuckEventBus buckEventBus;
 
@@ -311,10 +313,11 @@ public class ProjectGenerator {
     this.targetsInRequiredProjects = targetsInRequiredProjects;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.buildRuleResolverForNode = buildRuleResolverForNode;
-    this.defaultBuildRuleResolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     this.defaultPathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(this.defaultBuildRuleResolver));
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     this.buckEventBus = buckEventBus;
 
     this.projectPath = outputDirectory.resolve(projectName + ".xcodeproj");
@@ -705,7 +708,7 @@ public class ProjectGenerator {
             Optional.of(infoPlistPath),
             /* includeFrameworks */ true,
             AppleResources.collectRecursiveResources(
-                targetGraph, Optional.of(dependenciesCache), ImmutableList.of(targetNode)),
+                targetGraph, Optional.of(dependenciesCache), targetNode),
             AppleResources.collectDirectResources(targetGraph, targetNode),
             AppleBuildRules.collectRecursiveAssetCatalogs(
                 targetGraph, Optional.of(dependenciesCache), ImmutableList.of(targetNode)),
@@ -857,37 +860,43 @@ public class ProjectGenerator {
   private ImmutableList<String> convertStringWithMacros(
       TargetNode<?, ?> node, Iterable<StringWithMacros> flags) {
 
-    LocationMacroExpander locationMacroExpander = new LocationMacroExpander() {
-      @Override
-      public String expandFrom(
-          BuildTarget target,
-          CellPathResolver cellNames,
-          BuildRuleResolver resolver,
-          LocationMacro input) throws MacroException {
-        BuildTarget locationMacroTarget = input.getTarget();
+    LocationMacroExpander locationMacroExpander =
+        new LocationMacroExpander() {
+          @Override
+          public String expandFrom(
+              BuildTarget target,
+              CellPathResolver cellNames,
+              BuildRuleResolver ignored,
+              LocationMacro input)
+              throws MacroException {
+            BuildTarget locationMacroTarget = input.getTarget();
 
-        try {
-          resolver.requireRule(locationMacroTarget);
-        } catch (NoSuchBuildTargetException | TargetGraph.NoSuchNodeException e) {
-          throw new MacroException(
-              String.format("couldn't find rule referenced by location macro: %s", e.getMessage()),
-              e);
-        }
+            BuildRuleResolver resolver =
+                buildRuleResolverForNode.apply(targetGraph.get(locationMacroTarget));
+            try {
+              resolver.requireRule(locationMacroTarget);
+            } catch (NoSuchBuildTargetException | TargetGraph.NoSuchNodeException e) {
+              throw new MacroException(
+                  String.format(
+                      "couldn't find rule referenced by location macro: %s", e.getMessage()),
+                  e);
+            }
 
-        requiredBuildTargetsBuilder.add(locationMacroTarget);
-        return super.expandFrom(target, cellNames, resolver, input);
-      }
-    };
+            requiredBuildTargetsBuilder.add(locationMacroTarget);
+            return super.expandFrom(target, cellNames, resolver, input);
+          }
+        };
 
+    BuildRuleResolver emptyBuildRuleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
     for (StringWithMacros flag : flags) {
-      StringWithMacrosArg
-          .of(
+      StringWithMacrosArg.of(
               flag,
               ImmutableList.of(locationMacroExpander),
               node.getBuildTarget(),
               node.getCellNames(),
-              defaultBuildRuleResolver)
+              emptyBuildRuleResolver)
           .appendToCommandLine(result, defaultPathResolver);
     }
     return result.build();
@@ -922,7 +931,7 @@ public class ProjectGenerator {
     ImmutableSet<SourcePath> exportedHeaders =
         ImmutableSet.copyOf(getHeaderSourcePaths(arg.getExportedHeaders()));
     ImmutableSet<SourcePath> headers = ImmutableSet.copyOf(getHeaderSourcePaths(arg.getHeaders()));
-    ImmutableMap<CxxSource.Type, ImmutableList<String>> langPreprocessorFlags =
+    ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langPreprocessorFlags =
         targetNode.getConstructorArg().getLangPreprocessorFlags();
     boolean isFocusedOnTarget = focusModules.isFocusedOn(buildTarget);
 
@@ -939,9 +948,12 @@ public class ProjectGenerator {
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
         mutator
-            .setLangPreprocessorFlags(langPreprocessorFlags)
+            .setLangPreprocessorFlags(
+                ImmutableMap.copyOf(
+                    Maps.transformValues(
+                        langPreprocessorFlags, f -> convertStringWithMacros(targetNode, f))))
             .setPublicHeaders(exportedHeaders)
-            .setPrefixHeader(arg.getPrefixHeader())
+            .setPrefixHeader(getPrefixHeaderSourcePath(arg))
             .setSourcesWithFlags(ImmutableSet.copyOf(arg.getSrcs()))
             .setPrivateHeaders(headers)
             .setRecursiveResources(recursiveResources)
@@ -980,16 +992,20 @@ public class ProjectGenerator {
 
         ImmutableSet<PBXFileReference> targetNodeDeps =
             collectRecursiveLibraryDependencies(targetNode);
-        ImmutableSet<PBXFileReference> excludedDeps = targetNode
-            .castArg(AppleTestDescriptionArg.class)
-            .flatMap(testNode -> {
-              // only application tests share a runtime with their host application and need to
-              // avoid linking dependencies already linked by the host.
-              // we know this is an application test if it is not a UI test and has a bundle loader.
-              return testNode.getConstructorArg().getIsUiTest() ? Optional.empty() : bundleLoaderNode;
-            })
-            .map(this::collectRecursiveLibraryDependencies)
-            .orElse(ImmutableSet.of());
+        ImmutableSet<PBXFileReference> excludedDeps =
+            targetNode
+                .castArg(AppleTestDescriptionArg.class)
+                .flatMap(
+                    testNode -> {
+                      // only application tests share a runtime with their host application and need to
+                      // avoid linking dependencies already linked by the host.
+                      // we know this is an application test if it is not a UI test and has a bundle loader.
+                      return testNode.getConstructorArg().getIsUiTest()
+                          ? Optional.empty()
+                          : bundleLoaderNode;
+                    })
+                .map(this::collectRecursiveLibraryDependencies)
+                .orElse(ImmutableSet.of());
         mutator.setArchives(Sets.difference(targetNodeDeps, excludedDeps));
       }
 
@@ -1121,7 +1137,9 @@ public class ProjectGenerator {
       }
       Optional<String> swiftVersion = swiftBuckConfig.getVersion();
       swiftVersion.ifPresent(s -> extraSettingsBuilder.put("SWIFT_VERSION", s));
-      Optional<SourcePath> prefixHeaderOptional = targetNode.getConstructorArg().getPrefixHeader();
+
+      Optional<SourcePath> prefixHeaderOptional =
+          getPrefixHeaderSourcePath(targetNode.getConstructorArg());
       if (prefixHeaderOptional.isPresent()) {
         Path prefixHeaderRelative = resolveSourcePath(prefixHeaderOptional.get());
         Path prefixHeaderPath = pathRelativizer.outputDirToRootRelative(prefixHeaderRelative);
@@ -1183,15 +1201,21 @@ public class ProjectGenerator {
         Iterable<String> otherCFlags =
             Iterables.concat(
                 cxxBuckConfig.getFlags("cflags").orElse(DEFAULT_CFLAGS),
-                collectRecursiveExportedPreprocessorFlags(targetNode),
-                targetNode.getConstructorArg().getCompilerFlags(),
-                targetNode.getConstructorArg().getPreprocessorFlags());
+                convertStringWithMacros(
+                    targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)),
+                convertStringWithMacros(
+                    targetNode, targetNode.getConstructorArg().getCompilerFlags()),
+                convertStringWithMacros(
+                    targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
         Iterable<String> otherCxxFlags =
             Iterables.concat(
                 cxxBuckConfig.getFlags("cxxflags").orElse(DEFAULT_CXXFLAGS),
-                collectRecursiveExportedPreprocessorFlags(targetNode),
-                targetNode.getConstructorArg().getCompilerFlags(),
-                targetNode.getConstructorArg().getPreprocessorFlags());
+                convertStringWithMacros(
+                    targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)),
+                convertStringWithMacros(
+                    targetNode, targetNode.getConstructorArg().getCompilerFlags()),
+                convertStringWithMacros(
+                    targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
         ImmutableList<String> otherLdFlags =
             convertStringWithMacros(
                 targetNode,
@@ -1212,7 +1236,7 @@ public class ProjectGenerator {
 
         ImmutableMultimap.Builder<String, ImmutableList<String>> platformFlagsBuilder =
             ImmutableMultimap.builder();
-        for (Pair<Pattern, ImmutableList<String>> flags :
+        for (Pair<Pattern, ImmutableList<StringWithMacros>> flags :
             Iterables.concat(
                 targetNode.getConstructorArg().getPlatformCompilerFlags().getPatternsAndValues(),
                 targetNode
@@ -1221,7 +1245,7 @@ public class ProjectGenerator {
                     .getPatternsAndValues(),
                 collectRecursiveExportedPlatformPreprocessorFlags(targetNode))) {
           String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
-          platformFlagsBuilder.put(sdk, flags.getSecond());
+          platformFlagsBuilder.put(sdk, convertStringWithMacros(targetNode, flags.getSecond()));
         }
         ImmutableMultimap<String, ImmutableList<String>> platformFlags =
             platformFlagsBuilder.build();
@@ -1474,7 +1498,7 @@ public class ProjectGenerator {
     } else {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+      SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       try {
         return ImmutableSortedMap.copyOf(
             CxxDescriptionEnhancer.parseExportedHeaders(
@@ -1504,7 +1528,7 @@ public class ProjectGenerator {
     } else {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+      SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       try {
         return ImmutableSortedMap.copyOf(
             CxxDescriptionEnhancer.parseHeaders(
@@ -1657,7 +1681,7 @@ public class ProjectGenerator {
               .getBuildConfigurationsByName()
               .getUnchecked(configurationEntry.getKey());
 
-      HashMap<String, String> combinedOverrideConfigs = Maps.newHashMap(overrideBuildSettings);
+      HashMap<String, String> combinedOverrideConfigs = new HashMap<>(overrideBuildSettings);
       for (Map.Entry<String, String> entry : defaultBuildSettings.entrySet()) {
         String existingSetting = targetLevelInlineSettings.get(entry.getKey());
         if (existingSetting == null) {
@@ -2369,7 +2393,8 @@ public class ProjectGenerator {
             });
   }
 
-  private Iterable<String> collectRecursiveExportedPreprocessorFlags(TargetNode<?, ?> targetNode) {
+  private Iterable<StringWithMacros> collectRecursiveExportedPreprocessorFlags(
+      TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
                 targetGraph,
@@ -2386,7 +2411,7 @@ public class ProjectGenerator {
                     .orElse(ImmutableList.of()));
   }
 
-  private Iterable<Pair<Pattern, ImmutableList<String>>>
+  private Iterable<Pair<Pattern, ImmutableList<StringWithMacros>>>
       collectRecursiveExportedPlatformPreprocessorFlags(TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2639,7 +2664,7 @@ public class ProjectGenerator {
     if (!exportFileNode.isPresent()) {
       BuildRuleResolver resolver = buildRuleResolverForNode.apply(node);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+      SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       Path output = pathResolver.getAbsolutePath(sourcePath);
       if (output == null) {
         throw new HumanReadableException(
@@ -2706,6 +2731,32 @@ public class ProjectGenerator {
           .equals(Optional.of(ProductType.WATCH_APPLICATION.getIdentifier()));
     }
     return false;
+  }
+
+  private Optional<SourcePath> getPrefixHeaderSourcePath(CxxLibraryDescription.CommonArg arg) {
+    // The prefix header could be stored in either the `prefix_header` or the `precompiled_header`
+    // field. Use either, but prefer the prefix_header.
+    if (arg.getPrefixHeader().isPresent()) {
+      return arg.getPrefixHeader();
+    }
+
+    if (!arg.getPrecompiledHeader().isPresent()) {
+      return Optional.empty();
+    }
+
+    SourcePath pchPath = arg.getPrecompiledHeader().get();
+    // `precompiled_header` requires a cxx_precompiled_header target, but we want to give Xcode the
+    // path to the pch file itself. Resolve our target reference into a path
+    Preconditions.checkArgument(pchPath instanceof BuildTargetSourcePath);
+    BuildTargetSourcePath pchTargetSourcePath = (BuildTargetSourcePath) pchPath;
+    BuildTarget pchTarget = pchTargetSourcePath.getTarget();
+    TargetNode<?, ?> node = targetGraph.get(pchTarget);
+    BuildRuleResolver resolver = buildRuleResolverForNode.apply(node);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    BuildRule rule = ruleFinder.getRule(pchTargetSourcePath);
+    Preconditions.checkArgument(rule instanceof CxxPrecompiledHeaderTemplate);
+    CxxPrecompiledHeaderTemplate pch = (CxxPrecompiledHeaderTemplate) rule;
+    return Optional.of(pch.sourcePath);
   }
 
   private Path getPathToHeaderMapsRoot() {

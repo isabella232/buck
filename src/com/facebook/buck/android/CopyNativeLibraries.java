@@ -19,10 +19,12 @@ package com.facebook.buck.android;
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,7 +33,6 @@ import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -62,7 +63,7 @@ import org.immutables.value.Value;
  * shared objects collected and stores this metadata in a text file, to be used later by {@link
  * ExopackageInstaller}.
  */
-public class CopyNativeLibraries extends AbstractBuildRule {
+public class CopyNativeLibraries extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final ImmutableSet<SourcePath> nativeLibDirectories;
   @AddToRuleKey private final ImmutableSet<TargetCpuType> cpuFilters;
@@ -72,13 +73,15 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   private final String moduleName;
 
   protected CopyNativeLibraries(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableSet<SourcePath> nativeLibDirectories,
       ImmutableSet<StrippedObjectDescription> stripLibRules,
       ImmutableSet<StrippedObjectDescription> stripLibAssetRules,
       ImmutableSet<TargetCpuType> cpuFilters,
       String moduleName) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.nativeLibDirectories = nativeLibDirectories;
     this.stripLibRules = stripLibRules;
     this.stripLibAssetRules = stripLibAssetRules;
@@ -115,6 +118,10 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     return getBinPath().resolve("metadata.txt");
   }
 
+  public SourcePath getSourcePathToMetadataTxt() {
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToMetadataTxt());
+  }
+
   private Path getBinPath() {
     return BuildTargets.getScratchPath(
         getProjectFilesystem(), getBuildTarget(), "__native_" + moduleName + "_%s__");
@@ -134,7 +141,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   }
 
   private void addStepsForCopyingStrippedNativeLibrariesOrAssets(
-      SourcePathResolver resolver,
+      BuildContext context,
       ProjectFilesystem filesystem,
       ImmutableSet<StrippedObjectDescription> strippedNativeLibrariesOrAssets,
       Path destinationRootDir,
@@ -149,10 +156,17 @@ public class CopyNativeLibraries extends AbstractBuildRule {
               .resolve(abiDirectoryComponent.get())
               .resolve(strippedObject.getStrippedObjectName());
 
-      steps.add(MkdirStep.of(getProjectFilesystem(), destination.getParent()));
+      steps.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  destination.getParent())));
       steps.add(
           CopyStep.forFile(
-              filesystem, resolver.getAbsolutePath(strippedObject.getSourcePath()), destination));
+              filesystem,
+              context.getSourcePathResolver().getAbsolutePath(strippedObject.getSourcePath()),
+              destination));
     }
   }
 
@@ -161,16 +175,28 @@ public class CopyNativeLibraries extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getBinPath()));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), getBinPath())));
 
     final Path pathToNativeLibs = getPathToNativeLibsDir();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToNativeLibs));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToNativeLibs)));
 
     final Path pathToNativeLibsAssets = getPathToNativeLibsAssetsDir();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToNativeLibsAssets));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToNativeLibsAssets)));
 
     for (SourcePath nativeLibDir : nativeLibDirectories.asList().reverse()) {
       copyNativeLibrary(
+          context,
           getProjectFilesystem(),
           context.getSourcePathResolver().getAbsolutePath(nativeLibDir),
           pathToNativeLibs,
@@ -179,18 +205,10 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     }
 
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
-        context.getSourcePathResolver(),
-        getProjectFilesystem(),
-        stripLibRules,
-        pathToNativeLibs,
-        steps);
+        context, getProjectFilesystem(), stripLibRules, pathToNativeLibs, steps);
 
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
-        context.getSourcePathResolver(),
-        getProjectFilesystem(),
-        stripLibAssetRules,
-        pathToNativeLibsAssets,
-        steps);
+        context, getProjectFilesystem(), stripLibAssetRules, pathToNativeLibsAssets, steps);
 
     final Path pathToMetadataTxt = getPathToMetadataTxt();
     steps.add(
@@ -210,17 +228,12 @@ public class CopyNativeLibraries extends AbstractBuildRule {
       public StepExecutionResult execute(ExecutionContext context)
           throws IOException, InterruptedException {
         ImmutableList.Builder<String> metadataLines = ImmutableList.builder();
-        try {
-          for (Path nativeLib : filesystem.getFilesUnderPath(pathToAllLibsDir)) {
-            Sha1HashCode filesha1 = filesystem.computeSha1(nativeLib);
-            Path relativePath = pathToAllLibsDir.relativize(nativeLib);
-            metadataLines.add(String.format("%s %s", relativePath, filesha1));
-          }
-          filesystem.writeLinesToPath(metadataLines.build(), pathToMetadataTxt);
-        } catch (IOException e) {
-          context.logError(e, "There was an error hashing native libraries.");
-          return StepExecutionResult.ERROR;
+        for (Path nativeLib : filesystem.getFilesUnderPath(pathToAllLibsDir)) {
+          Sha1HashCode filesha1 = filesystem.computeSha1(nativeLib);
+          Path relativePath = pathToAllLibsDir.relativize(nativeLib);
+          metadataLines.add(String.format("%s %s", relativePath, filesha1));
         }
+        filesystem.writeLinesToPath(metadataLines.build(), pathToMetadataTxt);
         return StepExecutionResult.SUCCESS;
       }
     };
@@ -233,6 +246,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
   }
 
   public static void copyNativeLibrary(
+      BuildContext context,
       final ProjectFilesystem filesystem,
       Path sourceDir,
       final Path destinationDir,
@@ -251,14 +265,18 @@ public class CopyNativeLibraries extends AbstractBuildRule {
         final Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
         Path libDestinationDir = destinationDir.resolve(abiDirectoryComponent.get());
 
-        final MkdirStep mkDirStep = MkdirStep.of(filesystem, libDestinationDir);
+        final MkdirStep mkDirStep =
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), filesystem, libDestinationDir));
         final CopyStep copyStep =
             CopyStep.forDirectory(
                 filesystem, libSourceDir, libDestinationDir, CopyStep.DirectoryMode.CONTENTS_ONLY);
         steps.add(
             new Step() {
               @Override
-              public StepExecutionResult execute(ExecutionContext context) {
+              public StepExecutionResult execute(ExecutionContext context)
+                  throws IOException, InterruptedException {
                 // TODO(simons): Using a projectfilesystem here is almost definitely wrong.
                 // This is because each library may come from different build rules, which may be in
                 // different cells --- this check works by coincidence.
@@ -295,31 +313,27 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     steps.add(
         new AbstractExecutionStep("rename_native_executables") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             final ImmutableSet.Builder<Path> executablesBuilder = ImmutableSet.builder();
-            try {
-              filesystem.walkRelativeFileTree(
-                  destinationDir,
-                  new SimpleFileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                        throws IOException {
-                      if (file.toString().endsWith("-disguised-exe")) {
-                        executablesBuilder.add(file);
-                      }
-                      return FileVisitResult.CONTINUE;
+            filesystem.walkRelativeFileTree(
+                destinationDir,
+                new SimpleFileVisitor<Path>() {
+                  @Override
+                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                      throws IOException {
+                    if (file.toString().endsWith("-disguised-exe")) {
+                      executablesBuilder.add(file);
                     }
-                  });
-              for (Path exePath : executablesBuilder.build()) {
-                Path fakeSoPath =
-                    Paths.get(
-                        MorePaths.pathWithUnixSeparators(exePath)
-                            .replaceAll("/([^/]+)-disguised-exe$", "/lib$1.so"));
-                filesystem.move(exePath, fakeSoPath);
-              }
-            } catch (IOException e) {
-              context.logError(e, "Renaming native executables failed.");
-              return StepExecutionResult.ERROR;
+                    return FileVisitResult.CONTINUE;
+                  }
+                });
+            for (Path exePath : executablesBuilder.build()) {
+              Path fakeSoPath =
+                  Paths.get(
+                      MorePaths.pathWithUnixSeparators(exePath)
+                          .replaceAll("/([^/]+)-disguised-exe$", "/lib$1.so"));
+              filesystem.move(exePath, fakeSoPath);
             }
             return StepExecutionResult.SUCCESS;
           }
@@ -359,6 +373,8 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     public abstract String getStrippedObjectName();
 
     public abstract TargetCpuType getTargetCpuType();
+
+    public abstract APKModule getApkModule();
 
     @Override
     public void appendToRuleKey(RuleKeyObjectSink sink) {

@@ -16,29 +16,30 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -68,24 +69,23 @@ public class GenAidlTest {
     BuildTarget target =
         BuildTargetFactory.newInstance(
             stubFilesystem.getRootPath(), "//java/com/example/base:IWhateverService");
-    BuildRuleParams params =
-        new FakeBuildRuleParamsBuilder(target).setProjectFilesystem(stubFilesystem).build();
+    BuildRuleParams params = TestBuildRuleParams.create();
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
-    GenAidl genAidlRule = new GenAidl(params, pathToAidl, importPath);
+    GenAidl genAidlRule = new GenAidl(target, stubFilesystem, params, pathToAidl, importPath);
 
     GenAidlDescription description = new GenAidlDescription();
     assertEquals(
         Description.getBuildRuleType(GenAidlDescription.class),
         Description.getBuildRuleType(description));
-    assertTrue(genAidlRule.getProperties().is(ANDROID));
 
-    List<Step> steps =
-        genAidlRule.getBuildSteps(
-            FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
+    BuildContext buildContext =
+        FakeBuildContext.withSourcePathResolver(pathResolver)
+            .withBuildCellRootPath(stubFilesystem.getRootPath());
+    List<Step> steps = genAidlRule.getBuildSteps(buildContext, new FakeBuildableContext());
 
     final String pathToAidlExecutable = Paths.get("/usr/local/bin/aidl").toString();
     final String pathToFrameworkAidl =
@@ -102,8 +102,17 @@ public class GenAidlTest {
     assertEquals(executionContext.getAndroidPlatformTarget(), androidPlatformTarget);
 
     Path outputDirectory = BuildTargets.getScratchPath(stubFilesystem, target, "__%s.aidl");
-    assertEquals(RmStep.of(stubFilesystem, outputDirectory).withRecursive(true), steps.get(2));
-    assertEquals(MkdirStep.of(stubFilesystem, outputDirectory), steps.get(3));
+    assertEquals(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), stubFilesystem, outputDirectory))
+            .withRecursive(true),
+        steps.get(2));
+    assertEquals(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                buildContext.getBuildCellRootPath(), stubFilesystem, outputDirectory)),
+        steps.get(3));
 
     ShellStep aidlStep = (ShellStep) steps.get(4);
     assertEquals(

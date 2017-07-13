@@ -17,23 +17,22 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.sun.source.tree.Tree;
+import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import javax.lang.model.element.Element;
-import javax.lang.model.element.Parameterizable;
-import javax.lang.model.element.TypeParameterElement;
 
-abstract class TreeBackedParameterizable extends TreeBackedElement implements Parameterizable {
+abstract class TreeBackedParameterizable extends TreeBackedElement
+    implements ArtificialParameterizable {
   private final List<TreeBackedTypeParameterElement> typeParameters = new ArrayList<>();
 
   public TreeBackedParameterizable(
       Element underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable Tree tree,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, tree, resolver);
+      @Nullable TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
   }
 
   /* package */ void addTypeParameter(TreeBackedTypeParameterElement typeParameter) {
@@ -41,7 +40,7 @@ abstract class TreeBackedParameterizable extends TreeBackedElement implements Pa
   }
 
   @Override
-  public List<? extends TypeParameterElement> getTypeParameters() {
+  public List<TreeBackedTypeParameterElement> getTypeParameters() {
     return Collections.unmodifiableList(typeParameters);
   }
 }

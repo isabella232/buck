@@ -16,10 +16,12 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -50,7 +52,7 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 
 /** Rule for trimming unnecessary ids from R.java files. */
-class TrimUberRDotJava extends AbstractBuildRule {
+class TrimUberRDotJava extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   /**
    * If the app has resources, aapt will have generated an R.java in this directory. If there are no
    * resources, this should be empty and we'll create a placeholder R.java below.
@@ -67,11 +69,13 @@ class TrimUberRDotJava extends AbstractBuildRule {
       Pattern.compile("^ *package ([\\w.]+);");
 
   TrimUberRDotJava(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Optional<SourcePath> pathToRDotJavaDir,
       Collection<DexProducedFromJavaLibrary> allPreDexRules,
       Optional<String> keepResourcePattern) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.pathToRDotJavaDir = pathToRDotJavaDir;
     this.allPreDexRules = allPreDexRules;
     this.keepResourcePattern = keepResourcePattern;
@@ -84,7 +88,10 @@ class TrimUberRDotJava extends AbstractBuildRule {
     Optional<Path> input = pathToRDotJavaDir.map(context.getSourcePathResolver()::getRelativePath);
     buildableContext.recordArtifact(output);
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())))
         .add(new PerformTrimStep(output, input))
         .add(
             ZipScrubberStep.of(

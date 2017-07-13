@@ -1,3 +1,4 @@
+from __future__ import print_function
 import errno
 import contextlib
 import os
@@ -6,6 +7,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import textwrap
 
 import pkg_resources
 import file_locks
@@ -15,6 +17,10 @@ from buck_tool import BuckTool, Resource
 
 SERVER = Resource("buck_server")
 BOOTSTRAPPER = Resource("bootstrapper_jar")
+
+PEX_ONLY_EXPORTED_RESOURCES = [
+    Resource("external_executor_jar"),
+]
 
 
 @contextlib.contextmanager
@@ -48,7 +54,17 @@ class BuckPackage(BuckTool):
         self._lock_file = None
 
     def _get_buck_version_uid(self):
+        fake_buck_version = os.environ.get('BUCK_FAKE_VERSION')
+        if fake_buck_version:
+            print(textwrap.dedent("""\
+            ::: Faking buck version {}, despite your buck directory not being that version."""
+                  .format(fake_buck_version)),
+                  file=sys.stderr)
+            return fake_buck_version
         return self._package_info['version']
+
+    def _get_buck_version_timestamp(self):
+        return self._package_info['timestamp']
 
     def _get_resource_dir(self):
         if self._use_buckd:
@@ -133,10 +149,13 @@ class BuckPackage(BuckTool):
 
     def _get_extra_java_args(self):
         return [
-            "-Dbuck.git_commit={0}".format(self._package_info['version']),
+            "-Dbuck.git_commit={0}".format(self._get_buck_version_uid()),
             "-Dbuck.git_commit_timestamp={0}".format(self._package_info['timestamp']),
             "-Dbuck.git_dirty=0",
         ]
+
+    def _get_exported_resources(self):
+        return super(BuckPackage, self)._get_exported_resources() + PEX_ONLY_EXPORTED_RESOURCES
 
     def _get_bootstrap_classpath(self):
         return self._get_resource(BOOTSTRAPPER)

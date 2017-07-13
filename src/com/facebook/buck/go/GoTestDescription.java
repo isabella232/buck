@@ -18,6 +18,7 @@ package com.facebook.buck.go;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -29,11 +30,13 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasContacts;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.HasSrcs;
+import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -42,7 +45,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -85,6 +87,7 @@ public class GoTestDescription
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       GoTestDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass)
@@ -128,22 +131,27 @@ public class GoTestDescription
   }
 
   private GoTestMain requireTestMainGenRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       ImmutableSet<SourcePath> srcs,
       Path packageName)
       throws NoSuchBuildTargetException {
-    Tool testMainGenerator = GoDescriptors.getTestMainGenerator(goBuckConfig, params, resolver);
+    Tool testMainGenerator =
+        GoDescriptors.getTestMainGenerator(
+            goBuckConfig, buildTarget, projectFilesystem, params, resolver);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    BuildTarget buildTargetWithFlavor =
+        buildTarget.withAppendedFlavors(InternalFlavor.of("test-main-src"));
     GoTestMain generatedTestMain =
         new GoTestMain(
+            buildTargetWithFlavor,
+            projectFilesystem,
             params
-                .withAppendedFlavor(InternalFlavor.of("test-main-src"))
-                .copyReplacingDeclaredAndExtraDeps(
-                    Suppliers.ofInstance(
-                        ImmutableSortedSet.copyOf(testMainGenerator.getDeps(ruleFinder))),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
+                .withDeclaredDeps(ImmutableSortedSet.copyOf(testMainGenerator.getDeps(ruleFinder)))
+                .withoutExtraDeps(),
             testMainGenerator,
             srcs,
             packageName);
@@ -154,6 +162,8 @@ public class GoTestDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -162,22 +172,21 @@ public class GoTestDescription
     GoPlatform platform =
         goBuckConfig
             .getPlatformFlavorDomain()
-            .getValue(params.getBuildTarget())
+            .getValue(buildTarget)
             .orElse(goBuckConfig.getDefaultPlatform());
 
-    if (params.getBuildTarget().getFlavors().contains(TEST_LIBRARY_FLAVOR)) {
-      return createTestLibrary(params, resolver, args, platform);
+    if (buildTarget.getFlavors().contains(TEST_LIBRARY_FLAVOR)) {
+      return createTestLibrary(buildTarget, projectFilesystem, params, resolver, args, platform);
     }
 
-    GoBinary testMain = createTestMainRule(params, resolver, args, platform);
+    GoBinary testMain =
+        createTestMainRule(buildTarget, projectFilesystem, params, resolver, args, platform);
     resolver.addToIndex(testMain);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new GoTest(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of(testMain)),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
-        ruleFinder,
+        buildTarget,
+        projectFilesystem,
+        params.withDeclaredDeps(ImmutableSortedSet.of(testMain)).withoutExtraDeps(),
         testMain,
         args.getLabels(),
         args.getContacts(),
@@ -187,26 +196,32 @@ public class GoTestDescription
   }
 
   private GoBinary createTestMainRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
       GoTestDescriptionArg args,
       GoPlatform platform)
       throws NoSuchBuildTargetException {
-    Path packageName = getGoPackageName(resolver, params.getBuildTarget(), args);
+    Path packageName = getGoPackageName(resolver, buildTarget, args);
 
-    BuildRuleParams testTargetParams = params.withAppendedFlavor(TEST_LIBRARY_FLAVOR);
-    BuildRule testLibrary = new NoopBuildRule(testTargetParams);
+    BuildRule testLibrary =
+        new NoopBuildRuleWithDeclaredAndExtraDeps(
+            buildTarget.withAppendedFlavors(TEST_LIBRARY_FLAVOR), projectFilesystem, params);
     resolver.addToIndex(testLibrary);
 
     BuildRule generatedTestMain =
-        requireTestMainGenRule(params, resolver, args.getSrcs(), packageName);
+        requireTestMainGenRule(
+            buildTarget, projectFilesystem, params, resolver, args.getSrcs(), packageName);
+    BuildTarget testMainBuildTarget =
+        buildTarget.withAppendedFlavors(InternalFlavor.of("test-main"));
     GoBinary testMain =
         GoDescriptors.createGoBinaryRule(
+            testMainBuildTarget,
+            projectFilesystem,
             params
-                .withAppendedFlavor(InternalFlavor.of("test-main"))
-                .copyReplacingDeclaredAndExtraDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(testLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of(generatedTestMain))),
+                .withDeclaredDeps(ImmutableSortedSet.of(testLibrary))
+                .withExtraDeps(ImmutableSortedSet.of(generatedTestMain)),
             resolver,
             goBuckConfig,
             ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
@@ -258,12 +273,14 @@ public class GoTestDescription
   }
 
   private GoCompile createTestLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
       GoTestDescriptionArg args,
       GoPlatform platform)
       throws NoSuchBuildTargetException {
-    Path packageName = getGoPackageName(resolver, params.getBuildTarget(), args);
+    Path packageName = getGoPackageName(resolver, buildTarget, args);
     GoCompile testLibrary;
     if (args.getLibrary().isPresent()) {
       // We should have already type-checked the arguments in the base rule.
@@ -272,23 +289,27 @@ public class GoTestDescription
 
       final BuildRuleParams originalParams = params;
       BuildRuleParams testTargetParams =
-          params.copyReplacingDeclaredAndExtraDeps(
-              () ->
-                  ImmutableSortedSet.<BuildRule>naturalOrder()
-                      .addAll(originalParams.getDeclaredDeps().get())
-                      .addAll(resolver.getAllRules(libraryArg.getDeps()))
-                      .build(),
-              () -> {
-                SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-                return ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(originalParams.getExtraDeps().get())
-                    // Make sure to include dynamically generated sources as deps.
-                    .addAll(ruleFinder.filterBuildRuleInputs(libraryArg.getSrcs()))
-                    .build();
-              });
+          params
+              .withDeclaredDeps(
+                  () ->
+                      ImmutableSortedSet.<BuildRule>naturalOrder()
+                          .addAll(originalParams.getDeclaredDeps().get())
+                          .addAll(resolver.getAllRules(libraryArg.getDeps()))
+                          .build())
+              .withExtraDeps(
+                  () -> {
+                    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+                    return ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(originalParams.getExtraDeps().get())
+                        // Make sure to include dynamically generated sources as deps.
+                        .addAll(ruleFinder.filterBuildRuleInputs(libraryArg.getSrcs()))
+                        .build();
+                  });
 
       testLibrary =
           GoDescriptors.createGoCompileRule(
+              buildTarget,
+              projectFilesystem,
               testTargetParams,
               resolver,
               goBuckConfig,
@@ -311,6 +332,8 @@ public class GoTestDescription
     } else {
       testLibrary =
           GoDescriptors.createGoCompileRule(
+              buildTarget,
+              projectFilesystem,
               params,
               resolver,
               goBuckConfig,
@@ -347,7 +370,8 @@ public class GoTestDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractGoTestDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
+  interface AbstractGoTestDescriptionArg
+      extends CommonDescriptionArg, HasContacts, HasDeclaredDeps, HasSrcs, HasTestTimeout {
     Optional<BuildTarget> getLibrary();
 
     Optional<String> getPackageName();
@@ -357,10 +381,6 @@ public class GoTestDescription
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
-
-    ImmutableSet<String> getContacts();
-
-    Optional<Long> getTestRuleTimeoutMs();
 
     @Value.Default
     default boolean getRunTestSeparately() {

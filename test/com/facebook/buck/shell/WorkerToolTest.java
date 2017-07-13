@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -31,6 +32,8 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -41,7 +44,8 @@ public class WorkerToolTest {
   public void testCreateWorkerTool() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
@@ -56,8 +60,9 @@ public class WorkerToolTest {
 
     assertThat(
         "getArgs should return the args string supplied in the definition.",
-        "arg1 arg2",
-        Matchers.is(((WorkerTool) workerRule).getArgs(pathResolver)));
+        ImmutableList.of("arg1", "arg2"),
+        Matchers.is(
+            ((WorkerTool) workerRule).getTool().getCommandPrefix(pathResolver).subList(1, 3)));
   }
 
   @Test
@@ -65,10 +70,7 @@ public class WorkerToolTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
-    BuildRule nonBinaryBuildRule =
-        new FakeBuildRule(
-            BuildTargetFactory.newInstance("//:fake"),
-            new SourcePathResolver(new SourcePathRuleFinder(resolver)));
+    BuildRule nonBinaryBuildRule = new FakeBuildRule(BuildTargetFactory.newInstance("//:fake"));
     resolver.addToIndex(nonBinaryBuildRule);
 
     BuildTarget workerTarget = BuildTargetFactory.newInstance("//:worker_rule");
@@ -87,7 +89,8 @@ public class WorkerToolTest {
   public void testArgsWithLocationMacroAffectDependenciesAndExpands() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
@@ -95,7 +98,7 @@ public class WorkerToolTest {
             .build(resolver);
 
     BuildRule exportFileRule =
-        ExportFileBuilder.newExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
+        new ExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
             .setSrc(new FakeSourcePath("file.txt"))
             .build(resolver);
 
@@ -109,10 +112,10 @@ public class WorkerToolTest {
         workerToolBuilder.findImplicitDeps(), Matchers.hasItem(exportFileRule.getBuildTarget()));
     assertThat(workerTool.getBuildDeps(), Matchers.hasItems(shBinaryRule, exportFileRule));
     assertThat(
-        workerTool.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        workerTool.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet()),
         Matchers.hasItems(shBinaryRule.getBuildTarget(), exportFileRule.getBuildTarget()));
     assertThat(
-        workerTool.getArgs(pathResolver),
+        Joiner.on(' ').join(workerTool.getTool().getCommandPrefix(pathResolver)),
         Matchers.containsString(
             pathResolver.getAbsolutePath(exportFileRule.getSourcePathToOutput()).toString()));
   }
@@ -121,7 +124,8 @@ public class WorkerToolTest {
   public void testEnvWithLocationMacroAffectDependenciesAndExpands() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
@@ -129,7 +133,7 @@ public class WorkerToolTest {
             .build(resolver);
 
     BuildRule exportFileRule =
-        ExportFileBuilder.newExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
+        new ExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
             .setSrc(new FakeSourcePath("file.txt"))
             .build(resolver);
 
@@ -143,7 +147,7 @@ public class WorkerToolTest {
         workerToolBuilder.findImplicitDeps(), Matchers.hasItem(exportFileRule.getBuildTarget()));
     assertThat(workerTool.getBuildDeps(), Matchers.hasItems(shBinaryRule, exportFileRule));
     assertThat(
-        workerTool.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        workerTool.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet()),
         Matchers.hasItems(shBinaryRule.getBuildTarget(), exportFileRule.getBuildTarget()));
     assertThat(
         workerTool.getTool().getEnvironment(pathResolver),
@@ -163,7 +167,7 @@ public class WorkerToolTest {
             .build(resolver);
 
     BuildRule exportFileRule =
-        ExportFileBuilder.newExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
+        new ExportFileBuilder(BuildTargetFactory.newInstance("//:file"))
             .setSrc(new FakeSourcePath("file.txt"))
             .build(resolver);
 

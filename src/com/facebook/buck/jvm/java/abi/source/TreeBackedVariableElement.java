@@ -17,9 +17,8 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.sun.source.tree.AnnotationTree;
-import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.VariableTree;
+import com.sun.source.util.TreePath;
 import java.util.Collections;
 import java.util.List;
 import javax.lang.model.element.ElementKind;
@@ -27,7 +26,7 @@ import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 
-class TreeBackedVariableElement extends TreeBackedElement implements VariableElement {
+class TreeBackedVariableElement extends TreeBackedElement implements ArtificialVariableElement {
   private final VariableElement underlyingElement;
 
   @Nullable private final VariableTree tree;
@@ -37,16 +36,21 @@ class TreeBackedVariableElement extends TreeBackedElement implements VariableEle
   TreeBackedVariableElement(
       VariableElement underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable VariableTree tree,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, tree, resolver);
+      @Nullable TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
     this.underlyingElement = underlyingElement;
-    this.tree = tree;
+    this.tree = treePath == null ? null : (VariableTree) treePath.getLeaf();
     if (underlyingElement.getKind() == ElementKind.PARAMETER) {
       ((TreeBackedExecutableElement) enclosingElement).addParameter(this);
     } else {
       enclosingElement.addEnclosedElement(this);
     }
+  }
+
+  @Override
+  public List<? extends ArtificialElement> getEnclosedElements() {
+    return Collections.emptyList();
   }
 
   @Override
@@ -58,19 +62,9 @@ class TreeBackedVariableElement extends TreeBackedElement implements VariableEle
   @Override
   public TypeMirror asType() {
     if (type == null) {
-      type = getResolver().getCanonicalType(underlyingElement.asType());
+      type = getCanonicalizer().getCanonicalType(underlyingElement.asType());
     }
     return type;
-  }
-
-  @Override
-  protected List<? extends AnnotationTree> getAnnotationTrees() {
-    ModifiersTree modifiersTree = tree == null ? null : tree.getModifiers();
-    if (modifiersTree == null) {
-      return Collections.emptyList();
-    }
-
-    return modifiersTree.getAnnotations();
   }
 
   @Override

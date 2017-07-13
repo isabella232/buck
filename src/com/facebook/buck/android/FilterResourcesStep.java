@@ -37,7 +37,6 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
@@ -46,6 +45,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -132,10 +132,6 @@ public class FilterResourcesStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    return StepExecutionResult.of(doExecute(context));
-  }
-
-  private int doExecute(ExecutionContext context) throws IOException, InterruptedException {
     boolean canDownscale = imageScaler != null && imageScaler.isAvailable(context);
     LOG.info(
         "FilterResourcesStep: canDownscale: %s. imageScalar non-null: %s.",
@@ -150,7 +146,7 @@ public class FilterResourcesStep implements Step {
       scaleUnmatchedDrawables(context);
     }
 
-    return 0;
+    return StepExecutionResult.of(0);
   }
 
   @VisibleForTesting
@@ -281,7 +277,7 @@ public class FilterResourcesStep implements Step {
 
         // Delete newly-empty directories to prevent missing resources errors in apkbuilder.
         Path parent = drawable.getParent();
-        if (filesystem.listFiles(parent).length == 0) {
+        if (filesystem.getDirectoryContents(parent).isEmpty()) {
           filesystem.deleteFileAtPath(parent);
         }
       }
@@ -289,7 +285,7 @@ public class FilterResourcesStep implements Step {
   }
 
   public interface DrawableFinder {
-    public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
+    ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException;
   }
 
@@ -381,7 +377,7 @@ public class FilterResourcesStep implements Step {
 
     public ResourceFilter(List<String> resourceFilter) {
       this.filter = ImmutableSet.copyOf(resourceFilter);
-      this.densities = Sets.newHashSet();
+      this.densities = new HashSet<>();
 
       boolean downscale = false;
       for (String component : filter) {

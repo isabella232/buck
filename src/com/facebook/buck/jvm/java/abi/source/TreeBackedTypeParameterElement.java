@@ -18,9 +18,8 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
-import com.sun.source.tree.AnnotationTree;
-import com.sun.source.tree.Tree;
 import com.sun.source.tree.TypeParameterTree;
+import com.sun.source.util.TreePath;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,32 +33,34 @@ import javax.lang.model.type.TypeMirror;
  * {@link TypeParameterTree}. This results in an incomplete implementation; see documentation for
  * individual methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedTypeParameterElement extends TreeBackedElement implements TypeParameterElement {
+class TreeBackedTypeParameterElement extends TreeBackedElement
+    implements ArtificialTypeParameterElement {
   private final TypeParameterElement underlyingElement;
   private final StandaloneTypeVariable typeVar;
   @Nullable private List<TypeMirror> bounds;
 
   public TreeBackedTypeParameterElement(
+      TreeBackedTypes types,
       TypeParameterElement underlyingElement,
-      Tree tree,
+      TreePath treePath,
       TreeBackedElement enclosingElement,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, tree, resolver);
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
     this.underlyingElement = underlyingElement;
-    typeVar = resolver.createType(this);
+    typeVar = new StandaloneTypeVariable(types, this);
 
     // In javac's implementation, enclosingElement does not have type parameters in the return
     // value of getEnclosedElements
   }
 
   @Override
-  public StandaloneTypeVariable asType() {
-    return typeVar;
+  public List<? extends ArtificialElement> getEnclosedElements() {
+    return Collections.emptyList();
   }
 
   @Override
-  protected List<? extends AnnotationTree> getAnnotationTrees() {
-    throw new UnsupportedOperationException();
+  public StandaloneTypeVariable asType() {
+    return typeVar;
   }
 
   @Override
@@ -76,7 +77,7 @@ class TreeBackedTypeParameterElement extends TreeBackedElement implements TypePa
               underlyingElement
                   .getBounds()
                   .stream()
-                  .map(getResolver()::getCanonicalType)
+                  .map(getCanonicalizer()::getCanonicalType)
                   .collect(Collectors.toList()));
     }
 

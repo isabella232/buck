@@ -164,6 +164,8 @@ struct BuildJob {
   5: optional map<string, BuildSlaveInfo> slaveInfoByRunId;
   6: optional list<PathInfo> dotFiles;
   7: optional BuildModeInfo buildModeInfo;
+  8: optional string repository;
+  9: optional string tenantId;
 }
 
 struct Announcement {
@@ -211,6 +213,8 @@ struct CreateBuildRequest {
   2: optional BuildMode buildMode = BuildMode.REMOTE_BUILD;
   // Maximum number of minions to be used in this distributed build.
   3: optional i32 numberOfMinions;
+  4: optional string repository;
+  5: optional string tenantId;
 }
 
 struct CreateBuildResponse {
@@ -372,6 +376,20 @@ struct MultiGetBuildSlaveEventsResponse {
   1: optional list<BuildSlaveEventsRange> responses;
 }
 
+struct RuleKeyLogEntry {
+  1: optional string ruleKey;
+  2: optional bool wasStored;
+  3: optional i64 lastStoredTimestampMillis;
+}
+
+struct FetchRuleKeyLogsRequest {
+  1: optional list<string> ruleKeys;
+}
+
+struct FetchRuleKeyLogsResponse {
+  1: optional list<RuleKeyLogEntry> ruleKeyLogs;
+}
+
 ##############################################################################
 ## Top-Level Buck-Frontend HTTP body thrift Request/Response format
 ##############################################################################
@@ -397,6 +415,8 @@ enum FrontendRequestType {
   FETCH_BUILD_SLAVE_STATUS = 18,
   APPEND_BUILD_SLAVE_EVENTS = 19,
   MULTI_GET_BUILD_SLAVE_EVENTS = 20,
+  SET_BUILD_MODE = 21,
+  FETCH_RULE_KEY_LOGS = 22,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -422,6 +442,7 @@ struct FrontendRequest {
   19: optional FetchBuildSlaveStatusRequest fetchBuildSlaveStatusRequest;
   20: optional AppendBuildSlaveEventsRequest appendBuildSlaveEventsRequest;
   21: optional MultiGetBuildSlaveEventsRequest multiGetBuildSlaveEventsRequest;
+  22: optional FetchRuleKeyLogsRequest fetchRuleKeyLogsRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -447,6 +468,7 @@ struct FrontendResponse {
   24: optional AppendBuildSlaveEventsResponse appendBuildSlaveEventsResponse;
   25: optional MultiGetBuildSlaveEventsResponse
     multiGetBuildSlaveEventsResponse;
+  26: optional FetchRuleKeyLogsResponse fetchRuleKeyLogsResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

@@ -27,6 +27,7 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -93,7 +94,9 @@ public class IjSourceRootSimplifierTest {
     IjFolder right = buildSourceFolder("src/right");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(left, right)),
+        simplifier
+            .simplify(0, ImmutableSet.of(left, right), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.contains(buildSourceFolder("src")));
   }
 
@@ -105,7 +108,10 @@ public class IjSourceRootSimplifierTest {
     IjFolder parent = buildSourceFolder("src");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(left, right, parent)), Matchers.contains(parent));
+        simplifier
+            .simplify(0, ImmutableSet.of(left, right, parent), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(parent));
   }
 
   @Test
@@ -113,7 +119,9 @@ public class IjSourceRootSimplifierTest {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
     IjFolder src = buildSourceFolder("src");
 
-    assertThat(simplifier.simplify(0, ImmutableSet.of(src)), Matchers.contains(src));
+    assertThat(
+        simplifier.simplify(0, ImmutableSet.of(src), Paths.get(""), ImmutableSet.of()).values(),
+        Matchers.contains(src));
   }
 
   @Test
@@ -122,7 +130,11 @@ public class IjSourceRootSimplifierTest {
     IjFolder parent = buildSourceFolder("src");
     IjFolder child = buildSourceFolder("src/a");
 
-    assertThat(simplifier.simplify(0, ImmutableSet.of(parent, child)), Matchers.contains(parent));
+    assertThat(
+        simplifier
+            .simplify(0, ImmutableSet.of(parent, child), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(parent));
   }
 
   @Test
@@ -131,7 +143,8 @@ public class IjSourceRootSimplifierTest {
     IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(folder)), Matchers.contains(buildSourceFolder("a")));
+        simplifier.simplify(0, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
+        Matchers.contains(buildSourceFolder("a")));
   }
 
   @Test
@@ -140,7 +153,7 @@ public class IjSourceRootSimplifierTest {
     IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
 
     assertThat(
-        simplifier.simplify(4, ImmutableSet.of(folder)),
+        simplifier.simplify(4, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
         Matchers.contains(buildSourceFolder("a/b/c/d")));
   }
 
@@ -150,7 +163,7 @@ public class IjSourceRootSimplifierTest {
     IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
 
     assertThat(
-        simplifier.simplify(10, ImmutableSet.of(folder)),
+        simplifier.simplify(10, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
         Matchers.contains(buildSourceFolder("a/b/c/d/e/f/g")));
   }
 
@@ -161,7 +174,9 @@ public class IjSourceRootSimplifierTest {
     IjFolder rightTest = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(leftSource, rightTest)),
+        simplifier
+            .simplify(0, ImmutableSet.of(leftSource, rightTest), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(buildSourceFolder("src"), rightTest));
   }
 
@@ -173,7 +188,10 @@ public class IjSourceRootSimplifierTest {
     IjFolder rightTest = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(parent, leftSource, rightTest)),
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(parent, leftSource, rightTest), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(parent, leftSource, rightTest));
   }
 
@@ -187,9 +205,14 @@ public class IjSourceRootSimplifierTest {
     IjFolder acTest = buildTestFolder("a/c");
     IjFolder adaTest = buildTestFolder("a/d/a");
 
-    ImmutableSet<IjFolder> mergedFolders =
-        simplifier.simplify(
-            0, ImmutableSet.of(aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest));
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
 
     IjFolder aSource = buildSourceFolder("a");
     IjFolder adTest = buildTestFolder("a/d");
@@ -203,8 +226,11 @@ public class IjSourceRootSimplifierTest {
     IjFolder abSource = buildSourceFolder("a/b");
     IjFolder acTest = buildTestFolder("a/c");
 
-    ImmutableSet<IjFolder> mergedFolders =
-        simplifier.simplify(0, ImmutableSet.of(aaSource, abSource, acTest));
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aaSource, abSource, acTest), Paths.get(""), ImmutableSet.of())
+            .values();
 
     IjFolder aSource = buildSourceFolder("a");
     assertThat(mergedFolders, Matchers.containsInAnyOrder(aSource, acTest));
@@ -219,8 +245,14 @@ public class IjSourceRootSimplifierTest {
     IjFolder adTest = buildTestFolder("a/d");
     IjFolder aeTest = buildTestFolder("a/e");
 
-    ImmutableSet<IjFolder> mergedFolders =
-        simplifier.simplify(0, ImmutableSet.of(aaSource, abSource, acTest, adTest, aeTest));
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(aaSource, abSource, acTest, adTest, aeTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
 
     IjFolder aTest = buildTestFolder("a");
     assertThat(mergedFolders, Matchers.containsInAnyOrder(aaSource, abSource, aTest));
@@ -237,10 +269,15 @@ public class IjSourceRootSimplifierTest {
     IjFolder acTest = buildTestFolder("a/c");
     IjFolder adaTest = buildTestFolder("a/d/a");
 
-    ImmutableSet<IjFolder> mergedFolders =
-        simplifier.simplify(
-            0,
-            ImmutableSet.of(aSource, aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest));
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(
+                    aSource, aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
 
     IjFolder adTest = buildTestFolder("a/d");
     assertThat(mergedFolders, Matchers.containsInAnyOrder(aSource, acTest, adTest));
@@ -258,7 +295,9 @@ public class IjSourceRootSimplifierTest {
     IjFolder rightSource = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(leftSource, rightSource)),
+        simplifier
+            .simplify(0, ImmutableSet.of(leftSource, rightSource), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(leftSource, rightSource));
   }
 
@@ -276,7 +315,13 @@ public class IjSourceRootSimplifierTest {
     IjFolder rightSource = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(parentSource, leftSource, rightSource)),
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(parentSource, leftSource, rightSource),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(parentSource, rightSource));
   }
 
@@ -292,7 +337,9 @@ public class IjSourceRootSimplifierTest {
     IjFolder bSource = buildSourceFolder("r/x/a/b");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(aSource, bSource)),
+        simplifier
+            .simplify(0, ImmutableSet.of(aSource, bSource), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.contains(buildSourceFolder("r/x")));
   }
 
@@ -304,7 +351,13 @@ public class IjSourceRootSimplifierTest {
     IjFolder abExclude = buildExcludeFolder("src/a/b");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(leftSource, abExclude, aaExclude)),
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, abExclude, aaExclude),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(buildSourceFolder("src"), aaExclude, abExclude));
   }
 
@@ -316,7 +369,13 @@ public class IjSourceRootSimplifierTest {
     IjFolder aaExclude = buildExcludeFolder("src/a/a");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(leftSource, aExclude, aaExclude)),
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, aExclude, aaExclude),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(buildSourceFolder("src"), aExclude));
   }
 
@@ -329,7 +388,13 @@ public class IjSourceRootSimplifierTest {
     IjFolder acNonCoalescing = buildNonCoalescingFolder("src/a/c");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(leftSource, abExclude, aaExclude, acNonCoalescing)),
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, abExclude, aaExclude, acNonCoalescing),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(
             buildSourceFolder("src"), abExclude, aaExclude, acNonCoalescing));
   }
@@ -342,8 +407,11 @@ public class IjSourceRootSimplifierTest {
     IjFolder bFolder = buildNoPrefixSourceFolder("src/b");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(aFolder, aaFolder, bFolder)),
-        Matchers.contains(buildNoPrefixSourceFolder("src")));
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aFolder, aaFolder, bFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(buildNoPrefixSourceFolder("")));
   }
 
   @Test
@@ -354,7 +422,10 @@ public class IjSourceRootSimplifierTest {
     IjFolder bFolder = buildNoPrefixSourceFolder("src/b");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(aFolder, aaFolder, bFolder)),
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aFolder, aaFolder, bFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(buildSourceFolder("src"), aFolder, bFolder));
   }
 
@@ -366,7 +437,10 @@ public class IjSourceRootSimplifierTest {
     IjFolder acFolder = buildSourceFolder("src/a/c");
 
     assertThat(
-        simplifier.simplify(0, ImmutableSet.of(abFolder, abrFolder, acFolder)),
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(abFolder, abrFolder, acFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(abrFolder, buildSourceFolder("src")));
   }
 }

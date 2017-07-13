@@ -19,6 +19,7 @@ package com.facebook.buck.jvm.java.tracing;
 import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskListener;
 import com.facebook.buck.jvm.java.plugin.api.TaskEventMirror;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -109,6 +110,8 @@ public class TracingTaskListener implements BuckJavacTaskListener {
     private int enterCount = 0;
     private List<String> enteredFiles = new ArrayList<>();
     private int analyzeCount = 0;
+    private List<String> analyzedFiles = new ArrayList<>();
+    private List<String> analyzedTypes = new ArrayList<>();
 
     public TraceCleaner(JavacPhaseTracer tracing) {
       this.tracing = tracing;
@@ -152,23 +155,32 @@ public class TracingTaskListener implements BuckJavacTaskListener {
     /**
      * There are some cases in which a finish analyze event can be received without a corresponding
      * start. Rather than output malformed trace data, we detect that case and synthesize a start
-     * event.
+     * event. There are other cases in which all analyze start events are issued together, and then
+     * all analyze finish events. In those cases, we consolidate into one event.
      *
      * @see #finishAnalyze(String, String)
      */
     void startAnalyze(@Nullable String filename, @Nullable String typename) {
+      analyzedFiles.add(filename);
+      analyzedTypes.add(typename);
+
       analyzeCount += 1;
-      tracing.beginAnalyze(filename, typename);
+      if (analyzeCount == 1) {
+        tracing.beginAnalyze();
+      }
     }
 
     /** @see #startAnalyze(String, String) */
     void finishAnalyze(@Nullable String filename, @Nullable String typename) {
       if (analyzeCount > 0) {
         analyzeCount -= 1;
-        tracing.endAnalyze();
+        if (analyzeCount == 0) {
+          tracing.endAnalyze(analyzedFiles, analyzedTypes);
+        }
       } else {
-        tracing.beginAnalyze(filename, typename);
-        tracing.endAnalyze();
+        tracing.beginAnalyze();
+        tracing.endAnalyze(
+            Collections.singletonList(filename), Collections.singletonList(typename));
       }
     }
   }

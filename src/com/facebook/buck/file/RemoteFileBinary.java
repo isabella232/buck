@@ -16,6 +16,8 @@
 
 package com.facebook.buck.file;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.CommandTool;
@@ -30,13 +32,15 @@ import java.net.URI;
  */
 public class RemoteFileBinary extends RemoteFile implements BinaryBuildRule {
   public RemoteFileBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Downloader downloader,
       URI uri,
       HashCode sha1,
       String out,
       Type type) {
-    super(params, downloader, uri, sha1, out, type);
+    super(buildTarget, projectFilesystem, params, downloader, uri, sha1, out, type);
   }
 
   @Override

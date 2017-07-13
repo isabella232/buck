@@ -48,6 +48,7 @@ import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -630,7 +631,7 @@ public class IjModuleGraphTest {
       final Function<? super TargetNode<?, ?>, Optional<Path>> rDotJavaClassPathResolver,
       AggregationMode aggregationMode) {
     final SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
@@ -648,7 +649,8 @@ public class IjModuleGraphTest {
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     IjProjectConfig projectConfig =
-        IjProjectBuckConfig.create(buckConfig, aggregationMode, null, false, false, false, true);
+        IjProjectBuckConfig.create(
+            buckConfig, aggregationMode, null, "", "", false, false, false, false, true);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(

@@ -34,6 +34,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -45,13 +46,13 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
 import com.google.common.collect.SortedSetMultimap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -107,7 +108,7 @@ public class MergeAndroidResourcesStepTest {
     SortedSet<RDotTxtEntry> resources = packageNameToResources.get(sharedPackageName);
     assertEquals(7, resources.size());
 
-    Set<String> uniqueEntries = Sets.newHashSet();
+    Set<String> uniqueEntries = new HashSet<>();
     for (RDotTxtEntry resource : resources) {
       if (!resource.type.equals(STYLEABLE)) {
         assertFalse(
@@ -293,7 +294,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaForLibrary() throws IOException {
+  public void testGenerateRDotJavaForLibrary() throws Exception {
     BuildTarget resTarget = BuildTargetFactory.newInstance("//:res1");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
     entriesBuilder.add(
@@ -309,7 +310,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource res =
         AndroidResourceRuleBuilder.newBuilder()
@@ -342,7 +343,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaForOneSymbolsFile() throws IOException {
+  public void testGenerateRDotJavaForOneSymbolsFile() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//android_res/com/facebook/http:res");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
     String symbolsFile =
@@ -374,7 +375,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource resource =
         AndroidResourceRuleBuilder.newBuilder()
@@ -434,7 +435,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaForCustomDrawables() throws IOException {
+  public void testGenerateRDotJavaForCustomDrawables() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//android_res/com/facebook/http:res");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
     String symbolsFile =
@@ -457,7 +458,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource resource =
         AndroidResourceRuleBuilder.newBuilder()
@@ -505,7 +506,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaWithResourceUnionPackage() throws IOException {
+  public void testGenerateRDotJavaWithResourceUnionPackage() throws Exception {
     BuildTarget res1Target = BuildTargetFactory.newInstance("//:res1");
     BuildTarget res2Target = BuildTargetFactory.newInstance("//:res2");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
@@ -529,7 +530,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource res1 =
         AndroidResourceRuleBuilder.newBuilder()
@@ -573,7 +574,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaWithPreviouslyEmptyResourceUnionPackage() throws IOException {
+  public void testGenerateRDotJavaWithPreviouslyEmptyResourceUnionPackage() throws Exception {
     BuildTarget res1Target = BuildTargetFactory.newInstance("//:res1");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
     entriesBuilder.add(
@@ -587,7 +588,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource res1 =
         AndroidResourceRuleBuilder.newBuilder()
@@ -620,7 +621,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaWithRName() throws IOException {
+  public void testGenerateRDotJavaWithRName() throws Exception {
     BuildTarget res1Target = BuildTargetFactory.newInstance("//:res1");
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
     entriesBuilder.add(
@@ -636,7 +637,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     AndroidResource res1 =
         AndroidResourceRuleBuilder.newBuilder()
@@ -675,7 +676,7 @@ public class MergeAndroidResourcesStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder(filesystem);
@@ -743,7 +744,8 @@ public class MergeAndroidResourcesStepTest {
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
       EnumSet<RType> rtypes,
       ImmutableList<String> duplicateResources,
-      ImmutableList<String> ignoredDuplicates) {
+      ImmutableList<String> ignoredDuplicates)
+      throws IOException, InterruptedException {
     MergeAndroidResourcesStep mergeStep =
         new MergeAndroidResourcesStep(
             filesystem,

@@ -16,14 +16,14 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.android.exopackage.ExopackageInstaller.NATIVE_LIB_PATTERN;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
+import com.facebook.buck.android.exopackage.NativeExoHelper;
 import com.facebook.buck.android.exopackage.PackageInfo;
-import com.facebook.buck.android.exopackage.RealExopackageDevice;
+import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -33,7 +33,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.regex.Matcher;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -42,44 +41,6 @@ import org.junit.rules.ExpectedException;
 public class ExopackageInstallerTest {
 
   @Rule public ExpectedException thrown = ExpectedException.none();
-
-  @Test
-  public void testScanSecondaryDexDir() throws Exception {
-    String output =
-        "exopackage_temp-secondary-abcdefg.dex.jar-588103794.tmp\r\n"
-            + "lock\r\n"
-            + "metadata.txt\r\n"
-            + "secondary-0fa1f9cfb3c0effa8000d2d86d267985b158df9f.dex.jar\r\n"
-            + "secondary-07fc80d2de21bd1dd57be0728fdb6c14190c3386.dex.jar\r\n"
-            + "secondary-2add18058985241f7999eb026868cebb9ef63379.dex.jar\r\n"
-            + "";
-    ImmutableSet<String> requiredHashes =
-        ImmutableSet.of(
-            "0fa1f9cfb3c0effa8000d2d86d267985b158df9f",
-            "2add18058985241f7999eb026868cebb9ef63379",
-            "97d21318d1d5dd298f6ee932916c6ee949fe760e");
-    ImmutableSet.Builder<String> foundHashesBuilder = ImmutableSet.builder();
-    ImmutableSet.Builder<String> toDeleteBuilder = ImmutableSet.builder();
-
-    ExopackageInstaller.processLsOutput(
-        output,
-        ExopackageInstaller.DEX_FILE_PATTERN,
-        requiredHashes,
-        foundHashesBuilder,
-        toDeleteBuilder);
-
-    assertEquals(
-        ImmutableSet.of(
-            "0fa1f9cfb3c0effa8000d2d86d267985b158df9f", "2add18058985241f7999eb026868cebb9ef63379"),
-        foundHashesBuilder.build());
-
-    assertEquals(
-        ImmutableSet.of(
-            "exopackage_temp-secondary-abcdefg.dex.jar-588103794.tmp",
-            "metadata.txt",
-            "secondary-07fc80d2de21bd1dd57be0728fdb6c14190c3386.dex.jar"),
-        toDeleteBuilder.build());
-  }
 
   @Test
   public void testParsePathAndPackageInfo() {
@@ -95,7 +56,7 @@ public class ExopackageInstallerTest {
             + "    versionName=8.0.0.0.23\r\n"
             + "";
     Optional<PackageInfo> optionalInfo =
-        ExopackageInstaller.parsePathAndPackageInfo("com.facebook.katana", lines);
+        RealAndroidDevice.parsePathAndPackageInfo("com.facebook.katana", lines);
 
     assertTrue(optionalInfo.isPresent());
     PackageInfo info = optionalInfo.get();
@@ -121,7 +82,7 @@ public class ExopackageInstallerTest {
             + "    versionName=3\r\n"
             + "";
     Optional<PackageInfo> optionalInfo =
-        ExopackageInstaller.parsePathAndPackageInfo("com.facebook.buck.android.agent", lines);
+        RealAndroidDevice.parsePathAndPackageInfo("com.facebook.buck.android.agent", lines);
 
     assertTrue(optionalInfo.isPresent());
     PackageInfo info = optionalInfo.get();
@@ -145,22 +106,22 @@ public class ExopackageInstallerTest {
             + "    versionName=8.0.0.0.23\r\n"
             + "";
     Optional<PackageInfo> optionalInfo =
-        ExopackageInstaller.parsePathAndPackageInfo("com.facebook.katana", lines);
+        RealAndroidDevice.parsePathAndPackageInfo("com.facebook.katana", lines);
 
     assertFalse(optionalInfo.isPresent());
   }
 
   @Test
   public void testChunkArgs() {
-    assertEquals(ImmutableList.of(), RealExopackageDevice.chunkArgs(ImmutableList.of(), 8));
+    assertEquals(ImmutableList.of(), RealAndroidDevice.chunkArgs(ImmutableList.of(), 8));
 
     assertEquals(
         ImmutableList.of(ImmutableList.of("abcd", "efg")),
-        RealExopackageDevice.chunkArgs(ImmutableList.of("abcd", "efg"), 8));
+        RealAndroidDevice.chunkArgs(ImmutableList.of("abcd", "efg"), 8));
 
     assertEquals(
         ImmutableList.of(ImmutableList.of("abcd", "efg"), ImmutableList.of("hijkl")),
-        RealExopackageDevice.chunkArgs(ImmutableList.of("abcd", "efg", "hijkl"), 8));
+        RealAndroidDevice.chunkArgs(ImmutableList.of("abcd", "efg", "hijkl"), 8));
   }
 
   @Test
@@ -176,13 +137,12 @@ public class ExopackageInstallerTest {
 
     assertEquals(
         ImmutableSet.of(Strings.repeat("a", 40), Strings.repeat("b", 40)),
-        ExopackageInstaller.filterLibrariesForAbi(
-                libsDir, allLibs, "armeabi-v7a", ImmutableSet.of())
+        NativeExoHelper.filterLibrariesForAbi(libsDir, allLibs, "armeabi-v7a", ImmutableSet.of())
             .keySet());
 
     assertEquals(
         ImmutableSet.of(Strings.repeat("d", 40)),
-        ExopackageInstaller.filterLibrariesForAbi(
+        NativeExoHelper.filterLibrariesForAbi(
                 libsDir, allLibs, "armeabi", ImmutableSet.of("libmy1.so", "libmy2.so"))
             .keySet());
   }
@@ -214,21 +174,5 @@ public class ExopackageInstallerTest {
         Paths.get("metadata.txt"));
 
     ExopackageInstaller.parseExopackageInfoMetadata(Paths.get("metadata.txt"), baseDir, filesystem);
-  }
-
-  @Test
-  public void testNativeLibFilesPattern() {
-    assertEquals("123abc", matchAndGetHash("native-123abc.so"));
-    assertEquals(null, matchAndGetHash("native-123abcz.so"));
-    assertEquals(null, matchAndGetHash("native-.so"));
-    assertEquals(null, matchAndGetHash("secondary-123abc.so"));
-  }
-
-  private String matchAndGetHash(String filename) {
-    Matcher m = NATIVE_LIB_PATTERN.matcher(filename);
-    if (m.matches()) {
-      return m.group(1);
-    }
-    return null;
   }
 }

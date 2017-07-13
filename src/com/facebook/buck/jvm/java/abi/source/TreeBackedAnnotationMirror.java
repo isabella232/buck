@@ -23,6 +23,7 @@ import com.sun.source.tree.AssignmentTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.util.TreePath;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -35,28 +36,31 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Name;
 import javax.lang.model.type.DeclaredType;
 
-class TreeBackedAnnotationMirror implements AnnotationMirror {
+class TreeBackedAnnotationMirror implements ArtificialAnnotationMirror {
   private final AnnotationMirror underlyingAnnotationMirror;
+  private final TreePath treePath;
   private final AnnotationTree tree;
-  private final TreeBackedElementResolver resolver;
+  private final PostEnterCanonicalizer canonicalizer;
 
   @Nullable private DeclaredType type;
   @Nullable private Map<ExecutableElement, TreeBackedAnnotationValue> elementValues;
 
   TreeBackedAnnotationMirror(
       AnnotationMirror underlyingAnnotationMirror,
-      AnnotationTree tree,
-      TreeBackedElementResolver resolver) {
+      TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
     this.underlyingAnnotationMirror = underlyingAnnotationMirror;
-    this.tree = tree;
-    this.resolver = resolver;
+    this.treePath = treePath;
+    this.tree = (AnnotationTree) treePath.getLeaf();
+    this.canonicalizer = canonicalizer;
   }
 
   @Override
   public DeclaredType getAnnotationType() {
     if (type == null) {
       type =
-          (DeclaredType) resolver.getCanonicalType(underlyingAnnotationMirror.getAnnotationType());
+          (DeclaredType)
+              canonicalizer.getCanonicalType(underlyingAnnotationMirror.getAnnotationType());
     }
     return type;
   }
@@ -86,8 +90,9 @@ class TreeBackedAnnotationMirror implements AnnotationMirror {
             Preconditions.checkNotNull(trees.get(entry.getKey().getSimpleName().toString()));
 
         result.put(
-            resolver.getCanonicalElement(underlyingKeyElement),
-            new TreeBackedAnnotationValue(entry.getValue(), valueTree, resolver));
+            canonicalizer.getCanonicalElement(underlyingKeyElement),
+            new TreeBackedAnnotationValue(
+                entry.getValue(), new TreePath(treePath, valueTree), canonicalizer));
       }
 
       elementValues = Collections.unmodifiableMap(result);

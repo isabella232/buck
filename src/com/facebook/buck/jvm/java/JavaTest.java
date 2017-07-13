@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
@@ -26,7 +27,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -40,7 +41,9 @@ import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -77,6 +80,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.stream.Stream;
@@ -85,7 +89,7 @@ import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class JavaTest extends AbstractBuildRuleWithResolver
+public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule,
         HasClasspathEntries,
         HasRuntimeDeps,
@@ -126,7 +130,7 @@ public class JavaTest extends AbstractBuildRuleWithResolver
 
   @AddToRuleKey private final Optional<Long> testCaseTimeoutMs;
 
-  @AddToRuleKey private final ImmutableMap<String, String> env;
+  @AddToRuleKey private final ImmutableMap<String, Arg> env;
 
   private final Path pathToTestLogs;
 
@@ -141,8 +145,9 @@ public class JavaTest extends AbstractBuildRuleWithResolver
   @AddToRuleKey private final ForkMode forkMode;
 
   public JavaTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathResolver resolver,
       JavaLibrary compiledTestsLibrary,
       ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       Set<String> labels,
@@ -153,12 +158,12 @@ public class JavaTest extends AbstractBuildRuleWithResolver
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
       Optional<Long> testCaseTimeoutMs,
-      ImmutableMap<String, String> env,
+      ImmutableMap<String, Arg> env,
       boolean runTestSeparately,
       ForkMode forkMode,
       Optional<Level> stdOutLogLevel,
       Optional<Level> stdErrLogLevel) {
-    super(params, resolver);
+    super(buildTarget, projectFilesystem, params);
     this.compiledTestsLibrary = compiledTestsLibrary;
 
     for (Either<SourcePath, Path> path : additionalClasspathEntries) {
@@ -249,7 +254,7 @@ public class JavaTest extends AbstractBuildRuleWithResolver
         nativeLibsEnvironment,
         testRuleTimeoutMs,
         testCaseTimeoutMs,
-        env,
+        Arg.stringify(env, pathResolver),
         javaRuntimeLauncher,
         args);
   }
@@ -281,7 +286,11 @@ public class JavaTest extends AbstractBuildRuleWithResolver
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     Path pathToTestOutput = getPathToTestOutputDirectory();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToTestOutput));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                buildContext.getBuildCellRootPath(), getProjectFilesystem(), pathToTestOutput)));
     if (forkMode() == ForkMode.PER_TEST) {
       ImmutableList.Builder<JUnitStep> junitsBuilder = ImmutableList.builder();
       for (String testClass : testClassNames) {
@@ -376,12 +385,14 @@ public class JavaTest extends AbstractBuildRuleWithResolver
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext context, final boolean isUsingTestSelectors) {
+      final ExecutionContext context,
+      SourcePathResolver pathResolver,
+      final boolean isUsingTestSelectors) {
     final ImmutableSet<String> contacts = getContacts();
     return () -> {
       // It is possible that this rule was not responsible for running any tests because all tests
       // were run by its deps. In this case, return an empty TestResults.
-      Set<String> testClassNames = getClassNamesForSources(getResolver());
+      Set<String> testClassNames = getClassNamesForSources(pathResolver);
       if (testClassNames.isEmpty()) {
         return TestResults.of(
             getBuildTarget(),
@@ -476,7 +487,7 @@ public class JavaTest extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getExportedDeps() {
+  public SortedSet<BuildRule> getExportedDeps() {
     return ImmutableSortedSet.of(compiledTestsLibrary);
   }
 
@@ -592,7 +603,7 @@ public class JavaTest extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
             // By the end of the build, all the transitive Java library dependencies *must* be
             // available on disk, so signal this requirement via the {@link HasRuntimeDeps}
@@ -637,11 +648,17 @@ public class JavaTest extends AbstractBuildRuleWithResolver
   @Override
   public ImmutableList<Step> getPostBuildSteps(BuildContext buildContext) {
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(getProjectFilesystem(), getClassPathFile().getParent()))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    getClassPathFile().getParent())))
         .add(
             new AbstractExecutionStep("write classpath file") {
               @Override
-              public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              public StepExecutionResult execute(ExecutionContext context)
+                  throws IOException, InterruptedException {
                 ImmutableSet<Path> classpathEntries =
                     ImmutableSet.<Path>builder()
                         .addAll(

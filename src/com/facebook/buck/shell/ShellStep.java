@@ -34,8 +34,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
@@ -54,7 +52,10 @@ public abstract class ShellStep implements Step {
   /** Defined lazily by {@link #getShellCommand(com.facebook.buck.step.ExecutionContext)}. */
   @Nullable private ImmutableList<String> shellCommandArgs;
 
-  /** If specified, working directory will be different from project root. * */
+  /**
+   * If specified, working directory will be different from build cell root. This should be relative
+   * to the build cell root.
+   */
   protected final Path workingDirectory;
 
   /**
@@ -90,9 +91,9 @@ public abstract class ShellStep implements Step {
 
     builder.setCommand(getShellCommand(context));
     Map<String, String> environment = new HashMap<>();
-    setProcessEnvironment(context, environment, workingDirectory.toFile());
+    setProcessEnvironment(context, environment, workingDirectory.toString());
     builder.setEnvironment(ImmutableMap.copyOf(environment));
-    builder.setDirectory(workingDirectory);
+    builder.setDirectory(context.getBuildCellRootPath().resolve(workingDirectory));
 
     Optional<String> stdin = getStdin(context);
     if (stdin.isPresent()) {
@@ -126,7 +127,7 @@ public abstract class ShellStep implements Step {
 
   @VisibleForTesting
   void setProcessEnvironment(
-      ExecutionContext context, Map<String, String> environment, File workDir) {
+      ExecutionContext context, Map<String, String> environment, String workDir) {
 
     // Replace environment with client environment.
     environment.clear();
@@ -134,7 +135,7 @@ public abstract class ShellStep implements Step {
 
     // Make sure the special PWD variable matches the working directory
     // of the process (unless otherwise set).
-    environment.put("PWD", workDir.toString());
+    environment.put("PWD", workDir);
 
     // Add extra environment variables for step, if appropriate.
     if (!getEnvironmentVariables(context).isEmpty()) {
@@ -153,7 +154,7 @@ public abstract class ShellStep implements Step {
       throws InterruptedException, IOException {
     ImmutableSet.Builder<Option> options = ImmutableSet.builder();
 
-    addOptions(context, options);
+    addOptions(options);
 
     ProcessExecutor executor = context.getProcessExecutor();
     ProcessExecutor.Result result =
@@ -177,11 +178,7 @@ public abstract class ShellStep implements Step {
     return getExitCodeFromResult(context, result);
   }
 
-  protected void addOptions(ExecutionContext context, ImmutableSet.Builder<Option> options) {
-    if (shouldFlushStdOutErrAsProgressIsMade(context.getVerbosity())) {
-      options.add(Option.PRINT_STD_OUT);
-      options.add(Option.PRINT_STD_ERR);
-    }
+  protected void addOptions(ImmutableSet.Builder<Option> options) {
     options.add(Option.IS_SILENT);
   }
 
@@ -286,19 +283,6 @@ public abstract class ShellStep implements Step {
         "stderr was not set: shouldPrintStdErr() must return false and execute() must "
             + "have been invoked");
     return this.stderr.get();
-  }
-
-  /**
-   * By default, the output written to stdout and stderr will be buffered into individual {@link
-   * ByteArrayOutputStream}s and then converted into strings for easier consumption. This means that
-   * output from both streams that would normally be interleaved will now be displayed separately.
-   *
-   * <p>To disable this behavior and print to stdout and stderr directly, this method should be
-   * overridden to return {@code true}.
-   */
-  @SuppressWarnings("unused")
-  protected boolean shouldFlushStdOutErrAsProgressIsMade(Verbosity verbosity) {
-    return false;
   }
 
   /** @return an optional timeout to apply to the step. */

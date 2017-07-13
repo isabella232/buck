@@ -36,7 +36,7 @@ public class AndroidLibraryModuleRule extends AndroidModuleRule<AndroidLibraryDe
       ProjectFilesystem projectFilesystem,
       IjModuleFactoryResolver moduleFactoryResolver,
       IjProjectConfig projectConfig) {
-    super(projectFilesystem, moduleFactoryResolver, projectConfig, true);
+    super(projectFilesystem, moduleFactoryResolver, projectConfig, AndroidProjectType.LIBRARY);
   }
 
   @Override
@@ -59,9 +59,7 @@ public class AndroidLibraryModuleRule extends AndroidModuleRule<AndroidLibraryDe
 
     IjModuleAndroidFacet.Builder builder = context.getOrCreateAndroidFacetBuilder();
     Optional<Path> manifestPath = moduleFactoryResolver.getLibraryAndroidManifestPath(target);
-    if (manifestPath.isPresent()) {
-      builder.setManifestPath(manifestPath.get());
-    }
+    manifestPath.ifPresent(builder::addManifestPaths);
   }
 
   @Override

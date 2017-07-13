@@ -30,6 +30,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.collect.SortedSets;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -38,9 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -54,9 +53,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
@@ -113,9 +115,9 @@ public class BuildInfoRecorder {
                 Optional.ofNullable(environment.get(BUCK_CACHE_DATA_ENV_VAR)).orElse("null"))
             .build();
 
-    this.metadataToWrite = Maps.newLinkedHashMap();
-    this.buildMetadata = Maps.newLinkedHashMap();
-    this.pathsToOutputs = Sets.newHashSet();
+    this.metadataToWrite = new LinkedHashMap<>();
+    this.buildMetadata = new LinkedHashMap<>();
+    this.pathsToOutputs = new HashSet<>();
     this.warnedUserOfCacheStoreFailure = new AtomicBoolean(false);
   }
 
@@ -229,11 +231,8 @@ public class BuildInfoRecorder {
     return paths.build();
   }
 
-  private ImmutableSortedSet<Path> getRecordedDirsAndFiles() throws IOException {
-    return ImmutableSortedSet.<Path>naturalOrder()
-        .addAll(getRecordedMetadataFiles())
-        .addAll(getRecordedOutputDirsAndFiles())
-        .build();
+  private SortedSet<Path> getRecordedDirsAndFiles() throws IOException {
+    return SortedSets.union(getRecordedMetadataFiles(), getRecordedOutputDirsAndFiles());
   }
 
   /** @return the outputs paths as recorded by the rule. */
@@ -285,7 +284,7 @@ public class BuildInfoRecorder {
     eventBus.post(started);
 
     final Path zip;
-    ImmutableSet<Path> pathsToIncludeInZip = ImmutableSet.of();
+    SortedSet<Path> pathsToIncludeInZip = ImmutableSortedSet.of();
     ImmutableMap<String, String> buildMetadata;
     try {
       pathsToIncludeInZip = getRecordedDirsAndFiles();

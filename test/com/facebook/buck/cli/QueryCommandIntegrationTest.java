@@ -20,7 +20,10 @@ import static com.facebook.buck.util.MoreStringsForTests.equalToIgnoringPlatform
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -28,7 +31,14 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Splitter;
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -585,6 +595,47 @@ public class QueryCommandIntegrationTest {
         is(equalToIgnoringPlatformNewlines(workspace.getFileContents("stdout-bfs-deps-one.dot"))));
   }
 
+  class ParserProfileFinder extends SimpleFileVisitor<Path> {
+    private Path profilerPath = null;
+
+    @Override
+    public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) throws IOException {
+      if (path.toString().contains("parser-profiler")) {
+        profilerPath = path;
+        return FileVisitResult.TERMINATE;
+      } else {
+        return FileVisitResult.CONTINUE;
+      }
+    }
+
+    public Path getProfilerPath() {
+      return profilerPath;
+    }
+  };
+
+  @Test
+  public void testQueryProfileParser() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("query", "deps(//example:one)", "--profile-buck-parser");
+    result.assertSuccess();
+
+    Path logPath = tmp.getRoot().resolve("buck-out").resolve("log");
+    ParserProfileFinder parserProfileFinder = new ParserProfileFinder();
+    Files.walkFileTree(logPath, parserProfileFinder);
+
+    assertNotNull("Profiler log not found", parserProfileFinder.getProfilerPath());
+
+    String content = new String(Files.readAllBytes(parserProfileFinder.getProfilerPath()));
+    assertTrue(content.contains("Total:"));
+    assertTrue(content.contains("# Parsed "));
+    assertTrue(content.contains("# Highlights"));
+    assertTrue(content.contains("# More details"));
+  }
+
   @Test
   public void testFilterAttrTests() throws IOException {
     ProjectWorkspace workspace =
@@ -682,5 +733,53 @@ public class QueryCommandIntegrationTest {
             equalToIgnoringPlatformNewlines(
                 String.format(
                     "%s%n%s%n%s%n", "example/4-test.txt", "example/Test.plist", "example/1.txt"))));
+  }
+
+  @Test
+  public void testOwnerCrossCell() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command_cross_cell", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            workspace.resolve("cell1"), "query", "owner(../cell2/foo/foo.txt)");
+    result.assertSuccess();
+    assertEquals("cell2//foo:test", result.getStdout().trim());
+  }
+
+  @Test
+  public void testMultipleOwnersCrossingPackageBoundaryWithException() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "query",
+            "-c",
+            "project.package_boundary_exceptions=owners_violating_package_boundary",
+            "owner(owners_violating_package_boundary/inner/Source.java)");
+    result.assertSuccess();
+    assertThat(
+        Splitter.on("\n").omitEmptyStrings().trimResults().splitToList(result.getStdout()),
+        Matchers.containsInAnyOrder(
+            "//owners_violating_package_boundary:lib",
+            "//owners_violating_package_boundary/inner:lib"));
+  }
+
+  @Test
+  public void testMultipleOwnersCrossingPackageBoundaryWithoutException() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "query",
+            "-c",
+            "project.package_boundary_exceptions=",
+            "owner(owners_violating_package_boundary/inner/Source.java)");
+    result.assertSuccess();
+    assertThat(
+        Splitter.on("\n").omitEmptyStrings().trimResults().splitToList(result.getStdout()),
+        Matchers.containsInAnyOrder("//owners_violating_package_boundary/inner:lib"));
   }
 }

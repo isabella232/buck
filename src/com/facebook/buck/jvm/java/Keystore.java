@@ -16,7 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -26,13 +28,18 @@ import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import javax.annotation.Nullable;
 
-public class Keystore extends AbstractBuildRule {
+public class Keystore extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final SourcePath pathToStore;
   @AddToRuleKey private final SourcePath pathToProperties;
 
-  public Keystore(BuildRuleParams params, SourcePath store, SourcePath properties) {
-    super(params);
+  public Keystore(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      SourcePath store,
+      SourcePath properties) {
+    super(buildTarget, projectFilesystem, params);
     this.pathToStore = store;
     this.pathToProperties = properties;
   }

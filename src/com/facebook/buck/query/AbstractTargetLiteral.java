@@ -33,8 +33,6 @@ package com.facebook.buck.query;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import java.util.Collection;
 import org.immutables.value.Value;
 
 /**
@@ -53,14 +51,14 @@ abstract class AbstractTargetLiteral extends QueryExpression {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> eval(QueryEnvironment env, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
-    return env.getTargetsMatchingPattern(getPattern(), executor);
+  ImmutableSet<QueryTarget> eval(QueryEvaluator evaluator, QueryEnvironment env)
+      throws QueryException {
+    return env.getTargetsMatchingPattern(getPattern());
   }
 
   @Override
-  public void collectTargetPatterns(Collection<String> literals) {
-    literals.add(getPattern());
+  public void traverse(QueryExpression.Visitor visitor) {
+    visitor.visit(this);
   }
 
   @Override

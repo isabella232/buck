@@ -22,6 +22,7 @@ import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorS
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.AndroidPlatformTargetSupplier;
 import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
@@ -47,6 +48,7 @@ import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.LoadBalancerEventsListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.MachineReadableLoggerListener;
+import com.facebook.buck.event.listener.ParserProfilerLoggerListener;
 import com.facebook.buck.event.listener.ProgressEstimator;
 import com.facebook.buck.event.listener.PublicAnnouncementManager;
 import com.facebook.buck.event.listener.RuleKeyDiagnosticsListener;
@@ -82,12 +84,10 @@ import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
-import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -122,6 +122,7 @@ import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.network.MacIpv6BugWorkaround;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.perf.ProcessTracker;
@@ -130,10 +131,12 @@ import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInte
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
+import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -295,13 +298,38 @@ public final class Main {
   private static final NonReentrantSystemExit NON_REENTRANT_SYSTEM_EXIT =
       new NonReentrantSystemExit();
 
+  public interface KnownBuildRuleTypesFactoryFactory {
+    KnownBuildRuleTypesFactory create(
+        ProcessExecutor processExecutor, AndroidDirectoryResolver androidDirectoryResolver);
+  }
+
+  private final KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
+
+  static {
+    MacIpv6BugWorkaround.apply();
+  }
+
+  /**
+   * This constructor allows integration tests to add/remove/modify known build rules (aka
+   * descriptions).
+   */
   @VisibleForTesting
-  public Main(PrintStream stdOut, PrintStream stdErr, InputStream stdIn) {
+  public Main(
+      PrintStream stdOut,
+      PrintStream stdErr,
+      InputStream stdIn,
+      KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory) {
     this.stdOut = stdOut;
     this.stdErr = stdErr;
     this.stdIn = stdIn;
+    this.knownBuildRuleTypesFactoryFactory = knownBuildRuleTypesFactoryFactory;
     this.architecture = Architecture.detect();
     this.platform = Platform.detect();
+  }
+
+  @VisibleForTesting
+  public Main(PrintStream stdOut, PrintStream stdErr, InputStream stdIn) {
+    this(stdOut, stdErr, stdIn, KnownBuildRuleTypesFactory::new);
   }
 
   /* Define all error handling surrounding main command */
@@ -335,6 +363,9 @@ public final class Main {
               watchmanFreshInstanceAction,
               initTimestamp,
               args);
+    } catch (InterruptedException | ClosedByInterruptException e) {
+      // We're about to exit, so it's acceptable to swallow interrupts here.
+      LOG.debug(e, "Interrupted");
     } catch (IOException e) {
       if (e.getMessage().startsWith("No space left on device")) {
         makeStandardConsole(context).printBuildFailure(e.getMessage());
@@ -458,7 +489,7 @@ public final class Main {
             .add(canonicalRootPath)
             .addAll(
                 buckConfig.getView(ParserConfig.class).getWatchCells()
-                    ? cellPathResolver.getTransitivePathMapping().values()
+                    ? cellPathResolver.getPathMapping().values()
                     : ImmutableList.of())
             .build();
     Optional<ImmutableList<String>> allowedJavaSpecificiationVersions =
@@ -474,16 +505,18 @@ public final class Main {
       }
     }
 
-    // Setup the console.
     Verbosity verbosity = VerbosityParser.parse(args);
-    Optional<String> color;
-    if (context.isPresent() && (context.get().getEnv() != null)) {
-      String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
-      color = Optional.ofNullable(colorString);
-    } else {
-      color = Optional.empty();
+
+    // Setup the console.
+    final Console console = makeCustomConsole(context, verbosity, buckConfig);
+
+    // dirty! this is a temporary fix to speed up buck --version
+    // this will go away with permanent fix that dispatches commands providing only needed
+    // parameters which are lazily initialized
+    if (command.subcommand instanceof VersionCommand) {
+      ((VersionCommand) command.subcommand).printVersion(console);
+      return 0;
     }
-    final Console console = new Console(verbosity, stdOut, stdErr, buckConfig.createAnsi(color));
 
     // No more early outs: if this command is not read only, acquire the command semaphore to
     // become the only executing read/write command.
@@ -557,7 +590,7 @@ public final class Main {
               context, parserConfig, projectWatchList, clientEnvironment, console, clock)) {
 
         KnownBuildRuleTypesFactory factory =
-            new KnownBuildRuleTypesFactory(processExecutor, androidDirectoryResolver);
+            knownBuildRuleTypesFactoryFactory.create(processExecutor, androidDirectoryResolver);
 
         Cell rootCell =
             CellProvider.createForLocalBuild(
@@ -601,18 +634,37 @@ public final class Main {
           rootCell
               .getAllCells()
               .stream()
-              .map(cell -> DefaultFileHashCache.createDefaultFileHashCache(cell.getFilesystem()))
+              .map(
+                  cell ->
+                      DefaultFileHashCache.createDefaultFileHashCache(
+                          cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()))
               .forEach(allCaches::add);
+          // The Daemon caches a buck-out filehashcache for the root cell, so the non-daemon case needs to create that itself.
           allCaches.add(
               DefaultFileHashCache.createBuckOutFileHashCache(
-                  rootCellProjectFilesystem, rootCell.getFilesystem().getBuckPaths().getBuckOut()));
+                  rootCell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
         }
+
+        rootCell
+            .getAllCells()
+            .forEach(
+                cell -> {
+                  if (!cell.equals(rootCell)) {
+                    allCaches.add(
+                        DefaultFileHashCache.createBuckOutFileHashCache(
+                            cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+                  }
+                });
 
         // A cache which caches hashes of cell-relative paths which may have been ignore by
         // the main cell cache, and only serves to prevent rehashing the same file multiple
         // times in a single run.
-        allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(rootCellProjectFilesystem));
-        allCaches.addAll(DefaultFileHashCache.createOsRootDirectoriesCaches());
+        allCaches.add(
+            DefaultFileHashCache.createDefaultFileHashCache(
+                rootCellProjectFilesystem, rootCell.getBuckConfig().getFileHashCacheMode()));
+        allCaches.addAll(
+            DefaultFileHashCache.createOsRootDirectoriesCaches(
+                rootCell.getBuckConfig().getFileHashCacheMode()));
 
         StackedFileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
@@ -667,6 +719,7 @@ public final class Main {
             BuildInfoStoreManager storeManager = new BuildInfoStoreManager();
             AbstractConsoleEventBusListener consoleListener =
                 createConsoleEventListener(
+                    buildId.toString(),
                     clock,
                     new SuperConsoleConfig(buckConfig),
                     console,
@@ -777,12 +830,11 @@ public final class Main {
           if (command.subcommand instanceof AbstractCommand) {
             AbstractCommand subcommand = (AbstractCommand) command.subcommand;
             if (!commandMode.equals(CommandMode.TEST)) {
-              VersionControlStatsGenerator.Mode mode =
+              vcStatsGenerator.generateStatsAsync(
                   subcommand.isSourceControlStatsGatheringEnabled()
-                          || vcBuckConfig.shouldGenerateStatistics()
-                      ? VersionControlStatsGenerator.Mode.FAST
-                      : VersionControlStatsGenerator.Mode.PREGENERATED;
-              vcStatsGenerator.generateStatsAsync(mode, diskIoExecutorService, buildEventBus);
+                      || vcBuckConfig.shouldGenerateStatistics(),
+                  diskIoExecutorService,
+                  buildEventBus);
             }
           }
 
@@ -874,7 +926,7 @@ public final class Main {
             processManager = Optional.of(new PkillProcessManager(processExecutor));
           }
           Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
-              createAndroidPlatformTargetSupplier(
+              new AndroidPlatformTargetSupplier(
                   androidDirectoryResolver, androidBuckConfig, buildEventBus);
 
           // At this point, we have parsed options but haven't started
@@ -994,6 +1046,18 @@ public final class Main {
         commandSemaphore.release();
       }
     }
+  }
+
+  private Console makeCustomConsole(
+      Optional<NGContext> context, Verbosity verbosity, BuckConfig buckConfig) {
+    Optional<String> color;
+    if (context.isPresent() && (context.get().getEnv() != null)) {
+      String colorString = context.get().getEnv().getProperty(BUCKD_COLOR_DEFAULT_ENV_VAR);
+      color = Optional.ofNullable(colorString);
+    } else {
+      color = Optional.empty();
+    }
+    return new Console(verbosity, stdOut, stdErr, buckConfig.createAnsi(color));
   }
 
   private void flushEventListeners(
@@ -1122,59 +1186,6 @@ public final class Main {
     }
   }
 
-  @VisibleForTesting
-  static Supplier<AndroidPlatformTarget> createAndroidPlatformTargetSupplier(
-      final AndroidDirectoryResolver androidDirectoryResolver,
-      final AndroidBuckConfig androidBuckConfig,
-      final BuckEventBus eventBus) {
-    // TODO(mbolin): Only one such Supplier should be created per Cell per Buck execution.
-    // Currently, only one Supplier is created per Buck execution because Main creates the Supplier
-    // and passes it from above all the way through, but it is not parameterized by Cell.
-    //
-    // TODO(mbolin): Every build rule that uses AndroidPlatformTarget must include the result
-    // of its getCacheName() method in its RuleKey.
-    return new Supplier<AndroidPlatformTarget>() {
-
-      @Nullable private AndroidPlatformTarget androidPlatformTarget;
-
-      @Nullable private RuntimeException exception;
-
-      @Override
-      public AndroidPlatformTarget get() {
-        if (androidPlatformTarget != null) {
-          return androidPlatformTarget;
-        } else if (exception != null) {
-          throw exception;
-        }
-
-        String androidPlatformTargetId;
-        Optional<String> target = androidBuckConfig.getAndroidTarget();
-        if (target.isPresent()) {
-          androidPlatformTargetId = target.get();
-        } else {
-          androidPlatformTargetId = AndroidPlatformTarget.DEFAULT_ANDROID_PLATFORM_TARGET;
-          eventBus.post(
-              ConsoleEvent.fine(
-                  "No Android platform target specified. Using default: %s",
-                  androidPlatformTargetId));
-        }
-
-        try {
-          androidPlatformTarget =
-              AndroidPlatformTarget.getTargetForId(
-                  androidPlatformTargetId,
-                  androidDirectoryResolver,
-                  androidBuckConfig.getAaptOverride(),
-                  androidBuckConfig.getAapt2Override());
-          return androidPlatformTarget;
-        } catch (RuntimeException e) {
-          exception = e;
-          throw e;
-        }
-      }
-    };
-  }
-
   private static ConsoleHandlerState.Writer createWriterForConsole(
       final AbstractConsoleEventBusListener console) {
     return new ConsoleHandlerState.Writer() {
@@ -1222,7 +1233,9 @@ public final class Main {
     context.addClientListener(
         () -> {
           if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
-            LOG.info("killing background processes on client disconnection");
+            LOG.info(
+                "BuckIsDyingException: killing background processes on client disconnection"
+                    + Throwables.getStackTraceAsString(new Throwable()));
             // Process no longer wants work done on its behalf.
             BgProcessKiller.killBgProcesses();
           }
@@ -1329,6 +1342,7 @@ public final class Main {
     }
 
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, buckConfig);
+    ArtifactCacheBuckConfig artifactCacheConfig = new ArtifactCacheBuckConfig(buckConfig);
 
     if (buckConfig.isRuleKeyLoggerEnabled()) {
       eventListenersBuilder.add(
@@ -1339,14 +1353,11 @@ public final class Main {
                   new CommandThreadFactory(getClass().getName()))));
     }
 
-    if (buckConfig.getRuleKeyDiagnosticsMode() != RuleKeyDiagnosticsMode.NEVER) {
-      eventListenersBuilder.add(
-          new RuleKeyDiagnosticsListener(
-              projectFilesystem,
-              invocationInfo,
-              MostExecutors.newSingleThreadExecutor(
-                  new CommandThreadFactory(getClass().getName()))));
-    }
+    eventListenersBuilder.add(
+        new RuleKeyDiagnosticsListener(
+            projectFilesystem,
+            invocationInfo,
+            MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()))));
 
     if (buckConfig.isMachineReadableLoggerEnabled()) {
       try {
@@ -1355,11 +1366,14 @@ public final class Main {
                 invocationInfo,
                 projectFilesystem,
                 MostExecutors.newSingleThreadExecutor(
-                    new CommandThreadFactory(getClass().getName()))));
+                    new CommandThreadFactory(getClass().getName())),
+                artifactCacheConfig.getArtifactCacheModes()));
       } catch (FileNotFoundException e) {
         LOG.warn("Unable to open stream for machine readable log file.");
       }
     }
+
+    eventListenersBuilder.add(new ParserProfilerLoggerListener(invocationInfo, projectFilesystem));
 
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
@@ -1388,6 +1402,7 @@ public final class Main {
   }
 
   private AbstractConsoleEventBusListener createConsoleEventListener(
+      String buildId,
       Clock clock,
       SuperConsoleConfig config,
       Console console,
@@ -1413,7 +1428,13 @@ public final class Main {
       return superConsole;
     }
     return new SimpleConsoleEventBusListener(
-        console, clock, testResultSummaryVerbosity, locale, testLogPath, executionEnvironment);
+        console,
+        clock,
+        testResultSummaryVerbosity,
+        locale,
+        testLogPath,
+        buildId,
+        executionEnvironment);
   }
 
   private boolean isSuperConsoleEnabled(Console console) {
@@ -1431,7 +1452,7 @@ public final class Main {
    */
   private static long getBuckPID() {
     String pid = ManagementFactory.getRuntimeMXBean().getName();
-    return (pid != null && pid.matches("^\\d+@\\w+$")) ? Long.parseLong(pid.split("@")[0]) : 0L;
+    return (pid != null && pid.matches("^\\d+@.*$")) ? Long.parseLong(pid.split("@")[0]) : 0L;
   }
 
   private static BuildId getBuildId(Optional<NGContext> context) {

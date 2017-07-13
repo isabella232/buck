@@ -45,7 +45,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -69,13 +68,24 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
               .build());
 
   protected BuildRule createBuildRule(
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       @SuppressWarnings("unused") final BuildRuleResolver resolver,
       T args,
       Optional<com.facebook.buck.rules.args.Arg> cmd,
       Optional<com.facebook.buck.rules.args.Arg> bash,
       Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
-    return new Genrule(params, args.getSrcs(), cmd, bash, cmdExe, args.getType(), args.getOut());
+    return new Genrule(
+        buildTarget,
+        projectFilesystem,
+        params,
+        args.getSrcs(),
+        cmd,
+        bash,
+        cmdExe,
+        args.getType(),
+        args.getOut());
   }
 
   protected MacroHandler getMacroHandlerForParseTimeDeps() {
@@ -104,35 +114,35 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
   @Override
   public BuildRule createBuildRule(
       final TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       final T args)
       throws NoSuchBuildTargetException {
     Optional<MacroHandler> maybeMacroHandler =
-        getMacroHandler(
-            params.getBuildTarget(), params.getProjectFilesystem(), resolver, targetGraph, args);
+        getMacroHandler(buildTarget, projectFilesystem, resolver, targetGraph, args);
     if (maybeMacroHandler.isPresent()) {
       MacroHandler macroHandler = maybeMacroHandler.get();
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       java.util.function.Function<String, com.facebook.buck.rules.args.Arg> macroArgFunction =
-          MacroArg.toMacroArgFunction(macroHandler, params.getBuildTarget(), cellRoots, resolver)
-              ::apply;
+          MacroArg.toMacroArgFunction(macroHandler, buildTarget, cellRoots, resolver)::apply;
       final Optional<com.facebook.buck.rules.args.Arg> cmd = args.getCmd().map(macroArgFunction);
       final Optional<com.facebook.buck.rules.args.Arg> bash = args.getBash().map(macroArgFunction);
       final Optional<com.facebook.buck.rules.args.Arg> cmdExe =
           args.getCmdExe().map(macroArgFunction);
       return createBuildRule(
-          params.copyReplacingExtraDeps(
-              Suppliers.ofInstance(
-                  Stream.concat(
-                          ruleFinder.filterBuildRuleInputs(args.getSrcs()).stream(),
-                          Stream.of(cmd, bash, cmdExe)
-                              .flatMap(Optionals::toStream)
-                              .flatMap(input -> input.getDeps(ruleFinder).stream()))
-                      .collect(
-                          MoreCollectors.toImmutableSortedSet(
-                              Comparator.<BuildRule>naturalOrder())))),
+          buildTarget,
+          projectFilesystem,
+          params.withExtraDeps(
+              Stream.concat(
+                      ruleFinder.filterBuildRuleInputs(args.getSrcs()).stream(),
+                      Stream.of(cmd, bash, cmdExe)
+                          .flatMap(Optionals::toStream)
+                          .flatMap(input -> input.getDeps(ruleFinder).stream()))
+                  .collect(
+                      MoreCollectors.toImmutableSortedSet(Comparator.<BuildRule>naturalOrder()))),
           resolver,
           args,
           cmd,
@@ -140,7 +150,14 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
           cmdExe);
     }
     return createBuildRule(
-        params, resolver, args, Optional.empty(), Optional.empty(), Optional.empty());
+        buildTarget,
+        projectFilesystem,
+        params,
+        resolver,
+        args,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   @Override

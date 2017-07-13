@@ -17,9 +17,7 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.sun.source.tree.AnnotationTree;
-import com.sun.source.tree.CompilationUnitTree;
-import java.util.Collections;
+import com.sun.source.util.TreePath;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,23 +33,24 @@ import javax.lang.model.element.TypeElement;
  * implementation; see documentation for individual methods and {@link
  * com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedPackageElement extends TreeBackedElement implements PackageElement {
+class TreeBackedPackageElement extends TreeBackedElement implements ArtificialPackageElement {
   private final PackageElement javacPackage;
   private final StandalonePackageType typeMirror;
-  @Nullable private CompilationUnitTree tree;
+  @Nullable private TreePath treePath;
   private boolean resolved = false;
 
-  public TreeBackedPackageElement(PackageElement javacPackage, TreeBackedElementResolver resolver) {
-    super(javacPackage, null, null, resolver);
+  public TreeBackedPackageElement(
+      PackageElement javacPackage, PostEnterCanonicalizer canonicalizer) {
+    super(javacPackage, null, null, canonicalizer);
     this.javacPackage = javacPackage;
-    typeMirror = resolver.createType(this);
+    typeMirror = new StandalonePackageType(this);
   }
 
-  /* package */ void setTree(CompilationUnitTree tree) {
-    if (this.tree != null) {
+  /* package */ void setTreePath(TreePath treePath) {
+    if (this.treePath != null) {
       throw new IllegalStateException();
     }
-    this.tree = tree;
+    this.treePath = treePath;
   }
 
   @Override
@@ -104,15 +103,6 @@ class TreeBackedPackageElement extends TreeBackedElement implements PackageEleme
   @Override
   public StandalonePackageType asType() {
     return typeMirror;
-  }
-
-  @Override
-  protected List<? extends AnnotationTree> getAnnotationTrees() {
-    if (tree == null) {
-      return Collections.emptyList();
-    }
-
-    return tree.getPackageAnnotations();
   }
 
   @Override

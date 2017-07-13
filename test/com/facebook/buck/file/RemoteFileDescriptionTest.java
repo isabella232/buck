@@ -24,6 +24,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -78,9 +79,11 @@ public class RemoteFileDescriptionTest {
 
     description.createBuildRule(
         TargetGraph.EMPTY,
+        target,
+        filesystem,
         RemoteFileBuilder.createBuilder(downloader, target)
             .from(arg)
-            .createBuildRuleParams(ruleResolver, filesystem),
+            .createBuildRuleParams(ruleResolver),
         ruleResolver,
         TestCellBuilder.createCellRoots(filesystem),
         arg);
@@ -102,9 +105,11 @@ public class RemoteFileDescriptionTest {
     BuildRule buildRule =
         description.createBuildRule(
             TargetGraph.EMPTY,
+            target,
+            filesystem,
             RemoteFileBuilder.createBuilder(downloader, target)
                 .from(arg)
-                .createBuildRuleParams(ruleResolver, filesystem),
+                .createBuildRuleParams(ruleResolver),
             ruleResolver,
             TestCellBuilder.createCellRoots(filesystem),
             arg);
@@ -112,7 +117,7 @@ public class RemoteFileDescriptionTest {
 
     assertThat(buildRule, CoreMatchers.instanceOf(RemoteFileBinary.class));
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Tool executableCommand = ((RemoteFileBinary) buildRule).getExecutableCommand();
     assertThat(executableCommand.getInputs(), Matchers.hasSize(1));
     SourcePath input = Iterables.getOnlyElement(executableCommand.getInputs());

@@ -16,8 +16,10 @@
 
 package com.facebook.buck.file;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,7 +35,7 @@ import com.google.common.io.ByteSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
-public class WriteFile extends AbstractBuildRule {
+public class WriteFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final byte[] fileContents;
 
@@ -43,13 +45,29 @@ public class WriteFile extends AbstractBuildRule {
   @AddToRuleKey private final boolean executable;
 
   public WriteFile(
-      BuildRuleParams buildRuleParams, String fileContents, Path output, boolean executable) {
-    this(buildRuleParams, fileContents.getBytes(StandardCharsets.UTF_8), output, executable);
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      String fileContents,
+      Path output,
+      boolean executable) {
+    this(
+        buildTarget,
+        projectFilesystem,
+        buildRuleParams,
+        fileContents.getBytes(StandardCharsets.UTF_8),
+        output,
+        executable);
   }
 
   public WriteFile(
-      BuildRuleParams buildRuleParams, byte[] fileContents, Path output, boolean executable) {
-    super(buildRuleParams);
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      byte[] fileContents,
+      Path output,
+      boolean executable) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
 
     Preconditions.checkArgument(!output.isAbsolute(), "'%s' must not be absolute.", output);
 
@@ -64,7 +82,9 @@ public class WriteFile extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return ImmutableList.of(
-        MkdirStep.of(projectFilesystem, output.getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())),
         new WriteFileStep(projectFilesystem, ByteSource.wrap(fileContents), output, executable));
   }
 

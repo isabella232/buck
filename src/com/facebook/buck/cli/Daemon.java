@@ -21,7 +21,6 @@ import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.CommandEvent;
-import com.facebook.buck.event.FileHashCacheEvent;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.httpserver.WebServer;
@@ -38,16 +37,15 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
-import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
+import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.EventBus;
 import java.io.Closeable;
 import java.io.IOException;
@@ -91,14 +89,15 @@ final class Daemon implements Closeable {
     ImmutableList.Builder<ProjectFileHashCache> hashCachesBuilder = ImmutableList.builder();
     allCells.forEach(
         subCell -> {
-          WatchedFileHashCache watchedCache = new WatchedFileHashCache(subCell.getFilesystem());
+          WatchedFileHashCache watchedCache =
+              new WatchedFileHashCache(
+                  subCell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode());
           fileEventBus.register(watchedCache);
           hashCachesBuilder.add(watchedCache);
         });
     hashCachesBuilder.add(
         DefaultFileHashCache.createBuckOutFileHashCache(
-            rootCell.getFilesystem().replaceBlacklistedPaths(ImmutableSet.of()),
-            rootCell.getFilesystem().getBuckPaths().getBuckOut()));
+            rootCell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
     this.hashCaches = hashCachesBuilder.build();
 
     this.broadcastEventListener = new BroadcastEventListener();
@@ -253,12 +252,25 @@ final class Daemon implements Closeable {
       parser.recordParseStartTime(eventBus);
       fileEventBus.post(commandEvent);
       // Track the file hash cache invalidation run time.
-      FileHashCacheEvent.InvalidationStarted started = FileHashCacheEvent.invalidationStarted();
-      eventBus.post(started);
+      // TODO(rvitale): uncomment the lines below and make the file hash cache event logging
+      //   happen once at the end of the watchman event posting. In theory this is enough to assess
+      //   performance of invalidation, but in the experiment we need aggregated performance for
+      //   two kinds of file hash caches and this would only measure the running time of both caches
+      //   combined.
+      // FileHashCacheEvent.InvalidationStarted started =
+      //    FileHashCacheEvent.invalidationStarted();
+      // eventBus.post(started);
       try {
         watchmanWatcher.postEvents(eventBus, watchmanFreshInstanceAction);
       } finally {
-        eventBus.post(FileHashCacheEvent.invalidationFinished(started));
+        //        eventBus.post(FileHashCacheEvent.invalidationFinished(started));
+        hashCaches.forEach(
+            hashCache -> {
+              if (hashCache instanceof WatchedFileHashCache) {
+                WatchedFileHashCache cache = (WatchedFileHashCache) hashCache;
+                cache.getStatsEvents().forEach(eventBus::post);
+              }
+            });
       }
     }
   }

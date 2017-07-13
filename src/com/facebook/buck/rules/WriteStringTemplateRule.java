@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MoreFiles;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -24,7 +26,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.StringTemplateStep;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -32,7 +33,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class WriteStringTemplateRule extends AbstractBuildRule {
+public class WriteStringTemplateRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey(stringify = true)
   private final Path output;
@@ -44,12 +45,14 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
   @AddToRuleKey private final boolean executable;
 
   public WriteStringTemplateRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Path output,
       SourcePath template,
       ImmutableMap<String, String> values,
       boolean executable) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.output = output;
     this.template = template;
     this.values = values;
@@ -61,7 +64,10 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
     steps.add(
         new StringTemplateStep(
             context.getSourcePathResolver().getAbsolutePath(template),
@@ -72,7 +78,8 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
       steps.add(
           new AbstractExecutionStep("chmod +x") {
             @Override
-            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+            public StepExecutionResult execute(ExecutionContext context)
+                throws IOException, InterruptedException {
               MoreFiles.makeExecutable(getProjectFilesystem().resolve(output));
               return StepExecutionResult.of(0, Optional.empty());
             }
@@ -87,6 +94,7 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
   }
 
   public static WriteStringTemplateRule from(
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
@@ -95,12 +103,11 @@ public class WriteStringTemplateRule extends AbstractBuildRule {
       ImmutableMap<String, String> values,
       boolean executable) {
     return new WriteStringTemplateRule(
+        target,
+        projectFilesystem,
         baseParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(template))),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
+            .withDeclaredDeps(ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(template)))
+            .withoutExtraDeps(),
         output,
         template,
         values,

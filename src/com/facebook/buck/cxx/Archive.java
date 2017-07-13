@@ -16,12 +16,13 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -37,10 +38,10 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.SortedSet;
 
 /**
  * A {@link com.facebook.buck.rules.BuildRule} which builds an "ar" archive from input files
@@ -59,8 +60,13 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
 
   @AddToRuleKey private final ImmutableList<SourcePath> inputs;
 
+  // Not added to RuleKey because it's a view over things already in the RuleKey.
+  private final ImmutableSortedSet<BuildRule> deps;
+
   private Archive(
-      BuildRuleParams params,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      ImmutableSortedSet<BuildRule> deps,
       Archiver archiver,
       ImmutableList<String> archiverFlags,
       Tool ranlib,
@@ -68,15 +74,16 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
       Contents contents,
       Path output,
       ImmutableList<SourcePath> inputs) {
-    super(params);
+    super(buildTarget, projectFilesystem);
     Preconditions.checkState(
         contents == Contents.NORMAL || archiver.supportsThinArchives(),
         "%s: archive tool for this platform does not support thin archives",
         getBuildTarget());
     Preconditions.checkArgument(
-        !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(params.getBuildTarget().getFlavors()),
+        !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
         "Static archive rule %s should not have any Linker Map Mode flavors",
         this);
+    this.deps = deps;
     this.archiver = archiver;
     this.archiverFlags = archiverFlags;
     this.ranlib = ranlib;
@@ -88,7 +95,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
 
   public static Archive from(
       BuildTarget target,
-      BuildRuleParams baseParams,
+      ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
       CxxPlatform platform,
       Contents contents,
@@ -96,7 +103,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
       ImmutableList<SourcePath> inputs) {
     return from(
         target,
-        baseParams,
+        projectFilesystem,
         ruleFinder,
         platform.getAr(),
         platform.getArflags(),
@@ -115,7 +122,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
    */
   public static Archive from(
       BuildTarget target,
-      BuildRuleParams baseParams,
+      ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
       Archiver archiver,
       ImmutableList<String> arFlags,
@@ -125,21 +132,28 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
       Path output,
       ImmutableList<SourcePath> inputs) {
 
-    // Convert the input build params into ones specialized for this archive build rule.
-    // In particular, we only depend on BuildRules directly from the input file SourcePaths.
-    BuildRuleParams archiveParams =
-        baseParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(ImmutableSortedSet.of()),
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(ruleFinder.filterBuildRuleInputs(inputs))
-                        .addAll(archiver.getDeps(ruleFinder))
-                        .build()));
+    ImmutableSortedSet<BuildRule> deps =
+        ImmutableSortedSet.<BuildRule>naturalOrder()
+            .addAll(ruleFinder.filterBuildRuleInputs(inputs))
+            .addAll(archiver.getDeps(ruleFinder))
+            .build();
 
     return new Archive(
-        archiveParams, archiver, arFlags, ranlib, ranlibFlags, contents, output, inputs);
+        target,
+        projectFilesystem,
+        deps,
+        archiver,
+        arFlags,
+        ranlib,
+        ranlibFlags,
+        contents,
+        output,
+        inputs);
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return deps;
   }
 
   @Override
@@ -163,8 +177,12 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
 
     builder.add(
-        MkdirStep.of(getProjectFilesystem(), output.getParent()),
-        RmStep.of(getProjectFilesystem(), output),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())),
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output)),
         new ArchiveStep(
             getProjectFilesystem(),
             archiver.getEnvironment(resolver),

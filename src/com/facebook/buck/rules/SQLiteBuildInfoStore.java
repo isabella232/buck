@@ -18,6 +18,8 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.sqlite.RetryBusyHandler;
+import com.facebook.buck.sqlite.SQLiteUtils;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -34,12 +36,17 @@ public class SQLiteBuildInfoStore implements BuildInfoStore {
   private final PreparedStatement updateStmt;
   private final PreparedStatement deleteStmt;
 
+  static {
+    SQLiteUtils.initialize();
+  }
+
   public SQLiteBuildInfoStore(ProjectFilesystem filesystem) throws IOException {
     String dbPath =
         filesystem
             .getRootPath()
             .resolve(filesystem.getBuckPaths().getScratchDir().resolve("metadata.db"))
             .toString();
+    filesystem.createParentDirs(dbPath);
     try {
       Class.forName("org.sqlite.JDBC");
       connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
@@ -58,19 +65,7 @@ public class SQLiteBuildInfoStore implements BuildInfoStore {
           connection.prepareStatement(
               "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)");
       deleteStmt = connection.prepareStatement("DELETE FROM metadata WHERE target = ?");
-      BusyHandler busyHandler =
-          new BusyHandler() {
-            @Override
-            protected int callback(int retries) throws SQLException {
-              try {
-                Thread.sleep(retries);
-              } catch (InterruptedException e) {
-                throw new SQLException(e);
-              }
-              return 1;
-            }
-          };
-      BusyHandler.setHandler(connection, busyHandler);
+      BusyHandler.setHandler(connection, new RetryBusyHandler());
     } catch (ClassNotFoundException | SQLException e) {
       throw new IOException(e);
     }
@@ -88,14 +83,15 @@ public class SQLiteBuildInfoStore implements BuildInfoStore {
   @Override
   public synchronized Optional<String> readMetadata(BuildTarget buildTarget, String key) {
     try {
-      selectStmt.setString(1, buildTarget.getFullyQualifiedName());
+      selectStmt.setString(1, cellRelativeName(buildTarget));
       selectStmt.setString(2, key);
-      ResultSet rs = selectStmt.executeQuery();
-      if (!rs.next()) {
-        return Optional.empty();
+      try (ResultSet rs = selectStmt.executeQuery()) {
+        if (!rs.next()) {
+          return Optional.empty();
+        }
+        String value = rs.getString(1);
+        return Optional.of(value);
       }
-      String value = rs.getString(1);
-      return Optional.of(value);
     } catch (SQLException e) {
       throw new RuntimeException(e);
     }
@@ -106,7 +102,7 @@ public class SQLiteBuildInfoStore implements BuildInfoStore {
       throws IOException {
     try {
       for (Map.Entry<String, String> e : metadata.entrySet()) {
-        updateStmt.setString(1, buildTarget.getFullyQualifiedName());
+        updateStmt.setString(1, cellRelativeName(buildTarget));
         updateStmt.setString(2, e.getKey());
         updateStmt.setString(3, e.getValue());
         updateStmt.addBatch();
@@ -120,10 +116,14 @@ public class SQLiteBuildInfoStore implements BuildInfoStore {
   @Override
   public synchronized void deleteMetadata(BuildTarget buildTarget) throws IOException {
     try {
-      deleteStmt.setString(1, buildTarget.getFullyQualifiedName());
+      deleteStmt.setString(1, cellRelativeName(buildTarget));
       deleteStmt.executeUpdate();
     } catch (SQLException e) {
       throw new IOException(e);
     }
+  }
+
+  private String cellRelativeName(BuildTarget buildTarget) {
+    return buildTarget.withoutCell().getFullyQualifiedName();
   }
 }

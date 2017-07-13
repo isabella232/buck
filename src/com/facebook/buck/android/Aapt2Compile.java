@@ -16,8 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,11 +37,15 @@ import java.nio.file.Path;
 import javax.annotation.Nullable;
 
 /** Perform the "aapt2 compile" step of a single Android resource. */
-public class Aapt2Compile extends AbstractBuildRule {
+public class Aapt2Compile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final SourcePath resDir;
 
-  public Aapt2Compile(BuildRuleParams buildRuleParams, SourcePath resDir) {
-    super(buildRuleParams);
+  public Aapt2Compile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      SourcePath resDir) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.resDir = resDir;
   }
 
@@ -47,11 +54,16 @@ public class Aapt2Compile extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getOutputPath().getParent()));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                getOutputPath().getParent())));
     steps.add(
         new Aapt2CompileStep(
             getProjectFilesystem().getRootPath(),
-            context.getSourcePathResolver().getRelativePath(resDir),
+            context.getSourcePathResolver().getAbsolutePath(resDir),
             getOutputPath()));
     steps.add(ZipScrubberStep.of(getProjectFilesystem().resolve(getOutputPath())));
     buildableContext.recordArtifact(getOutputPath());

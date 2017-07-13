@@ -29,16 +29,20 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
@@ -55,11 +59,10 @@ import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
 public class RemoteFileTest {
 
-  @Rule public TemporaryFolder tmp = new TemporaryFolder();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void ensureOutputIsAddedToBuildableContextSoItIsCached() throws Exception {
@@ -67,7 +70,8 @@ public class RemoteFileTest {
     BuildTarget target = BuildTargetFactory.newInstance("//cheese:cake");
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     RemoteFile remoteFile =
         new RemoteFileBuilder(downloader, target)
             .setUrl("http://www.facebook.com/")
@@ -560,24 +564,40 @@ public class RemoteFileTest {
           };
     }
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toPath().toAbsolutePath());
+    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot().toAbsolutePath());
 
-    BuildRuleParams params =
-        new FakeBuildRuleParamsBuilder("//cake:walk").setProjectFilesystem(filesystem).build();
+    BuildTarget target = BuildTargetFactory.newInstance("//cake:walk");
+    BuildRuleParams params = TestBuildRuleParams.create();
     RemoteFile remoteFile =
         new RemoteFile(
-            params, downloader, new URI("http://example.com"), hashCode, "output.txt", type);
+            target,
+            filesystem,
+            params,
+            downloader,
+            new URI("http://example.com"),
+            hashCode,
+            "output.txt",
+            type);
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     resolver.addToIndex(remoteFile);
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     ImmutableList<Step> buildSteps =
         remoteFile.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
-    ExecutionContext context = TestExecutionContext.newInstance();
+    ExecutionContext context =
+        TestExecutionContext.newBuilder()
+            .setCellPathResolver(TestCellPathResolver.get(filesystem))
+            .build();
     for (Step buildStep : buildSteps) {
-      int result = buildStep.execute(context).getExitCode();
+      int result;
+      try {
+        result = buildStep.execute(context).getExitCode();
+      } catch (HumanReadableException e) {
+        result = -1;
+      }
       if (result != 0) {
         break;
       }

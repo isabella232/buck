@@ -16,10 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -28,7 +29,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RecordFileSha1Step;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -39,21 +39,16 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 /** Packages the resources using {@code aapt}. */
-public class AaptPackageResources extends AbstractBuildRule {
+public class AaptPackageResources extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
-  public static final String RESOURCE_PACKAGE_HASH_KEY = "resource_package_hash";
-  public static final String FILTERED_RESOURCE_DIRS_KEY = "filtered_resource_dirs";
   public static final String RESOURCE_APK_PATH_FORMAT = "%s.unsigned.ap_";
 
   @AddToRuleKey private final SourcePath manifest;
@@ -75,14 +70,20 @@ public class AaptPackageResources extends AbstractBuildRule {
         resourceDeps.stream().map(HasAndroidResourceDeps::getBuildTarget);
     depsBuilder.addAll(
         BuildRules.toBuildRulesFor(aaptTarget, ruleResolver, resourceTargets::iterator));
-    Stream<SourcePath> resourceDirs = resourceDeps.stream().map(HasAndroidResourceDeps::getRes);
-    depsBuilder.addAll(ruleFinder.filterBuildRuleInputs(resourceDirs));
+    depsBuilder.addAll(
+        resourceDeps
+            .stream()
+            .map(HasAndroidResourceDeps::getRes)
+            .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
+            .iterator());
     ruleFinder.getRule(manifest).ifPresent(depsBuilder::add);
     filteredResourcesProvider.getResourceFilterRule().ifPresent(depsBuilder::add);
     return depsBuilder.build();
   }
 
   AaptPackageResources(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
@@ -93,16 +94,18 @@ public class AaptPackageResources extends AbstractBuildRule {
       boolean includesVectorDrawables,
       ManifestEntries manifestEntries) {
     super(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(
+        buildTarget,
+        projectFilesystem,
+        params
+            .withDeclaredDeps(
                 getAllDeps(
-                    params.getBuildTarget(),
+                    buildTarget,
                     ruleFinder,
                     ruleResolver,
                     manifest,
                     filteredResourcesProvider,
-                    resourceDeps)),
-            Suppliers.ofInstance(ImmutableSortedSet.of())));
+                    resourceDeps))
+            .withoutExtraDeps());
     this.manifest = manifest;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.skipCrunchPngs = skipCrunchPngs;
@@ -131,28 +134,43 @@ public class AaptPackageResources extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     prepareManifestForAapt(
+        context,
         steps,
         getProjectFilesystem(),
         getAndroidManifestXml(),
         context.getSourcePathResolver().getAbsolutePath(manifest),
         manifestEntries);
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), getResourceApkPath().getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                getResourceApkPath().getParent())));
 
     Path rDotTxtDir = getPathToRDotTxtDir();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), rDotTxtDir));
 
-    Path pathToGeneratedProguardConfig = getPathToGeneratedProguardConfigFile();
     steps.addAll(
         MakeCleanDirectoryStep.of(
-            getProjectFilesystem(), pathToGeneratedProguardConfig.getParent()));
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), rDotTxtDir)));
+
+    Path pathToGeneratedProguardConfig = getPathToGeneratedProguardConfigFile();
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToGeneratedProguardConfig.getParent())));
     buildableContext.recordArtifact(pathToGeneratedProguardConfig);
 
     steps.add(
         new AaptStep(
             getProjectFilesystem().getRootPath(),
             getAndroidManifestXml(),
-            filteredResourcesProvider.getResDirectories(),
+            filteredResourcesProvider.getRelativeResDirectories(
+                getProjectFilesystem(), context.getSourcePathResolver()),
             ImmutableSortedSet.of(),
             getResourceApkPath(),
             rDotTxtDir,
@@ -176,30 +194,15 @@ public class AaptPackageResources extends AbstractBuildRule {
     // always exists.
     steps.add(new TouchStep(getProjectFilesystem(), getPathToRDotTxtFile()));
 
-    // Record the filtered resources dirs, since when we initialize ourselves from disk, we'll
-    // need to test whether this is empty or not without requiring the `ResourcesFilter` rule to
-    // be available.
-    buildableContext.addMetadata(
-        FILTERED_RESOURCE_DIRS_KEY,
-        FluentIterable.from(filteredResourcesProvider.getResDirectories())
-            .transform(Object::toString)
-            .toSortedList(Ordering.natural()));
-
     buildableContext.recordArtifact(rDotTxtDir);
     buildableContext.recordArtifact(getAndroidManifestXml());
     buildableContext.recordArtifact(getResourceApkPath());
-
-    steps.add(
-        new RecordFileSha1Step(
-            getProjectFilesystem(),
-            getResourceApkPath(),
-            RESOURCE_PACKAGE_HASH_KEY,
-            buildableContext));
 
     return steps.build();
   }
 
   static void prepareManifestForAapt(
+      BuildContext context,
       ImmutableList.Builder<Step> stepBuilder,
       ProjectFilesystem projectFilesystem,
       Path finalManifestPath,
@@ -209,7 +212,10 @@ public class AaptPackageResources extends AbstractBuildRule {
     // if needed. Do this before running any other commands to ensure that it is available at the
     // desired path.
 
-    stepBuilder.add(MkdirStep.of(projectFilesystem, finalManifestPath.getParent()));
+    stepBuilder.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), projectFilesystem, finalManifestPath.getParent())));
 
     Optional<ImmutableMap<String, String>> placeholders = manifestEntries.getPlaceholders();
     if (placeholders.isPresent() && !placeholders.get().isEmpty()) {

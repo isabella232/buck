@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -132,6 +133,8 @@ public class AppleBundleDescription
   @Override
   public AppleBundle createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -139,25 +142,24 @@ public class AppleBundleDescription
       throws NoSuchBuildTargetException {
     AppleDebugFormat flavoredDebugFormat =
         AppleDebugFormat.FLAVOR_DOMAIN
-            .getValue(params.getBuildTarget())
+            .getValue(buildTarget)
             .orElse(appleConfig.getDefaultDebugInfoFormatForBinaries());
-    if (!params.getBuildTarget().getFlavors().contains(flavoredDebugFormat.getFlavor())) {
+    if (!buildTarget.getFlavors().contains(flavoredDebugFormat.getFlavor())) {
       return (AppleBundle)
-          resolver.requireRule(
-              params.getBuildTarget().withAppendedFlavors(flavoredDebugFormat.getFlavor()));
+          resolver.requireRule(buildTarget.withAppendedFlavors(flavoredDebugFormat.getFlavor()));
     }
-    if (!AppleDescriptions.INCLUDE_FRAMEWORKS.getValue(params.getBuildTarget()).isPresent()) {
+    if (!AppleDescriptions.INCLUDE_FRAMEWORKS.getValue(buildTarget).isPresent()) {
       return (AppleBundle)
           resolver.requireRule(
-              params
-                  .getBuildTarget()
-                  .withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR));
+              buildTarget.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR));
     }
     return AppleDescriptions.createAppleBundle(
         cxxPlatformFlavorDomain,
         defaultCxxPlatform,
         appleCxxPlatformsFlavorDomain,
         targetGraph,
+        buildTarget,
+        projectFilesystem,
         params,
         resolver,
         codeSignIdentityStore,
@@ -288,6 +290,7 @@ public class AppleBundleDescription
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       AppleBundleDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass)

@@ -16,9 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -39,7 +41,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
-public class CompareAbis extends AbstractBuildRule
+public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey, CalculateAbi, InitializableFromDisk<Object> {
   @AddToRuleKey private final SourcePath classAbi;
   @AddToRuleKey private final SourcePath sourceAbi;
@@ -49,12 +51,14 @@ public class CompareAbis extends AbstractBuildRule
   private final JarContentsSupplier outputPathContentsSupplier;
 
   public CompareAbis(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePath classAbi,
       SourcePath sourceAbi,
       JavaBuckConfig.SourceAbiVerificationMode verificationMode) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.classAbi = classAbi;
     this.sourceAbi = sourceAbi;
     this.verificationMode = verificationMode;
@@ -76,7 +80,9 @@ public class CompareAbis extends AbstractBuildRule
     Path sourceAbiPath = sourcePathResolver.getAbsolutePath(sourceAbi);
     buildableContext.recordArtifact(outputPath);
     return ImmutableList.of(
-        MkdirStep.of(filesystem, outputPath.getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPath.getParent())),
         DiffAbisStep.of(classAbiPath, sourceAbiPath, verificationMode),
         CopyStep.forFile(filesystem, classAbiPath, outputPath));
   }

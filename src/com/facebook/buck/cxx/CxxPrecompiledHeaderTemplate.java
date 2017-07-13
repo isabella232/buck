@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -25,14 +26,13 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Suppliers;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,27 +48,22 @@ import java.util.Optional;
  * rule R uses a precompiled header rule P, then all of P's {@code deps} will get merged into R's
  * {@code deps} list.
  */
-public class CxxPrecompiledHeaderTemplate extends NoopBuildRule
+public class CxxPrecompiledHeaderTemplate extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements NativeLinkable, CxxPreprocessorDep {
 
   private static final Flavor AGGREGATED_PREPROCESS_DEPS_FLAVOR =
       InternalFlavor.of("preprocessor-deps");
 
-  public final BuildRuleParams params;
-  public final BuildRuleResolver ruleResolver;
   public final SourcePath sourcePath;
-  public final SourcePathRuleFinder ruleFinder;
-  public final SourcePathResolver pathResolver;
 
   /** @param buildRuleParams the params for this PCH rule, <b>including</b> {@code deps} */
   CxxPrecompiledHeaderTemplate(
-      BuildRuleParams buildRuleParams, BuildRuleResolver ruleResolver, SourcePath sourcePath) {
-    super(buildRuleParams);
-    this.params = buildRuleParams;
-    this.ruleResolver = ruleResolver;
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      SourcePath sourcePath) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.sourcePath = sourcePath;
-    this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    this.pathResolver = new SourcePathResolver(ruleFinder);
   }
 
   private ImmutableSortedSet<BuildRule> getExportedDeps() {
@@ -114,7 +109,11 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule
    */
   @Override
   public NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
+      throws NoSuchBuildTargetException {
     return NativeLinkables.getTransitiveNativeLinkableInput(
         cxxPlatform,
         getBuildDeps(),
@@ -170,13 +169,14 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule
         .collect(MoreCollectors.toImmutableSet());
   }
 
-  private ImmutableSortedSet<BuildRule> getPreprocessDeps(CxxPlatform cxxPlatform) {
+  private ImmutableSortedSet<BuildRule> getPreprocessDeps(
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder, CxxPlatform cxxPlatform) {
     ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
     for (CxxPreprocessorInput input : getCxxPreprocessorInputs(cxxPlatform)) {
       builder.addAll(input.getDeps(ruleResolver, ruleFinder));
     }
     for (CxxHeaders cxxHeaders : getIncludes(cxxPlatform)) {
-      builder.addAll(cxxHeaders.getDeps(ruleFinder));
+      cxxHeaders.getDeps(ruleFinder).forEachOrdered(builder::add);
     }
     for (FrameworkPath frameworkPath : getFrameworks(cxxPlatform)) {
       builder.addAll(frameworkPath.getDeps(ruleFinder));
@@ -189,12 +189,12 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule
   }
 
   private BuildTarget createAggregatedDepsTarget(CxxPlatform cxxPlatform) {
-    return params
-        .getBuildTarget()
+    return getBuildTarget()
         .withAppendedFlavors(cxxPlatform.getFlavor(), AGGREGATED_PREPROCESS_DEPS_FLAVOR);
   }
 
-  public DependencyAggregation requireAggregatedDepsRule(CxxPlatform cxxPlatform) {
+  public DependencyAggregation requireAggregatedDepsRule(
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder, CxxPlatform cxxPlatform) {
     BuildTarget depAggTarget = createAggregatedDepsTarget(cxxPlatform);
 
     Optional<DependencyAggregation> existingRule =
@@ -203,37 +203,39 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRule
       return existingRule.get();
     }
 
-    BuildRuleParams depAggParams =
-        params
-            .withBuildTarget(depAggTarget)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(getPreprocessDeps(cxxPlatform)),
-                Suppliers.ofInstance(ImmutableSortedSet.of()));
-
-    DependencyAggregation depAgg = new DependencyAggregation(depAggParams);
+    DependencyAggregation depAgg =
+        new DependencyAggregation(
+            depAggTarget,
+            getProjectFilesystem(),
+            getPreprocessDeps(ruleResolver, ruleFinder, cxxPlatform));
     ruleResolver.addToIndex(depAgg);
     return depAgg;
   }
 
   public PreprocessorDelegate buildPreprocessorDelegate(
-      CxxPlatform cxxPlatform, Preprocessor preprocessor, CxxToolFlags preprocessorFlags) {
+      SourcePathResolver pathResolver,
+      CxxPlatform cxxPlatform,
+      Preprocessor preprocessor,
+      CxxToolFlags preprocessorFlags) {
+    ImmutableList<CxxHeaders> includes = getIncludes(cxxPlatform);
     try {
-      return new PreprocessorDelegate(
-          pathResolver,
-          cxxPlatform.getCompilerDebugPathSanitizer(),
-          cxxPlatform.getHeaderVerification(),
-          params.getProjectFilesystem().getRootPath(),
-          preprocessor,
-          PreprocessorFlags.of(
-              /* getPrefixHeader() */ Optional.empty(),
-              preprocessorFlags,
-              getIncludes(cxxPlatform),
-              getFrameworks(cxxPlatform)),
-          CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
-          /* getSandboxTree() */ Optional.empty(),
-          /* leadingIncludePaths */ Optional.empty());
-    } catch (PreprocessorDelegate.ConflictingHeadersException e) {
-      throw new RuntimeException(e);
+      CxxHeaders.checkConflictingHeaders(includes);
+    } catch (CxxHeaders.ConflictingHeadersException e) {
+      throw e.getHumanReadableExceptionForBuildTarget(getBuildTarget());
     }
+    return new PreprocessorDelegate(
+        pathResolver,
+        cxxPlatform.getCompilerDebugPathSanitizer(),
+        cxxPlatform.getHeaderVerification(),
+        getProjectFilesystem().getRootPath(),
+        preprocessor,
+        PreprocessorFlags.of(
+            /* getPrefixHeader() */ Optional.empty(),
+            preprocessorFlags,
+            getIncludes(cxxPlatform),
+            getFrameworks(cxxPlatform)),
+        CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
+        /* getSandboxTree() */ Optional.empty(),
+        /* leadingIncludePaths */ Optional.empty());
   }
 }

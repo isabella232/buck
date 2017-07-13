@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -35,17 +37,15 @@ import com.google.common.cache.LoadingCache;
  */
 public interface Description<T> {
 
-  static final LoadingCache<Class<? extends Description<?>>, BuildRuleType>
-      BUILD_RULE_TYPES_BY_CLASS =
-          CacheBuilder.newBuilder()
-              .build(
-                  new CacheLoader<Class<? extends Description<?>>, BuildRuleType>() {
-                    @Override
-                    public BuildRuleType load(Class<? extends Description<?>> key)
-                        throws Exception {
-                      return Description.getBuildRuleType(key.getSimpleName());
-                    }
-                  });
+  LoadingCache<Class<? extends Description<?>>, BuildRuleType> BUILD_RULE_TYPES_BY_CLASS =
+      CacheBuilder.newBuilder()
+          .build(
+              new CacheLoader<Class<? extends Description<?>>, BuildRuleType>() {
+                @Override
+                public BuildRuleType load(Class<? extends Description<?>> key) throws Exception {
+                  return Description.getBuildRuleType(key.getSimpleName());
+                }
+              });
 
   /** @return The {@link BuildRuleType} being described. */
   static BuildRuleType getBuildRuleType(Class<? extends Description<?>> descriptionClass) {
@@ -74,6 +74,8 @@ public interface Description<T> {
    * com.facebook.buck.model.BuildTarget} referred to in the {@code params} contains the {@link
    * Flavor} to create.
    *
+   * @param buildTarget
+   * @param projectFilesystem
    * @param resolver For querying for build rules by their targets.
    * @param cellRoots The roots of known cells.
    * @param args A constructor argument, of type as returned by {@link #getConstructorArgType()}.
@@ -81,6 +83,8 @@ public interface Description<T> {
    */
   BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,

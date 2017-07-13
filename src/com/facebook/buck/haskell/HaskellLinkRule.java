@@ -16,10 +16,10 @@
 
 package com.facebook.buck.haskell;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,18 +31,20 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.MoreIterables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 
-public class HaskellLinkRule extends AbstractBuildRule {
+public class HaskellLinkRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final Tool linker;
 
-  @AddToRuleKey private final String name;
+  @AddToRuleKey(stringify = true)
+  private final Path outputPath;
 
   @AddToRuleKey private final ImmutableList<Arg> args;
 
@@ -51,26 +53,28 @@ public class HaskellLinkRule extends AbstractBuildRule {
   private final boolean cacheable;
 
   public HaskellLinkRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Tool linker,
-      String name,
+      Path outputPath,
       ImmutableList<Arg> args,
       ImmutableList<Arg> linkerArgs,
       boolean cacheable) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.linker = linker;
-    this.name = name;
     this.args = args;
     this.linkerArgs = linkerArgs;
     this.cacheable = cacheable;
+    this.outputPath = outputPath;
   }
 
-  protected static Path getOutputDir(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, target, "%s");
+  private Path getOutputDir() {
+    return getOutput().getParent();
   }
 
   private Path getOutput() {
-    return getOutputDir(getBuildTarget(), getProjectFilesystem()).resolve(name);
+    return this.outputPath;
   }
 
   @Override
@@ -78,9 +82,14 @@ public class HaskellLinkRule extends AbstractBuildRule {
       BuildContext buildContext, BuildableContext buildableContext) {
     buildableContext.recordArtifact(getOutput());
     return new ImmutableList.Builder<Step>()
-        .addAll(
-            MakeCleanDirectoryStep.of(
-                getProjectFilesystem(), getOutputDir(getBuildTarget(), getProjectFilesystem())))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), getProjectFilesystem(), getOutputDir())))
+        .add(
+            RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), getProjectFilesystem(), getOutput())))
         .add(
             new ShellStep(getProjectFilesystem().getRootPath()) {
 

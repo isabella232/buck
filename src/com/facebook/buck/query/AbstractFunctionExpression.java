@@ -38,8 +38,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import java.util.Collection;
 import java.util.Objects;
 import org.immutables.value.Value;
 
@@ -52,16 +50,18 @@ abstract class AbstractFunctionExpression extends QueryExpression {
   abstract ImmutableList<Argument> getArgs();
 
   @Override
-  public ImmutableSet<QueryTarget> eval(QueryEnvironment env, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
-    return getFunction().eval(env, getArgs(), executor);
+  ImmutableSet<QueryTarget> eval(QueryEvaluator evaluator, QueryEnvironment env)
+      throws QueryException {
+    return getFunction().eval(evaluator, env, getArgs());
   }
 
   @Override
-  public void collectTargetPatterns(Collection<String> literals) {
-    for (Argument arg : getArgs()) {
-      if (arg.getType() == ArgumentType.EXPRESSION) {
-        arg.getExpression().collectTargetPatterns(literals);
+  public void traverse(QueryExpression.Visitor visitor) {
+    if (visitor.visit(this) == VisitResult.CONTINUE) {
+      for (Argument arg : getArgs()) {
+        if (arg.getType() == ArgumentType.EXPRESSION) {
+          arg.getExpression().traverse(visitor);
+        }
       }
     }
   }

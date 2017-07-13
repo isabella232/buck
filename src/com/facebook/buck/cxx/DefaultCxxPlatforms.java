@@ -17,7 +17,6 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.ConstantToolProvider;
@@ -55,9 +54,10 @@ public class DefaultCxxPlatforms {
   private static final String DEFAULT_WINDOWS_CXX_FRONTEND = "cl";
   private static final String DEFAULT_WINDOWS_LINK = "link";
   private static final String DEFAULT_WINDOWS_LIB = "lib";
+  private static final String DEFAULT_WINDOWS_RANLIB = "lib";
+  private static final String DEFAULT_UNIX_RANLIB = "ranlib";
 
-  public static CxxPlatform build(
-      Platform platform, ProjectFilesystem filesystem, CxxBuckConfig config) {
+  public static CxxPlatform build(Platform platform, CxxBuckConfig config) {
     String sharedLibraryExtension;
     String sharedLibraryVersionedExtensionFormat;
     String staticLibraryExtension;
@@ -71,6 +71,7 @@ public class DefaultCxxPlatforms {
     Optional<String> binaryExtension;
     ImmutableMap<String, String> env = config.getEnvironment();
     Optional<CxxToolProvider.Type> defaultToolType = Optional.empty();
+    String ranlibCommand;
     switch (platform) {
       case LINUX:
         sharedLibraryExtension = "so";
@@ -83,15 +84,9 @@ public class DefaultCxxPlatforms {
         linkerType = LinkerProvider.Type.GNU;
         archiver = new GnuArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                ImmutableBiMap.of(),
-                filesystem.getRootPath().toAbsolutePath(),
-                CxxToolProvider.Type.GCC,
-                filesystem);
+            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.GCC);
         binaryExtension = Optional.empty();
+        ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;
       case MACOS:
         sharedLibraryExtension = "dylib";
@@ -104,15 +99,9 @@ public class DefaultCxxPlatforms {
         linkerType = LinkerProvider.Type.DARWIN;
         archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                ImmutableBiMap.of(),
-                filesystem.getRootPath().toAbsolutePath(),
-                CxxToolProvider.Type.CLANG,
-                filesystem);
+            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.CLANG);
         binaryExtension = Optional.empty();
+        ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;
       case WINDOWS:
         sharedLibraryExtension = "dll";
@@ -133,16 +122,10 @@ public class DefaultCxxPlatforms {
                 new HashedFileTool(
                     getExecutablePath(DEFAULT_WINDOWS_LIB, Paths.get(DEFAULT_WINDOWS_LIB), env)));
         compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                ImmutableBiMap.of(),
-                filesystem.getRootPath().toAbsolutePath(),
-                CxxToolProvider.Type.WINDOWS,
-                filesystem);
+            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.WINDOWS);
         binaryExtension = Optional.of("exe");
         defaultToolType = Optional.of(CxxToolProvider.Type.WINDOWS);
+        ranlibCommand = DEFAULT_WINDOWS_RANLIB;
         break;
       case FREEBSD:
         sharedLibraryExtension = "so";
@@ -155,15 +138,9 @@ public class DefaultCxxPlatforms {
         linkerType = LinkerProvider.Type.GNU;
         archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
         compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                ImmutableBiMap.of(),
-                filesystem.getRootPath().toAbsolutePath(),
-                CxxToolProvider.Type.GCC,
-                filesystem);
+            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.GCC);
         binaryExtension = Optional.empty();
+        ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;
         //$CASES-OMITTED$
       default:
@@ -193,7 +170,7 @@ public class DefaultCxxPlatforms {
         ImmutableList.of(),
         new HashedFileTool(getExecutablePath("strip", DEFAULT_STRIP, env)),
         archiver,
-        new HashedFileTool(getExecutablePath("ranlib", DEFAULT_RANLIB, env)),
+        new HashedFileTool(getExecutablePath(ranlibCommand, DEFAULT_RANLIB, env)),
         new PosixNmSymbolNameTool(new HashedFileTool(getExecutablePath("nm", DEFAULT_NM, env))),
         ImmutableList.of(),
         ImmutableList.of(),

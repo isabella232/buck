@@ -383,7 +383,33 @@ public class CxxLibraryIntegrationTest {
     workspace.runBuckBuild("//:bin-explicit-reexport").assertSuccess();
     // auto-reexport is off, but not reexporting via exported_deps
     workspace.runBuckBuild("//:bin-explicit-noexport").assertFailure();
+    // auto-reexport is off, no reexport, and a dependency-free exported header
+    workspace.runBuckBuild("//:bin-internal-dep-noexport").assertSuccess();
     // auto-reexport is on, but not reexporting via exported_deps
     workspace.runBuckBuild("//:bin-auto-reexport").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInCompilerFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "compiler_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib#default,static").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInPreprocessorFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "preprocessor_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib#default,static").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInExportedPreprocessorFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "exported_preprocessor_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib_with_location_macro#default,static").assertSuccess();
   }
 }

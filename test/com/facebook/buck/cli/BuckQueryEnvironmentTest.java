@@ -21,14 +21,13 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
@@ -82,7 +81,7 @@ public class BuckQueryEnvironmentTest {
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
     parserState =
         new PerBuildState(
             parser,
@@ -90,17 +89,18 @@ public class BuckQueryEnvironmentTest {
             executor,
             cell,
             /* enableProfiling */ false,
-            SpeculativeParsing.of(true));
+            PerBuildState.SpeculativeParsing.ENABLED);
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
             cell, FakeBuckConfig.builder().build(), parser, eventBus, /* enableProfiling */ false);
     OwnersReport.Builder ownersReportBuilder =
         OwnersReport.builder(cell, parser, eventBus, console);
-    buckQueryEnvironment =
-        BuckQueryEnvironment.from(cell, ownersReportBuilder, parserState, targetPatternEvaluator);
-    cellRoot = workspace.getDestPath();
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+    buckQueryEnvironment =
+        BuckQueryEnvironment.from(
+            cell, ownersReportBuilder, parserState, executor, targetPatternEvaluator);
+    cellRoot = workspace.getDestPath();
   }
 
   @After
@@ -110,21 +110,21 @@ public class BuckQueryEnvironmentTest {
   }
 
   @Test
-  public void testResolveSingleTargets() throws QueryException, InterruptedException {
+  public void testResolveSingleTargets() throws QueryException {
     ImmutableSet<QueryTarget> targets;
     ImmutableSet<QueryTarget> expectedTargets;
 
-    targets = buckQueryEnvironment.getTargetsMatchingPattern("//example:six", executor);
+    targets = buckQueryEnvironment.getTargetsMatchingPattern("//example:six");
     expectedTargets = ImmutableSortedSet.of(createQueryBuildTarget("//example", "six"));
     assertThat(targets, is(equalTo(expectedTargets)));
 
-    targets = buckQueryEnvironment.getTargetsMatchingPattern("//example/app:seven", executor);
+    targets = buckQueryEnvironment.getTargetsMatchingPattern("//example/app:seven");
     expectedTargets = ImmutableSortedSet.of(createQueryBuildTarget("//example/app", "seven"));
     assertThat(targets, is(equalTo(expectedTargets)));
   }
 
   @Test
-  public void testResolveTargetPattern() throws QueryException, InterruptedException {
+  public void testResolveTargetPattern() throws QueryException {
     ImmutableSet<QueryTarget> expectedTargets =
         ImmutableSortedSet.of(
             createQueryBuildTarget("//example", "one"),
@@ -139,7 +139,6 @@ public class BuckQueryEnvironmentTest {
             createQueryBuildTarget("//example", "four-application-tests"),
             createQueryBuildTarget("//example", "six-tests"));
     assertThat(
-        buckQueryEnvironment.getTargetsMatchingPattern("//example:", executor),
-        is(equalTo(expectedTargets)));
+        buckQueryEnvironment.getTargetsMatchingPattern("//example:"), is(equalTo(expectedTargets)));
   }
 }

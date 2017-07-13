@@ -17,6 +17,8 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.apple.project_generator.XCodeProjectCommandHelper;
+import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
+import com.facebook.buck.cli.parameter_extractors.ProjectViewParameters;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.ide.intellij.IjProjectBuckConfig;
 import com.facebook.buck.ide.intellij.IjProjectCommandHelper;
@@ -39,6 +41,7 @@ import java.io.IOException;
 import java.nio.channels.Channels;
 import java.nio.file.Paths;
 import java.util.Optional;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
@@ -187,6 +190,28 @@ public class ProjectCommand extends BuildCommand {
   private String modulesToFocusOn = null;
 
   @Option(
+    name = "--intellij-project-root",
+    usage =
+        "Generate an Intellij project at specified folder.  Buck targets under this folder "
+            + "are considered modules, and targets outside this folder are considered libraries."
+  )
+  @Nonnull
+  private String projectRoot = "";
+
+  @Option(
+    name = "--intellij-include-transitive-dependencies",
+    usage = "Include transitive dependencies as RUNTIME library for Intellij project."
+  )
+  @Nonnull
+  private boolean includeTransitiveDependencies = false;
+
+  @Option(
+    name = "--intellij-module-group-name",
+    usage = "Specify Intellij module group name when grouping modules into a module group."
+  )
+  private String moduleGroupName = null;
+
+  @Option(
     name = "--file-with-list-of-generated-files",
     usage =
         "If present, forces command to save the list of generated file names to a provided"
@@ -198,7 +223,7 @@ public class ProjectCommand extends BuildCommand {
   @Option(
     name = "--view",
     usage =
-        "Experimental command to build a 'project view', which is a directory outside the "
+        "New command to build a 'project view', which is a directory outside the "
             + "repo, containing symlinks in to the repo. This directory looks a lot like a standard "
             + "IntelliJ project with all resources under /res, but what's really important is that it "
             + "generates a single IntelliJ module, so that editing is much faster than when you use "
@@ -224,24 +249,24 @@ public class ProjectCommand extends BuildCommand {
 
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
-    int rc = runPreprocessScriptIfNeeded(params);
+    final Ide projectIde =
+        (ide == null) ? getIdeFromBuckConfig(params.getBuckConfig()).orElse(null) : ide;
+
+    if (projectIde == null) {
+      params
+          .getConsole()
+          .getStdErr()
+          .println("\nCannot build a project: project IDE is not specified.");
+      return 1;
+    }
+
+    int rc = runPreprocessScriptIfNeeded(params, projectIde);
     if (rc != 0) {
       return rc;
     }
 
     try (CommandThreadManager pool =
         new CommandThreadManager("Project", getConcurrencyLimit(params.getBuckConfig()))) {
-
-      final Ide projectIde =
-          (ide == null) ? getIdeFromBuckConfig(params.getBuckConfig()).orElse(null) : ide;
-
-      if (projectIde == null) {
-        params
-            .getConsole()
-            .getStdErr()
-            .println("\nCannot build a project: project IDE is not specified.");
-        return 1;
-      }
 
       ListeningExecutorService executor = pool.getExecutor();
 
@@ -255,32 +280,29 @@ public class ProjectCommand extends BuildCommand {
                     params.getBuckConfig(),
                     intellijAggregationMode,
                     generatedFilesListFilename,
+                    projectRoot,
+                    moduleGroupName,
                     runIjCleaner,
                     removeUnusedLibraries,
                     excludeArtifacts,
+                    includeTransitiveDependencies,
                     skipBuild || !build);
 
             IjProjectCommandHelper projectCommandHelper =
                 new IjProjectCommandHelper(
                     params.getBuckEventBus(),
-                    params.getConsole(),
                     executor,
-                    params.getParser(),
                     params.getBuckConfig(),
                     params.getActionGraphCache(),
+                    params.getVersionedTargetGraphCache(),
+                    params.getTypeCoercerFactory(),
                     params.getCell(),
                     projectConfig,
-                    processAnnotations,
                     getEnableParserProfiling(),
-                    projectView,
-                    dryRun,
-                    withTests,
-                    withoutTests,
-                    withoutDependenciesTests,
                     (buildTargets, disableCaching) ->
                         runBuild(params, buildTargets, disableCaching),
-                    arguments ->
-                        parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), arguments));
+                    arguments -> parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), arguments),
+                    new ProjectViewParametersImplementation(params));
             result = projectCommandHelper.parseTargetsAndRunProjectGenerator(getArguments());
             break;
           case XCODE:
@@ -289,6 +311,8 @@ public class ProjectCommand extends BuildCommand {
                     params.getBuckEventBus(),
                     params.getParser(),
                     params.getBuckConfig(),
+                    params.getVersionedTargetGraphCache(),
+                    params.getTypeCoercerFactory(),
                     params.getCell(),
                     params.getConsole(),
                     params.getProcessManager(),
@@ -348,7 +372,7 @@ public class ProjectCommand extends BuildCommand {
     return buildCommand.run(params);
   }
 
-  private int runPreprocessScriptIfNeeded(CommandRunnerParams params)
+  private int runPreprocessScriptIfNeeded(CommandRunnerParams params, Ide projectIde)
       throws IOException, InterruptedException {
     Optional<String> pathToPreProcessScript = getPathToPreProcessScript(params.getBuckConfig());
     if (!pathToPreProcessScript.isPresent()) {
@@ -374,6 +398,7 @@ public class ProjectCommand extends BuildCommand {
                 ImmutableMap.<String, String>builder()
                     .putAll(params.getEnvironment())
                     .put("BUCK_PROJECT_TARGETS", Joiner.on(" ").join(getArguments()))
+                    .put("BUCK_PROJECT_TYPE", detectBuckProjectType(projectIde))
                     .build())
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();
@@ -391,6 +416,13 @@ public class ProjectCommand extends BuildCommand {
       processExecutor.destroyProcess(process, /* force */ false);
       processExecutor.waitForProcess(process);
     }
+  }
+
+  private String detectBuckProjectType(Ide projectIde) {
+    if (projectIde == Ide.INTELLIJ && projectView != null) {
+      return "intellij-view";
+    }
+    return projectIde.toString().toLowerCase();
   }
 
   @Override
@@ -416,6 +448,58 @@ public class ProjectCommand extends BuildCommand {
     @Nullable
     public String getDefaultMetaVariable() {
       return null;
+    }
+  }
+
+  private class ProjectGeneratorParametersImplementation
+      extends CommandRunnerParametersImplementation implements ProjectGeneratorParameters {
+
+    private ProjectGeneratorParametersImplementation(CommandRunnerParams parameters) {
+      super(parameters);
+    }
+
+    @Override
+    public boolean isDryRun() {
+      return dryRun;
+    }
+
+    @Override
+    public boolean isWithTests() {
+      return withTests;
+    }
+
+    @Override
+    public boolean isWithoutTests() {
+      return withoutTests;
+    }
+
+    @Override
+    public boolean isWithoutDependenciesTests() {
+      return withoutDependenciesTests;
+    }
+
+    @Override
+    public boolean isProcessAnnotations() {
+      return processAnnotations;
+    }
+  }
+
+  private class ProjectViewParametersImplementation extends ProjectGeneratorParametersImplementation
+      implements ProjectViewParameters {
+
+    private ProjectViewParametersImplementation(CommandRunnerParams parameters) {
+      super(parameters);
+    }
+
+    @Override
+    public boolean hasViewPath() {
+      return projectView != null;
+    }
+
+    @Override
+    @Nullable
+    public String getViewPath() {
+      return projectView;
     }
   }
 }

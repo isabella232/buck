@@ -262,7 +262,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       }
 
       builder.add(
-          createHttpArtifactCache(
+          createRetryingArtifactCache(
               cacheEntry,
               buckConfig.getHostToReportToRemoteCacheServer(),
               buckEventBus,
@@ -304,6 +304,30 @@ public class ArtifactCaches implements ArtifactCacheFactory {
     }
   }
 
+  private static ArtifactCache createRetryingArtifactCache(
+      HttpCacheEntry cacheDescription,
+      final String hostToReportToRemote,
+      final BuckEventBus buckEventBus,
+      ProjectFilesystem projectFilesystem,
+      ListeningExecutorService httpWriteExecutorService,
+      ArtifactCacheBuckConfig config,
+      NetworkCacheFactory factory,
+      boolean distributedBuildModeEnabled,
+      ArtifactCacheMode cacheMode) {
+    ArtifactCache cache =
+        createHttpArtifactCache(
+            cacheDescription,
+            hostToReportToRemote,
+            buckEventBus,
+            projectFilesystem,
+            httpWriteExecutorService,
+            config,
+            factory,
+            distributedBuildModeEnabled,
+            cacheMode);
+    return new RetryingNetworkCache(cacheMode, cache, config.getMaxFetchRetries(), buckEventBus);
+  }
+
   private static ArtifactCache createHttpArtifactCache(
       HttpCacheEntry cacheDescription,
       final String hostToReportToRemote,
@@ -330,8 +354,10 @@ public class ArtifactCaches implements ArtifactCacheFactory {
                             stripNonAscii(System.getProperty("user.name", "<unknown>")))
                         .addHeader("X-BuckCache-Host", stripNonAscii(hostToReportToRemote))
                         .build()));
-    int timeoutSeconds = cacheDescription.getTimeoutSeconds();
-    setTimeouts(storeClientBuilder, timeoutSeconds);
+    int connectTimeoutSeconds = cacheDescription.getConnectTimeoutSeconds();
+    int readTimeoutSeconds = cacheDescription.getReadTimeoutSeconds();
+    int writeTimeoutSeconds = cacheDescription.getWriteTimeoutSeconds();
+    setTimeouts(storeClientBuilder, connectTimeoutSeconds, readTimeoutSeconds, writeTimeoutSeconds);
     storeClientBuilder.connectionPool(
         new ConnectionPool(
             /* maxIdleConnections */ (int) config.getThreadPoolSize(),
@@ -361,7 +387,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
     // For fetches, use a client with a read timeout.
     OkHttpClient.Builder fetchClientBuilder = storeClient.newBuilder();
-    setTimeouts(fetchClientBuilder, timeoutSeconds);
+    setTimeouts(fetchClientBuilder, connectTimeoutSeconds, readTimeoutSeconds, writeTimeoutSeconds);
 
     // If read headers are specified, add them to every read client request.
     if (!readHeaders.isEmpty()) {
@@ -440,11 +466,14 @@ public class ArtifactCaches implements ArtifactCacheFactory {
   }
 
   private static OkHttpClient.Builder setTimeouts(
-      OkHttpClient.Builder builder, int timeoutSeconds) {
+      OkHttpClient.Builder builder,
+      int connectTimeoutSeconds,
+      int readTimeoutSeconds,
+      int writeTimeoutSeconds) {
     return builder
-        .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
-        .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
-        .writeTimeout(timeoutSeconds, TimeUnit.SECONDS);
+        .connectTimeout(connectTimeoutSeconds, TimeUnit.SECONDS)
+        .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+        .writeTimeout(writeTimeoutSeconds, TimeUnit.SECONDS);
   }
 
   private static class ProgressResponseBody extends ResponseBody {

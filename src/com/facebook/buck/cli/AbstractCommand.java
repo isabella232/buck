@@ -41,11 +41,12 @@ import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -74,6 +75,8 @@ public abstract class AbstractCommand implements Command {
   @SuppressWarnings("PMD.UnusedPrivateField")
   private int verbosityLevel = -1;
 
+  private volatile ExecutionContext executionContext;
+
   @Option(name = NUM_THREADS_LONG_ARG, aliases = "-j", usage = "Default is 1.25 * num processors.")
   @Nullable
   private Integer numThreads = null;
@@ -83,7 +86,7 @@ public abstract class AbstractCommand implements Command {
     aliases = {"-c"},
     usage = ""
   )
-  private Map<String, String> configOverrides = Maps.newLinkedHashMap();
+  private Map<String, String> configOverrides = new LinkedHashMap<>();
 
   @Override
   public CellConfig getConfigOverrides() {
@@ -190,6 +193,7 @@ public abstract class AbstractCommand implements Command {
 
   @Override
   public void printUsage(PrintStream stream) {
+    CommandHelper.printShortDescription(this, stream);
     stream.println("Options:");
     new AdditionalOptionsCmdLineParser(this).printUsage(stream);
     stream.println();
@@ -219,7 +223,18 @@ public abstract class AbstractCommand implements Command {
         }
       }
     }
-    return runWithoutHelp(params);
+    try (Closeable closeable = prepareExecutionContext(params)) {
+      return runWithoutHelp(params);
+    }
+  }
+
+  protected Closeable prepareExecutionContext(CommandRunnerParams params) {
+    executionContext = createExecutionContext(params);
+    return () -> {
+      ExecutionContext context = executionContext;
+      executionContext = null;
+      context.close();
+    };
   }
 
   public abstract int runWithoutHelp(CommandRunnerParams params)
@@ -264,7 +279,15 @@ public abstract class AbstractCommand implements Command {
     return buildTargets.build();
   }
 
-  protected ExecutionContext createExecutionContext(CommandRunnerParams params) {
+  protected ExecutionContext getExecutionContext() {
+    return executionContext;
+  }
+
+  private ExecutionContext createExecutionContext(CommandRunnerParams params) {
+    return getExecutionContextBuilder(params).build();
+  }
+
+  protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
     return ExecutionContext.builder()
         .setConsole(params.getConsole())
         .setAndroidPlatformTargetSupplier(params.getAndroidPlatformTargetSupplier())
@@ -276,7 +299,12 @@ public abstract class AbstractCommand implements Command {
         .setCellPathResolver(params.getCell().getCellPathResolver())
         .setBuildCellRootPath(params.getCell().getRoot())
         .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
-        .build();
+        .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
+        .setInclNoLocationClassesEnabled(
+            params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
+        .setRuleKeyDiagnosticsMode(params.getBuckConfig().getRuleKeyDiagnosticsMode())
+        .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
+        .setPersistentWorkerPools(params.getPersistentWorkerPools());
   }
 
   public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {

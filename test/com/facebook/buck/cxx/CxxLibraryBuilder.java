@@ -27,6 +27,8 @@ import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -77,13 +79,21 @@ public class CxxLibraryBuilder
 
   public CxxLibraryBuilder setExportedPreprocessorFlags(
       ImmutableList<String> exportedPreprocessorFlags) {
-    getArgForPopulating().setExportedPreprocessorFlags(exportedPreprocessorFlags);
+    getArgForPopulating()
+        .setExportedPreprocessorFlags(
+            RichStream.from(exportedPreprocessorFlags)
+                .map(StringWithMacrosUtils::format)
+                .toImmutableList());
     return this;
   }
 
   public CxxLibraryBuilder setExportedPlatformPreprocessorFlags(
       PatternMatchedCollection<ImmutableList<String>> exportedPlatformPreprocessorFlags) {
-    getArgForPopulating().setExportedPlatformPreprocessorFlags(exportedPlatformPreprocessorFlags);
+    getArgForPopulating()
+        .setExportedPlatformPreprocessorFlags(
+            exportedPlatformPreprocessorFlags.map(
+                flags ->
+                    RichStream.from(flags).map(StringWithMacrosUtils::format).toImmutableList()));
     return this;
   }
 
@@ -167,12 +177,18 @@ public class CxxLibraryBuilder
   }
 
   public CxxLibraryBuilder setCompilerFlags(ImmutableList<String> compilerFlags) {
-    getArgForPopulating().setCompilerFlags(compilerFlags);
+    getArgForPopulating()
+        .setCompilerFlags(
+            RichStream.from(compilerFlags).map(StringWithMacrosUtils::format).toImmutableList());
     return this;
   }
 
   public CxxLibraryBuilder setPreprocessorFlags(ImmutableList<String> preprocessorFlags) {
-    getArgForPopulating().setPreprocessorFlags(preprocessorFlags);
+    getArgForPopulating()
+        .setPreprocessorFlags(
+            RichStream.from(preprocessorFlags)
+                .map(StringWithMacrosUtils::format)
+                .toImmutableList());
     return this;
   }
 
@@ -183,13 +199,21 @@ public class CxxLibraryBuilder
 
   public CxxLibraryBuilder setPlatformCompilerFlags(
       PatternMatchedCollection<ImmutableList<String>> platformCompilerFlags) {
-    getArgForPopulating().setPlatformCompilerFlags(platformCompilerFlags);
+    getArgForPopulating()
+        .setPlatformCompilerFlags(
+            platformCompilerFlags.map(
+                flags ->
+                    RichStream.from(flags).map(StringWithMacrosUtils::format).toImmutableList()));
     return this;
   }
 
   public CxxLibraryBuilder setPlatformPreprocessorFlags(
       PatternMatchedCollection<ImmutableList<String>> platformPreprocessorFlags) {
-    getArgForPopulating().setPlatformPreprocessorFlags(platformPreprocessorFlags);
+    getArgForPopulating()
+        .setPlatformPreprocessorFlags(
+            platformPreprocessorFlags.map(
+                flags ->
+                    RichStream.from(flags).map(StringWithMacrosUtils::format).toImmutableList()));
     return this;
   }
 

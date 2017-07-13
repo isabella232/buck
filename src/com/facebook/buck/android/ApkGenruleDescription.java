@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,6 +29,7 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
+import java.util.SortedSet;
 import org.immutables.value.Value;
 
 public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenruleDescriptionArg> {
@@ -39,6 +41,8 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
 
   @Override
   protected BuildRule createBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       ApkGenruleDescriptionArg args,
@@ -51,20 +55,21 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
       throw new HumanReadableException(
           "The 'apk' argument of %s, %s, must correspond to an "
               + "installable rule, such as android_binary() or apk_genrule().",
-          params.getBuildTarget(), args.getApk().getFullyQualifiedName());
+          buildTarget, args.getApk().getFullyQualifiedName());
     }
-    HasInstallableApk installableApk = (HasInstallableApk) apk;
 
-    final Supplier<ImmutableSortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
+    final Supplier<? extends SortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new ApkGenrule(
-        params.copyReplacingExtraDeps(
+        buildTarget,
+        projectFilesystem,
+        params.withExtraDeps(
             Suppliers.memoize(
                 () ->
                     ImmutableSortedSet.<BuildRule>naturalOrder()
                         .addAll(originalExtraDeps.get())
-                        .add(installableApk)
+                        .add(apk)
                         .build())),
         ruleFinder,
         args.getSrcs(),
@@ -72,8 +77,8 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
         bash,
         cmdExe,
         args.getType(),
-        installableApk.getSourcePathToOutput(),
-        args.isCacheable());
+        apk.getSourcePathToOutput(),
+        args.getIsCacheable());
   }
 
   @BuckStyleImmutable
@@ -87,7 +92,7 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
     }
 
     @Value.Default
-    default boolean isCacheable() {
+    default boolean getIsCacheable() {
       return true;
     }
   }

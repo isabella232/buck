@@ -26,10 +26,13 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import java.util.Optional;
 
 public class AppleLibraryBuilder
@@ -57,24 +60,36 @@ public class AppleLibraryBuilder
   }
 
   public AppleLibraryBuilder setCompilerFlags(ImmutableList<String> compilerFlags) {
-    getArgForPopulating().setCompilerFlags(compilerFlags);
+    getArgForPopulating().setCompilerFlags(StringWithMacrosUtils.fromStrings(compilerFlags));
     return this;
   }
 
   public AppleLibraryBuilder setPreprocessorFlags(ImmutableList<String> preprocessorFlags) {
-    getArgForPopulating().setPreprocessorFlags(preprocessorFlags);
+    getArgForPopulating()
+        .setPreprocessorFlags(
+            RichStream.from(preprocessorFlags)
+                .map(StringWithMacrosUtils::format)
+                .toImmutableList());
     return this;
   }
 
   public AppleLibraryBuilder setLangPreprocessorFlags(
       ImmutableMap<CxxSource.Type, ImmutableList<String>> langPreprocessorFlags) {
-    getArgForPopulating().setLangPreprocessorFlags(langPreprocessorFlags);
+    getArgForPopulating()
+        .setLangPreprocessorFlags(
+            Maps.transformValues(
+                langPreprocessorFlags,
+                f -> RichStream.from(f).map(StringWithMacrosUtils::format).toImmutableList()));
     return this;
   }
 
   public AppleLibraryBuilder setExportedPreprocessorFlags(
       ImmutableList<String> exportedPreprocessorFlags) {
-    getArgForPopulating().setExportedPreprocessorFlags(exportedPreprocessorFlags);
+    getArgForPopulating()
+        .setExportedPreprocessorFlags(
+            RichStream.from(exportedPreprocessorFlags)
+                .map(StringWithMacrosUtils::format)
+                .toImmutableList());
     return this;
   }
 
@@ -158,6 +173,11 @@ public class AppleLibraryBuilder
 
   public AppleLibraryBuilder setPrefixHeader(Optional<SourcePath> prefixHeader) {
     getArgForPopulating().setPrefixHeader(prefixHeader);
+    return this;
+  }
+
+  public AppleLibraryBuilder setPrecompiledHeader(Optional<SourcePath> precompiledHeader) {
+    getArgForPopulating().setPrecompiledHeader(precompiledHeader);
     return this;
   }
 

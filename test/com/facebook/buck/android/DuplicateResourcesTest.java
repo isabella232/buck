@@ -20,7 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescription;
 import com.facebook.buck.jvm.java.KeystoreDescriptionArg;
@@ -28,6 +28,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.ActionGraphCache;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -245,12 +246,14 @@ public class DuplicateResourcesTest {
 
     ActionGraphAndResolver actionGraphAndResolver =
         ActionGraphCache.getFreshActionGraph(
-            BuckEventBusFactory.newInstance(new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
+            BuckEventBusForTests.newInstance(
+                new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
             new DefaultTargetNodeToBuildRuleTransformer(),
             targetGraph);
 
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
 
     ImmutableSet<ImmutableList<Step>> ruleSteps =
         RichStream.from(actionGraphAndResolver.getActionGraph().getNodes())

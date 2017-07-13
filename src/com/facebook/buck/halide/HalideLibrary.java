@@ -26,12 +26,13 @@ import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -45,9 +46,9 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, NativeLinkable {
+public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
+    implements CxxPreprocessorDep, NativeLinkable {
 
-  private final BuildRuleParams params;
   private final BuildRuleResolver ruleResolver;
   private final Optional<Pattern> supportedPlatformsRegex;
 
@@ -56,11 +57,12 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
   protected HalideLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       Optional<Pattern> supportedPlatformsRegex) {
-    super(params);
-    this.params = params;
+    super(buildTarget, projectFilesystem, params);
     this.ruleResolver = ruleResolver;
     this.supportedPlatformsRegex = supportedPlatformsRegex;
   }
@@ -85,7 +87,7 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
       return CxxPreprocessorInput.EMPTY;
     }
     return CxxPreprocessables.getCxxPreprocessorInput(
-        params,
+        getBuildTarget(),
         ruleResolver,
         /* hasHeaderSymlinkTree */ true,
         cxxPlatform,
@@ -136,7 +138,11 @@ public class HalideLibrary extends NoopBuildRule implements CxxPreprocessorDep, 
 
   @Override
   public NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
+      throws NoSuchBuildTargetException {
     if (!isPlatformSupported(cxxPlatform)) {
       return NativeLinkableInput.of();
     }

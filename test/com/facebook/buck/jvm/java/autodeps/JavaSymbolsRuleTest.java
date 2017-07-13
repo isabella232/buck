@@ -27,6 +27,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.PathSourcePath;
@@ -34,6 +35,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -84,12 +86,16 @@ public class JavaSymbolsRuleTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     resolver.addToIndex(javaSymbolsRule);
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     List<Step> buildSteps =
         javaSymbolsRule.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), /* buildableContext */ null);
 
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ExecutionContext executionContext =
+        TestExecutionContext.newBuilder()
+            .setCellPathResolver(TestCellPathResolver.get(projectFilesystem))
+            .build();
 
     for (Step step : buildSteps) {
       step.execute(executionContext);
@@ -97,13 +103,11 @@ public class JavaSymbolsRuleTest {
 
     try (JsonParser parser =
         ObjectMappers.createParser(
-            projectFilesystem
-                .resolve(
-                    BuildTargets.getGenPath(
-                        javaSymbolsRule.getProjectFilesystem(),
-                        buildTarget.withFlavors(JavaSymbolsRule.JAVA_SYMBOLS),
-                        "__%s__.json"))
-                .toFile())) {
+            projectFilesystem.resolve(
+                BuildTargets.getGenPath(
+                    javaSymbolsRule.getProjectFilesystem(),
+                    buildTarget.withFlavors(JavaSymbolsRule.JAVA_SYMBOLS),
+                    "__%s__.json")))) {
       JsonNode jsonNode = ObjectMappers.READER.readTree(parser);
       assertTrue(jsonNode instanceof ObjectNode);
       assertEquals(

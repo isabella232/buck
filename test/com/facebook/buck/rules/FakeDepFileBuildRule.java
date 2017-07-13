@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
@@ -28,7 +29,7 @@ import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /** A fake {@link BuildRule} that implements {@link SupportsDependencyFileRuleKey}. */
-public class FakeDepFileBuildRule extends AbstractBuildRule
+public class FakeDepFileBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsDependencyFileRuleKey {
 
   private Path outputPath;
@@ -41,14 +42,14 @@ public class FakeDepFileBuildRule extends AbstractBuildRule
   }
 
   public FakeDepFileBuildRule(BuildTarget target) {
-    this(
-        new FakeBuildRuleParamsBuilder(target)
-            .setProjectFilesystem(new FakeProjectFilesystem())
-            .build());
+    this(target, new FakeProjectFilesystem(), TestBuildRuleParams.create());
   }
 
-  public FakeDepFileBuildRule(BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+  public FakeDepFileBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
   }
 
   public FakeDepFileBuildRule setOutputPath(Path outputPath) {
@@ -88,12 +89,12 @@ public class FakeDepFileBuildRule extends AbstractBuildRule
   }
 
   @Override
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+  public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
     return coveredPredicate;
   }
 
   @Override
-  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
     return interestingPredicate;
   }
 

@@ -17,12 +17,12 @@
 package com.facebook.buck.rules.query;
 
 import com.facebook.buck.query.QueryEnvironment;
+import com.facebook.buck.query.QueryEvaluator;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -54,12 +54,10 @@ public class ClasspathFunction implements QueryEnvironment.QueryFunction {
 
   @Override
   public ImmutableSet<QueryTarget> eval(
-      QueryEnvironment env,
-      ImmutableList<QueryEnvironment.Argument> args,
-      ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
+      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<QueryEnvironment.Argument> args)
+      throws QueryException {
     Preconditions.checkArgument(env instanceof GraphEnhancementQueryEnvironment);
-    Set<QueryTarget> argumentSet = args.get(0).getExpression().eval(env, executor);
+    Set<QueryTarget> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
 
     int depthBound = args.size() >= 2 ? args.get(1).getInteger() : Integer.MAX_VALUE;
     Set<QueryTarget> result = new LinkedHashSet<>(argumentSet);

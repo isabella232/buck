@@ -20,8 +20,10 @@ import static com.facebook.buck.ide.intellij.projectview.Patterns.capture;
 import static com.facebook.buck.ide.intellij.projectview.Patterns.noncapture;
 import static com.facebook.buck.ide.intellij.projectview.Patterns.optional;
 
+import com.facebook.buck.cli.parameter_extractors.ProjectViewParameters;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.ide.intellij.projectview.shared.SharedConstants;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
@@ -30,6 +32,7 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -37,6 +40,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import java.io.FileWriter;
@@ -74,31 +78,36 @@ public class ProjectView {
   // region Public API
 
   public static int run(
-      DirtyPrintStreamDecorator stderr,
-      boolean dryRun,
-      boolean withTests,
-      String viewPath,
+      ProjectViewParameters projectViewParameters,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> buildTargets,
-      ActionGraphAndResolver actionGraph,
-      Config config) {
-    return new ProjectView(
-            stderr, dryRun, withTests, viewPath, targetGraph, buildTargets, actionGraph, config)
-        .run();
+      ActionGraphAndResolver actionGraph) {
+    return new ProjectView(projectViewParameters, targetGraph, buildTargets, actionGraph).run();
   }
 
   // endregion Public API
 
   // region Private implementation
 
+  // external filenames: true constants
   private static final String ANDROID_MANIFEST = "AndroidManifest.xml";
-  private static final String ANDROID_RES = "android_res";
-  private static final String ASSETS = "assets";
   private static final String CODE_STYLE_SETTINGS = "codeStyleSettings.xml";
   private static final String DOT_IDEA = ".idea";
   private static final String DOT_XML = ".xml";
-  private static final String FONTS = "fonts";
-  private static final String RES = "res";
+
+  // configurable folder names: read from .buckconfig
+  private final String INPUT_RESOURCE_FOLDERS;
+  private static final String INPUT_RESOURCE_FOLDERS_KEY = "input_resource_folders";
+  private static final String INPUT_RESOURCE_FOLDERS_DEFAULT = "android_res";
+  private final String OUTPUT_ASSETS_FOLDER;
+  private static final String OUTPUT_ASSETS_FOLDER_KEY = "output_assets_folder";
+  private static final String OUTPUT_ASSETS_FOLDER_DEFAULT = "assets";
+  private final String OUTPUT_FONTS_FOLDER;
+  private static final String OUTPUT_FONTS_FOLDER_KEY = "output_fonts_folder";
+  private static final String OUTPUT_FONTS_FOLDER_DEFAULT = "fonts";
+  private final String OUTPUT_RESOURCE_FOLDER;
+  private static final String OUTPUT_RESOURCE_FOLDER_KEY = "output_resource_folder";
+  private static final String OUTPUT_RESOURCE_FOLDER_DEFAULT = "res";
 
   private final DirtyPrintStreamDecorator stdErr;
   private final String viewPath;
@@ -117,24 +126,29 @@ public class ProjectView {
   private final String repository = new File("").getAbsolutePath();
 
   private ProjectView(
-      DirtyPrintStreamDecorator stdErr,
-      boolean dryRun,
-      boolean withTests,
-      String viewPath,
+      ProjectViewParameters projectViewParameters,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> buildTargets,
-      ActionGraphAndResolver actionGraph,
-      Config config) {
-    this.stdErr = stdErr;
-    this.viewPath = viewPath;
-    this.dryRun = dryRun;
-    this.withTests = withTests;
+      ActionGraphAndResolver actionGraph) {
+    this.stdErr = projectViewParameters.getStdErr();
+    this.viewPath = Preconditions.checkNotNull(projectViewParameters.getViewPath());
+    this.dryRun = projectViewParameters.isDryRun();
+    this.withTests = projectViewParameters.isWithTests();
 
     this.targetGraph = targetGraph;
     this.buildTargets = buildTargets;
     this.actionGraph = actionGraph;
 
-    this.config = config;
+    this.config = projectViewParameters.getConfig();
+
+    INPUT_RESOURCE_FOLDERS =
+        getIntellijSectionValue(INPUT_RESOURCE_FOLDERS_KEY, INPUT_RESOURCE_FOLDERS_DEFAULT);
+    OUTPUT_ASSETS_FOLDER =
+        getIntellijSectionValue(OUTPUT_ASSETS_FOLDER_KEY, OUTPUT_ASSETS_FOLDER_DEFAULT);
+    OUTPUT_FONTS_FOLDER =
+        getIntellijSectionValue(OUTPUT_FONTS_FOLDER_KEY, OUTPUT_FONTS_FOLDER_DEFAULT);
+    OUTPUT_RESOURCE_FOLDER =
+        getIntellijSectionValue(OUTPUT_RESOURCE_FOLDER_KEY, OUTPUT_RESOURCE_FOLDER_DEFAULT);
   }
 
   private int run() {
@@ -307,7 +321,8 @@ public class ProjectView {
   private void simpleResourceLink(Matcher match, String input) {
     String name = basename(input);
 
-    String directory = fileJoin(viewPath, RES, flattenResourceDirectoryName(match.group(1)));
+    String directory =
+        fileJoin(viewPath, OUTPUT_RESOURCE_FOLDER, flattenResourceDirectoryName(match.group(1)));
     mkdir(directory);
 
     symlink(fileJoin(repository, input), fileJoin(directory, name));
@@ -315,14 +330,17 @@ public class ProjectView {
 
   private void mangledResourceLink(Matcher match, String input) {
     String fileName = basename(input);
-    //its safe to assume input is .xml file
+    // It's safe to assume input is a .xml file
     String name = fileName.substring(0, fileName.length() - DOT_XML.length());
 
     String path = match.group(1).replace('/', '_');
 
-    String configQualifier = match.groupCount() > 2 ? match.group(3) : "";
+    String configQualifier = match.group(3);
+    if (configQualifier == null) {
+      configQualifier = "";
+    }
 
-    String directory = fileJoin(viewPath, RES, match.group(2));
+    String directory = fileJoin(viewPath, OUTPUT_RESOURCE_FOLDER, match.group(2));
     mkdir(directory);
 
     symlink(
@@ -338,14 +356,14 @@ public class ProjectView {
     String inside = match.group(1); // everything between .../assets/ and filename
     String name = match.group(2); // basename(input)
 
-    String directory = fileJoin(viewPath, ASSETS, inside);
+    String directory = fileJoin(viewPath, OUTPUT_ASSETS_FOLDER, inside);
     mkdir(directory);
 
     symlink(fileJoin(repository, input), fileJoin(directory, name));
   }
 
   private void fontsLink(Matcher match, String input) {
-    String target = fileJoin(viewPath, FONTS, match.group(1));
+    String target = fileJoin(viewPath, OUTPUT_FONTS_FOLDER, match.group(1));
     String path = dirname(target);
     mkdir(path);
     symlink(fileJoin(repository, input), target);
@@ -355,8 +373,24 @@ public class ProjectView {
 
   // region roots
 
+  /**
+   * This is a complex routine that takes a list of source files and builds the best set of roots -
+   * symlinks to directories - that contains the source files.
+   *
+   * <p>Any folder with a {@code BUCK} file could be a root: the best root is the one that requires
+   * the fewest {@code excludedFolder} tags, but sometimes we need to pick a less-good root. If we
+   * have {@code foo/bar/baz/tom}, {@code foo/bar/baz/dick}, and {@code foo/bar/harry}, the best
+   * root for {@code foo/bar/baz/tom} and {@code foo/bar/baz/dick} may be {@code foo/bar/baz} while
+   * the best root for {@code foo/bar/harry} may be {@code foo/bar} ... which would be the directory
+   * containing {@code foo/bar/baz}, so we need to pick {@code foo/bar} for {@code foo/bar/baz/tom}.
+   *
+   * <p>We do this in two passes. The first pass builds a set of candidates and a map from source
+   * directory index to candidate, where a candidate is the best root by {@code excludedFolder}
+   * count. The second pass examines each candidate, and replaces it with the highest ancestor from
+   * the set of candidate values, if any.
+   */
   private Set<String> generateRoots(List<String> sourceFiles) {
-    final Set<String> roots = new HashSet<>();
+    // Setup: Get a sorted (so that a, a/b, and a/c are all together) list of source paths
     final RootsHelper helper = new RootsHelper();
 
     for (String sourceFile : sourceFiles) {
@@ -367,18 +401,50 @@ public class ProjectView {
     }
     final List<String> paths = helper.getSortedSourcePaths();
 
+    // First pass: Build the candidate map
+    final Set<String> candidates = new HashSet<>();
+    final String[] candidateMap = new String[paths.size()]; // paths' index -> candidate
     for (int index = 0, size = paths.size(); index < size; /*increment in loop*/ ) {
-      final String path = paths.get(index);
+      final String path = pathWithBuck(paths.get(index));
+      if (path == null) {
+        index += 1;
+        continue;
+      }
 
-      // This folder could be a root, but so could any of its parents. The best root is the one that
-      // requires the fewest excludedFolder tags
       int lowestCost = helper.excludesUnder(path);
       String bestRoot = path;
-      String parent = dirname(path);
+      String parent = dirname(bestRoot);
       while (!isNullOrEmpty(parent)) {
         int cost = helper.excludesUnder(parent);
         if (cost < lowestCost) {
           lowestCost = cost;
+          bestRoot = parent;
+        }
+        parent = pathWithBuck(dirname(parent));
+      }
+      candidates.add(bestRoot);
+      candidateMap[index] = bestRoot;
+
+      index += 1;
+      String prefix = guaranteeEndsWithFileSeparator(bestRoot);
+      while (index < size && paths.get(index).startsWith(prefix)) {
+        index += 1;
+      }
+    }
+
+    // Second pass: Possibly replace candidates with ancestors
+    final Set<String> roots = new HashSet<>();
+    for (int index = 0, size = paths.size(); index < size; /*increment in loop*/ ) {
+      final String candidate = candidateMap[index];
+      if (candidate == null) {
+        index += 1;
+        continue;
+      }
+
+      String bestRoot = candidate;
+      String parent = dirname(bestRoot);
+      while (!isNullOrEmpty(parent)) {
+        if (candidates.contains(parent)) {
           bestRoot = parent;
         }
         parent = dirname(parent);
@@ -386,7 +452,7 @@ public class ProjectView {
       roots.add(bestRoot);
 
       index += 1;
-      String prefix = bestRoot.endsWith("/") ? bestRoot : bestRoot + '/';
+      String prefix = guaranteeEndsWithFileSeparator(bestRoot);
       while (index < size && paths.get(index).startsWith(prefix)) {
         index += 1;
       }
@@ -395,13 +461,24 @@ public class ProjectView {
     return roots;
   }
 
+  /**
+   * Returns path, if it contains a BUCK file. Else returns the closest parent with a BUCK file, or
+   * null if there are no BUCK files 'above' path
+   */
+  private String pathWithBuck(String path) {
+    while (path != null && !Files.exists(Paths.get(repository, path, "BUCK"))) {
+      path = dirname(path);
+    }
+    return path;
+  }
+
   private void buildRootLinks(Set<String> roots) {
     for (String root : roots) {
       symlink(fileJoin(repository, root), fileJoin(viewPath, root));
     }
   }
 
-  /** Maintains a set of source pathes, and a map of paths -> excludes */
+  /** Maintains a set of source paths, and a map of paths -> excludes */
   private class RootsHelper {
     private final Set<String> sourcePaths = new HashSet<>();
     private final Map<String, Integer> excludes = new HashMap<>();
@@ -456,7 +533,7 @@ public class ProjectView {
   private static final String NAME = "name";
   private static final String OPTION = "option";
   private static final String ORDER_ENTRY = "orderEntry";
-  private static final String ROOT_IML = "root.iml";
+  private static final String ROOT_IML = SharedConstants.ROOT_MODULE_NAME + ".iml";
   private static final String SOURCE_FOLDER = "sourceFolder";
   private static final String TYPE = "type";
   private static final String URL = "url";
@@ -711,8 +788,10 @@ public class ProjectView {
       }
     }
 
-    String manifestPath = fileJoin(File.separator, RES, ANDROID_MANIFEST);
-    symlink(fileJoin(repository, ANDROID_RES, ANDROID_MANIFEST), fileJoin(viewPath, manifestPath));
+    String manifestPath = fileJoin(File.separator, OUTPUT_RESOURCE_FOLDER, ANDROID_MANIFEST);
+    symlink(
+        fileJoin(repository, INPUT_RESOURCE_FOLDERS, ANDROID_MANIFEST),
+        fileJoin(viewPath, manifestPath));
 
     Element module = newElement("module", attribute(TYPE, "JAVA_MODULE"), attribute(VERSION, 4));
 
@@ -817,7 +896,7 @@ public class ProjectView {
 
     BuildRuleResolver ruleResolver = actionGraph.getResolver();
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
     for (BuildTarget target : buildTargets) {
       BuildRule rule = ruleResolver.getRule(target);
@@ -836,9 +915,25 @@ public class ProjectView {
     return sourceFolders.stream().sorted().collect(Collectors.toList());
   }
 
-  private static Set<String> getExcludedFolders(Set<String> sourceFolders, Set<String> roots) {
+  private Set<String> getExcludedFolders(Set<String> sourceFolders, Set<String> roots) {
     Set<String> rootFolders = allFoldersUnder(roots);
+
+    // Remove any folder that's explicitly a source folder
     rootFolders.removeAll(sourceFolders);
+
+    // Remove any folder that's the parent of a source folder. (IntelliJ can handle a sourceFolder
+    // under an excludeFolder; Android Studio can not.) This is a quadratic operation, but in
+    // practice only adds a couple of seconds on a large project
+    rootFolders =
+        rootFolders
+            .stream()
+            .filter(
+                root -> {
+                  String probe = guaranteeEndsWithFileSeparator(root);
+                  return !sourceFolders.stream().anyMatch(source -> source.startsWith(probe));
+                })
+            .collect(Collectors.toSet());
+
     return rootFolders;
   }
 
@@ -1173,6 +1268,10 @@ public class ProjectView {
           return !(name.equals(".") || name.equals(".."));
         }
       };
+
+  private static String guaranteeEndsWithFileSeparator(String name) {
+    return name.endsWith(File.separator) ? name : name + File.separator;
+  }
 
   // endregion symlinks, mkdir, and other file utilities
 

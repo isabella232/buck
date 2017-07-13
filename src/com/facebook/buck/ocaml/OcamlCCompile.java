@@ -16,7 +16,10 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -27,11 +30,15 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
 
-public class OcamlCCompile extends AbstractBuildRule {
+public class OcamlCCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final OcamlCCompileStep.Args args;
 
-  public OcamlCCompile(BuildRuleParams params, OcamlCCompileStep.Args args) {
-    super(params);
+  public OcamlCCompile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      OcamlCCompileStep.Args args) {
+    super(buildTarget, projectFilesystem, params);
     this.args = args;
   }
 
@@ -40,7 +47,9 @@ public class OcamlCCompile extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(args.output);
     return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), args.output.getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), args.output.getParent())),
         new OcamlCCompileStep(
             context.getSourcePathResolver(), getProjectFilesystem().getRootPath(), args));
   }

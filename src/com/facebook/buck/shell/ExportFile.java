@@ -16,9 +16,11 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -89,23 +91,21 @@ import java.util.stream.Stream;
  * of the file to be saved.
  */
 // TODO(simons): Extend to also allow exporting a rule.
-public class ExportFile extends AbstractBuildRuleWithResolver
+public class ExportFile extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements HasOutputName, HasRuntimeDeps {
 
-  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final String name;
   @AddToRuleKey private final ExportFileDescription.Mode mode;
   @AddToRuleKey private final SourcePath src;
 
   public ExportFile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver resolver,
       String name,
       ExportFileDescription.Mode mode,
       SourcePath src) {
-    super(buildRuleParams, resolver);
-    this.ruleFinder = ruleFinder;
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.name = name;
     this.mode = mode;
     this.src = src;
@@ -135,8 +135,15 @@ public class ExportFile extends AbstractBuildRuleWithResolver
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
     if (mode == ExportFileDescription.Mode.COPY) {
       Path out = getCopiedPath();
-      builder.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
-      builder.add(RmStep.of(getProjectFilesystem(), out).withRecursive(true));
+      builder.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), out.getParent())));
+      builder.add(
+          RmStep.of(
+                  BuildCellRelativePath.fromCellRelativePath(
+                      context.getBuildCellRootPath(), getProjectFilesystem(), out))
+              .withRecursive(true));
       if (resolver.getFilesystem(src).isDirectory(resolver.getRelativePath(src))) {
         builder.add(
             CopyStep.forDirectory(
@@ -169,7 +176,7 @@ public class ExportFile extends AbstractBuildRuleWithResolver
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     // When using reference mode, we need to make sure that any build rule that builds the source
     // is built when we are, so accomplish this by exporting it as a runtime dep.
     Optional<BuildRule> rule = ruleFinder.getRule(src);

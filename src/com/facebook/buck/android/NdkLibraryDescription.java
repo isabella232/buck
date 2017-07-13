@@ -35,6 +35,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.HasSrcs;
@@ -43,6 +44,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.Escaper;
@@ -153,10 +155,11 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
    *     file and also appends relevant preprocessor and linker flags to use C/C++ library deps.
    */
   private Pair<String, Iterable<BuildRule>> generateMakefile(
-      BuildRuleParams params, BuildRuleResolver resolver) throws NoSuchBuildTargetException {
+      ProjectFilesystem projectFilesystem, BuildRuleParams params, BuildRuleResolver resolver)
+      throws NoSuchBuildTargetException {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     ImmutableList.Builder<String> outputLinesBuilder = ImmutableList.builder();
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
@@ -178,14 +181,16 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
       // Add in the transitive preprocessor flags contributed by C/C++ library rules into the
       // NDK build.
       ImmutableList.Builder<String> ppFlags = ImmutableList.builder();
-      ppFlags.addAll(cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C));
+      ppFlags.addAll(
+          Arg.stringify(
+              cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C), pathResolver));
       Preprocessor preprocessor =
           CxxSourceTypes.getPreprocessor(cxxPlatform, CxxSource.Type.C).resolve(resolver);
       ppFlags.addAll(
           CxxHeaders.getArgs(
               cxxPreprocessorInput.getIncludes(), pathResolver, Optional.empty(), preprocessor));
       String localCflags =
-          Joiner.on(' ').join(escapeForMakefile(params.getProjectFilesystem(), ppFlags.build()));
+          Joiner.on(' ').join(escapeForMakefile(projectFilesystem, ppFlags.build()));
 
       // Collect the native linkable input for all C/C++ library deps.  We search *through* other
       // NDK library rules.
@@ -211,9 +216,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
           Joiner.on(' ')
               .join(
                   escapeForMakefile(
-                      params.getProjectFilesystem(),
-                      com.facebook.buck.rules.args.Arg.stringify(
-                          nativeLinkableInput.getArgs(), pathResolver)));
+                      projectFilesystem,
+                      Arg.stringify(nativeLinkableInput.getArgs(), pathResolver)));
 
       // Write the relevant lines to the generated makefile.
       if (!localCflags.isEmpty() || !localLdflags.isEmpty()) {
@@ -323,29 +327,34 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
   @Override
   public NdkLibrary createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       NdkLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
-    Pair<String, Iterable<BuildRule>> makefilePair = generateMakefile(params, resolver);
+    Pair<String, Iterable<BuildRule>> makefilePair =
+        generateMakefile(projectFilesystem, params, resolver);
 
     ImmutableSortedSet<SourcePath> sources;
     if (!args.getSrcs().isEmpty()) {
       sources = args.getSrcs();
     } else {
-      sources = findSources(params.getProjectFilesystem(), params.getBuildTarget().getBasePath());
+      sources = findSources(projectFilesystem, buildTarget.getBasePath());
     }
     return new NdkLibrary(
+        buildTarget,
+        projectFilesystem,
         params.copyAppendingExtraDeps(
             ImmutableSortedSet.<BuildRule>naturalOrder().addAll(makefilePair.getSecond()).build()),
-        getGeneratedMakefilePath(params.getBuildTarget(), params.getProjectFilesystem()),
+        getGeneratedMakefilePath(buildTarget, projectFilesystem),
         makefilePair.getFirst(),
         sources,
         args.getFlags(),
         args.getIsAsset(),
         ndkVersion,
-        MACRO_HANDLER.getExpander(params.getBuildTarget(), cellRoots, resolver));
+        MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver));
   }
 
   @BuckStyleImmutable

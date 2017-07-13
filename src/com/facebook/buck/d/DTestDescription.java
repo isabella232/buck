@@ -18,6 +18,7 @@ package com.facebook.buck.d;
 
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -26,8 +27,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasContacts;
 import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -39,7 +43,6 @@ import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -72,23 +75,23 @@ public class DTestDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
       DTestDescriptionArg args)
       throws NoSuchBuildTargetException {
 
-    BuildTarget target = params.getBuildTarget();
-
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
-                DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
-                params,
-                ruleFinder,
+                DDescriptionUtils.getSymlinkTreeTarget(buildTarget),
+                buildTarget,
+                projectFilesystem,
                 pathResolver,
                 args.getSrcs()));
 
@@ -96,11 +99,13 @@ public class DTestDescription
     // The rule needs its own target so that we can depend on it without creating cycles.
     BuildTarget binaryTarget =
         DDescriptionUtils.createBuildTargetForFile(
-            target, "build-", target.getFullyQualifiedName(), cxxPlatform);
+            buildTarget, "build-", buildTarget.getFullyQualifiedName(), cxxPlatform);
 
     BuildRule binaryRule =
         DDescriptionUtils.createNativeLinkable(
-            params.withBuildTarget(binaryTarget),
+            binaryTarget,
+            projectFilesystem,
+            params,
             buildRuleResolver,
             cxxPlatform,
             dBuckConfig,
@@ -115,6 +120,8 @@ public class DTestDescription
     buildRuleResolver.addToIndex(binaryRule);
 
     return new DTest(
+        buildTarget,
+        projectFilesystem,
         params.copyAppendingExtraDeps(ImmutableList.of(binaryRule)),
         binaryRule,
         args.getContacts(),
@@ -139,13 +146,9 @@ public class DTestDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractDTestDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+  interface AbstractDTestDescriptionArg
+      extends CommonDescriptionArg, HasContacts, HasDeclaredDeps, HasTestTimeout {
     SourceList getSrcs();
-
-    @Value.NaturalOrder
-    ImmutableSortedSet<String> getContacts();
-
-    Optional<Long> getTestRuleTimeoutMs();
 
     ImmutableList<String> getLinkerFlags();
   }

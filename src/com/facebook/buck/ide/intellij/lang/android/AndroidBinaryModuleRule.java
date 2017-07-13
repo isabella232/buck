@@ -33,7 +33,7 @@ public class AndroidBinaryModuleRule extends AndroidModuleRule<AndroidBinaryDesc
       ProjectFilesystem projectFilesystem,
       IjModuleFactoryResolver moduleFactoryResolver,
       IjProjectConfig projectConfig) {
-    super(projectFilesystem, moduleFactoryResolver, projectConfig, false);
+    super(projectFilesystem, moduleFactoryResolver, projectConfig, AndroidProjectType.APP);
   }
 
   @Override
@@ -48,7 +48,7 @@ public class AndroidBinaryModuleRule extends AndroidModuleRule<AndroidBinaryDesc
 
     IjModuleAndroidFacet.Builder androidFacetBuilder = context.getOrCreateAndroidFacetBuilder();
     androidFacetBuilder
-        .setManifestPath(moduleFactoryResolver.getAndroidManifestPath(target))
+        .addManifestPaths(moduleFactoryResolver.getAndroidManifestPath(target))
         .setProguardConfigPath(moduleFactoryResolver.getProguardConfigPath(target));
   }
 

@@ -24,6 +24,7 @@ import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -35,6 +36,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.HasSrcs;
@@ -87,6 +89,8 @@ public class RustLibraryDescription
   }
 
   private RustCompileRule requireBuild(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
@@ -103,7 +107,7 @@ public class RustLibraryDescription
       throws NoSuchBuildTargetException {
     Pair<SourcePath, ImmutableSortedSet<SourcePath>> rootModuleAndSources =
         RustCompileUtils.getRootModuleAndSources(
-            params.getBuildTarget(),
+            buildTarget,
             resolver,
             pathResolver,
             ruleFinder,
@@ -113,6 +117,8 @@ public class RustLibraryDescription
             ImmutableSet.of("lib.rs"),
             args.getSrcs());
     return RustCompileUtils.requireBuild(
+        buildTarget,
+        projectFilesystem,
         params,
         resolver,
         ruleFinder,
@@ -131,14 +137,15 @@ public class RustLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       RustLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
-    final BuildTarget buildTarget = params.getBuildTarget();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
 
@@ -147,7 +154,7 @@ public class RustLibraryDescription
     rustcArgs.addAll(args.getRustcFlags());
     rustcArgs.addAll(rustBuckConfig.getRustLibraryFlags());
 
-    String crate = args.getCrate().orElse(ruleToCrateName(params.getBuildTarget().getShortName()));
+    String crate = args.getCrate().orElse(ruleToCrateName(buildTarget.getShortName()));
 
     // See if we're building a particular "type" and "platform" of this library, and if so, extract
     // them from the flavors attached to the build target.
@@ -172,6 +179,8 @@ public class RustLibraryDescription
       }
 
       return requireBuild(
+          buildTarget,
+          projectFilesystem,
           params,
           resolver,
           pathResolver,
@@ -188,7 +197,7 @@ public class RustLibraryDescription
     }
 
     // Common case - we're being invoked to satisfy some other rule's dependency.
-    return new RustLibrary(params) {
+    return new RustLibrary(buildTarget, projectFilesystem, params) {
       // RustLinkable
       @Override
       public com.facebook.buck.rules.args.Arg getLinkerArg(
@@ -239,6 +248,8 @@ public class RustLibraryDescription
         try {
           rule =
               requireBuild(
+                  buildTarget,
+                  projectFilesystem,
                   params,
                   resolver,
                   pathResolver,
@@ -271,6 +282,8 @@ public class RustLibraryDescription
         String sharedLibrarySoname = CrateType.DYLIB.filenameFor(crate, cxxPlatform);
         BuildRule sharedLibraryBuildRule =
             requireBuild(
+                buildTarget,
+                projectFilesystem,
                 params,
                 resolver,
                 pathResolver,
@@ -301,7 +314,10 @@ public class RustLibraryDescription
 
       @Override
       public NativeLinkableInput getNativeLinkableInput(
-          CxxPlatform cxxPlatform, Linker.LinkableDepType depType)
+          CxxPlatform cxxPlatform,
+          Linker.LinkableDepType depType,
+          boolean forceLinkWhole,
+          ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
           throws NoSuchBuildTargetException {
         CrateType crateType;
 
@@ -322,6 +338,8 @@ public class RustLibraryDescription
 
         BuildRule rule =
             requireBuild(
+                buildTarget,
+                projectFilesystem,
                 params,
                 resolver,
                 pathResolver,
@@ -356,6 +374,8 @@ public class RustLibraryDescription
                 Optional.empty(), getBuildTarget(), cxxPlatform);
         BuildRule sharedLibraryBuildRule =
             requireBuild(
+                buildTarget,
+                projectFilesystem,
                 params,
                 resolver,
                 pathResolver,

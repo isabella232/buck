@@ -59,23 +59,35 @@ public class HaskellBinaryIntegrationTest {
   }
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws IOException, InterruptedException {
 
     // We don't currently support windows.
     assumeThat(Platform.detect(), Matchers.not(Platform.WINDOWS));
 
     // Verify that the system contains a compiler.
-    HaskellTestUtils.assumeSystemCompiler();
+    HaskellVersion version = HaskellTestUtils.assumeSystemCompiler();
 
     // Setup the workspace.
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "binary_test", tmp);
     workspace.setUp();
+
+    // Write out the `.buckconfig`.
+    workspace.writeContentsToPath(HaskellTestUtils.formatHaskellConfig(version), ".buckconfig");
   }
 
   @Test
   public void simple() throws IOException {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand("run", "//:foo#default," + getLinkFlavor());
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.equalTo("5"));
+  }
+
+  @Test
+  public void ghcLinkerFlags() throws IOException {
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "run", "//:foo_rtsflags#default," + getLinkFlavor(), "-- +RTS -A512m -RTS");
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("5"));
   }

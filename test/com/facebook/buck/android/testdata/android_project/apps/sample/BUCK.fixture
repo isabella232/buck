@@ -13,11 +13,32 @@ android_binary(
   manifest = 'AndroidManifest.xml',
   keystore = '//keystores:debug',
   locales = ['en'],
+  aapt_mode = 'aapt1', # app_en
   deps = [
     '//java/com/sample/lib:lib',
     '//res/com/sample/base:base',
   ],
 )
+
+android_binary(
+  name = 'app_with_res_overrides',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  aapt_mode = 'aapt1',  # app_with_res_overrides
+  deps = [
+    '//res/com/sample/override:override',
+  ],
+)
+
+genrule(
+  name = 'strings_dump_overrides',
+  # Using the DX environment variable here is a total hack.
+  # Ideally, we'd have a special genrule that made the Android
+  # tools available.
+  bash = '`dirname $DX`/aapt dump strings $(location :app_with_res_overrides) > $OUT',
+  out = 'dump_overrides_resources.txt',
+)
+
 
 android_binary(
   name = 'app_reorder_dex',
@@ -49,6 +70,19 @@ android_binary(
     '//java/com/sample/lib:lib',
     '//res/com/sample/base:base',
   ],
+  resource_filter = ['hdpi', 'xhdpi']
+)
+
+android_binary(
+  name = 'app_post_filter_cmd',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  deps = [
+    '//java/com/sample/lib:lib',
+    '//res/com/sample/base:base',
+    '//scripts:postfilter',
+  ],
+  post_filter_resources_cmd = '$(exe //scripts:postfilter)',
   resource_filter = ['hdpi', 'xhdpi']
 )
 
@@ -187,6 +221,22 @@ android_binary(
   keystore = '//keystores:debug',
   enable_relinker = True,
   cpu_filters = [],
+  deps = [
+    '//res/com/sample/base:base',
+    '//native/xdsodce:top',
+  ],
+)
+
+android_binary(
+  name = 'app_xdso_dce_modular',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  enable_relinker = True,
+  cpu_filters = [],
+  application_module_targets = [
+    '//native/xdsodce:top',
+    '//native/xdsodce:mid',
+  ],
   deps = [
     '//res/com/sample/base:base',
     '//native/xdsodce:top',
@@ -354,12 +404,54 @@ android_binary(
 )
 
 android_binary(
+  name = 'app_compress_lib_asset_modular_map',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  application_module_configs = {
+    'native.cxx.libasset' : ['//native/cxx:libasset'],
+  },
+  cpu_filters = [
+    'x86',
+  ],
+  deps = [
+    '//res/com/sample/base:base',
+    '//native/cxx:foo1',
+    '//native/cxx:foo2',
+    '//native/cxx:libasset',
+    '//native/cxx:libasset2',
+  ],
+  package_asset_libraries = True,
+  compress_asset_libraries = True
+)
+
+android_binary(
   name = 'app_cxx_lib_asset_no_package_modular',
   manifest = 'AndroidManifest.xml',
   keystore = '//keystores:debug',
   application_module_targets = [
     '//native/cxx:libasset',
   ],
+  cpu_filters = [
+    'x86',
+  ],
+  deps = [
+    '//res/com/sample/base:base',
+    '//native/cxx:foo1',
+    '//native/cxx:foo2',
+    '//native/cxx:libasset',
+    '//native/cxx:libasset2',
+  ],
+  package_asset_libraries = False,
+  compress_asset_libraries = True
+)
+
+android_binary(
+  name = 'app_cxx_lib_asset_no_package_modular_map',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  application_module_configs = {
+    'native.cxx.libasset' : ['//native/cxx:libasset'],
+  },
   cpu_filters = [
     'x86',
   ],
@@ -382,6 +474,28 @@ android_binary(
     '//native/cxx:foo1',
     '//native/cxx:libasset',
   ],
+  cpu_filters = [
+    'x86',
+  ],
+  deps = [
+    '//res/com/sample/base:base',
+    '//native/cxx:foo1',
+    '//native/cxx:foo2',
+    '//native/cxx:libasset',
+    '//native/cxx:libasset2',
+  ],
+  package_asset_libraries = False,
+  compress_asset_libraries = True
+)
+
+android_binary(
+  name = 'app_cxx_lib_no_package_modular_map',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  application_module_configs = {
+    'native.cxx.foo1' : ['//native/cxx:foo1'],
+    'native.cxx.libasset' : ['//native/cxx:libasset'],
+  },
   cpu_filters = [
     'x86',
   ],
@@ -679,4 +793,14 @@ android_binary(
   native_library_merge_map = {
     'lib2e.so': ['.*/merge:[EF]'],
   },
+)
+
+android_binary(
+  name = 'app_with_static_symbols',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  deps = [
+    '//res/com/sample/base:base',
+    '//native/cxx:symbols',
+  ],
 )

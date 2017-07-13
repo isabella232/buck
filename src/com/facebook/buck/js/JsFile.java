@@ -16,9 +16,12 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,14 +37,19 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public abstract class JsFile extends AbstractBuildRule {
+public abstract class JsFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final Optional<String> extraArgs;
 
   @AddToRuleKey private final WorkerTool worker;
 
-  public JsFile(BuildRuleParams params, Optional<String> extraArgs, WorkerTool worker) {
-    super(params);
+  public JsFile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      Optional<String> extraArgs,
+      WorkerTool worker) {
+    super(buildTarget, projectFilesystem, params);
     this.extraArgs = extraArgs;
     this.worker = worker;
   }
@@ -55,13 +63,20 @@ public abstract class JsFile extends AbstractBuildRule {
 
   ImmutableList<Step> getBuildSteps(BuildContext context, String jobArgsFormat, Path outputPath) {
     return ImmutableList.of(
-        RmStep.of(getProjectFilesystem(), outputPath),
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPath)),
         JsUtil.workerShellStep(
             worker,
             String.format(jobArgsFormat, extraArgs.orElse("")),
             getBuildTarget(),
             context.getSourcePathResolver(),
             getProjectFilesystem()));
+  }
+
+  @Override
+  public boolean isCacheable() {
+    return false;
   }
 
   static class JsFileDev extends JsFile {
@@ -72,13 +87,15 @@ public abstract class JsFile extends AbstractBuildRule {
     @AddToRuleKey private final Optional<String> virtualPath;
 
     JsFileDev(
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         SourcePath src,
         Optional<String> subPath,
         Optional<Path> virtualPath,
         Optional<String> extraArgs,
         WorkerTool worker) {
-      super(params, extraArgs, worker);
+      super(buildTarget, projectFilesystem, params, extraArgs, worker);
       this.src = src;
       this.subPath = subPath;
       this.virtualPath = virtualPath.map(MorePaths::pathWithUnixSeparators);
@@ -114,11 +131,13 @@ public abstract class JsFile extends AbstractBuildRule {
     @AddToRuleKey private final SourcePath devFile;
 
     JsFileRelease(
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams buildRuleParams,
         SourcePath devFile,
         Optional<String> extraArgs,
         WorkerTool worker) {
-      super(buildRuleParams, extraArgs, worker);
+      super(buildTarget, projectFilesystem, buildRuleParams, extraArgs, worker);
       this.devFile = devFile;
     }
 

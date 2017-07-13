@@ -17,9 +17,11 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -42,15 +44,18 @@ import com.google.common.io.ByteSource;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class BuiltinApplePackage extends AbstractBuildRule {
+public class BuiltinApplePackage extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path pathToOutputFile;
   private final Path temp;
   private final BuildRule bundle;
 
-  public BuiltinApplePackage(BuildRuleParams params, BuildRule bundle) {
-    super(params);
-    BuildTarget buildTarget = params.getBuildTarget();
+  public BuiltinApplePackage(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      BuildRule bundle) {
+    super(buildTarget, projectFilesystem, params);
     // TODO(markwang): This will be different for Mac apps.
     this.pathToOutputFile = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s.ipa");
     this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), buildTarget, "__temp__%s");
@@ -62,13 +67,23 @@ public class BuiltinApplePackage extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
     // Remove the output .ipa file if it exists already
-    commands.add(RmStep.of(getProjectFilesystem(), pathToOutputFile));
+    commands.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToOutputFile)));
 
     // Create temp folder to store the files going to be zipped
-    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), temp));
+
+    commands.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), temp)));
 
     Path payloadDir = temp.resolve("Payload");
-    commands.add(MkdirStep.of(getProjectFilesystem(), payloadDir));
+    commands.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), payloadDir)));
 
     // Recursively copy the .app directory into the Payload folder
     Path bundleOutputPath =
@@ -76,7 +91,7 @@ public class BuiltinApplePackage extends AbstractBuildRule {
             .getSourcePathResolver()
             .getRelativePath(Preconditions.checkNotNull(bundle.getSourcePathToOutput()));
 
-    appendAdditionalAppleWatchSteps(commands);
+    appendAdditionalAppleWatchSteps(context, commands);
 
     commands.add(
         CopyStep.forDirectory(
@@ -88,7 +103,12 @@ public class BuiltinApplePackage extends AbstractBuildRule {
     appendAdditionalSwiftSteps(context.getSourcePathResolver(), commands);
 
     // do the zipping
-    commands.add(MkdirStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
+    commands.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToOutputFile.getParent())));
     commands.add(
         new ZipStep(
             getProjectFilesystem(),
@@ -118,7 +138,8 @@ public class BuiltinApplePackage extends AbstractBuildRule {
     }
   }
 
-  private void appendAdditionalAppleWatchSteps(ImmutableList.Builder<Step> commands) {
+  private void appendAdditionalAppleWatchSteps(
+      BuildContext context, ImmutableList.Builder<Step> commands) {
     // For .ipas with WatchOS2 support, Apple apparently requires the following for App Store
     // submissions:
     // 1. Have a empty "Symbols" directory on the top level.
@@ -135,9 +156,19 @@ public class BuiltinApplePackage extends AbstractBuildRule {
         if (appleBundle.getBinary().isPresent()) {
           BuildRule binary = appleBundle.getBinary().get();
           if (binary instanceof WriteFile && appleBundle.getPlatformName().startsWith("watch")) {
-            commands.add(MkdirStep.of(getProjectFilesystem(), temp.resolve("Symbols")));
+            commands.add(
+                MkdirStep.of(
+                    BuildCellRelativePath.fromCellRelativePath(
+                        context.getBuildCellRootPath(),
+                        getProjectFilesystem(),
+                        temp.resolve("Symbols"))));
             Path watchKitSupportDir = temp.resolve("WatchKitSupport2");
-            commands.add(MkdirStep.of(getProjectFilesystem(), watchKitSupportDir));
+            commands.add(
+                MkdirStep.of(
+                    BuildCellRelativePath.fromCellRelativePath(
+                        context.getBuildCellRootPath(),
+                        getProjectFilesystem(),
+                        watchKitSupportDir)));
             commands.add(
                 new WriteFileStep(
                     getProjectFilesystem(),
@@ -148,7 +179,12 @@ public class BuiltinApplePackage extends AbstractBuildRule {
             Optional<WriteFile> legacyWatchStub = getLegacyWatchStubFromDeps(appleBundle);
             if (legacyWatchStub.isPresent()) {
               Path watchKitSupportDir = temp.resolve("WatchKitSupport");
-              commands.add(MkdirStep.of(getProjectFilesystem(), watchKitSupportDir));
+              commands.add(
+                  MkdirStep.of(
+                      BuildCellRelativePath.fromCellRelativePath(
+                          context.getBuildCellRootPath(),
+                          getProjectFilesystem(),
+                          watchKitSupportDir)));
               commands.add(
                   new WriteFileStep(
                       getProjectFilesystem(),

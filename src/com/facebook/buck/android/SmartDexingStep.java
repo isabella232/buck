@@ -16,7 +16,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.DxStep.Option;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -78,6 +80,7 @@ public class SmartDexingStep implements Step {
     ImmutableMap<Path, Sha1HashCode> getDexInputHashes();
   }
 
+  private final BuildContext buildContext;
   private final ProjectFilesystem filesystem;
   private final Supplier<Multimap<Path, Path>> outputToInputsSupplier;
   private final Optional<Path> secondaryOutputDir;
@@ -101,6 +104,7 @@ public class SmartDexingStep implements Step {
    * @param executorService The thread pool to execute the dx command on.
    */
   public SmartDexingStep(
+      BuildContext buildContext,
       ProjectFilesystem filesystem,
       final Path primaryOutputPath,
       final Supplier<Set<Path>> primaryInputsToDex,
@@ -112,6 +116,7 @@ public class SmartDexingStep implements Step {
       ListeningExecutorService executorService,
       Optional<Integer> xzCompressionLevel,
       Optional<String> dxMaxHeapSize) {
+    this.buildContext = buildContext;
     this.filesystem = filesystem;
     this.outputToInputsSupplier =
         Suppliers.memoize(
@@ -137,7 +142,8 @@ public class SmartDexingStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     try {
       Multimap<Path, Path> outputToInputs = outputToInputsSupplier.get();
       runDxCommands(context, outputToInputs);
@@ -188,7 +194,7 @@ public class SmartDexingStep implements Step {
           }
         }
       }
-    } catch (StepFailedException | IOException e) {
+    } catch (StepFailedException e) {
       context.logError(e, "There was an error in smart dexing step.");
       return StepExecutionResult.ERROR;
     }
@@ -281,6 +287,7 @@ public class SmartDexingStep implements Step {
     for (Path outputFile : outputToInputs.keySet()) {
       pseudoRules.add(
           new DxPseudoRule(
+              buildContext,
               filesystem,
               dexInputHashes,
               ImmutableSet.copyOf(outputToInputs.get(outputFile)),
@@ -314,6 +321,7 @@ public class SmartDexingStep implements Step {
    */
   @VisibleForTesting
   static class DxPseudoRule {
+    private final BuildContext buildContext;
     private final ProjectFilesystem filesystem;
     private final Map<Path, Sha1HashCode> dexInputHashes;
     private final Set<Path> srcs;
@@ -325,6 +333,7 @@ public class SmartDexingStep implements Step {
     private final Optional<String> dxMaxHeapSize;
 
     public DxPseudoRule(
+        BuildContext buildContext,
         ProjectFilesystem filesystem,
         Map<Path, Sha1HashCode> dexInputHashes,
         Set<Path> srcs,
@@ -333,6 +342,7 @@ public class SmartDexingStep implements Step {
         EnumSet<Option> dxOptions,
         Optional<Integer> xzCompressionLevel,
         Optional<String> dxMaxHeapSize) {
+      this.buildContext = buildContext;
       this.filesystem = filesystem;
       this.dexInputHashes = ImmutableMap.copyOf(dexInputHashes);
       this.srcs = ImmutableSet.copyOf(srcs);
@@ -382,7 +392,14 @@ public class SmartDexingStep implements Step {
       Preconditions.checkState(newInputsHash != null, "Must call checkIsCached first!");
 
       createDxStepForDxPseudoRule(
-          steps, filesystem, srcs, outputPath, dxOptions, xzCompressionLevel, dxMaxHeapSize);
+          steps,
+          buildContext,
+          filesystem,
+          srcs,
+          outputPath,
+          dxOptions,
+          xzCompressionLevel,
+          dxMaxHeapSize);
       steps.add(
           new WriteFileStep(filesystem, newInputsHash, outputHashPath, /* executable */ false));
     }
@@ -397,6 +414,7 @@ public class SmartDexingStep implements Step {
    */
   static void createDxStepForDxPseudoRule(
       ImmutableList.Builder<Step> steps,
+      BuildContext context,
       ProjectFilesystem filesystem,
       Collection<Path> filesToDex,
       Path outputPath,
@@ -419,7 +437,10 @@ public class SmartDexingStep implements Step {
               repackedJar,
               ImmutableSet.of("classes.dex"),
               ZipCompressionLevel.MIN_COMPRESSION_LEVEL));
-      steps.add(RmStep.of(filesystem, tempDexJarOutput));
+      steps.add(
+          RmStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), filesystem, tempDexJarOutput)));
       steps.add(
           new DexJarAnalysisStep(
               filesystem,
@@ -444,7 +465,10 @@ public class SmartDexingStep implements Step {
               outputPath,
               ImmutableSet.of("classes.dex"),
               ZipCompressionLevel.MIN_COMPRESSION_LEVEL));
-      steps.add(RmStep.of(filesystem, tempDexJarOutput));
+      steps.add(
+          RmStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), filesystem, tempDexJarOutput)));
 
       // Write a .meta file.
       steps.add(

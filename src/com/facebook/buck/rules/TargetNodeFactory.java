@@ -27,6 +27,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 
 public class TargetNodeFactory {
@@ -113,20 +114,20 @@ public class TargetNodeFactory {
                   buildTarget.getUnflavoredBuildTarget(), constructorArg));
     }
 
-    return new TargetNode<>(
+    return TargetNode.of(
+        buildTarget,
         this,
         rawInputsHashCode,
         description,
         constructorArg,
         filesystem,
-        buildTarget,
+        pathsBuilder.build(),
         declaredDeps,
         ImmutableSortedSet.copyOf(Sets.difference(extraDepsBuilder.build(), declaredDeps)),
         targetGraphOnlyDepsBuilder.build(),
+        cellRoots,
         visibilityPatterns,
         withinViewPatterns,
-        pathsBuilder.build(),
-        cellRoots,
         Optional.empty());
   }
 
@@ -202,5 +203,18 @@ public class TargetNodeFactory {
               originalNode.getBuildTarget()),
           e);
     }
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (!(obj instanceof TargetNodeFactory)) {
+      return false;
+    }
+    return Objects.equals(typeCoercerFactory, ((TargetNodeFactory) obj).typeCoercerFactory);
+  }
+
+  @Override
+  public int hashCode() {
+    return typeCoercerFactory.hashCode();
   }
 }

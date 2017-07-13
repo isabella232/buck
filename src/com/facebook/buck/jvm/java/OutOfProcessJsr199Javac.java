@@ -68,7 +68,26 @@ public abstract class OutOfProcessJsr199Javac implements Javac {
   }
 
   public Connection<OutOfProcessJavacConnectionInterface> getConnection() {
-    return Preconditions.checkNotNull(
-        connection, "Cannot get connection before calling setConnection");
+    return Preconditions.checkNotNull(connection, "setConnection() is expected to be called first");
+  }
+
+  protected Javac.Invocation wrapInvocation(
+      OutOfProcessJavacConnectionInterface proxy, int interfaceId) {
+    return new Invocation() {
+      @Override
+      public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {
+        return proxy.buildSourceAbiJar(interfaceId, sourceAbiJar.toString());
+      }
+
+      @Override
+      public int buildClasses() throws InterruptedException {
+        return proxy.buildClasses(interfaceId);
+      }
+
+      @Override
+      public void close() {
+        proxy.closeBuildInvocation(interfaceId);
+      }
+    };
   }
 }

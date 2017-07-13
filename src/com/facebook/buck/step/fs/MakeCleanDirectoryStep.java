@@ -16,10 +16,9 @@
 
 package com.facebook.buck.step.fs;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
-import java.nio.file.Path;
 
 /**
  * Deletes the directory, if it exists, before creating it. {@link MakeCleanDirectoryStep} is
@@ -32,11 +31,8 @@ import java.nio.file.Path;
  */
 public final class MakeCleanDirectoryStep {
 
-  public static ImmutableList<Step> of(
-      ProjectFilesystem filesystem, Path pathRelativeToProjectRoot) {
-    return ImmutableList.of(
-        RmStep.of(filesystem, pathRelativeToProjectRoot).withRecursive(true),
-        MkdirStep.of(filesystem, pathRelativeToProjectRoot));
+  public static ImmutableList<Step> of(BuildCellRelativePath path) {
+    return ImmutableList.of(RmStep.of(path).withRecursive(true), MkdirStep.of(path));
   }
 
   private MakeCleanDirectoryStep() {}

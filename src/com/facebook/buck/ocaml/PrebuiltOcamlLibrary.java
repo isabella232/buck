@@ -17,7 +17,9 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.NativeLinkableInput;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -35,7 +37,8 @@ import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
-class PrebuiltOcamlLibrary extends AbstractBuildRule implements OcamlLibrary {
+class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements OcamlLibrary {
 
   private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Optional<SourcePath> staticNativeLibraryPath;
@@ -53,6 +56,8 @@ class PrebuiltOcamlLibrary extends AbstractBuildRule implements OcamlLibrary {
   private final Path includeDir;
 
   public PrebuiltOcamlLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> staticNativeLibraryPath,
@@ -61,7 +66,7 @@ class PrebuiltOcamlLibrary extends AbstractBuildRule implements OcamlLibrary {
       SourcePath bytecodeLibraryPath,
       Path libPath,
       Path includeDir) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.ruleFinder = ruleFinder;
     this.staticNativeLibraryPath = staticNativeLibraryPath;
     this.staticBytecodeLibraryPath = staticBytecodeLibraryPath;

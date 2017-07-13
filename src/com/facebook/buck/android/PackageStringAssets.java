@@ -16,8 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -47,7 +50,7 @@ import java.nio.file.Path;
  * locales provided. The contents of string_assets.zip is built into the assets of the APK.
  * all_locales_string_assets.zip is used for debugging purposes.
  */
-public class PackageStringAssets extends AbstractBuildRule {
+public class PackageStringAssets extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private static final String STRING_ASSETS_ZIP_HASH = "STRING_ASSETS_ZIP_HASH";
   @VisibleForTesting static final String STRING_ASSET_FILE_EXTENSION = ".fbstr";
@@ -58,11 +61,13 @@ public class PackageStringAssets extends AbstractBuildRule {
   private final ImmutableSet<String> locales;
 
   public PackageStringAssets(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableSet<String> locales,
       FilteredResourcesProvider filteredResourcesProvider,
       SourcePath rDotTxtPath) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.locales = locales;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.rDotTxtPath = rDotTxtPath;
@@ -83,15 +88,29 @@ public class PackageStringAssets extends AbstractBuildRule {
     // We need to generate a zip file with the following dir structure:
     // /assets/strings/*.fbstr
     Path pathToBaseDir = getPathToStringAssetsDir();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToBaseDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToBaseDir)));
     Path pathToDirContainingAssetsDir = pathToBaseDir.resolve("string_assets");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToDirContainingAssetsDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToDirContainingAssetsDir)));
     final Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
     Function<String, Path> assetPathBuilder =
         locale -> pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
     Path pathToAllLocalesStringAssetsZip = getPathToAllLocalesStringAssetsZip();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToStrings));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToStrings)));
     steps.add(
         new CompileStringsStep(
             getProjectFilesystem(),

@@ -16,7 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -30,7 +33,6 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -40,13 +42,15 @@ import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A {@link BuildRule} used to have the provided {@link JavaLibrary} published to a maven repository
  *
  * @see #create
  */
-public class MavenUberJar extends AbstractBuildRule implements MavenPublishable {
+public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements MavenPublishable {
 
   private final Optional<String> mavenCoords;
   private final Optional<SourcePath> mavenPomTemplate;
@@ -54,20 +58,21 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
 
   private MavenUberJar(
       TraversedDeps traversedDeps,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.traversedDeps = traversedDeps;
     this.mavenCoords = mavenCoords;
     this.mavenPomTemplate = mavenPomTemplate;
   }
 
   private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
-    return params.copyReplacingDeclaredAndExtraDeps(
-        Suppliers.ofInstance(
-            ImmutableSortedSet.copyOf(Ordering.natural(), traversedDeps.packagedDeps)),
-        Suppliers.ofInstance(ImmutableSortedSet.of()));
+    return params
+        .withDeclaredDeps(ImmutableSortedSet.copyOf(Ordering.natural(), traversedDeps.packagedDeps))
+        .withoutExtraDeps();
   }
 
   /**
@@ -79,19 +84,29 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
    */
   public static MavenUberJar create(
       JavaLibrary rootRule,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
     TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
     return new MavenUberJar(
-        traversedDeps, adjustParams(params, traversedDeps), mavenCoords, mavenPomTemplate);
+        traversedDeps,
+        buildTarget,
+        projectFilesystem,
+        adjustParams(params, traversedDeps),
+        mavenCoords,
+        mavenPomTemplate);
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     Path pathToOutput = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
-    MkdirStep mkOutputDirStep = MkdirStep.of(getProjectFilesystem(), pathToOutput.getParent());
+    MkdirStep mkOutputDirStep =
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToOutput.getParent()));
     JarDirectoryStep mergeOutputsStep =
         new JarDirectoryStep(
             getProjectFilesystem(),
@@ -144,17 +159,21 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     private final Optional<SourcePath> mavenPomTemplate;
 
     public SourceJar(
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         ImmutableSortedSet<SourcePath> srcs,
         Optional<String> mavenCoords,
         Optional<SourcePath> mavenPomTemplate,
         TraversedDeps traversedDeps) {
-      super(params, srcs, mavenCoords);
+      super(buildTarget, projectFilesystem, params, srcs, mavenCoords);
       this.traversedDeps = traversedDeps;
       this.mavenPomTemplate = mavenPomTemplate;
     }
 
     public static SourceJar create(
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         ImmutableSortedSet<SourcePath> topLevelSrcs,
         Optional<String> mavenCoords,
@@ -175,7 +194,14 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
                   })
               .append(topLevelSrcs)
               .toSortedSet(Ordering.natural());
-      return new SourceJar(params, sourcePaths, mavenCoords, mavenPomTemplate, traversedDeps);
+      return new SourceJar(
+          buildTarget,
+          projectFilesystem,
+          params,
+          sourcePaths,
+          mavenCoords,
+          mavenPomTemplate,
+          traversedDeps);
     }
 
     @Override
@@ -204,7 +230,7 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
       this.packagedDeps = packagedDeps;
     }
 
-    private static TraversedDeps traverse(ImmutableSet<? extends BuildRule> roots) {
+    private static TraversedDeps traverse(Set<? extends BuildRule> roots) {
       ImmutableSortedSet.Builder<HasMavenCoordinates> depsCollector =
           ImmutableSortedSet.naturalOrder();
 

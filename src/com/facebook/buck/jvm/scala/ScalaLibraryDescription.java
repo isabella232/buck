@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.scala;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -26,13 +27,14 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasProvidedDeps;
 import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -60,16 +62,25 @@ public class ScalaLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams rawParams,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       ScalaLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
     ScalaLibraryBuilder scalaLibraryBuilder =
-        new ScalaLibraryBuilder(targetGraph, rawParams, resolver, cellRoots, scalaBuckConfig)
+        new ScalaLibraryBuilder(
+                targetGraph,
+                buildTarget,
+                projectFilesystem,
+                rawParams,
+                resolver,
+                cellRoots,
+                scalaBuckConfig)
             .setArgs(args);
 
-    return HasJavaAbi.isAbiTarget(rawParams.getBuildTarget())
+    return HasJavaAbi.isAbiTarget(buildTarget)
         ? scalaLibraryBuilder.buildAbi()
         : scalaLibraryBuilder.build();
   }
@@ -83,20 +94,18 @@ public class ScalaLibraryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder
         .add(scalaBuckConfig.getScalaLibraryTarget())
-        .addAll(scalaBuckConfig.getCompilerPlugins())
-        .addAll(OptionalCompat.asSet(scalaBuckConfig.getScalacTarget()));
+        .addAll(scalaBuckConfig.getCompilerPlugins());
+    Optionals.addIfPresent(scalaBuckConfig.getScalacTarget(), extraDepsBuilder);
   }
 
   // Note: scala does not have a exported_deps because scala needs the transitive closure of
   // dependencies to compile. deps is effectively exported_deps.
-  interface CoreArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasTests {
+  interface CoreArg
+      extends CommonDescriptionArg, HasDeclaredDeps, HasProvidedDeps, HasSrcs, HasTests {
     @Value.NaturalOrder
     ImmutableSortedSet<SourcePath> getResources();
 
     ImmutableList<String> getExtraArguments();
-
-    @Value.NaturalOrder
-    ImmutableSortedSet<BuildTarget> getProvidedDeps();
 
     @Hint(isInput = false)
     Optional<Path> getResourcesRoot();

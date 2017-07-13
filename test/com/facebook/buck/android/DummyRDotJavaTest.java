@@ -29,18 +29,20 @@ import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.NoOpClassUsageFileWriter;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -65,7 +67,7 @@ public class DummyRDotJavaTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildRule resourceRule1 =
         ruleResolver.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
@@ -85,11 +87,12 @@ public class DummyRDotJavaTest {
                 .build());
     setAndroidResourceBuildOutput(resourceRule2);
 
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//java/base:rule");
     DummyRDotJava dummyRDotJava =
         new DummyRDotJava(
-            new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//java/base:rule"))
-                .setProjectFilesystem(filesystem)
-                .build(),
+            buildTarget,
+            filesystem,
+            TestBuildRuleParams.create(),
             ruleFinder,
             ImmutableSet.of(
                 (HasAndroidResourceDeps) resourceRule1, (HasAndroidResourceDeps) resourceRule2),
@@ -104,18 +107,15 @@ public class DummyRDotJavaTest {
     List<Step> steps = dummyRDotJava.getBuildSteps(FakeBuildContext.NOOP_CONTEXT, buildableContext);
     assertEquals("DummyRDotJava returns an incorrect number of Steps.", 12, steps.size());
 
-    String rDotJavaSrcFolder =
+    Path rDotJavaSrcFolder =
         BuildTargets.getScratchPath(
-                filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_src__")
-            .toString();
-    String rDotJavaBinFolder =
+            filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_src__");
+    Path rDotJavaBinFolder =
         BuildTargets.getScratchPath(
-                filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_bin__")
-            .toString();
-    String rDotJavaOutputFolder =
+            filesystem, dummyRDotJava.getBuildTarget(), "__%s_rdotjava_bin__");
+    Path rDotJavaOutputFolder =
         BuildTargets.getGenPath(
-                filesystem, dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_output__")
-            .toString();
+            filesystem, dummyRDotJava.getBuildTarget(), "__%s_dummyrdotjava_output__");
     String rDotJavaOutputJar =
         MorePaths.pathWithPlatformSeparators(
             String.format(
@@ -129,19 +129,19 @@ public class DummyRDotJavaTest {
             .map(Object::toString)
             .collect(MoreCollectors.toImmutableList());
     ImmutableSortedSet<Path> javaSourceFiles =
-        ImmutableSortedSet.of(Paths.get(rDotJavaSrcFolder).resolve("com/facebook/R.java"));
+        ImmutableSortedSet.of(rDotJavaSrcFolder.resolve("com/facebook/R.java"));
 
     List<String> expectedStepDescriptions =
         new ImmutableList.Builder<String>()
-            .addAll(makeCleanDirDescription(filesystem.resolve(rDotJavaSrcFolder)))
+            .addAll(makeCleanDirDescription(rDotJavaSrcFolder))
             .add("android-res-merge " + Joiner.on(' ').join(sortedSymbolsFiles))
             .add("android-res-merge " + Joiner.on(' ').join(sortedSymbolsFiles))
-            .addAll(makeCleanDirDescription(filesystem.resolve(rDotJavaBinFolder)))
-            .addAll(makeCleanDirDescription(filesystem.resolve(rDotJavaOutputFolder)))
-            .add(String.format("mkdir -p %s", filesystem.resolve(genFolder)))
+            .addAll(makeCleanDirDescription(rDotJavaBinFolder))
+            .addAll(makeCleanDirDescription(rDotJavaOutputFolder))
+            .add(String.format("mkdir -p %s", genFolder))
             .add(
                 new JavacStep(
-                        Paths.get(rDotJavaBinFolder),
+                        rDotJavaBinFolder,
                         NoOpClassUsageFileWriter.instance(),
                         Optional.empty(),
                         javaSourceFiles,
@@ -156,7 +156,8 @@ public class DummyRDotJavaTest {
                         pathResolver,
                         new FakeProjectFilesystem(),
                         new ClasspathChecker(),
-                        /* directToJarOutputSettings */ Optional.empty())
+                        /* directToJarOutputSettings */ Optional.empty(),
+                        null)
                     .getDescription(TestExecutionContext.newInstance()))
             .add(String.format("jar cf %s  %s", rDotJavaOutputJar, rDotJavaBinFolder))
             .add(String.format("check_dummy_r_jar_not_empty %s", rDotJavaOutputJar))
@@ -169,7 +170,7 @@ public class DummyRDotJavaTest {
         TestExecutionContext.newInstance());
 
     assertEquals(
-        ImmutableSet.of(Paths.get(rDotJavaBinFolder), Paths.get(rDotJavaOutputJar)),
+        ImmutableSet.of(rDotJavaBinFolder, Paths.get(rDotJavaOutputJar)),
         buildableContext.getRecordedArtifacts());
   }
 
@@ -179,11 +180,12 @@ public class DummyRDotJavaTest {
         new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//java/com/example:library");
     DummyRDotJava dummyRDotJava =
         new DummyRDotJava(
-            new FakeBuildRuleParamsBuilder(
-                    BuildTargetFactory.newInstance("//java/com/example:library"))
-                .build(),
+            buildTarget,
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             ruleFinder,
             ImmutableSet.of(),
             new JavacToJarStepFactory(

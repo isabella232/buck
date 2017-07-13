@@ -1034,6 +1034,37 @@ public class AppleBinaryIntegrationTest {
   }
 
   @Test
+  public void testSwiftFilesInsideBinaryAreRebuiltWhenHeaderFileTheyDependOnChanges()
+      throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "swift_header_dep_caching", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+
+    BuildTarget target = workspace.newBuildTarget("//:binary");
+
+    // Populate the cache and then reset the build log
+    ProjectWorkspace.ProcessResult cachePopulatingResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    cachePopulatingResult.assertSuccess();
+
+    // Reset us back to a clean state
+    workspace.runBuckCommand("clean");
+
+    // Now do the actual test - modify a file, do a build again, and confirm it rebuilt our swift
+    workspace.copyFile("producer.h.new", "producer.h");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    result.assertSuccess();
+
+    workspace
+        .getBuildLog()
+        .assertTargetBuiltLocally("//:binary#iphonesimulator-x86_64,swift-compile");
+  }
+
+  @Test
   public void testAppleBinaryBuildsFatBinariesWithSwift() throws Exception {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace =

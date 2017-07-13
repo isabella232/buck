@@ -16,7 +16,10 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -34,7 +37,7 @@ import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class OcamlLink extends AbstractBuildRule {
+public class OcamlLink extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final ImmutableList<SourcePath> inputs;
   @AddToRuleKey private final ImmutableMap<String, String> cxxCompilerEnvironment;
@@ -56,6 +59,8 @@ public class OcamlLink extends AbstractBuildRule {
   @AddToRuleKey private final boolean buildNativePlugin;
 
   public OcamlLink(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableList<SourcePath> inputs,
       ImmutableMap<String, String> cxxCompilerEnvironment,
@@ -70,7 +75,7 @@ public class OcamlLink extends AbstractBuildRule {
       boolean isLibrary,
       boolean isBytecode,
       boolean buildNativePlugin) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
 
     this.inputs = inputs;
     this.cxxCompilerEnvironment = cxxCompilerEnvironment;
@@ -96,7 +101,12 @@ public class OcamlLink extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> steps =
         ImmutableList.<Step>builder()
-            .add(MkdirStep.of(getProjectFilesystem(), outputRelativePath.getParent()))
+            .add(
+                MkdirStep.of(
+                    BuildCellRelativePath.fromCellRelativePath(
+                        context.getBuildCellRootPath(),
+                        getProjectFilesystem(),
+                        outputRelativePath.getParent())))
             .add(
                 OcamlLinkStep.create(
                     getProjectFilesystem().getRootPath(),

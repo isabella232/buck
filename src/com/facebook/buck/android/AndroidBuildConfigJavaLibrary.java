@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -23,8 +24,9 @@ import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsAmender;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
+import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Preconditions;
@@ -44,15 +46,19 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
   private final AndroidBuildConfig androidBuildConfig;
 
   AndroidBuildConfigJavaLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Javac javac,
       JavacOptions javacOptions,
-      ImmutableSortedSet<SourcePath> abiInputs,
+      ZipArchiveDependencySupplier abiClasspath,
       AndroidBuildConfig androidBuildConfig) {
     super(
-        params.copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(abiInputs)),
+        buildTarget,
+        projectFilesystem,
+        params.copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(abiClasspath.get())),
         resolver,
         ruleFinder,
         /* srcs */ ImmutableSortedSet.of(androidBuildConfig.getSourcePathToOutput()),
@@ -65,8 +71,8 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         /* providedDeps */ ImmutableSortedSet.of(),
         /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
             androidBuildConfig.getSourcePathToOutput()),
-        abiInputs,
-        HasJavaAbi.getClassAbiJar(params.getBuildTarget()),
+        abiClasspath,
+        HasJavaAbi.getClassAbiJar(buildTarget),
         /* trackClassUsage */ javacOptions.trackClassUsage(),
         new JavacToJarStepFactory(javac, javacOptions, JavacOptionsAmender.IDENTITY),
         /* resourcesRoot */ Optional.empty(),
@@ -78,7 +84,7 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
     Preconditions.checkState(
         params.getBuildDeps().contains(androidBuildConfig),
         "%s must depend on the AndroidBuildConfig whose output is in this rule's srcs.",
-        params.getBuildTarget());
+        buildTarget);
   }
 
   /**

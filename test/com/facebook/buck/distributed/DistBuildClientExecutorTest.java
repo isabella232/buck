@@ -49,6 +49,7 @@ import com.facebook.buck.distributed.thrift.StreamLogs;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.model.Pair;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -78,6 +79,7 @@ public class DistBuildClientExecutorTest {
   private ScheduledExecutorService scheduler;
   private BuckVersion buckVersion;
   private BuildJobState buildJobState;
+  private DistBuildCellIndexer distBuildCellIndexer;
   private DistBuildClientExecutor distBuildClientExecutor;
   private ListeningExecutorService directExecutor;
   private FakeProjectFilesystem fakeProjectFilesystem;
@@ -85,9 +87,11 @@ public class DistBuildClientExecutorTest {
   private BuckEventBus mockEventBus;
   private StampedeId stampedeId;
   private DistBuildClientStatsTracker distBuildClientStatsTracker;
+  private static final String REPOSITORY = "repositoryOne";
+  private static final String TENANT_ID = "tenantOne";
 
   @Before
-  public void setUp() {
+  public void setUp() throws IOException, InterruptedException {
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
     mockLogStateTracker = EasyMock.createMock(DistBuildLogStateTracker.class);
     scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -95,9 +99,11 @@ public class DistBuildClientExecutorTest {
     buckVersion.setGitHash("thishashisamazing");
     buildJobState = createMinimalFakeBuildJobState();
     distBuildClientStatsTracker = new DistBuildClientStatsTracker();
+    distBuildCellIndexer = new DistBuildCellIndexer(new TestCellBuilder().build());
     distBuildClientExecutor =
         new DistBuildClientExecutor(
             buildJobState,
+            distBuildCellIndexer,
             mockDistBuildService,
             mockLogStateTracker,
             buckVersion,
@@ -380,10 +386,14 @@ public class DistBuildClientExecutorTest {
     BuildJob job = new BuildJob();
     job.setStampedeId(stampedeId);
 
-    expect(mockDistBuildService.createBuild(BuildMode.REMOTE_BUILD, 1)).andReturn(job);
+    expect(mockDistBuildService.createBuild(BuildMode.REMOTE_BUILD, 1, REPOSITORY, TENANT_ID))
+        .andReturn(job);
     expect(
             mockDistBuildService.uploadMissingFilesAsync(
-                buildJobState.fileHashes, distBuildClientStatsTracker, directExecutor))
+                distBuildCellIndexer.getLocalFilesystemsByCellIndex(),
+                buildJobState.fileHashes,
+                distBuildClientStatsTracker,
+                directExecutor))
         .andReturn(Futures.immediateFuture(null));
     expect(
             mockDistBuildService.uploadBuckDotFilesAsync(
@@ -477,7 +487,9 @@ public class DistBuildClientExecutorTest {
         fakeFileHashCache,
         mockEventBus,
         BuildMode.REMOTE_BUILD,
-        1);
+        1,
+        REPOSITORY,
+        TENANT_ID);
 
     verify(mockDistBuildService);
     verify(mockLogStateTracker);

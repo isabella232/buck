@@ -34,7 +34,6 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.Collections2;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -48,7 +47,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,6 +57,7 @@ import java.io.Writer;
 import java.nio.channels.Channels;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystemLoopException;
 import java.nio.file.FileVisitOption;
@@ -559,18 +558,6 @@ public class ProjectFilesystem {
     return delegate.isExecutable(child);
   }
 
-  /**
-   * Allows {@link java.io.File#listFiles} to be faked in tests.
-   *
-   * <p>// @deprecated Replaced by {@link #getDirectoryContents}
-   */
-  public File[] listFiles(Path pathRelativeToProjectRoot) throws IOException {
-    Collection<Path> paths = getDirectoryContents(pathRelativeToProjectRoot);
-
-    File[] result = new File[paths.size()];
-    return Collections2.transform(paths, Path::toFile).toArray(result);
-  }
-
   public ImmutableCollection<Path> getDirectoryContents(Path pathToUse) throws IOException {
     Path path = getPathForRelativePath(pathToUse);
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
@@ -622,7 +609,16 @@ public class ProjectFilesystem {
    * Files#createDirectories(java.nio.file.Path, java.nio.file.attribute.FileAttribute[])}
    */
   public void mkdirs(Path pathRelativeToProjectRoot) throws IOException {
-    Files.createDirectories(resolve(pathRelativeToProjectRoot));
+    Path resolved = resolve(pathRelativeToProjectRoot);
+    try {
+      Files.createDirectories(resolved);
+    } catch (FileAlreadyExistsException e) {
+      // Don't complain if the file is a symlink that points to a valid directory.
+      // This check is done only on exception as it's a rare case, and lstat is not free.
+      if (!Files.isDirectory(resolved)) {
+        throw e;
+      }
+    }
   }
 
   /** Creates a new file relative to the project root. */

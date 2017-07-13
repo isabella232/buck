@@ -18,9 +18,8 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.MethodTree;
-import com.sun.source.tree.ModifiersTree;
+import com.sun.source.util.TreePath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,15 +27,18 @@ import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.TypeVariable;
 
 /**
  * An implementation of {@link ExecutableElement} that uses only the information available from a
  * {@link MethodTree}. This results in an incomplete implementation; see documentation for
  * individual methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedExecutableElement extends TreeBackedParameterizable implements ExecutableElement {
+class TreeBackedExecutableElement extends TreeBackedParameterizable
+    implements ArtificialExecutableElement {
   private final ExecutableElement underlyingElement;
   private final List<TreeBackedVariableElement> parameters = new ArrayList<>();
   @Nullable private final MethodTree tree;
@@ -50,12 +52,17 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
   TreeBackedExecutableElement(
       ExecutableElement underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable MethodTree tree,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, tree, resolver);
+      @Nullable TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
     this.underlyingElement = underlyingElement;
-    this.tree = tree;
+    this.tree = treePath == null ? null : (MethodTree) treePath.getLeaf();
     enclosingElement.addEnclosedElement(this);
+  }
+
+  @Override
+  public List<? extends ArtificialElement> getEnclosedElements() {
+    return Collections.emptyList();
   }
 
   @Override
@@ -67,31 +74,31 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
   @Override
   public StandaloneTypeMirror asType() {
     if (typeMirror == null) {
-      typeMirror = getResolver().createType(this);
+      typeMirror =
+          new StandaloneExecutableType(
+              getReturnType(),
+              getTypeParameters()
+                  .stream()
+                  .map(TypeParameterElement::asType)
+                  .map(type -> (TypeVariable) type)
+                  .collect(Collectors.toList()),
+              getParameters().stream().map(VariableElement::asType).collect(Collectors.toList()),
+              getThrownTypes(),
+              getAnnotationMirrors());
     }
     return typeMirror;
   }
 
   @Override
-  protected List<? extends AnnotationTree> getAnnotationTrees() {
-    ModifiersTree modifiersTree = tree == null ? null : tree.getModifiers();
-    if (modifiersTree == null) {
-      return Collections.emptyList();
-    }
-
-    return modifiersTree.getAnnotations();
-  }
-
-  @Override
   public TypeMirror getReturnType() {
     if (returnType == null) {
-      returnType = getResolver().getCanonicalType(underlyingElement.getReturnType());
+      returnType = getCanonicalizer().getCanonicalType(underlyingElement.getReturnType());
     }
     return returnType;
   }
 
   @Override
-  public List<? extends VariableElement> getParameters() {
+  public List<TreeBackedVariableElement> getParameters() {
     return Collections.unmodifiableList(parameters);
   }
 
@@ -102,7 +109,11 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
   @Override
   public TypeMirror getReceiverType() {
     if (receiverType == null) {
-      receiverType = getResolver().getCanonicalType(underlyingElement.getReceiverType());
+      TypeMirror underlyingReceiverType = underlyingElement.getReceiverType();
+      this.receiverType =
+          underlyingReceiverType == null
+              ? null
+              : getCanonicalizer().getCanonicalType(underlyingReceiverType);
     }
     return receiverType;
   }
@@ -125,7 +136,7 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
               underlyingElement
                   .getThrownTypes()
                   .stream()
-                  .map(getResolver()::getCanonicalType)
+                  .map(getCanonicalizer()::getCanonicalType)
                   .collect(Collectors.toList()));
     }
 
@@ -140,7 +151,11 @@ class TreeBackedExecutableElement extends TreeBackedParameterizable implements E
       if (underlyingValue != null) {
         defaultValue =
             new TreeBackedAnnotationValue(
-                underlyingValue, Preconditions.checkNotNull(tree).getDefaultValue(), getResolver());
+                underlyingValue,
+                new TreePath(
+                    Preconditions.checkNotNull(getTreePath()),
+                    Preconditions.checkNotNull(tree).getDefaultValue()),
+                getCanonicalizer());
       }
     }
     return defaultValue;

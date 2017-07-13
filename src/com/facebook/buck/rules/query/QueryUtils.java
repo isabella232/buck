@@ -25,16 +25,17 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasProvidedDepsQuery;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Threads;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-import java.util.ArrayList;
-import java.util.List;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -49,9 +50,53 @@ public final class QueryUtils {
     // This class cannot be instantiated
   }
 
-  public static Stream<BuildRule> resolveDepQuery(
+  @SuppressWarnings("unchecked")
+  public static <T> T withDepsQuery(
+      T arg,
+      BuildTarget target,
+      QueryCache cache,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
+      TargetGraph graph) {
+    if (arg instanceof HasDepsQuery) {
+      HasDepsQuery castedArg = (HasDepsQuery) arg;
+      if (castedArg.getDepsQuery().isPresent()) {
+        Query query = castedArg.getDepsQuery().get();
+        ImmutableSortedSet<BuildTarget> resolvedQuery =
+            resolveDepQuery(target, query, cache, resolver, cellRoots, graph, castedArg.getDeps());
+        return (T) castedArg.withDepsQuery(query.withResolvedQuery(resolvedQuery));
+      }
+    }
+
+    return arg;
+  }
+
+  @SuppressWarnings("unchecked")
+  public static <T> T withProvidedDepsQuery(
+      T arg,
+      BuildTarget target,
+      QueryCache cache,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
+      TargetGraph graph) {
+    if (arg instanceof HasProvidedDepsQuery) {
+      HasProvidedDepsQuery castedArg = (HasProvidedDepsQuery) arg;
+      if (castedArg.getProvidedDepsQuery().isPresent()) {
+        Query query = castedArg.getProvidedDepsQuery().get();
+        ImmutableSortedSet<BuildTarget> resolvedQuery =
+            resolveDepQuery(
+                target, query, cache, resolver, cellRoots, graph, castedArg.getProvidedDeps());
+        arg = (T) castedArg.withProvidedDepsQuery(query.withResolvedQuery(resolvedQuery));
+      }
+    }
+
+    return arg;
+  }
+
+  private static ImmutableSortedSet<BuildTarget> resolveDepQuery(
       BuildTarget target,
       Query query,
+      QueryCache cache,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       TargetGraph targetGraph,
@@ -63,27 +108,27 @@ public final class QueryUtils {
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             declaredDeps);
-    ListeningExecutorService executorService = MoreExecutors.newDirectExecutorService();
     try (SimplePerfEvent.Scope ignored =
         SimplePerfEvent.scope(
             Optional.ofNullable(resolver.getEventBus()),
             PerfEventId.of("resolve_dep_query"),
             "target",
             target.toString())) {
-      QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env.getFunctions());
-      Set<QueryTarget> queryTargets = parsedExp.eval(env, executorService);
+      QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
+      Set<QueryTarget> queryTargets = cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
       return queryTargets
           .stream()
           .map(
               queryTarget -> {
                 Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-                return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
-              });
+                return ((QueryBuildTarget) queryTarget).getBuildTarget();
+              })
+          .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
     } catch (QueryException e) {
+      if (e.getCause() instanceof InterruptedException) {
+        Threads.interruptCurrentThread();
+      }
       throw new RuntimeException("Error parsing/executing query from deps for " + target, e);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new RuntimeException("Error executing query from deps for " + target, e);
     }
   }
 
@@ -95,20 +140,10 @@ public final class QueryUtils {
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
             Optional.empty(), Optional.empty(), cellPathResolver, parserPattern, ImmutableSet.of());
-    ListeningExecutorService executorService = MoreExecutors.newDirectExecutorService();
-    QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env.getFunctions());
-    List<String> targetLiterals = new ArrayList<>();
-    parsedExp.collectTargetPatterns(targetLiterals);
-    return targetLiterals
+    QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
+    return parsedExp
+        .getTargets(env)
         .stream()
-        .flatMap(
-            pattern -> {
-              try {
-                return env.getTargetsMatchingPattern(pattern, executorService).stream();
-              } catch (Exception e) {
-                throw new RuntimeException("Error parsing target expression", e);
-              }
-            })
         .map(
             queryTarget -> {
               Preconditions.checkState(queryTarget instanceof QueryBuildTarget);

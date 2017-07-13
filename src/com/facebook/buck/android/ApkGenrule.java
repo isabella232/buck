@@ -16,13 +16,12 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -53,12 +52,13 @@ import java.util.Optional;
  */
 public class ApkGenrule extends Genrule implements HasInstallableApk {
 
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID);
   @AddToRuleKey private final BuildTargetSourcePath apk;
   private final HasInstallableApk hasInstallableApk;
   private final boolean isCacheable;
 
   ApkGenrule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       List<SourcePath> srcs,
@@ -69,25 +69,22 @@ public class ApkGenrule extends Genrule implements HasInstallableApk {
       SourcePath apk,
       boolean isCacheable) {
     super(
+        buildTarget,
+        projectFilesystem,
         params,
         srcs,
         cmd,
         bash,
         cmdExe,
         type,
-        /* out */ params.getBuildTarget().getShortNameAndFlavorPostfix() + ".apk");
+        /* out */ buildTarget.getShortNameAndFlavorPostfix() + ".apk");
 
     Preconditions.checkState(apk instanceof BuildTargetSourcePath);
     this.apk = (BuildTargetSourcePath) apk;
-    BuildRule rule = ruleFinder.getRuleOrThrow(this.apk);
+    BuildRule rule = ruleFinder.getRule(this.apk);
     Preconditions.checkState(rule instanceof HasInstallableApk);
     this.hasInstallableApk = (HasInstallableApk) rule;
     this.isCacheable = isCacheable;
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   public HasInstallableApk getInstallableApk() {

@@ -70,6 +70,7 @@ public class DistBuildClientExecutor {
   private final DistBuildService distBuildService;
   private final DistBuildLogStateTracker distBuildLogStateTracker;
   private final BuildJobState buildJobState;
+  private final DistBuildCellIndexer distBuildCellIndexer;
   private final BuckVersion buckVersion;
   private final DistBuildClientStatsTracker distBuildClientStats;
   private final ScheduledExecutorService scheduler;
@@ -89,6 +90,7 @@ public class DistBuildClientExecutor {
 
   public DistBuildClientExecutor(
       BuildJobState buildJobState,
+      DistBuildCellIndexer distBuildCellIndexer,
       DistBuildService distBuildService,
       DistBuildLogStateTracker distBuildLogStateTracker,
       BuckVersion buckVersion,
@@ -96,6 +98,7 @@ public class DistBuildClientExecutor {
       ScheduledExecutorService scheduler,
       int statusPollIntervalMillis) {
     this.buildJobState = buildJobState;
+    this.distBuildCellIndexer = distBuildCellIndexer;
     this.distBuildService = distBuildService;
     this.distBuildLogStateTracker = distBuildLogStateTracker;
     this.buckVersion = buckVersion;
@@ -106,6 +109,7 @@ public class DistBuildClientExecutor {
 
   public DistBuildClientExecutor(
       BuildJobState buildJobState,
+      DistBuildCellIndexer distBuildCellIndexer,
       DistBuildService distBuildService,
       DistBuildLogStateTracker distBuildLogStateTracker,
       BuckVersion buckVersion,
@@ -113,6 +117,7 @@ public class DistBuildClientExecutor {
       ScheduledExecutorService scheduler) {
     this(
         buildJobState,
+        distBuildCellIndexer,
         distBuildService,
         distBuildLogStateTracker,
         buckVersion,
@@ -127,11 +132,13 @@ public class DistBuildClientExecutor {
       FileHashCache fileHashCache,
       BuckEventBus eventBus,
       BuildMode buildMode,
-      int numberOfMinions)
+      int numberOfMinions,
+      String repository,
+      String tenantId)
       throws IOException, InterruptedException {
 
     distBuildClientStats.startCreateBuildTimer();
-    BuildJob job = distBuildService.createBuild(buildMode, numberOfMinions);
+    BuildJob job = distBuildService.createBuild(buildMode, numberOfMinions, repository, tenantId);
     distBuildClientStats.stopCreateBuildTimer();
 
     final StampedeId stampedeId = job.getStampedeId();
@@ -145,7 +152,10 @@ public class DistBuildClientExecutor {
     LOG.info("Uploading local changes.");
     asyncJobs.add(
         distBuildService.uploadMissingFilesAsync(
-            buildJobState.fileHashes, distBuildClientStats, networkExecutorService));
+            distBuildCellIndexer.getLocalFilesystemsByCellIndex(),
+            buildJobState.fileHashes,
+            distBuildClientStats,
+            networkExecutorService));
 
     LOG.info("Uploading target graph.");
     asyncJobs.add(
@@ -249,7 +259,9 @@ public class DistBuildClientExecutor {
       FileHashCache fileHashCache,
       BuckEventBus eventBus,
       BuildMode buildMode,
-      int numberOfMinions)
+      int numberOfMinions,
+      String repository,
+      String tenantId)
       throws IOException, InterruptedException {
 
     final BuildJob initJob =
@@ -259,7 +271,9 @@ public class DistBuildClientExecutor {
             fileHashCache,
             eventBus,
             buildMode,
-            numberOfMinions);
+            numberOfMinions,
+            repository,
+            tenantId);
 
     nextEventIdBySlaveRunId.clear();
     ScheduledFuture<?> distBuildStatusUpdatingFuture =

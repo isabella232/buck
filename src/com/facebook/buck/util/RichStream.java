@@ -20,6 +20,7 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Optional;
@@ -40,6 +41,10 @@ import java.util.stream.StreamSupport;
  * @param <T> the type of the stream elements.
  */
 public interface RichStream<T> extends Stream<T> {
+  @FunctionalInterface
+  interface ThrowingConsumer<T, E extends Exception> {
+    void accept(T t) throws E;
+  }
 
   // Static methods
 
@@ -54,6 +59,10 @@ public interface RichStream<T> extends Stream<T> {
   @SafeVarargs
   static <T> RichStream<T> of(T... values) {
     return new RichStreamImpl<>(Stream.of(values));
+  }
+
+  static <T> RichStream<T> from(T[] array) {
+    return new RichStreamImpl<>(Arrays.stream(array));
   }
 
   static <T> RichStream<T> from(Iterable<T> iterable) {
@@ -119,6 +128,22 @@ public interface RichStream<T> extends Stream<T> {
   default Iterable<T> toOnceIterable() {
     return this::iterator;
   }
+
+  /**
+   * A variant of {@link Stream#forEach} that can safely throw a checked exception.
+   *
+   * @param <E> Exception that may be thrown by the action.
+   * @throws E Exception thrown by the action.
+   */
+  <E extends Exception> void forEachThrowing(ThrowingConsumer<? super T, E> action) throws E;
+
+  /**
+   * A variant of {@link Stream#forEachOrdered} that can safely throw a checked exception.
+   *
+   * @param <E> Exception that may be thrown by the action.
+   * @throws E Exception thrown by the action.
+   */
+  <E extends Exception> void forEachOrderedThrowing(ThrowingConsumer<? super T, E> action) throws E;
 
   // More specific return types for Stream methods that return Streams.
 

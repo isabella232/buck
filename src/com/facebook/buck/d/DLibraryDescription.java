@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePath;
@@ -64,6 +66,8 @@ public class DLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
@@ -71,24 +75,26 @@ public class DLibraryDescription
       throws NoSuchBuildTargetException {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
-    if (params.getBuildTarget().getFlavors().contains(DDescriptionUtils.SOURCE_LINK_TREE)) {
+    if (buildTarget.getFlavors().contains(DDescriptionUtils.SOURCE_LINK_TREE)) {
       return DDescriptionUtils.createSourceSymlinkTree(
-          params.getBuildTarget(), params, ruleFinder, pathResolver, args.getSrcs());
+          buildTarget, buildTarget, projectFilesystem, pathResolver, args.getSrcs());
     }
 
     BuildTarget sourceTreeTarget =
-        params.getBuildTarget().withAppendedFlavors(DDescriptionUtils.SOURCE_LINK_TREE);
+        buildTarget.withAppendedFlavors(DDescriptionUtils.SOURCE_LINK_TREE);
     DIncludes dIncludes =
         DIncludes.builder()
             .setLinkTree(new DefaultBuildTargetSourcePath(sourceTreeTarget))
             .setSources(args.getSrcs().getPaths())
             .build();
 
-    if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.STATIC_FLAVOR)) {
+    if (buildTarget.getFlavors().contains(CxxDescriptionEnhancer.STATIC_FLAVOR)) {
       buildRuleResolver.requireRule(sourceTreeTarget);
       return createStaticLibraryBuildRule(
+          buildTarget,
+          projectFilesystem,
           params,
           buildRuleResolver,
           pathResolver,
@@ -101,11 +107,13 @@ public class DLibraryDescription
           CxxSourceRuleFactory.PicType.PDC);
     }
 
-    return new DLibrary(params, buildRuleResolver, dIncludes);
+    return new DLibrary(buildTarget, projectFilesystem, params, buildRuleResolver, dIncludes);
   }
 
   /** @return a BuildRule that creates a static library. */
   private BuildRule createStaticLibraryBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
@@ -120,6 +128,8 @@ public class DLibraryDescription
 
     ImmutableList<SourcePath> compiledSources =
         DDescriptionUtils.sourcePathsForCompiledSources(
+            buildTarget,
+            projectFilesystem,
             params,
             ruleResolver,
             pathResolver,
@@ -133,19 +143,19 @@ public class DLibraryDescription
     // Write a build rule to create the archive for this library.
     BuildTarget staticTarget =
         CxxDescriptionEnhancer.createStaticLibraryBuildTarget(
-            params.getBuildTarget(), cxxPlatform.getFlavor(), pic);
+            buildTarget, cxxPlatform.getFlavor(), pic);
 
     Path staticLibraryPath =
         CxxDescriptionEnhancer.getStaticLibraryPath(
-            params.getProjectFilesystem(),
-            params.getBuildTarget(),
+            projectFilesystem,
+            buildTarget,
             cxxPlatform.getFlavor(),
             pic,
             cxxPlatform.getStaticLibraryExtension());
 
     return Archive.from(
         staticTarget,
-        params,
+        projectFilesystem,
         ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),

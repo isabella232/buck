@@ -17,6 +17,7 @@ package com.facebook.buck.util;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -74,7 +75,7 @@ public class FileSystemMap<T> {
     //       get() or put() on its path: in this case, its value will be computed and stored.
     //       Otherwise, the node exists only as a mean to reach its children/leaves and will have
     //       a `null` value.
-    private @Nullable T value;
+    private volatile @Nullable T value;
     private final Path key;
 
     Entry(Path path) {
@@ -92,22 +93,27 @@ public class FileSystemMap<T> {
       this.value = value;
     }
 
-    synchronized void set(@Nullable T value) {
+    void set(@Nullable T value) {
       this.value = value;
     }
 
-    synchronized @Nullable T getWithoutLoading() {
+    @Nullable
+    T getWithoutLoading() {
       return this.value;
     }
 
-    synchronized T load(ValueLoader<T> loader) {
+    T load(ValueLoader<T> loader) {
       if (this.value == null) {
-        this.value = loader.load(this.key);
+        synchronized (this) {
+          if (this.value == null) {
+            this.value = loader.load(this.key);
+          }
+        }
       }
       return this.value;
     }
 
-    synchronized int size() {
+    int size() {
       return subLevels.size();
     }
   }
@@ -143,10 +149,12 @@ public class FileSystemMap<T> {
   private Entry<T> putEntry(Path path) {
     synchronized (root) {
       Entry<T> parent = root;
+      Path relPath = parent.getKey();
       for (Path p : path) {
+        relPath = Paths.get(relPath.toString(), p.toString());
         // Create the intermediate node only if it's missing.
         if (!parent.subLevels.containsKey(p)) {
-          Entry<T> newEntry = new Entry<>(path);
+          Entry<T> newEntry = new Entry<>(relPath);
           parent.subLevels.put(p, newEntry);
         }
         parent = parent.subLevels.get(p);
@@ -205,9 +213,7 @@ public class FileSystemMap<T> {
           Entry<T> current = stack.pop();
 
           // Remove only if it's a cached entry.
-          if (current.value != null) {
-            map.remove(current.key);
-          }
+          map.remove(current.key);
 
           if (current.size() == 0 && path != null && !stack.empty()) {
             stack.peek().subLevels.remove(path.getFileName());
@@ -222,10 +228,7 @@ public class FileSystemMap<T> {
   // DFS traversal to remove all child nodes from the given node.
   // Must be called while owning a write lock.
   private void removeSubtreeFromMap(Entry<T> leaf) {
-    if (leaf.value != null && leaf.key != null) {
-      map.remove(leaf.key);
-    }
-
+    map.remove(leaf.key);
     leaf.subLevels.values().forEach(this::removeSubtreeFromMap);
   }
 
@@ -245,16 +248,52 @@ public class FileSystemMap<T> {
    */
   public T get(Path path) throws IOException {
     Entry<T> maybe = map.get(path);
+    // get() and remove() shouldn't overlap, but for performance reason (to hold the root lock for
+    // less time), we opted for allowing overlap provided that *the entry creation is atomic*.
+    // That is, the entry creation is guaranteed to not overlap with anything else, but the entry
+    // filling is not: this is because the caller of the get() will still need to get a value,
+    // even if the entry is removed meanwhile.
     if (maybe == null) {
       synchronized (root) {
         maybe = map.computeIfAbsent(path, this::putEntry);
       }
     }
+    // Maybe here we receive a request for getting an intermediate node (a folder) whose
+    // value was never computed before (or has been removed).
     if (maybe.value == null) {
-      // Maybe here we receive a request for getting an intermediate node (a folder) whose
-      // value was never computed before (or has been removed).
+      // It is possible that maybe.load() will call back into other methods on this FileSystemMap.
+      // Those methods might acquire the root lock. If there's any flow that calls maybe.load()
+      // while already holding that lock, there's likely a flow w/ lock inversion.
+      Preconditions.checkState(!Thread.holdsLock(root));
       maybe.load(loader);
     }
     return maybe.value;
+  }
+
+  /**
+   * Gets the value associated with the given path, if found, or `null` otherwise.
+   *
+   * @param path The path to fetch.
+   * @return The value associated with the path.
+   */
+  @Nullable
+  public T getIfPresent(Path path) {
+    Entry<T> entry = map.get(path);
+    return entry == null ? null : entry.value;
+  }
+
+  /**
+   * Returns a copy of the leaves stored in the trie as a map. N.B.: this is quite an expensive call
+   * to make, so use it wisely.
+   */
+  public ImmutableMap<Path, T> asMap() {
+    ImmutableMap.Builder<Path, T> builder = ImmutableMap.builder();
+    map.forEach(
+        (k, v) -> {
+          if (v.value != null) {
+            builder.put(k, v.value);
+          }
+        });
+    return builder.build();
   }
 }

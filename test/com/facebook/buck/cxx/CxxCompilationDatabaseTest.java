@@ -26,9 +26,9 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
@@ -36,6 +36,7 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
@@ -67,17 +68,15 @@ public class CxxCompilationDatabaseTest {
     final Path fakeRoot = Paths.get(root);
     ProjectFilesystem filesystem = new FakeProjectFilesystem(fakeRoot);
 
-    BuildRuleParams testBuildRuleParams =
-        new FakeBuildRuleParamsBuilder(testBuildTarget).setProjectFilesystem(filesystem).build();
-
     BuildRuleResolver testBuildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(testBuildRuleResolver);
+    SourcePathResolver testSourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     HeaderSymlinkTree privateSymlinkTree =
         CxxDescriptionEnhancer.createHeaderSymlinkTree(
-            testBuildRuleParams,
+            testBuildTarget,
+            filesystem,
             testBuildRuleResolver,
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableMap.of(),
@@ -86,7 +85,8 @@ public class CxxCompilationDatabaseTest {
     testBuildRuleResolver.addToIndex(privateSymlinkTree);
     HeaderSymlinkTree exportedSymlinkTree =
         CxxDescriptionEnhancer.createHeaderSymlinkTree(
-            testBuildRuleParams,
+            testBuildTarget,
+            filesystem,
             testBuildRuleResolver,
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableMap.of(),
@@ -95,7 +95,7 @@ public class CxxCompilationDatabaseTest {
     testBuildRuleResolver.addToIndex(exportedSymlinkTree);
 
     BuildTarget compileTarget =
-        BuildTarget.builder(testBuildRuleParams.getBuildTarget().getUnflavoredBuildTarget())
+        BuildTarget.builder(testBuildTarget.getUnflavoredBuildTarget())
             .addFlavors(InternalFlavor.of("compile-test.cpp"))
             .build();
 
@@ -110,13 +110,13 @@ public class CxxCompilationDatabaseTest {
 
     ImmutableSortedSet.Builder<CxxPreprocessAndCompile> rules = ImmutableSortedSet.naturalOrder();
     BuildRuleParams compileBuildRuleParams =
-        new FakeBuildRuleParamsBuilder(compileTarget)
-            .setProjectFilesystem(filesystem)
-            .setDeclaredDeps(ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree))
-            .build();
+        TestBuildRuleParams.create()
+            .withDeclaredDeps(ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree));
     rules.add(
         testBuildRuleResolver.addToIndex(
             CxxPreprocessAndCompile.preprocessAndCompile(
+                compileTarget,
+                filesystem,
                 compileBuildRuleParams,
                 new PreprocessorDelegate(
                     testSourcePathResolver,
@@ -151,11 +151,12 @@ public class CxxCompilationDatabaseTest {
                 Optional.empty())));
 
     CxxCompilationDatabase compilationDatabase =
-        CxxCompilationDatabase.createCompilationDatabase(testBuildRuleParams, rules.build());
+        CxxCompilationDatabase.createCompilationDatabase(
+            testBuildTarget, filesystem, rules.build());
     testBuildRuleResolver.addToIndex(compilationDatabase);
 
     assertThat(
-        compilationDatabase.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        compilationDatabase.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet()),
         Matchers.contains(
             exportedSymlinkTree.getBuildTarget(), privateSymlinkTree.getBuildTarget()));
 

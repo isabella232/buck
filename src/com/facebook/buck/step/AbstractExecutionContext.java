@@ -17,6 +17,7 @@
 package com.facebook.buck.step;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
@@ -24,7 +25,6 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
-import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.Console;
@@ -35,6 +35,7 @@ import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -74,10 +75,7 @@ abstract class AbstractExecutionContext implements Closeable {
   abstract Optional<TargetDevice> getTargetDevice();
 
   @Value.Parameter
-  abstract Optional<TargetDeviceOptions> getTargetDeviceOptions();
-
-  @Value.Parameter
-  abstract Optional<AdbOptions> getAdbOptions();
+  abstract Optional<AndroidDevicesHelper> getAndroidDevicesHelper();
 
   /**
    * Worker process pools that are persisted across buck invocations inside buck daemon. If buck is

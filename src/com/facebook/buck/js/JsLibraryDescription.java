@@ -17,6 +17,7 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
@@ -30,6 +31,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.SourcePath;
@@ -41,6 +43,9 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.Weigher;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,6 +54,7 @@ import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
@@ -57,6 +63,17 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
 
   static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS =
       ImmutableSet.of(JsFlavors.PLATFORM_DOMAIN, JsFlavors.OPTIMIZATION_DOMAIN);
+  private final Cache<
+          ImmutableSet<Either<SourcePath, Pair<SourcePath, String>>>,
+          ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor>>
+      sourcesToFlavorsCache =
+          CacheBuilder.newBuilder()
+              .weakKeys()
+              .maximumWeight(1 << 16)
+              .weigher(
+                  (Weigher<ImmutableSet<?>, ImmutableBiMap<?, ?>>)
+                      (sources, flavors) -> sources.size())
+              .build();
 
   @Override
   public Class<JsLibraryDescriptionArg> getConstructorArgType() {
@@ -66,37 +83,51 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       JsLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
 
-    params.getBuildTarget().getBasePath();
     // this params object is used as base for the JsLibrary build rule, but also for all dynamically
     // created JsFile rules.
     // For the JsLibrary case, we want to propagate flavors to library dependencies
     // For the JsFile case, we only want to depend on the worker, not on any libraries
     params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
 
-    final WorkerTool worker = resolver.getRuleWithType(args.getWorker(), WorkerTool.class);
     final SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    final SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
-    final ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor> sourcesToFlavors =
-        mapSourcesToFlavors(sourcePathResolver, args.getSrcs());
+    final SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    final ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor> sourcesToFlavors;
+    try {
+      sourcesToFlavors =
+          sourcesToFlavorsCache.get(
+              args.getSrcs(), () -> mapSourcesToFlavors(sourcePathResolver, args.getSrcs()));
+    } catch (ExecutionException e) {
+      throw new RuntimeException(e);
+    }
     final Optional<Either<SourcePath, Pair<SourcePath, String>>> file =
-        JsFlavors.extractSourcePath(
-            sourcesToFlavors.inverse(), params.getBuildTarget().getFlavors().stream());
+        JsFlavors.extractSourcePath(sourcesToFlavors.inverse(), buildTarget.getFlavors().stream());
 
+    final WorkerTool worker = resolver.getRuleWithType(args.getWorker(), WorkerTool.class);
     if (file.isPresent()) {
-      return params.getBuildTarget().getFlavors().contains(JsFlavors.RELEASE)
-          ? createReleaseFileRule(params, resolver, args, worker)
-          : createDevFileRule(params, ruleFinder, sourcePathResolver, args, file.get(), worker);
+      return buildTarget.getFlavors().contains(JsFlavors.RELEASE)
+          ? createReleaseFileRule(buildTarget, projectFilesystem, params, resolver, args, worker)
+          : createDevFileRule(
+              buildTarget,
+              projectFilesystem,
+              params,
+              ruleFinder,
+              sourcePathResolver,
+              args,
+              file.get(),
+              worker);
     } else {
-      return new LibraryBuilder(targetGraph, resolver, params, sourcesToFlavors)
+      return new LibraryBuilder(targetGraph, resolver, buildTarget, params, sourcesToFlavors)
           .setSources(args.getSrcs())
           .setLibraryDependencies(args.getLibs())
-          .build(worker);
+          .build(projectFilesystem, worker);
     }
   }
 
@@ -131,6 +162,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
     private final BuildRuleResolver resolver;
     private final ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor>
         sourcesToFlavors;
+    private final BuildTarget baseTarget;
     private final BuildRuleParams baseParams;
     private final BuildTarget fileBaseTarget;
 
@@ -141,21 +173,22 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
     private LibraryBuilder(
         TargetGraph targetGraph,
         BuildRuleResolver resolver,
+        BuildTarget baseTarget,
         BuildRuleParams baseParams,
         ImmutableBiMap<Either<SourcePath, Pair<SourcePath, String>>, Flavor> sourcesToFlavors) {
       this.targetGraph = targetGraph;
+      this.baseTarget = baseTarget;
       this.baseParams = baseParams;
       this.resolver = resolver;
       this.sourcesToFlavors = sourcesToFlavors;
 
-      BuildTarget buildTarget = baseParams.getBuildTarget();
       // Platform information is only relevant when building release-optimized files.
       // Stripping platform targets from individual files allows us to use the base version of
       // every file in the build for all supported platforms, leading to improved cache reuse.
       this.fileBaseTarget =
-          !buildTarget.getFlavors().contains(JsFlavors.RELEASE)
-              ? buildTarget.withFlavors()
-              : buildTarget;
+          !baseTarget.getFlavors().contains(JsFlavors.RELEASE)
+              ? baseTarget.withFlavors()
+              : baseTarget;
     }
 
     private LibraryBuilder setSources(
@@ -172,11 +205,10 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
     private LibraryBuilder setLibraryDependencies(
         ImmutableSortedSet<BuildTarget> libraryDependencies) throws NoSuchBuildTargetException {
 
-      BuildTarget buildTarget = baseParams.getBuildTarget();
       final BuildTarget[] targets =
           libraryDependencies
               .stream()
-              .map(t -> JsUtil.verifyIsJsLibraryTarget(t, buildTarget, targetGraph))
+              .map(t -> JsUtil.verifyIsJsLibraryTarget(t, baseTarget, targetGraph))
               .map(hasFlavors() ? this::addFlavorsToLibraryTarget : Function.identity())
               .toArray(BuildTarget[]::new);
 
@@ -189,11 +221,13 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
       return this;
     }
 
-    private JsLibrary build(WorkerTool worker) {
+    private JsLibrary build(ProjectFilesystem projectFilesystem, WorkerTool worker) {
       Preconditions.checkNotNull(sourceFiles, "No source files set");
       Preconditions.checkNotNull(libraryDependencies, "No library dependencies set");
 
       return new JsLibrary(
+          baseTarget,
+          projectFilesystem,
           baseParams.copyAppendingExtraDeps(Iterables.concat(sourceFiles, libraryDependencies)),
           sourceFiles
               .stream()
@@ -207,7 +241,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
     }
 
     private boolean hasFlavors() {
-      return !baseParams.getBuildTarget().getFlavors().isEmpty();
+      return !baseTarget.getFlavors().isEmpty();
     }
 
     private JsFile requireJsFile(Either<SourcePath, Pair<SourcePath, String>> file)
@@ -219,19 +253,23 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
     }
 
     private BuildTarget addFlavorsToLibraryTarget(BuildTarget unflavored) {
-      return unflavored.withAppendedFlavors(baseParams.getBuildTarget().getFlavors());
+      return unflavored.withAppendedFlavors(baseTarget.getFlavors());
     }
   }
 
   private static BuildRule createReleaseFileRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       JsLibraryDescriptionArg args,
       WorkerTool worker)
       throws NoSuchBuildTargetException {
-    final BuildTarget devTarget = withFileFlavorOnly(params.getBuildTarget());
+    final BuildTarget devTarget = withFileFlavorOnly(buildTarget);
     final BuildRule devFile = resolver.requireRule(devTarget);
     return new JsFile.JsFileRelease(
+        buildTarget,
+        projectFilesystem,
         params.copyAppendingExtraDeps(devFile),
         resolver.getRuleWithType(devTarget, JsFile.class).getSourcePathToOutput(),
         args.getExtraArgs(),
@@ -239,6 +277,8 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
   }
 
   private static <A extends AbstractJsLibraryDescriptionArg> BuildRule createDevFileRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver sourcePathResolver,
@@ -256,12 +296,14 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
                     changePathPrefix(
                             sourcePath,
                             basePath,
-                            params,
+                            projectFilesystem,
                             sourcePathResolver,
-                            params.getBuildTarget().getUnflavoredBuildTarget())
+                            buildTarget.getUnflavoredBuildTarget())
                         .resolve(subPath.orElse("")));
 
     return new JsFile.JsFileDev(
+        buildTarget,
+        projectFilesystem,
         ruleFinder.getRule(sourcePath).map(params::copyAppendingExtraDeps).orElse(params),
         sourcePath,
         subPath,
@@ -295,7 +337,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
   private static Path changePathPrefix(
       SourcePath sourcePath,
       String basePath,
-      BuildRuleParams params,
+      ProjectFilesystem projectFilesystem,
       SourcePathResolver sourcePathResolver,
       UnflavoredBuildTarget target) {
     final Path directoryOfBuildFile = target.getCellPath().resolve(target.getBasePath());
@@ -310,8 +352,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescriptionArg
                             directoryOfBuildFile, sourcePathResolver.getAbsolutePath(sourcePath))))
             .orElse(transplantTo); // build target output paths are replaced completely
 
-    return params
-        .getProjectFilesystem()
+    return projectFilesystem
         .getPathRelativeToProjectRoot(absolutePath)
         .orElseThrow(
             () ->

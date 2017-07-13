@@ -15,8 +15,12 @@
  */
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
+import java.util.SortedSet;
 import javax.annotation.Nullable;
 
 /**
@@ -28,14 +32,26 @@ import javax.annotation.Nullable;
  * class curtails the copying of all shared dependencies between rules, and instead allow each rule
  * to depend on this single rule, which captures the shared dependencies.
  *
- * <p>This class is distinct from {@link NoopBuildRule} to make clear the requirements for its
- * operation, namely, that it cannot be cached. This rule must not be cached in order for its
- * dependencies to always be evaluated in different build strategies (in particular, top-down).
+ * <p>This class is distinct from {@link NoopBuildRuleWithDeclaredAndExtraDeps} to make clear the
+ * requirements for its operation, namely, that it cannot be cached. This rule must not be cached in
+ * order for its dependencies to always be evaluated in different build strategies (in particular,
+ * top-down).
  */
 public final class DependencyAggregation extends AbstractBuildRule {
 
-  public DependencyAggregation(BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+  private final ImmutableSortedSet<BuildRule> deps;
+
+  public DependencyAggregation(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      ImmutableSortedSet<BuildRule> deps) {
+    super(buildTarget, projectFilesystem);
+    this.deps = deps;
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return deps;
   }
 
   @Override

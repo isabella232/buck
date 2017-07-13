@@ -25,8 +25,8 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -60,7 +60,8 @@ public class CxxCompileStepIntegrationTest {
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     Compiler compiler = platform.getCc().resolve(resolver);
     ImmutableList<String> compilerCommandPrefix = compiler.getCommandPrefix(pathResolver);
     Path output = filesystem.resolve(Paths.get("output.o"));
@@ -80,7 +81,6 @@ public class CxxCompileStepIntegrationTest {
     // Build an archive step.
     CxxPreprocessAndCompileStep step =
         new CxxPreprocessAndCompileStep(
-            BuildTarget.builder(tmp.getRoot(), "//foo", "bar").build(),
             filesystem,
             CxxPreprocessAndCompileStep.Operation.PREPROCESS_AND_COMPILE,
             output,
@@ -93,7 +93,8 @@ public class CxxCompileStepIntegrationTest {
             sanitizer,
             scratchDir,
             true,
-            compiler);
+            compiler,
+            Optional.empty());
 
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();
@@ -132,7 +133,8 @@ public class CxxCompileStepIntegrationTest {
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     Compiler compiler = platform.getCc().resolve(resolver);
     ImmutableList<String> compilerCommandPrefix = compiler.getCommandPrefix(pathResolver);
     Path output = filesystem.resolve(Paths.get("output.o"));
@@ -149,7 +151,6 @@ public class CxxCompileStepIntegrationTest {
     // Build an archive step.
     CxxPreprocessAndCompileStep step =
         new CxxPreprocessAndCompileStep(
-            BuildTarget.builder(tmp.getRoot(), "//foo", "bar").build(),
             filesystem,
             CxxPreprocessAndCompileStep.Operation.PREPROCESS_AND_COMPILE,
             output,
@@ -162,7 +163,8 @@ public class CxxCompileStepIntegrationTest {
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             scratchDir,
             true,
-            compiler);
+            compiler,
+            Optional.empty());
 
     // Execute the archive step and verify it ran successfully.
     ExecutionContext executionContext = TestExecutionContext.newInstance();

@@ -16,20 +16,27 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+
 /**
  * This class should not ever be extended.
  *
  * <p>Everywhere that currently extends it is a legacy caller of SourcePathResolver which should be
- * migrated to extend AbstractBuildRule directly and use SourcePathResolver only from the
- * BuildContext supplied in getBuildSteps.
+ * migrated to extend AbstractBuildRuleWithDeclaredAndExtraDeps directly and use SourcePathResolver
+ * only from the BuildContext supplied in getBuildSteps.
  */
-public abstract class AbstractBuildRuleWithResolver extends AbstractBuildRule {
+public abstract class AbstractBuildRuleWithResolver
+    extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final SourcePathResolver resolver;
 
   protected AbstractBuildRuleWithResolver(
-      BuildRuleParams buildRuleParams, SourcePathResolver resolver) {
-    super(buildRuleParams);
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      SourcePathResolver resolver) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.resolver = resolver;
   }
 

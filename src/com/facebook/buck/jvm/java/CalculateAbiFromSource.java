@@ -16,21 +16,24 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,9 +41,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.regex.Pattern;
-import javax.annotation.Nullable;
 
-public class CalculateAbiFromSource extends AbstractBuildRule
+public class CalculateAbiFromSource extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements CalculateAbi, InitializableFromDisk<Object>, SupportsInputBasedRuleKey {
   private final SourcePathRuleFinder ruleFinder;
 
@@ -52,44 +54,52 @@ public class CalculateAbiFromSource extends AbstractBuildRule
   private final Optional<Path> resourcesRoot;
 
   @AddToRuleKey private final Optional<SourcePath> manifestFile;
-  @AddToRuleKey private final ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths;
+
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  @AddToRuleKey
+  private final ZipArchiveDependencySupplier abiClasspath;
+
+  private final ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths;
   @AddToRuleKey private final ImmutableSet<Pattern> classesToRemoveFromJar;
 
-  private final Optional<Path> outputJar;
+  private final Path outputJar;
   private final JarContentsSupplier outputJarContents;
 
   public CalculateAbiFromSource(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<SourcePath> resources,
       ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths,
+      ZipArchiveDependencySupplier abiClasspath,
       JavacToJarStepFactory compileStepFactory,
       Optional<Path> resourcesRoot,
       Optional<SourcePath> manifestFile,
       ImmutableSet<Pattern> classesToRemoveFromJar) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
 
     this.ruleFinder = ruleFinder;
     this.srcs = srcs;
     this.resources = resources;
+    this.abiClasspath = abiClasspath;
     this.compileTimeClasspathSourcePaths = compileTimeClasspathSourcePaths;
     this.compileStepFactory = compileStepFactory;
-    compileStepFactory.setCompileAbi();
     this.resourcesRoot = resourcesRoot;
     this.manifestFile = manifestFile;
     this.classesToRemoveFromJar = classesToRemoveFromJar;
 
-    if (!srcs.isEmpty() || !resources.isEmpty() || manifestFile.isPresent()) {
-      this.outputJar =
-          Optional.of(
-              BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "lib__%s__output")
-                  .resolve(String.format("%s-abi.jar", getBuildTarget().getShortName())));
-    } else {
-      this.outputJar = Optional.empty();
-    }
+    Preconditions.checkArgument(
+        !srcs.isEmpty() || !resources.isEmpty() || manifestFile.isPresent(),
+        "Shouldn't have created a source ABI rule if there is no library jar.");
+    outputJar =
+        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "lib__%s__output")
+            .resolve(String.format("%s-abi.jar", getBuildTarget().getShortName()));
+    compileStepFactory.setCompileAbi(outputJar);
     this.outputJarContents =
-        new JarContentsSupplier(new SourcePathResolver(ruleFinder), getSourcePathToOutput());
+        new JarContentsSupplier(
+            DefaultSourcePathResolver.from(ruleFinder), getSourcePathToOutput());
   }
 
   @Override
@@ -98,10 +108,11 @@ public class CalculateAbiFromSource extends AbstractBuildRule
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     JavaLibraryRules.addCompileToJarSteps(
+        getBuildTarget(),
+        getProjectFilesystem(),
         context,
         buildableContext,
-        this,
-        outputJar,
+        Optional.of(outputJar),
         ruleFinder,
         srcs,
         resources,
@@ -118,10 +129,9 @@ public class CalculateAbiFromSource extends AbstractBuildRule
     return steps.build();
   }
 
-  @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return outputJar.map(o -> new ExplicitBuildTargetSourcePath(getBuildTarget(), o)).orElse(null);
+    return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputJar);
   }
 
   @Override

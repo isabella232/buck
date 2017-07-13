@@ -16,7 +16,11 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.android.AndroidBuckConfig;
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.AndroidPlatformTargetSupplier;
+import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.MetadataChecker;
 import com.facebook.buck.command.Build;
@@ -33,8 +37,7 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -47,6 +50,7 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
@@ -58,7 +62,6 @@ import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -196,7 +199,7 @@ public class DistBuildSlaveExecutor {
         new SourcePathRuleFinder(Preconditions.checkNotNull(actionGraphAndResolver).getResolver());
     cachingBuildEngineDelegate =
         new DistBuildCachingEngineDelegate(
-            new SourcePathResolver(ruleFinder),
+            DefaultSourcePathResolver.from(ruleFinder),
             ruleFinder,
             caches.remoteStateCache,
             caches.materializingCache);
@@ -211,17 +214,34 @@ public class DistBuildSlaveExecutor {
     // 1. Add all cells (including the root cell).
     for (Path cellPath : rootCell.getKnownRoots()) {
       Cell cell = rootCell.getCell(cellPath);
-      allCachesBuilder.add(DefaultFileHashCache.createDefaultFileHashCache(cell.getFilesystem()));
+      allCachesBuilder.add(
+          DefaultFileHashCache.createDefaultFileHashCache(
+              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
+      allCachesBuilder.add(
+          DefaultFileHashCache.createBuckOutFileHashCache(
+              cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
     }
 
     // 2. Add the Operating System roots.
-    allCachesBuilder.addAll(DefaultFileHashCache.createOsRootDirectoriesCaches());
+    allCachesBuilder.addAll(
+        DefaultFileHashCache.createOsRootDirectoriesCaches(
+            rootCell.getBuckConfig().getFileHashCacheMode()));
 
     return new StackedFileHashCache(allCachesBuilder.build());
   }
 
-  private Supplier<AndroidPlatformTarget> getExplodingAndroidSupplier() {
-    return AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
+  private Supplier<AndroidPlatformTarget> getAndroidPlatformTargetSupplier(
+      DistBuildExecutorArgs args) {
+    AndroidBuckConfig androidConfig =
+        new AndroidBuckConfig(args.getRemoteRootCellConfig(), args.getPlatform());
+
+    AndroidDirectoryResolver dirResolver =
+        new DefaultAndroidDirectoryResolver(
+            args.getRootCell().getFilesystem().getRootPath().getFileSystem(),
+            args.getRemoteRootCellConfig().getEnvironment(),
+            androidConfig.getBuildToolsVersion(),
+            androidConfig.getNdkVersion());
+    return new AndroidPlatformTargetSupplier(dirResolver, androidConfig, args.getBuckEventBus());
   }
 
   private List<BuildTarget> fullyQualifiedNameToBuildTarget(Iterable<String> buildTargets) {
@@ -241,6 +261,12 @@ public class DistBuildSlaveExecutor {
   }
 
   private DistBuildTargetGraphCodec createGraphCodec() {
+    // Note: This is a hack. Do not confuse this hack with the other hack where we 'pre-load' all
+    // files so that file existence checks in TG -> AG transformation pass (which is a bigger bug).
+    // We need this hack in addition to the other one, because some source file dependencies get
+    // shaved off in the versioned target graph, and so they don't get recorded in the distributed
+    // state, and hence they're not pre-loaded. So even when we pre-load the files, we need this
+    // hack so that the coercer does not check for existence of these unrecorded files.
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
     ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
@@ -287,6 +313,14 @@ public class DistBuildSlaveExecutor {
         throws IOException, InterruptedException {
       // TODO(ruibm): Fix this to work with Android.
       MetadataChecker.checkAndCleanIfNeeded(args.getRootCell());
+      final ConcurrencyLimit concurrencyLimit =
+          new ConcurrencyLimit(
+              4,
+              distBuildConfig.getResourceAllocationFairness(),
+              4,
+              distBuildConfig.getDefaultResourceAmounts(),
+              distBuildConfig.getMaximumResourceAmounts().withCpu(4));
+      final DefaultProcessExecutor processExecutor = new DefaultProcessExecutor(args.getConsole());
       try (CachingBuildEngine buildEngine =
               new CachingBuildEngine(
                   Preconditions.checkNotNull(cachingBuildEngineDelegate),
@@ -301,43 +335,48 @@ public class DistBuildSlaveExecutor {
                   Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
                   args.getBuildInfoStoreManager(),
                   engineConfig.getResourceAwareSchedulingInfo(),
+                  engineConfig.getConsoleLogBuildRuleFailuresInline(),
                   RuleKeyFactories.of(
                       distBuildConfig.getKeySeed(),
                       cachingBuildEngineDelegate.getFileHashCache(),
                       actionGraphAndResolver.getResolver(),
                       engineConfig.getBuildInputRuleKeyFileSizeLimit(),
-                      new DefaultRuleKeyCache<>()));
+                      new DefaultRuleKeyCache<>()),
+                  distBuildConfig.getFileHashCacheMode());
+          //TODO(shivanker): Supply the target device, adb options, and target device options to work with Android.
+          ExecutionContext executionContext =
+              ExecutionContext.builder()
+                  .setConsole(args.getConsole())
+                  .setAndroidPlatformTargetSupplier(getAndroidPlatformTargetSupplier(args))
+                  .setTargetDevice(Optional.empty())
+                  .setDefaultTestTimeoutMillis(1000)
+                  .setCodeCoverageEnabled(false)
+                  .setInclNoLocationClassesEnabled(false)
+                  .setDebugEnabled(false)
+                  .setRuleKeyDiagnosticsMode(distBuildConfig.getRuleKeyDiagnosticsMode())
+                  .setShouldReportAbsolutePaths(false)
+                  .setBuckEventBus(args.getBuckEventBus())
+                  .setPlatform(args.getPlatform())
+                  .setJavaPackageFinder(
+                      distBuildConfig
+                          .getView(JavaBuckConfig.class)
+                          .createDefaultJavaPackageFinder())
+                  .setConcurrencyLimit(concurrencyLimit)
+                  .setPersistentWorkerPools(Optional.empty())
+                  .setExecutors(args.getExecutors())
+                  .setCellPathResolver(args.getRootCell().getCellPathResolver())
+                  .setBuildCellRootPath(args.getRootCell().getRoot())
+                  .setProcessExecutor(processExecutor)
+                  .build();
           Build build =
               new Build(
                   Preconditions.checkNotNull(actionGraphAndResolver).getResolver(),
                   args.getRootCell(),
-                  Optional.empty(),
-                  getExplodingAndroidSupplier(),
                   buildEngine,
                   args.getArtifactCache(),
                   distBuildConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
-                  args.getConsole(),
-                  /* defaultTestTimeoutMillis */ 1000,
-                  /* isCodeCoverageEnabled */ false,
-                  /* isInclNoLocationClassesEnabled */ false,
-                  /* isDebugEnabled */ false,
-                  /* shouldReportAbsolutePaths */ false,
-                  RuleKeyDiagnosticsMode.NEVER,
-                  args.getBuckEventBus(),
-                  args.getPlatform(),
-                  ImmutableMap.of(),
                   args.getClock(),
-                  new ConcurrencyLimit(
-                      4,
-                      distBuildConfig.getResourceAllocationFairness(),
-                      4,
-                      distBuildConfig.getDefaultResourceAmounts(),
-                      distBuildConfig.getMaximumResourceAmounts().withCpu(4)),
-                  Optional.empty(),
-                  Optional.empty(),
-                  Optional.empty(),
-                  new DefaultProcessExecutor(args.getConsole()),
-                  args.getExecutors())) {
+                  executionContext)) {
 
         return build.executeAndPrintFailuresToEventBus(
             fullyQualifiedNameToBuildTarget(targetsToBuild),

@@ -18,12 +18,13 @@ package com.facebook.buck.apple;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -41,7 +42,7 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 
 /** Creates dSYM bundle for the given _unstripped_ binary. */
-public class AppleDsym extends AbstractBuildRule
+public class AppleDsym extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements HasPostBuildSteps, SupportsInputBasedRuleKey {
 
   public static final Flavor RULE_FLAVOR = InternalFlavor.of("apple-dsym");
@@ -57,17 +58,19 @@ public class AppleDsym extends AbstractBuildRule
   private final Path dsymOutputPath;
 
   public AppleDsym(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Tool dsymutil,
       Tool lldb,
       SourcePath unstrippedBinarySourcePath,
       Path dsymOutputPath) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.dsymutil = dsymutil;
     this.lldb = lldb;
     this.unstrippedBinarySourcePath = unstrippedBinarySourcePath;
     this.dsymOutputPath = dsymOutputPath;
-    checkFlavorCorrectness(params.getBuildTarget());
+    checkFlavorCorrectness(buildTarget);
   }
 
   public static Path getDsymOutputPath(BuildTarget target, ProjectFilesystem filesystem) {
@@ -119,7 +122,10 @@ public class AppleDsym extends AbstractBuildRule
         context.getSourcePathResolver().getAbsolutePath(unstrippedBinarySourcePath);
     Path dwarfFileFolder = dsymOutputPath.resolve(DSYM_DWARF_FILE_FOLDER);
     return ImmutableList.of(
-        RmStep.of(getProjectFilesystem(), dsymOutputPath).withRecursive(true),
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), dsymOutputPath))
+            .withRecursive(true),
         new DsymStep(
             getProjectFilesystem(),
             dsymutil.getEnvironment(context.getSourcePathResolver()),

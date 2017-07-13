@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java.autodeps;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -26,7 +27,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -93,11 +93,15 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    Step mkdirStep = MkdirStep.of(getProjectFilesystem(), outputPath.getParent());
+    Step mkdirStep =
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPath.getParent()));
     Step extractSymbolsStep =
         new AbstractExecutionStep("java-symbols") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) throws IOException {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             try (OutputStream output = getProjectFilesystem().newFileOutputStream(outputPath)) {
               ObjectMappers.WRITER.writeValue(output, symbolsFinder.extractSymbols());
             }
@@ -122,11 +126,6 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   @Override
   public String getType() {
     return TYPE;
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return BuildableProperties.NONE;
   }
 
   @Override

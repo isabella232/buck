@@ -16,8 +16,10 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -85,10 +87,14 @@ public final class ProGuardObfuscateStep extends ShellStep {
       Set<Path> additionalLibraryJarsForProguard,
       Path proguardDirectory,
       BuildableContext buildableContext,
+      BuildContext buildContext,
       boolean skipProguard,
       ImmutableList.Builder<Step> steps) {
 
-    steps.addAll(MakeCleanDirectoryStep.of(filesystem, proguardDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                buildContext.getBuildCellRootPath(), filesystem, proguardDirectory)));
 
     Path pathToProGuardCommandLineArgsFile = proguardDirectory.resolve("command-line.txt");
 
@@ -306,16 +312,11 @@ public final class ProGuardObfuscateStep extends ShellStep {
     }
 
     @Override
-    public StepExecutionResult execute(ExecutionContext context) {
+    public StepExecutionResult execute(ExecutionContext context)
+        throws IOException, InterruptedException {
       String proGuardArguments =
           Joiner.on('\n').join(getParameters(context, filesystem.getRootPath()));
-      try {
-        filesystem.writeContentsToPath(proGuardArguments, pathToProGuardCommandLineArgsFile);
-      } catch (IOException e) {
-        context.logError(
-            e, "Error writing ProGuard arguments to file: %s.", pathToProGuardCommandLineArgsFile);
-        return StepExecutionResult.ERROR;
-      }
+      filesystem.writeContentsToPath(proGuardArguments, pathToProGuardCommandLineArgsFile);
 
       return StepExecutionResult.SUCCESS;
     }

@@ -18,7 +18,9 @@ package com.facebook.buck.js;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -27,12 +29,17 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 
-public class AndroidReactNativeLibrary extends AbstractBuildRule implements AndroidPackageable {
+public class AndroidReactNativeLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements AndroidPackageable {
 
   private final ReactNativeBundle bundle;
 
-  protected AndroidReactNativeLibrary(BuildRuleParams buildRuleParams, ReactNativeBundle bundle) {
-    super(buildRuleParams);
+  protected AndroidReactNativeLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
+      ReactNativeBundle bundle) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.bundle = bundle;
   }
 

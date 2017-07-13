@@ -23,13 +23,15 @@ import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -59,7 +61,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
+public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements CxxPreprocessorDep, NativeLinkable, HasOutputName {
 
   @AddToRuleKey(stringify = true)
@@ -83,6 +85,8 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
           CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
   public PrebuiltAppleFramework(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
@@ -91,7 +95,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
       ImmutableSet<FrameworkPath> frameworks,
       Optional<Pattern> supportedPlatformsRegex,
       Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags) {
-    super(params, pathResolver);
+    super(buildTarget, projectFilesystem, params);
     this.frameworkPath = frameworkPath;
     this.ruleResolver = ruleResolver;
     this.exportedLinkerFlags = exportedLinkerFlags;
@@ -99,9 +103,9 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
     this.frameworks = frameworks;
     this.supportedPlatformsRegex = supportedPlatformsRegex;
 
-    BuildTarget target = params.getBuildTarget();
     this.frameworkName = pathResolver.getAbsolutePath(frameworkPath).getFileName().toString();
-    this.out = BuildTargets.getGenPath(getProjectFilesystem(), target, "%s").resolve(frameworkName);
+    this.out =
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s").resolve(frameworkName);
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
@@ -115,8 +119,15 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
-    builder.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
-    builder.add(RmStep.of(getProjectFilesystem(), out).withRecursive(true));
+    builder.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), out.getParent())));
+    builder.add(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), out))
+            .withRecursive(true));
     builder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -209,7 +220,11 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithResolver
 
   @Override
   public NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform,
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
+      throws NoSuchBuildTargetException {
     Pair<Flavor, Linker.LinkableDepType> key = new Pair<>(cxxPlatform.getFlavor(), type);
     NativeLinkableInput input = nativeLinkableCache.get(key);
     if (input == null) {

@@ -19,6 +19,7 @@ package com.facebook.buck.util.versioncontrol;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.Threads;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.util.Optional;
@@ -36,12 +37,24 @@ public class VersionControlStatsGenerator {
    */
   public enum Mode {
     /** Do not generate new information, but return whatever is already generated */
-    PREGENERATED,
+    PREGENERATED(false, false, false),
     /** Generate a set of stats that is fast to generate but incomplete */
-    FAST,
+    FAST(true, false, false),
+    /** Generate a set of stats that is slow to generate but incomplete */
+    SLOW(true, true, false),
     /** Generate the full set of stats */
-    FULL,
+    FULL(true, true, true),
     ;
+
+    public final boolean shouldGenerate;
+    public final boolean hasPathsChangedInWorkingDirectory;
+    public final boolean hasDiff;
+
+    Mode(boolean shouldGenerate, boolean hasPathsChangedInWorkingDirectory, boolean hasDiff) {
+      this.shouldGenerate = shouldGenerate;
+      this.hasPathsChangedInWorkingDirectory = hasPathsChangedInWorkingDirectory;
+      this.hasDiff = hasDiff;
+    }
   }
 
   private static final String REMOTE_MASTER = "remote/master";
@@ -81,26 +94,46 @@ public class VersionControlStatsGenerator {
   }
 
   public void generateStatsAsync(
-      Mode mode, ExecutorService executorService, BuckEventBus buckEventBus) {
+      boolean shouldGenerate, ExecutorService executorService, BuckEventBus buckEventBus) {
     executorService.submit(
         () -> {
           try {
-            Optional<FullVersionControlStats> versionControlStats;
+            Optional<? extends CommonFastVersionControlStats> fastVersionControlStats;
             try (SimplePerfEvent.Scope ignored =
                 SimplePerfEvent.scope(buckEventBus, "gen_source_control_info")) {
-              versionControlStats = generateStats(mode);
+              fastVersionControlStats =
+                  generateStats(shouldGenerate ? Mode.FAST : Mode.PREGENERATED);
             }
-            versionControlStats.ifPresent(x -> buckEventBus.post(new VersionControlStatsEvent(x)));
+            fastVersionControlStats.ifPresent(
+                x -> buckEventBus.post(new FastVersionControlStatsEvent(x)));
+            if (shouldGenerate) {
+              executorService.submit(
+                  () -> {
+                    try {
+                      Optional<? extends CommonSlowVersionControlStats> versionControlStats;
+                      try (SimplePerfEvent.Scope ignored =
+                          SimplePerfEvent.scope(buckEventBus, "gen_source_control_info")) {
+                        versionControlStats = generateStats(Mode.SLOW);
+                      }
+                      versionControlStats.ifPresent(
+                          x -> buckEventBus.post(new VersionControlStatsEvent(x)));
+                    } catch (InterruptedException e) {
+                      LOG.warn(
+                          e, "Failed to generate VC stats due to being interrupted. Skipping..");
+                      Threads.interruptCurrentThread(); // Re-set interrupt flag
+                    }
+                  });
+            }
           } catch (InterruptedException e) {
             LOG.warn(e, "Failed to generate VC stats due to being interrupted. Skipping..");
-            Thread.currentThread().interrupt(); // Re-set interrupt flag
+            Threads.interruptCurrentThread(); // Re-set interrupt flag
           }
         });
   }
 
   public synchronized Optional<FullVersionControlStats> generateStats(Mode mode)
       throws InterruptedException {
-    if (mode == Mode.PREGENERATED) {
+    if (!mode.shouldGenerate) {
       return pregeneratedVersionControlStats.map(
           x -> FullVersionControlStats.builder().from(x).build());
     }
@@ -122,27 +155,25 @@ public class VersionControlStatsGenerator {
         versionControlStatsBuilder.setBranchedFromMasterRevisionId(
             fastStats.getBranchedFromMasterRevisionId());
         versionControlStatsBuilder.setBranchedFromMasterTS(fastStats.getBranchedFromMasterTS());
-        if (mode == Mode.FULL) {
-          // Prepopulate as much as possible before trying to query the VCS: this way if it fails
-          // we still have this information.
-          if (changedFiles != null) {
-            versionControlStatsBuilder.setPathsChangedInWorkingDirectory(changedFiles);
-          }
-          if (diff != null) {
-            versionControlStatsBuilder.setDiff(diff);
-          }
-          if (changedFiles == null) {
-            changedFiles =
-                versionControlCmdLineInterface.changedFiles(
-                    fastStats.getBranchedFromMasterRevisionId());
-            versionControlStatsBuilder.setPathsChangedInWorkingDirectory(changedFiles);
-          }
-          if (diff == null) {
-            diff =
-                versionControlCmdLineInterface.diffBetweenRevisionsOrAbsent(
-                    fastStats.getBranchedFromMasterRevisionId(), fastStats.getCurrentRevisionId());
-            versionControlStatsBuilder.setDiff(diff);
-          }
+        // Prepopulate as much as possible before trying to query the VCS: this way if it fails
+        // we still have this information.
+        if (mode.hasPathsChangedInWorkingDirectory && changedFiles != null) {
+          versionControlStatsBuilder.setPathsChangedInWorkingDirectory(changedFiles);
+        }
+        if (mode.hasDiff && diff != null) {
+          versionControlStatsBuilder.setDiff(diff);
+        }
+        if (mode.hasPathsChangedInWorkingDirectory && changedFiles == null) {
+          changedFiles =
+              versionControlCmdLineInterface.changedFiles(
+                  fastStats.getBranchedFromMasterRevisionId());
+          versionControlStatsBuilder.setPathsChangedInWorkingDirectory(changedFiles);
+        }
+        if (mode.hasDiff && diff == null) {
+          diff =
+              versionControlCmdLineInterface.diffBetweenRevisionsOrAbsent(
+                  fastStats.getBranchedFromMasterRevisionId(), fastStats.getCurrentRevisionId());
+          versionControlStatsBuilder.setDiff(diff);
         }
       } catch (VersionControlCommandFailedException e) {
         LOG.warn("Failed to gather some source control stats.");

@@ -16,10 +16,13 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,10 +36,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.SortedSet;
 import javax.annotation.Nullable;
 
-public class AppleAssetCatalog extends AbstractBuildRule {
+public class AppleAssetCatalog extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   public static final Flavor FLAVOR = InternalFlavor.of("apple-asset-catalog");
 
@@ -62,26 +64,27 @@ public class AppleAssetCatalog extends AbstractBuildRule {
   @AddToRuleKey private final AppleAssetCatalogDescription.Optimization optimization;
 
   AppleAssetCatalog(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       String applePlatformName,
       String targetSDKVersion,
       Tool actool,
-      SortedSet<SourcePath> assetCatalogDirs,
+      ImmutableSortedSet<SourcePath> assetCatalogDirs,
       Optional<String> appIcon,
       Optional<String> launchImage,
       AppleAssetCatalogDescription.Optimization optimization,
       String bundleName) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.applePlatformName = applePlatformName;
     this.targetSDKVersion = targetSDKVersion;
     this.actool = actool;
-    this.assetCatalogDirs = ImmutableSortedSet.copyOf(assetCatalogDirs);
+    this.assetCatalogDirs = assetCatalogDirs;
     this.outputDir =
-        BuildTargets.getGenPath(getProjectFilesystem(), params.getBuildTarget(), "%s")
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s")
             .resolve(bundleName + BUNDLE_DIRECTORY_EXTENSION);
     this.outputPlist =
-        BuildTargets.getScratchPath(
-            getProjectFilesystem(), params.getBuildTarget(), "%s-output.plist");
+        BuildTargets.getScratchPath(getProjectFilesystem(), buildTarget, "%s-output.plist");
     this.appIcon = appIcon;
     this.launchImage = launchImage;
     this.optimization = optimization;
@@ -92,8 +95,14 @@ public class AppleAssetCatalog extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
 
-    stepsBuilder.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
-    stepsBuilder.add(MkdirStep.of(getProjectFilesystem(), outputPlist.getParent()));
+    stepsBuilder.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)));
+    stepsBuilder.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPlist.getParent())));
     ImmutableSortedSet<Path> absoluteAssetCatalogDirs =
         context.getSourcePathResolver().getAllAbsolutePaths(assetCatalogDirs);
     stepsBuilder.add(

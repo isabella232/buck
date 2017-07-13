@@ -16,29 +16,28 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 
@@ -86,7 +85,8 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
               if (sandbox.isPresent()) {
                 ExplicitBuildTargetSourcePath root =
                     new ExplicitBuildTargetSourcePath(
-                        sandbox.get().getBuildTarget(), sandbox.get().getRoot());
+                        sandbox.get().getBuildTarget(),
+                        sandbox.get().getProjectFilesystem().relativize(sandbox.get().getRoot()));
                 builder.addSymlinkTree(root, sandbox.get().getLinks());
               }
               return builder.build();
@@ -102,8 +102,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
       PreprocessorFlags preprocessorFlags,
       RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction,
       Optional<SymlinkTree> sandbox,
-      Optional<CxxIncludePaths> leadingIncludePaths)
-      throws ConflictingHeadersException {
+      Optional<CxxIncludePaths> leadingIncludePaths) {
     this.preprocessor = preprocessor;
     this.preprocessorFlags = preprocessorFlags;
     this.sanitizer = sanitizer;
@@ -114,12 +113,9 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     this.frameworkPathSearchPathFunction = frameworkPathSearchPathFunction;
     this.sandbox = sandbox;
     this.leadingIncludePaths = leadingIncludePaths;
-
-    checkForConflictingHeaders();
   }
 
-  public PreprocessorDelegate withLeadingIncludePaths(CxxIncludePaths leadingIncludePaths)
-      throws ConflictingHeadersException {
+  public PreprocessorDelegate withLeadingIncludePaths(CxxIncludePaths leadingIncludePaths) {
     return new PreprocessorDelegate(
         this.resolver,
         this.sanitizer,
@@ -141,7 +137,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     sink.setReflectively("preprocessor", preprocessor);
     sink.setReflectively("frameworkPathSearchPathFunction", frameworkPathSearchPathFunction);
     sink.setReflectively("headerVerification", headerVerification);
-    preprocessorFlags.appendToRuleKey(sink, sanitizer);
+    preprocessorFlags.appendToRuleKey(sink);
   }
 
   public HeaderPathNormalizer getHeaderPathNormalizer() {
@@ -153,10 +149,10 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
    *
    * @param compilerFlags flags to append.
    */
-  public ImmutableList<String> getCommand(
+  public ImmutableList<Arg> getCommand(
       CxxToolFlags compilerFlags, Optional<CxxPrecompiledHeader> pch) {
-    return ImmutableList.<String>builder()
-        .addAll(getCommandPrefix())
+    return ImmutableList.<Arg>builder()
+        .addAll(StringArg.from(getCommandPrefix()))
         .addAll(getArguments(compilerFlags, pch))
         .build();
   }
@@ -165,7 +161,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     return preprocessor.getCommandPrefix(resolver);
   }
 
-  public ImmutableList<String> getArguments(
+  public ImmutableList<Arg> getArguments(
       CxxToolFlags compilerFlags, Optional<CxxPrecompiledHeader> pch) {
     return ImmutableList.copyOf(
         CxxToolFlags.concat(getFlagsWithSearchPaths(pch), compilerFlags).getAllFlags());
@@ -220,21 +216,6 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
   public CxxToolFlags getIncludePathFlags() {
     return preprocessorFlags.getIncludePathFlags(
         resolver, minLengthPathRepresentation, frameworkPathSearchPathFunction, preprocessor);
-  }
-
-  private void checkForConflictingHeaders() throws ConflictingHeadersException {
-    Map<Path, SourcePath> headers = new HashMap<>();
-    for (CxxHeaders cxxHeaders : this.preprocessorFlags.getIncludes()) {
-      if (cxxHeaders instanceof CxxSymlinkTreeHeaders) {
-        CxxSymlinkTreeHeaders symlinkTreeHeaders = (CxxSymlinkTreeHeaders) cxxHeaders;
-        for (Map.Entry<Path, SourcePath> entry : symlinkTreeHeaders.getNameToPathMap().entrySet()) {
-          SourcePath original = headers.put(entry.getKey(), entry.getValue());
-          if (original != null && !original.equals(entry.getValue())) {
-            throw new ConflictingHeadersException(entry.getKey(), original, entry.getValue());
-          }
-        }
-      }
-    }
   }
 
   /** @see com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey */
@@ -292,11 +273,19 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     return hashCommand(getCommand(flags, pch));
   }
 
-  public String hashCommand(ImmutableList<String> flags) {
+  public String hashCommand(ImmutableList<Arg> flags) {
     Hasher hasher = Hashing.murmur3_128().newHasher();
     String workingDirString = workingDir.toString();
     // Skips the executable argument (the first one) as that is not sanitized.
-    for (String part : sanitizer.sanitizeFlags(Iterables.skip(flags, 1))) {
+    //
+    // TODO(#14644005): This currently won't support macros in the input flags.  I think we probably
+    // need to change the hasher here to use `RuleKeyObjectSink` so that it can handle `Arg`s
+    // directly and hash it appropriately.
+    for (Arg flag : flags) {
+      Preconditions.checkArgument(
+          flag.getInputs().isEmpty(), "precompiled header hashing does not support source paths");
+    }
+    for (String part : sanitizer.sanitizeFlags(Iterables.skip(Arg.stringify(flags, resolver), 1))) {
       // TODO(#10251354): find a better way of dealing with getting a project dir normalized hash
       if (part.startsWith(workingDirString)) {
         part = "<WORKINGDIR>" + part.substring(workingDirString.length());
@@ -307,19 +296,14 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     return hasher.hash().toString();
   }
 
-  @SuppressWarnings("serial")
-  public static class ConflictingHeadersException extends Exception {
-    public ConflictingHeadersException(Path key, SourcePath value1, SourcePath value2) {
-      super(String.format("'%s' maps to both %s.", key, ImmutableSortedSet.of(value1, value2)));
-    }
-
-    public HumanReadableException getHumanReadableExceptionForBuildTarget(BuildTarget buildTarget) {
-      return new HumanReadableException(
-          this, "Target '%s' uses conflicting header file mappings. %s", buildTarget, getMessage());
-    }
-  }
-
   public PreprocessorFlags getPreprocessorFlags() {
     return preprocessorFlags;
+  }
+
+  public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return ImmutableList.<BuildRule>builder()
+        .addAll(getPreprocessor().getDeps(ruleFinder))
+        .addAll(getPreprocessorFlags().getDeps(ruleFinder))
+        .build();
   }
 }

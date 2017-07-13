@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -36,6 +37,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
@@ -78,6 +80,8 @@ public class JavaBinaryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -87,12 +91,13 @@ public class JavaBinaryDescription
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableMap<String, SourcePath> nativeLibraries =
         JavaLibraryRules.getNativeLibraries(params.getBuildDeps(), cxxPlatform);
+    BuildTarget binaryBuildTarget = buildTarget;
     BuildRuleParams binaryParams = params;
 
     // If we're packaging native libraries, we'll build the binary JAR in a separate rule and
     // package it into the final fat JAR, so adjust it's params to use a flavored target.
     if (!nativeLibraries.isEmpty()) {
-      binaryParams = params.withAppendedFlavor(FAT_JAR_INNER_JAR_FLAVOR);
+      binaryBuildTarget = binaryBuildTarget.withAppendedFlavors(FAT_JAR_INNER_JAR_FLAVOR);
     }
 
     // Construct the build rule to build the binary JAR.
@@ -102,6 +107,8 @@ public class JavaBinaryDescription
         JavaLibraryClasspathProvider.getClasspathsFromLibraries(transitiveClasspathDeps);
     BuildRule rule =
         new JavaBinary(
+            binaryBuildTarget,
+            projectFilesystem,
             binaryParams.copyAppendingExtraDeps(transitiveClasspathDeps),
             javaOptions.getJavaRuntimeLauncher(),
             args.getMainClass().orElse(null),
@@ -121,6 +128,8 @@ public class JavaBinaryDescription
       SourcePath innerJar = innerJarRule.getSourcePathToOutput();
       rule =
           new JarFattener(
+              buildTarget,
+              projectFilesystem,
               params.copyAppendingExtraDeps(
                   Suppliers.<Iterable<BuildRule>>ofInstance(
                       ruleFinder.filterBuildRuleInputs(
@@ -128,7 +137,6 @@ public class JavaBinaryDescription
                               .add(innerJar)
                               .addAll(nativeLibraries.values())
                               .build()))),
-              ruleFinder,
               JavacFactory.create(ruleFinder, javaBuckConfig, null),
               javacOptions,
               innerJar,
@@ -152,6 +160,11 @@ public class JavaBinaryDescription
   @Override
   public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
     return true;
+  }
+
+  @VisibleForTesting
+  public CxxPlatform getCxxPlatform() {
+    return cxxPlatform;
   }
 
   @BuckStyleImmutable

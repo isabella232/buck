@@ -18,6 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -58,6 +59,7 @@ import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -69,7 +71,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -83,6 +84,7 @@ import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -141,8 +143,10 @@ public class TestRunning {
           JavaLibrary library = rulesUnderTestForCoverage.iterator().next();
           for (Step step :
               MakeCleanDirectoryStep.of(
-                  library.getProjectFilesystem(),
-                  JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem()))) {
+                  BuildCellRelativePath.fromCellRelativePath(
+                      buildContext.getBuildCellRootPath(),
+                      library.getProjectFilesystem(),
+                      JacocoConstants.getJacocoOutputDir(library.getProjectFilesystem())))) {
             stepRunner.runStepForBuildTarget(executionContext, step, Optional.empty());
           }
         } catch (StepFailedException e) {
@@ -186,6 +190,7 @@ public class TestRunning {
           getCachingCallable(
               test.interpretTestResults(
                   executionContext,
+                  buildContext.getSourcePathResolver(),
                   /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty()));
 
       final Map<String, UUID> testUUIDMap = new HashMap<>();
@@ -356,7 +361,7 @@ public class TestRunning {
                   } catch (CancellationException ignored) {
                     // Rethrow original InterruptedException instead.
                   }
-                  Thread.currentThread().interrupt();
+                  Threads.interruptCurrentThread();
                   throw new HumanReadableException(e, "Test cancelled");
                 }
                 LOG.debug("Done running serial tests.");
@@ -382,7 +387,7 @@ public class TestRunning {
       } catch (CancellationException ignored) {
         // Rethrow original InterruptedException instead.
       }
-      Thread.currentThread().interrupt();
+      Threads.interruptCurrentThread();
       throw e;
     }
 
@@ -729,7 +734,7 @@ public class TestRunning {
 
     // Iterate through all source paths to make sure we are generating a complete set of source
     // folders for the source paths.
-    Set<String> srcFolders = Sets.newHashSet();
+    Set<String> srcFolders = new HashSet<>();
     loopThroughSourcePath:
     for (SourcePath javaSrcPath : javaSrcs) {
       if (ruleFinder.getRule(javaSrcPath).isPresent()) {

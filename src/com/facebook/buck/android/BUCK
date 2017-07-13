@@ -44,6 +44,8 @@ java_immutables_library(
 
 BUCK_CONFIG_SRCS = [
     "AndroidBuckConfig.java",
+    "AndroidInstallConfig.java",
+    "DxConfig.java",
 ]
 
 java_immutables_library(
@@ -59,6 +61,9 @@ java_immutables_library(
     deps = [
         ":cxxruntime",
         "//src/com/facebook/buck/cli:config",
+        "//src/com/facebook/buck/event:event",
+        "//src/com/facebook/buck/event:interfaces",
+        "//src/com/facebook/buck/randomizedtrial:randomizedtrial",
         "//src/com/facebook/buck/util/environment:platform",
     ],
 )
@@ -71,6 +76,8 @@ RULES_SRCS = [
     "AbstractAndroidInstrumentationTestJVMArgs.java",
     "AndroidAar.java",
     "AndroidAarDescription.java",
+    "AndroidAppModularity.java",
+    "AndroidAppModularityDescription.java",
     "AndroidBinary.java",
     "AndroidBinaryDescription.java",
     "AndroidBinaryGraphEnhancer.java",
@@ -139,6 +146,7 @@ RULES_SRCS = [
     # library, but are added here to avoid circular dependencies.
     "ApkInstallStep.java",
     "InstrumentationStep.java",
+    "WriteAppModuleMetadataStep.java",
     "relinker/RelinkerRule.java",
     "relinker/NativeRelinker.java",
     "relinker/Symbols.java",
@@ -165,6 +173,7 @@ java_immutables_library(
     visibility = ["PUBLIC"],
     deps = [
         ":apkmodule",
+        ":config",
         ":cxxruntime",
         ":helpers",
         ":packageable",
@@ -314,12 +323,15 @@ java_immutables_library(
 
 HELPERS_SRCS = [
     "AdbHelper.java",
-    "HasInstallableApk.java",
+    "AndroidPlatformTargetSupplier.java",
+    "exopackage/AndroidDevicesHelperFactory.java",
+    "exopackage/DexExoHelper.java",
     "exopackage/ExopackageAgent.java",
-    "exopackage/ExopackageDevice.java",
     "exopackage/ExopackageInstaller.java",
-    "exopackage/PackageInfo.java",
-    "exopackage/RealExopackageDevice.java",
+    "exopackage/ExopackageUtil.java",
+    "exopackage/NativeExoHelper.java",
+    "exopackage/RealAndroidDevice.java",
+    "exopackage/ResourcesExoHelper.java",
 ]
 
 java_immutables_library(
@@ -332,9 +344,11 @@ java_immutables_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
+        ":config",
         ":utils",
         "//src/com/facebook/buck/android/agent/util:util",
         "//src/com/facebook/buck/annotations:annotations",
+        "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/event:event",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/event/external:external_lib",
@@ -355,14 +369,18 @@ java_immutables_library(
 )
 
 UTILS_SRCS = [
+    "AndroidDirectoryResolver.java",
     "AndroidPlatformTarget.java",
     "AndroidManifestReader.java",
-    "DefaultAndroidManifestReader.java",
-    "AndroidDirectoryResolver.java",
     "DefaultAndroidDirectoryResolver.java",
+    "DefaultAndroidManifestReader.java",
+    "HasInstallableApk.java",
+    "exopackage/AndroidDevice.java",
+    "exopackage/AndroidDevicesHelper.java",
+    "exopackage/PackageInfo.java",
 ]
 
-java_library(
+java_immutables_library(
     name = "utils",
     srcs = UTILS_SRCS,
     tests = [
@@ -372,10 +390,15 @@ java_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
+        "//src/com/facebook/buck/annotations:annotations",
+        "//src/com/facebook/buck/io:io",
+        "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/model:simple_types",
+        "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/environment:platform",
+        "//third-party/java/ddmlib:ddmlib",
         "//third-party/java/guava:guava",
     ],
 )

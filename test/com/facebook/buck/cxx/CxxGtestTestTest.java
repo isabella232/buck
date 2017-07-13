@@ -24,9 +24,8 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -75,13 +74,16 @@ public class CxxGtestTestTest {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    BuildTarget linkTarget = BuildTargetFactory.newInstance("//:link");
     CxxGtestTest test =
         new CxxGtestTest(
-            new FakeBuildRuleParamsBuilder(target).setProjectFilesystem(filesystem).build(),
-            ruleFinder,
+            target,
+            filesystem,
+            TestBuildRuleParams.create(),
             new CxxLink(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:link")).build(),
+                linkTarget,
+                filesystem,
+                TestBuildRuleParams.create(),
                 CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
                 Paths.get("output"),
                 ImmutableList.of(),
@@ -107,7 +109,7 @@ public class CxxGtestTestTest {
       Path results = workspace.resolve(Paths.get(sample)).resolve("results");
       Path summaries = workspace.resolve(Paths.get(sample)).resolve("summaries");
       List<TestResultSummary> expectedSummaries =
-          ObjectMappers.readValue(summaries.toFile(), SUMMARIES_REFERENCE);
+          ObjectMappers.readValue(summaries, SUMMARIES_REFERENCE);
       ImmutableList<TestResultSummary> actualSummaries =
           test.parseResults(exitCode, output, results);
       assertEquals(sample, expectedSummaries, actualSummaries);

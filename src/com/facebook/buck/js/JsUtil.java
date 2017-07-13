@@ -28,14 +28,13 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.shell.WorkerJobParams;
-import com.facebook.buck.shell.WorkerProcessIdentity;
-import com.facebook.buck.shell.WorkerProcessParams;
-import com.facebook.buck.shell.WorkerProcessPoolFactory;
 import com.facebook.buck.shell.WorkerShellStep;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Suppliers;
+import com.facebook.buck.worker.WorkerJobParams;
+import com.facebook.buck.worker.WorkerProcessIdentity;
+import com.facebook.buck.worker.WorkerProcessParams;
+import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -59,7 +58,6 @@ public class JsUtil {
             WorkerProcessParams.of(
                 worker.getTempDir(),
                 tool.getCommandPrefix(sourcePathResolver),
-                worker.getArgs(sourcePathResolver),
                 tool.getEnvironment(sourcePathResolver),
                 worker.getMaxWorkers(),
                 worker.isPersistent()
@@ -113,9 +111,7 @@ public class JsUtil {
   }
 
   static BuildRuleParams copyParamsWithDependencies(BuildRuleParams params, BuildRule... rules) {
-    return params.copyReplacingDeclaredAndExtraDeps(
-        Suppliers.ofInstance(ImmutableSortedSet.of()),
-        Suppliers.ofInstance(ImmutableSortedSet.copyOf(rules)));
+    return params.withoutDeclaredDeps().withExtraDeps(ImmutableSortedSet.copyOf(rules));
   }
 
   static SourcePath relativeToOutputRoot(

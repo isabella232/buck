@@ -43,6 +43,7 @@ import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.PatternAndMessage;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
@@ -231,7 +232,8 @@ public class BuckConfig implements ConfigPathGetter {
     return config.getOptionalListWithoutComments(section, field, splitChar);
   }
 
-  public Optional<ImmutableList<Path>> getOptionalPathList(String section, String field) {
+  public Optional<ImmutableList<Path>> getOptionalPathList(
+      String section, String field, boolean resolve) {
     Optional<ImmutableList<String>> rawPaths =
         config.getOptionalListWithoutComments(section, field);
 
@@ -240,7 +242,13 @@ public class BuckConfig implements ConfigPathGetter {
           rawPaths
               .get()
               .stream()
-              .map(input -> convertPath(input, true, section, field))
+              .map(
+                  input ->
+                      convertPath(
+                          input,
+                          resolve,
+                          String.format(
+                              "Error in %s.%s: Cell-relative path not found: ", section, field)))
               .collect(MoreCollectors.toImmutableList());
       return Optional.of(paths);
     }
@@ -338,10 +346,26 @@ public class BuckConfig implements ConfigPathGetter {
       BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
       return Optional.of(new DefaultBuildTargetSourcePath(target));
     } catch (BuildTargetParseException e) {
-      checkPathExists(
-          value.get(), String.format("Overridden %s:%s path not found: ", section, field));
-      return Optional.of(new PathSourcePath(projectFilesystem, getPathFromVfs(value.get())));
+      return Optional.of(
+          new PathSourcePath(
+              projectFilesystem,
+              checkPathExists(
+                  value.get(),
+                  String.format("Overridden %s:%s path not found: ", section, field))));
     }
+  }
+
+  /** @return a {@link SourcePath} identified by a {@link Path}. */
+  public SourcePath getSourcePath(Path path) {
+    if (path == null) {
+      return null;
+    }
+    return new PathSourcePath(
+        projectFilesystem,
+        checkPathExists(
+            path.toString(),
+            String.format(
+                "Failed to transform Path %s to Source Path because path was not found.", path)));
   }
 
   /**
@@ -358,9 +382,12 @@ public class BuckConfig implements ConfigPathGetter {
       return Optional.of(
           new BinaryBuildRuleToolProvider(target.get(), String.format("[%s] %s", section, field)));
     } else {
-      checkPathExists(
-          value.get(), String.format("Overridden %s:%s path not found: ", section, field));
-      return Optional.of(new ConstantToolProvider(new HashedFileTool(getPathFromVfs(value.get()))));
+      return Optional.of(
+          new ConstantToolProvider(
+              new HashedFileTool(
+                  checkPathExists(
+                      value.get(),
+                      String.format("Overridden %s:%s path not found: ", section, field)))));
     }
   }
 
@@ -833,8 +860,8 @@ public class BuckConfig implements ConfigPathGetter {
    * mis-matched underlying filesystem implementations causing grief. This is particularly useful
    * for those times where we're using (eg) JimFs for our testing.
    */
-  private Path getPathFromVfs(String path, String... extra) {
-    return projectFilesystem.getPath(path, extra);
+  private Path getPathFromVfs(String path) {
+    return projectFilesystem.getPath(path);
   }
 
   private Path getPathFromVfs(Path path) {
@@ -843,37 +870,30 @@ public class BuckConfig implements ConfigPathGetter {
 
   private Path convertPathWithError(String pathString, boolean isCellRootRelative, String error) {
     return isCellRootRelative
-        ? checkPathExists(pathString, error).get()
+        ? checkPathExistsAndResolve(pathString, error)
         : getPathFromVfs(pathString);
   }
 
-  private Path convertPath(
-      String pathString, boolean isCellRootRelative, String section, String field) {
-    return convertPathWithError(
-        pathString,
-        isCellRootRelative,
-        String.format(
-            isCellRootRelative
-                ? "Error in %s.%s: Cell-relative path not found: "
-                : "Error in %s.%s: Path not found: ",
-            section,
-            field));
+  private Path convertPath(String pathString, boolean resolve, String error) {
+    return resolve
+        ? checkPathExistsAndResolve(pathString, error)
+        : checkPathExists(pathString, error);
   }
 
-  public Optional<Path> checkPathExists(String pathString, String errorMsg) {
+  public Path checkPathExistsAndResolve(String pathString, String errorMsg) {
+    return projectFilesystem.getPathForRelativePath(checkPathExists(pathString, errorMsg));
+  }
+
+  private Path checkPathExists(String pathString, String errorMsg) {
     Path path = getPathFromVfs(pathString);
     if (projectFilesystem.exists(path)) {
-      return Optional.of(projectFilesystem.getPathForRelativePath(path));
+      return path;
     }
     throw new HumanReadableException(errorMsg + path);
   }
 
   public ImmutableSet<String> getSections() {
     return config.getSectionToEntries().keySet();
-  }
-
-  public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForDistBuild() {
-    return config.getSectionToEntries();
   }
 
   public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForParser() {
@@ -1034,6 +1054,17 @@ public class BuckConfig implements ConfigPathGetter {
 
   public ImmutableList<String> getCleanAdditionalPaths() {
     return getListWithoutComments("clean", "additional_paths");
+  }
+
+  /** @return whether to enable new file hash cache engine. */
+  public boolean getCompareFileHashCacheEngines() {
+    return getBooleanValue("build", "compare_file_hash_cache_engines", false);
+  }
+
+  /** @return whether to enable new file hash cache engine. */
+  public FileHashCacheMode getFileHashCacheMode() {
+    return getEnum("build", "file_hash_cache_mode", FileHashCacheMode.class)
+        .orElse(FileHashCacheMode.PREFIX_TREE);
   }
 
   public Config getConfig() {

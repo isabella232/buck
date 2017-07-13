@@ -25,12 +25,12 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,18 +54,18 @@ public class ShTestTest extends EasyMockSupport {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
-    BuildRule extraDep = new FakeBuildRule("//:extra_dep", pathResolver);
-    BuildRule dep = new FakeBuildRule("//:dep", pathResolver);
+    BuildRule extraDep = new FakeBuildRule("//:extra_dep");
+    BuildRule dep = new FakeBuildRule("//:dep");
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ShTest shTest =
         new ShTest(
-            new FakeBuildRuleParamsBuilder(target)
-                .setDeclaredDeps(ImmutableSortedSet.of(dep))
-                .setExtraDeps(ImmutableSortedSet.of(extraDep))
-                .build(),
+            target,
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create()
+                .withDeclaredDeps(ImmutableSortedSet.of(dep))
+                .withExtraDeps(ImmutableSortedSet.of(extraDep)),
             ruleFinder,
             /* args */ ImmutableList.of(SourcePathArg.of(new FakeSourcePath("run_test.sh"))),
             /* env */ ImmutableMap.of(),
@@ -73,10 +73,11 @@ public class ShTestTest extends EasyMockSupport {
             Optional.empty(),
             /* runTestSeparately */ false,
             /* labels */ ImmutableSet.of(),
+            /* type */ Optional.of("custom"),
             /* contacts */ ImmutableSet.of());
 
     assertThat(
-        shTest.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        shTest.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet()),
         containsInAnyOrder(dep.getBuildTarget(), extraDep.getBuildTarget()));
   }
 }

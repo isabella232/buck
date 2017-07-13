@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
@@ -25,10 +26,11 @@ import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasContacts;
+import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -52,6 +54,8 @@ public class AndroidInstrumentationTestDescription
   @Override
   public AndroidInstrumentationTest createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -61,10 +65,12 @@ public class AndroidInstrumentationTestDescription
       throw new HumanReadableException(
           "In %s, instrumentation_apk='%s' must be an android_binary(), apk_genrule() or "
               + "android_instrumentation_apk(), but was %s().",
-          params.getBuildTarget(), apk.getFullyQualifiedName(), apk.getType());
+          buildTarget, apk.getFullyQualifiedName(), apk.getType());
     }
 
     return new AndroidInstrumentationTest(
+        buildTarget,
+        projectFilesystem,
         params.copyAppendingExtraDeps(BuildRules.getExportedRules(params.getDeclaredDeps().get())),
         (HasInstallableApk) apk,
         args.getLabels(),
@@ -75,12 +81,8 @@ public class AndroidInstrumentationTestDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractAndroidInstrumentationTestDescriptionArg extends CommonDescriptionArg {
+  interface AbstractAndroidInstrumentationTestDescriptionArg
+      extends CommonDescriptionArg, HasContacts, HasTestTimeout {
     BuildTarget getApk();
-
-    @Value.NaturalOrder
-    ImmutableSortedSet<String> getContacts();
-
-    Optional<Long> getTestRuleTimeoutMs();
   }
 }

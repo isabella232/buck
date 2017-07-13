@@ -47,6 +47,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
@@ -57,7 +58,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
@@ -65,9 +66,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Multimaps;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -134,7 +137,8 @@ public class CxxPythonExtensionDescription
   }
 
   private ImmutableList<com.facebook.buck.rules.args.Arg> getExtensionArgs(
-      BuildRuleParams params,
+      BuildTarget target,
+      ProjectFilesystem projectFilesystem,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
@@ -147,36 +151,42 @@ public class CxxPythonExtensionDescription
     // Extract all C/C++ sources from the constructor arg.
     ImmutableMap<String, CxxSource> srcs =
         CxxDescriptionEnhancer.parseCxxSources(
-            params.getBuildTarget(), ruleResolver, ruleFinder, pathResolver, cxxPlatform, args);
+            target, ruleResolver, ruleFinder, pathResolver, cxxPlatform, args);
     ImmutableMap<Path, SourcePath> headers =
         CxxDescriptionEnhancer.parseHeaders(
-            params.getBuildTarget(),
-            ruleResolver,
-            ruleFinder,
-            pathResolver,
-            Optional.of(cxxPlatform),
-            args);
+            target, ruleResolver, ruleFinder, pathResolver, Optional.of(cxxPlatform), args);
 
     // Setup the header symlink tree and combine all the preprocessor input from this rule
     // and all dependencies.
     HeaderSymlinkTree headerSymlinkTree =
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
-            params, ruleResolver, cxxPlatform, headers, HeaderVisibility.PRIVATE, true);
+            target,
+            projectFilesystem,
+            ruleResolver,
+            cxxPlatform,
+            headers,
+            HeaderVisibility.PRIVATE,
+            true);
     Optional<SymlinkTree> sandboxTree = Optional.empty();
     if (cxxBuckConfig.sandboxSources()) {
-      sandboxTree = CxxDescriptionEnhancer.createSandboxTree(params, ruleResolver, cxxPlatform);
+      sandboxTree = CxxDescriptionEnhancer.createSandboxTree(target, ruleResolver, cxxPlatform);
     }
 
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
-            params,
+            target,
             cxxPlatform,
             deps,
-            CxxFlags.getLanguageFlags(
-                args.getPreprocessorFlags(),
-                args.getPlatformPreprocessorFlags(),
-                args.getLangPreprocessorFlags(),
-                cxxPlatform),
+            ImmutableListMultimap.copyOf(
+                Multimaps.transformValues(
+                    CxxFlags.getLanguageFlagsWithMacros(
+                        args.getPreprocessorFlags(),
+                        args.getPlatformPreprocessorFlags(),
+                        args.getLangPreprocessorFlags(),
+                        cxxPlatform),
+                    f ->
+                        CxxDescriptionEnhancer.toStringWithMacrosArgs(
+                            target, cellRoots, ruleResolver, cxxPlatform, f))),
             ImmutableList.of(headerSymlinkTree),
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps),
@@ -186,18 +196,24 @@ public class CxxPythonExtensionDescription
     // Generate rule to build the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> picObjects =
         CxxSourceRuleFactory.requirePreprocessAndCompileRules(
-            params,
+            projectFilesystem,
+            target,
             ruleResolver,
             pathResolver,
             ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
-            CxxFlags.getLanguageFlags(
-                args.getCompilerFlags(),
-                args.getPlatformCompilerFlags(),
-                args.getLangCompilerFlags(),
-                cxxPlatform),
+            ImmutableListMultimap.copyOf(
+                Multimaps.transformValues(
+                    CxxFlags.getLanguageFlagsWithMacros(
+                        args.getCompilerFlags(),
+                        args.getPlatformCompilerFlags(),
+                        args.getLangCompilerFlags(),
+                        cxxPlatform),
+                    f ->
+                        CxxDescriptionEnhancer.toStringWithMacrosArgs(
+                            target, cellRoots, ruleResolver, cxxPlatform, f))),
             args.getPrefixHeader(),
             args.getPrecompiledHeader(),
             srcs,
@@ -205,14 +221,14 @@ public class CxxPythonExtensionDescription
             sandboxTree);
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
-    argsBuilder.addAll(
-        CxxDescriptionEnhancer.toStringWithMacrosArgs(
-            params.getBuildTarget(),
-            cellRoots,
-            ruleResolver,
-            cxxPlatform,
-            CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
-                args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform)));
+    CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+            args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform)
+        .stream()
+        .map(
+            f ->
+                CxxDescriptionEnhancer.toStringWithMacrosArgs(
+                    target, cellRoots, ruleResolver, cxxPlatform, f))
+        .forEach(argsBuilder::add);
 
     // Embed a origin-relative library path into the binary so it can find the shared libraries.
     argsBuilder.addAll(
@@ -253,7 +269,8 @@ public class CxxPythonExtensionDescription
   }
 
   private BuildRule createExtensionBuildRule(
-      BuildRuleParams params,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleResolver ruleResolver,
       CellPathResolver cellRoots,
       PythonPlatform pythonPlatform,
@@ -261,13 +278,13 @@ public class CxxPythonExtensionDescription
       CxxPythonExtensionDescriptionArg args)
       throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    String moduleName = args.getModuleName().orElse(params.getBuildTarget().getShortName());
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    String moduleName = args.getModuleName().orElse(buildTarget.getShortName());
     String extensionName = getExtensionName(moduleName);
     Path extensionPath =
         getExtensionPath(
-            params.getProjectFilesystem(),
-            params.getBuildTarget(),
+            projectFilesystem,
+            buildTarget,
             moduleName,
             pythonPlatform.getFlavor(),
             cxxPlatform.getFlavor());
@@ -275,12 +292,11 @@ public class CxxPythonExtensionDescription
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
-        params,
+        projectFilesystem,
         ruleResolver,
         pathResolver,
         ruleFinder,
-        getExtensionTarget(
-            params.getBuildTarget(), pythonPlatform.getFlavor(), cxxPlatform.getFlavor()),
+        getExtensionTarget(buildTarget, pythonPlatform.getFlavor(), cxxPlatform.getFlavor()),
         Linker.LinkType.SHARED,
         Optional.of(extensionName),
         extensionPath,
@@ -290,13 +306,12 @@ public class CxxPythonExtensionDescription
         args.getCxxRuntimeType(),
         Optional.empty(),
         ImmutableSet.of(),
+        ImmutableSet.of(),
         NativeLinkableInput.builder()
             .setArgs(
                 getExtensionArgs(
-                    params.withBuildTarget(
-                        params
-                            .getBuildTarget()
-                            .withoutFlavors(LinkerMapMode.FLAVOR_DOMAIN.getFlavors())),
+                    buildTarget.withoutFlavors(LinkerMapMode.FLAVOR_DOMAIN.getFlavors()),
+                    projectFilesystem,
                     ruleResolver,
                     pathResolver,
                     ruleFinder,
@@ -313,24 +328,24 @@ public class CxxPythonExtensionDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver ruleResolver,
       CellPathResolver cellRoots,
       final CxxPythonExtensionDescriptionArg args)
       throws NoSuchBuildTargetException {
 
-    Optional<Map.Entry<Flavor, CxxPlatform>> platform =
-        cxxPlatforms.getFlavorAndValue(params.getBuildTarget());
-    if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+    Optional<Map.Entry<Flavor, CxxPlatform>> platform = cxxPlatforms.getFlavorAndValue(buildTarget);
+    if (buildTarget.getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
       return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
-          ruleResolver, args, platform.get().getValue(), params);
+          ruleResolver, args, platform.get().getValue(), buildTarget, projectFilesystem);
     }
     // See if we're building a particular "type" of this library, and if so, extract
     // it as an enum.
-    final Optional<Map.Entry<Flavor, Type>> type =
-        LIBRARY_TYPE.getFlavorAndValue(params.getBuildTarget());
+    final Optional<Map.Entry<Flavor, Type>> type = LIBRARY_TYPE.getFlavorAndValue(buildTarget);
     final Optional<Map.Entry<Flavor, PythonPlatform>> pythonPlatform =
-        pythonPlatforms.getFlavorAndValue(params.getBuildTarget());
+        pythonPlatforms.getFlavorAndValue(buildTarget);
 
     // If we *are* building a specific type of this lib, call into the type specific
     // rule builder methods.  Currently, we only support building a shared lib from the
@@ -338,7 +353,8 @@ public class CxxPythonExtensionDescription
     if (type.isPresent() && platform.isPresent() && pythonPlatform.isPresent()) {
       Preconditions.checkState(type.get().getValue() == Type.EXTENSION);
       return createExtensionBuildRule(
-          params,
+          buildTarget,
+          projectFilesystem,
           ruleResolver,
           cellRoots,
           pythonPlatform.get().getValue(),
@@ -349,11 +365,11 @@ public class CxxPythonExtensionDescription
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-    Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.getBaseModule());
-    String moduleName = args.getModuleName().orElse(params.getBuildTarget().getShortName());
+    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    Path baseModule = PythonUtil.getBasePath(buildTarget, args.getBaseModule());
+    String moduleName = args.getModuleName().orElse(buildTarget.getShortName());
     final Path module = baseModule.resolve(getExtensionName(moduleName));
-    return new CxxPythonExtension(params) {
+    return new CxxPythonExtension(buildTarget, projectFilesystem, params) {
 
       @Override
       protected BuildRule getExtension(PythonPlatform pythonPlatform, CxxPlatform cxxPlatform)
@@ -402,7 +418,7 @@ public class CxxPythonExtensionDescription
 
           @Override
           public BuildTarget getBuildTarget() {
-            return params.getBuildTarget().withAppendedFlavors(pythonPlatform.getFlavor());
+            return buildTarget.withAppendedFlavors(pythonPlatform.getFlavor());
           }
 
           @Override
@@ -424,12 +440,9 @@ public class CxxPythonExtensionDescription
             return NativeLinkableInput.builder()
                 .addAllArgs(
                     getExtensionArgs(
-                        params.withBuildTarget(
-                            params
-                                .getBuildTarget()
-                                .withAppendedFlavors(
-                                    pythonPlatform.getFlavor(),
-                                    CxxDescriptionEnhancer.SHARED_FLAVOR)),
+                        buildTarget.withAppendedFlavors(
+                            pythonPlatform.getFlavor(), CxxDescriptionEnhancer.SHARED_FLAVOR),
+                        projectFilesystem,
                         ruleResolver,
                         pathResolver,
                         ruleFinder,
@@ -449,7 +462,7 @@ public class CxxPythonExtensionDescription
       }
 
       @Override
-      public Stream<BuildTarget> getRuntimeDeps() {
+      public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
         return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
       }
     };
@@ -466,7 +479,7 @@ public class CxxPythonExtensionDescription
     extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatforms.getValues()));
 
     for (PythonPlatform pythonPlatform : pythonPlatforms.getValues()) {
-      extraDepsBuilder.addAll(OptionalCompat.asSet(pythonPlatform.getCxxLibrary()));
+      Optionals.addIfPresent(pythonPlatform.getCxxLibrary(), extraDepsBuilder);
     }
   }
 

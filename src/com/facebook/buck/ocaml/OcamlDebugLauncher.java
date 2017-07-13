@@ -16,7 +16,10 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -32,11 +35,15 @@ import com.google.common.collect.ImmutableList;
  * This works with bytecode and provides limited debugging functionality like stepping, breakpoints,
  * etc.
  */
-public class OcamlDebugLauncher extends AbstractBuildRule {
+public class OcamlDebugLauncher extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final OcamlDebugLauncherStep.Args args;
 
-  public OcamlDebugLauncher(BuildRuleParams params, OcamlDebugLauncherStep.Args args) {
-    super(params);
+  public OcamlDebugLauncher(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      OcamlDebugLauncherStep.Args args) {
+    super(buildTarget, projectFilesystem, params);
     this.args = args;
   }
 
@@ -45,7 +52,11 @@ public class OcamlDebugLauncher extends AbstractBuildRule {
       BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(args.getOutput());
     return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), args.getOutput().getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                args.getOutput().getParent())),
         new OcamlDebugLauncherStep(getProjectFilesystem(), context.getSourcePathResolver(), args));
   }
 

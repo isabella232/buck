@@ -20,6 +20,8 @@ import com.facebook.buck.distributed.BuildJobStateSerializer;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildSlaveExecutor;
+import com.facebook.buck.distributed.DistBuildState;
+import com.facebook.buck.distributed.FileMaterializationStatsTracker;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
@@ -80,6 +82,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
 
   @Nullable private DistBuildSlaveEventBusListener slaveEventListener;
 
+  private final FileMaterializationStatsTracker fileMaterializationStatsTracker =
+      new FileMaterializationStatsTracker();
+
   @Override
   public boolean isReadOnly() {
     return false;
@@ -111,19 +116,30 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 String.format(
                     "BuildJob depends on a total of [%d] input deps.",
                     jobState.getFileHashesSize()));
+
+        // Load up the remote build state from the client. Client-side .buckconfig is overlayed
+        // with Stampede build slave .buckconfig.
+        DistBuildState state =
+            DistBuildState.load(
+                params.getBuckConfig(),
+                jobState,
+                params.getCell(),
+                params.getKnownBuildRuleTypesFactory());
+
         try (CommandThreadManager pool =
             new CommandThreadManager(
-                getClass().getName(), getConcurrencyLimit(params.getBuckConfig()))) {
+                getClass().getName(), getConcurrencyLimit(state.getRootCell().getBuckConfig()))) {
           DistBuildSlaveExecutor distBuildExecutor =
               DistBuildFactory.createDistBuildExecutor(
-                  jobState,
+                  state,
                   params,
                   pool.getExecutor(),
                   service,
                   Preconditions.checkNotNull(distBuildMode),
                   coordinatorPort,
                   getStampedeIdOptional(),
-                  getGlobalCacheDirOptional());
+                  getGlobalCacheDirOptional(),
+                  fileMaterializationStatsTracker);
           int returnCode = distBuildExecutor.buildAndReturnExitCode();
           if (slaveEventListener != null) {
             slaveEventListener.publishBuildSlaveFinishedEvent(params.getBuckEventBus(), returnCode);
@@ -219,7 +235,11 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
       ScheduledExecutorService networkScheduler = Executors.newScheduledThreadPool(1);
       slaveEventListener =
           new DistBuildSlaveEventBusListener(
-              getStampedeId(), runId, new DefaultClock(), networkScheduler);
+              getStampedeId(),
+              runId,
+              new DefaultClock(),
+              fileMaterializationStatsTracker,
+              networkScheduler);
     }
   }
 

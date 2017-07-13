@@ -16,8 +16,11 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -31,14 +34,18 @@ import java.nio.file.Path;
 import javax.annotation.Nullable;
 
 /** A build rule which cleans a target's build output folder. */
-public class OcamlClean extends AbstractBuildRule {
+public class OcamlClean extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final OcamlBuildContext ocamlContext;
 
   private static final Logger LOG = Logger.get(OcamlClean.class);
 
-  public OcamlClean(BuildRuleParams params, OcamlBuildContext ocamlContext) {
-    super(params);
+  public OcamlClean(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      OcamlBuildContext ocamlContext) {
+    super(buildTarget, projectFilesystem, params);
     this.ocamlContext = ocamlContext;
   }
 
@@ -55,14 +62,20 @@ public class OcamlClean extends AbstractBuildRule {
       buildableContext.recordArtifact(bcDir);
       LOG.debug("Adding clean step for bytecode output dir %s", bcDir.toString());
 
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), bcDir));
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), bcDir)));
     }
 
     if (Files.exists(optDir)) {
       buildableContext.recordArtifact(optDir);
       LOG.debug("Adding clean step for native output dir %s", optDir.toString());
 
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), optDir));
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(), getProjectFilesystem(), optDir)));
     }
     return steps.build();
   }

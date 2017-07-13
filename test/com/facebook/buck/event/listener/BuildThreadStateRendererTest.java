@@ -27,13 +27,8 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleDurationTracker;
 import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.ClockDuration;
@@ -55,11 +50,6 @@ public class BuildThreadStateRendererTest {
   private static final Ansi ANSI = Ansi.withoutTty();
   private static final Function<Long, String> FORMAT_TIME_FUNCTION =
       timeMs -> String.format(Locale.US, "%.1fs", timeMs / 1000.0);
-  private static final SourcePathResolver PATH_RESOLVER =
-      new SourcePathResolver(
-          new SourcePathRuleFinder(
-              new BuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
   private static final BuildTarget TARGET1 = BuildTargetFactory.newInstance("//:target1");
   private static final BuildTarget TARGET2 = BuildTargetFactory.newInstance("//:target2");
   private static final BuildTarget TARGET3 = BuildTargetFactory.newInstance("//:target3");
@@ -101,8 +91,8 @@ public class BuildThreadStateRendererTest {
             equalTo(
                 ImmutableList.of(
                     " |=> //:target2...  4.4s (running step A[2.7s])",
-                    " |=> //:target1...  3.3s (checking_cache)",
-                    " |=> //:target3...  2.6s (checking_cache)",
+                    " |=> //:target1...  3.3s (preparing)",
+                    " |=> //:target3...  2.6s (preparing)",
                     " |=> //:target4...  1.2s (running step B[0.5s])",
                     " |=> IDLE"))));
     assertThat(
@@ -111,8 +101,8 @@ public class BuildThreadStateRendererTest {
             equalTo(
                 ImmutableList.of(
                     " |=> //:target2...  4.4s (running step A[2.7s])",
-                    " |=> //:target3...  2.6s (checking_cache)",
-                    " |=> //:target1...  3.3s (checking_cache)",
+                    " |=> //:target3...  2.6s (preparing)",
+                    " |=> //:target1...  3.3s (preparing)",
                     " |=> IDLE",
                     " |=> //:target4...  1.2s (running step B[0.5s])"))));
     assertThat(
@@ -146,7 +136,7 @@ public class BuildThreadStateRendererTest {
             equalTo(
                 ImmutableList.of(
                     // one missing build rule - no output
-                    " |=> //:target3...  2.6s (checking_cache)", // missing step information
+                    " |=> //:target3...  2.6s (preparing)", // missing step information
                     " |=> //:target4...  1.2s (running step B[0.5s])",
                     " |=> IDLE")))); // missing accumulated time - show as IDLE
     assertThat(
@@ -154,7 +144,7 @@ public class BuildThreadStateRendererTest {
   }
 
   private static BuildRule createFakeRule(BuildTarget target) {
-    return new FakeBuildRule(target, PATH_RESOLVER, ImmutableSortedSet.of());
+    return new FakeBuildRule(target, ImmutableSortedSet.of());
   }
 
   private static Optional<? extends BuildRuleEvent.BeginningBuildRuleEvent>

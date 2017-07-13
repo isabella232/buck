@@ -21,8 +21,9 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.IncrementingFakeClock;
@@ -129,10 +130,13 @@ public class DefaultRuleKeyCacheTest {
     assertThat(cache.getStats().totalLoadTime(), Matchers.equalTo(1L));
   }
 
-  private static class TestRule extends NoopBuildRule {
+  private static class TestRule extends NoopBuildRuleWithDeclaredAndExtraDeps {
 
     private TestRule() {
-      super(new FakeBuildRuleParamsBuilder("//:rule").build());
+      super(
+          BuildTargetFactory.newInstance("//:rule"),
+          new FakeProjectFilesystem(),
+          TestBuildRuleParams.create());
     }
   }
 }

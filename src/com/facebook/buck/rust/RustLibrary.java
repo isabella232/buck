@@ -17,18 +17,16 @@
 package com.facebook.buck.rust;
 
 import com.facebook.buck.cxx.NativeLinkable;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableProperties;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 
-public abstract class RustLibrary extends NoopBuildRule implements RustLinkable, NativeLinkable {
+public abstract class RustLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
+    implements RustLinkable, NativeLinkable {
 
-  public RustLibrary(BuildRuleParams params) {
-    super(params);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return new BuildableProperties(BuildableProperties.Kind.LIBRARY);
+  public RustLibrary(
+      BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {
+    super(buildTarget, projectFilesystem, params);
   }
 }

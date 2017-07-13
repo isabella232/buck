@@ -16,8 +16,11 @@
 
 package com.facebook.buck.dotnet;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -31,20 +34,24 @@ import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 
-public class PrebuiltDotnetLibrary extends AbstractBuildRuleWithResolver {
+public class PrebuiltDotnetLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path output;
   private final SourcePath assembly;
 
   protected PrebuiltDotnetLibrary(
-      BuildRuleParams params, SourcePathResolver resolver, SourcePath assembly) {
-    super(params, resolver);
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      SourcePath assembly) {
+    super(buildTarget, projectFilesystem, params);
 
     this.assembly = assembly;
 
     Path resolvedPath = resolver.getAbsolutePath(assembly);
     this.output =
-        BuildTargets.getGenPath(getProjectFilesystem(), params.getBuildTarget(), "%s")
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s")
             .resolve(resolvedPath.getFileName());
   }
 
@@ -53,10 +60,19 @@ public class PrebuiltDotnetLibrary extends AbstractBuildRuleWithResolver {
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(RmStep.of(getProjectFilesystem(), output));
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
     steps.add(
-        CopyStep.forFile(getProjectFilesystem(), getResolver().getAbsolutePath(assembly), output));
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output)));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
+    steps.add(
+        CopyStep.forFile(
+            getProjectFilesystem(),
+            context.getSourcePathResolver().getAbsolutePath(assembly),
+            output));
 
     return steps.build();
   }

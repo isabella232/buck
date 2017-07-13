@@ -18,6 +18,7 @@ package com.facebook.buck.gwt;
 
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.gwt.GwtBinary.Style;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.model.BuildTarget;
@@ -34,7 +35,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -72,7 +72,9 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GwtBinaryDescriptionArg args) {
@@ -87,7 +89,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
     ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.getModuleDeps());
     new AbstractBreadthFirstTraversal<BuildRule>(moduleDependencies) {
       @Override
-      public ImmutableSet<BuildRule> visit(BuildRule rule) {
+      public Iterable<BuildRule> visit(BuildRule rule) {
         if (!(rule instanceof JavaLibrary)) {
           return ImmutableSet.of();
         }
@@ -101,27 +103,32 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
         BuildTarget gwtModuleTarget =
             BuildTargets.createFlavoredBuildTarget(
                 javaLibrary.getBuildTarget().checkUnflavored(), JavaLibrary.GWT_MODULE_FLAVOR);
-        Optional<BuildRule> gwtModule = resolver.getRuleOptional(gwtModuleTarget);
-        if (!gwtModule.isPresent() && javaLibrary.getSourcePathToOutput() != null) {
-          ImmutableSortedSet<SourcePath> filesForGwtModule =
-              ImmutableSortedSet.<SourcePath>naturalOrder()
-                  .addAll(javaLibrary.getSources())
-                  .addAll(javaLibrary.getResources())
-                  .build();
-          ImmutableSortedSet<BuildRule> deps =
-              ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(filesForGwtModule));
 
-          BuildRule module =
-              resolver.addToIndex(
-                  new GwtModule(
-                      params
-                          .withBuildTarget(gwtModuleTarget)
-                          .copyReplacingDeclaredAndExtraDeps(
-                              Suppliers.ofInstance(deps),
-                              Suppliers.ofInstance(ImmutableSortedSet.of())),
-                      ruleFinder,
-                      filesForGwtModule));
-          gwtModule = Optional.of(module);
+        Optional<BuildRule> gwtModule;
+        if (javaLibrary.getSourcePathToOutput() != null) {
+          gwtModule =
+              Optional.of(
+                  resolver.computeIfAbsent(
+                      gwtModuleTarget,
+                      () -> {
+                        ImmutableSortedSet<SourcePath> filesForGwtModule =
+                            ImmutableSortedSet.<SourcePath>naturalOrder()
+                                .addAll(javaLibrary.getSources())
+                                .addAll(javaLibrary.getResources())
+                                .build();
+                        ImmutableSortedSet<BuildRule> deps =
+                            ImmutableSortedSet.copyOf(
+                                ruleFinder.filterBuildRuleInputs(filesForGwtModule));
+
+                        return new GwtModule(
+                            gwtModuleTarget,
+                            projectFilesystem,
+                            params.withDeclaredDeps(deps).withoutExtraDeps(),
+                            ruleFinder,
+                            filesForGwtModule);
+                      }));
+        } else {
+          gwtModule = Optional.empty();
         }
 
         // Note that gwtModule could be absent if javaLibrary is a rule with no srcs of its own,
@@ -138,7 +145,9 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
     }.start();
 
     return new GwtBinary(
-        params.copyReplacingExtraDeps(Suppliers.ofInstance(extraDeps.build())),
+        buildTarget,
+        projectFilesystem,
+        params.withExtraDeps(extraDeps.build()),
         args.getModules(),
         javaOptions.getJavaRuntimeLauncher(),
         args.getVmArgs(),

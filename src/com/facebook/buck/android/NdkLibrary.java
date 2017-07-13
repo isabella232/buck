@@ -16,18 +16,16 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -63,10 +61,8 @@ import javax.annotation.Nullable;
  * )
  * </pre>
  */
-public class NdkLibrary extends AbstractBuildRule
+public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements NativeLibraryBuildRule, AndroidPackageable {
-
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, LIBRARY);
 
   /** @see NativeLibraryBuildRule#isAsset() */
   @AddToRuleKey private final boolean isAsset;
@@ -92,6 +88,8 @@ public class NdkLibrary extends AbstractBuildRule
   private final Function<String, String> macroExpander;
 
   protected NdkLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Path makefile,
       String makefileContents,
@@ -100,10 +98,9 @@ public class NdkLibrary extends AbstractBuildRule
       boolean isAsset,
       Optional<String> ndkVersion,
       Function<String, String> macroExpander) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.isAsset = isAsset;
 
-    BuildTarget buildTarget = params.getBuildTarget();
     this.root = buildTarget.getBasePath();
     this.makefile = Preconditions.checkNotNull(makefile);
     this.makefileContents = makefileContents;
@@ -144,8 +141,14 @@ public class NdkLibrary extends AbstractBuildRule
     // .so files are written to the libs/ subdirectory of the output directory.
     // All of them should be recorded via the BuildableContext.
     Path binDirectory = buildArtifactsDirectory.resolve("libs");
-    steps.add(RmStep.of(getProjectFilesystem(), makefile));
-    steps.add(MkdirStep.of(getProjectFilesystem(), makefile.getParent()));
+    steps.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), makefile)));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), makefile.getParent())));
     steps.add(new WriteFileStep(getProjectFilesystem(), makefileContents, makefile, false));
     steps.add(
         new NdkBuildStep(
@@ -157,7 +160,10 @@ public class NdkLibrary extends AbstractBuildRule
             flags,
             macroExpander));
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), genDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), genDirectory)));
     steps.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -172,19 +178,14 @@ public class NdkLibrary extends AbstractBuildRule
     steps.add(
         new AbstractExecutionStep("cache_unstripped_so") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) {
-            try {
-              Set<Path> unstrippedSharedObjs =
-                  getProjectFilesystem()
-                      .getFilesUnderPath(
-                          buildArtifactsDirectory, input -> input.toString().endsWith(".so"));
-              for (Path path : unstrippedSharedObjs) {
-                buildableContext.recordArtifact(path);
-              }
-            } catch (IOException e) {
-              context.logError(
-                  e, "Failed to cache intermediate artifacts of %s.", getBuildTarget());
-              return StepExecutionResult.ERROR;
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
+            Set<Path> unstrippedSharedObjs =
+                getProjectFilesystem()
+                    .getFilesUnderPath(
+                        buildArtifactsDirectory, input -> input.toString().endsWith(".so"));
+            for (Path path : unstrippedSharedObjs) {
+              buildableContext.recordArtifact(path);
             }
             return StepExecutionResult.SUCCESS;
           }
@@ -203,11 +204,6 @@ public class NdkLibrary extends AbstractBuildRule
     return isScratchDir
         ? BuildTargets.getScratchPath(getProjectFilesystem(), target, "__lib%s")
         : BuildTargets.getGenPath(getProjectFilesystem(), target, "__lib%s");
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   @Override

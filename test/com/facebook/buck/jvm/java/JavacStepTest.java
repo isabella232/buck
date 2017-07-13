@@ -20,10 +20,11 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -41,9 +42,13 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Paths;
 import java.util.Optional;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class JavacStepTest {
+
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void successfulCompileDoesNotSendStdoutAndStderrToConsole() throws Exception {
@@ -51,7 +56,7 @@ public class JavacStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder().setSourceLevel("8.0").setTargetLevel("8.0").build();
@@ -73,7 +78,8 @@ public class JavacStepTest {
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
-            Optional.empty());
+            Optional.empty(),
+            null);
 
     FakeProcess fakeJavacProcess = new FakeProcess(0, "javac stdout\n", "javac stderr\n");
 
@@ -82,8 +88,8 @@ public class JavacStepTest {
             .setProcessExecutor(
                 new FakeProcessExecutor(Functions.constant(fakeJavacProcess), new TestConsole()))
             .build();
-    BuckEventBusFactory.CapturingConsoleEventListener listener =
-        new BuckEventBusFactory.CapturingConsoleEventListener();
+    BuckEventBusForTests.CapturingConsoleEventListener listener =
+        new BuckEventBusForTests.CapturingConsoleEventListener();
     executionContext.getBuckEventBus().register(listener);
     StepExecutionResult result = step.execute(executionContext);
 
@@ -98,7 +104,7 @@ public class JavacStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder().setSourceLevel("8.0").setTargetLevel("8.0").build();
@@ -120,7 +126,8 @@ public class JavacStepTest {
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
-            Optional.empty());
+            Optional.empty(),
+            null);
 
     FakeProcess fakeJavacProcess = new FakeProcess(1, "javac stdout\n", "javac stderr\n");
 
@@ -129,8 +136,8 @@ public class JavacStepTest {
             .setProcessExecutor(
                 new FakeProcessExecutor(Functions.constant(fakeJavacProcess), new TestConsole()))
             .build();
-    BuckEventBusFactory.CapturingConsoleEventListener listener =
-        new BuckEventBusFactory.CapturingConsoleEventListener();
+    BuckEventBusForTests.CapturingConsoleEventListener listener =
+        new BuckEventBusForTests.CapturingConsoleEventListener();
     executionContext.getBuckEventBus().register(listener);
     StepExecutionResult result = step.execute(executionContext);
 
@@ -146,7 +153,7 @@ public class JavacStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder()
@@ -172,7 +179,8 @@ public class JavacStepTest {
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
-            Optional.empty());
+            Optional.empty(),
+            null);
 
     FakeProcess fakeJavacProcess = new FakeProcess(0, "javac stdout\n", "javac stderr\n");
 
@@ -181,8 +189,8 @@ public class JavacStepTest {
             .setProcessExecutor(
                 new FakeProcessExecutor(Functions.constant(fakeJavacProcess), new TestConsole()))
             .build();
-    BuckEventBusFactory.CapturingConsoleEventListener listener =
-        new BuckEventBusFactory.CapturingConsoleEventListener();
+    BuckEventBusForTests.CapturingConsoleEventListener listener =
+        new BuckEventBusForTests.CapturingConsoleEventListener();
     executionContext.getBuckEventBus().register(listener);
     StepExecutionResult result = step.execute(executionContext);
 
@@ -196,7 +204,7 @@ public class JavacStepTest {
     BuildRuleResolver buildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     JavacOptions javacOptions =
         JavacOptions.builder()
@@ -222,7 +230,8 @@ public class JavacStepTest {
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
-            Optional.empty());
+            Optional.empty(),
+            null);
 
     FakeProcess fakeJavacProcess = new FakeProcess(1, "javac stdout\n", "javac stderr\n");
 
@@ -231,17 +240,10 @@ public class JavacStepTest {
             .setProcessExecutor(
                 new FakeProcessExecutor(Functions.constant(fakeJavacProcess), new TestConsole()))
             .build();
-    BuckEventBusFactory.CapturingConsoleEventListener listener =
-        new BuckEventBusFactory.CapturingConsoleEventListener();
+    BuckEventBusForTests.CapturingConsoleEventListener listener =
+        new BuckEventBusForTests.CapturingConsoleEventListener();
     executionContext.getBuckEventBus().register(listener);
-    StepExecutionResult result = step.execute(executionContext);
-
-    assertThat(result, equalTo(StepExecutionResult.ERROR));
-    assertThat(
-        listener.getLogMessages(),
-        equalTo(
-            ImmutableList.of(
-                "Invalid Java compiler options: Bootstrap classpath /no-such-dir "
-                    + "contains no valid entries")));
+    thrown.expectMessage("Bootstrap classpath /no-such-dir contains no valid entries");
+    step.execute(executionContext);
   }
 }

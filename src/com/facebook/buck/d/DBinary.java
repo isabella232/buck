@@ -16,8 +16,9 @@
 
 package com.facebook.buck.d;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -33,16 +34,19 @@ import com.google.common.collect.ImmutableList;
 import java.util.stream.Stream;
 
 /** BinaryBuildRule implementation for D binaries. */
-public class DBinary extends AbstractBuildRule implements BinaryBuildRule, HasRuntimeDeps {
+public class DBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule, HasRuntimeDeps {
 
-  private final SourcePathRuleFinder ruleFinder;
   private final Tool executable;
   private final SourcePath output;
 
   public DBinary(
-      BuildRuleParams params, SourcePathRuleFinder ruleFinder, Tool executable, SourcePath output) {
-    super(params);
-    this.ruleFinder = ruleFinder;
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      Tool executable,
+      SourcePath output) {
+    super(buildTarget, projectFilesystem, params);
     this.executable = executable;
     this.output = output;
   }
@@ -64,7 +68,7 @@ public class DBinary extends AbstractBuildRule implements BinaryBuildRule, HasRu
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     // Return the actual executable as a runtime dependency.
     // Without this, the file is not written when we get a cache hit.
     return executable.getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget);

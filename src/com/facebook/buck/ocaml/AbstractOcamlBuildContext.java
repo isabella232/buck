@@ -33,6 +33,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.FluentIterable;
@@ -324,22 +325,21 @@ abstract class AbstractOcamlBuildContext implements RuleKeyAppendable {
         .setReflectively("yaccCompiler", getYaccCompiler());
   }
 
-  public ImmutableList<String> getCCompileFlags() {
-    ImmutableList.Builder<String> compileFlags = ImmutableList.builder();
+  public ImmutableList<Arg> getCCompileFlags() {
+    ImmutableList.Builder<Arg> compileFlags = ImmutableList.builder();
 
     CxxPreprocessorInput cxxPreprocessorInput = getCxxPreprocessorInput();
 
     compileFlags.addAll(
-        MoreIterables.zipAndConcat(
-            Iterables.cycle("-ccopt"),
+        StringArg.from(
             CxxHeaders.getArgs(
                 cxxPreprocessorInput.getIncludes(),
                 getSourcePathResolver(),
                 Optional.empty(),
                 getCPreprocessor())));
 
-    for (String cFlag : cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C)) {
-      compileFlags.add("-ccopt", cFlag);
+    for (Arg cFlag : cxxPreprocessorInput.getPreprocessorFlags().get(CxxSource.Type.C)) {
+      compileFlags.add(cFlag);
     }
 
     return compileFlags.build();
@@ -351,9 +351,8 @@ abstract class AbstractOcamlBuildContext implements RuleKeyAppendable {
 
   public ImmutableList<String> getCommonCFlags() {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
-    builder.addAll(addPrefix("-ccopt", getCFlags()));
+    builder.addAll(getCFlags());
     builder.add(
-        "-ccopt",
         "-isystem"
             + getOcamlInteropIncludesDir().orElse(DEFAULT_OCAML_INTEROP_INCLUDE_DIR.toString()));
     return builder.build();

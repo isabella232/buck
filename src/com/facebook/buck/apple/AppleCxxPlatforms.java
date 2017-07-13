@@ -315,22 +315,19 @@ public class AppleCxxPlatforms {
             Flavor.replaceInvalidCharacters(targetSdk.getName() + "-" + targetArchitecture),
             String.format("SDK: %s, architecture: %s", targetSdk.getName(), targetArchitecture));
 
-    ImmutableBiMap.Builder<Path, Path> sanitizerPaths = ImmutableBiMap.builder();
-    sanitizerPaths.put(sdkPaths.getSdkPath(), Paths.get("APPLE_SDKROOT"));
-    sanitizerPaths.put(sdkPaths.getPlatformPath(), Paths.get("APPLE_PLATFORM_DIR"));
+    ImmutableBiMap.Builder<Path, String> sanitizerPaths = ImmutableBiMap.builder();
+    sanitizerPaths.put(sdkPaths.getSdkPath(), "APPLE_SDKROOT");
+    sanitizerPaths.put(sdkPaths.getPlatformPath(), "APPLE_PLATFORM_DIR");
     if (sdkPaths.getDeveloperPath().isPresent()) {
-      sanitizerPaths.put(sdkPaths.getDeveloperPath().get(), Paths.get("APPLE_DEVELOPER_DIR"));
+      sanitizerPaths.put(sdkPaths.getDeveloperPath().get(), "APPLE_DEVELOPER_DIR");
     }
 
     DebugPathSanitizer compilerDebugPathSanitizer =
         new PrefixMapDebugPathSanitizer(
-            config.getDebugPathSanitizerLimit(),
-            File.separatorChar,
-            Paths.get("."),
+            DebugPathSanitizer.getPaddedDir(
+                ".", config.getDebugPathSanitizerLimit(), File.separatorChar),
             sanitizerPaths.build(),
-            filesystem.getRootPath().toAbsolutePath(),
-            CxxToolProvider.Type.CLANG,
-            filesystem);
+            CxxToolProvider.Type.CLANG);
     DebugPathSanitizer assemblerDebugPathSanitizer =
         new MungingDebugPathSanitizer(
             config.getDebugPathSanitizerLimit(),
@@ -526,10 +523,10 @@ public class AppleCxxPlatforms {
             version,
             swiftStdlibToolParamsBuilder.build());
 
-    if (swiftc.isPresent() && swiftStdLibTool.isPresent()) {
+    if (swiftc.isPresent()) {
       return Optional.of(
           SwiftPlatforms.build(
-              platformName, sdkPaths.getToolchainPaths(), swiftc.get(), swiftStdLibTool.get()));
+              platformName, sdkPaths.getToolchainPaths(), swiftc.get(), swiftStdLibTool));
     } else {
       return Optional.empty();
     }

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
@@ -25,14 +26,14 @@ import java.util.stream.Stream;
  * A no-op stub class for binary rules which delegate to another rule to provide the output path and
  * executable tool.
  */
-public abstract class BinaryWrapperRule extends AbstractBuildRule
+public abstract class BinaryWrapperRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements BinaryBuildRule, HasRuntimeDeps {
 
-  private final SourcePathRuleFinder ruleFinder;
-
-  public BinaryWrapperRule(BuildRuleParams buildRuleParams, SourcePathRuleFinder ruleFinder) {
-    super(buildRuleParams);
-    this.ruleFinder = ruleFinder;
+  public BinaryWrapperRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
   }
 
   @Override
@@ -42,7 +43,7 @@ public abstract class BinaryWrapperRule extends AbstractBuildRule
   }
 
   @Override
-  public final Stream<BuildTarget> getRuntimeDeps() {
+  public final Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
             getDeclaredDeps().stream(), getExecutableCommand().getDeps(ruleFinder).stream())
         .map(BuildRule::getBuildTarget);

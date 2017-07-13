@@ -16,7 +16,7 @@ import uuid
 from pynailgun import NailgunConnection, NailgunException
 from timing import monotonic_time_nanos
 from tracing import Tracing
-from subprocutils import which
+from subprocutils import check_output, which
 
 BUCKD_CLIENT_TIMEOUT_MILLIS = 60000
 GC_MAX_PAUSE_TARGET = 15000
@@ -87,10 +87,8 @@ class CommandLineArgs:
     def is_help(self):
         return self.command is None or "--help" in self.command_options
 
-    # Whether this buck invocation is a normal buck or oop compilation mode
-    # TODO: remove this if oop javac is not good thing, or move to a truly independent jar
-    def is_oop_javac(self):
-        return self.command is None and "--oop-javac" in self.buck_options
+    def is_version(self):
+        return self.command is None and "--version" in self.buck_options
 
 
 class RestartBuck(Exception):
@@ -171,6 +169,9 @@ class BuckTool(object):
     def _get_buck_version_uid(self):
         raise NotImplementedError()
 
+    def _get_buck_version_timestamp(self):
+        raise NotImplementedError()
+
     def _get_bootstrap_classpath(self):
         raise NotImplementedError()
 
@@ -183,9 +184,12 @@ class BuckTool(object):
     def _get_extra_java_args(self):
         return []
 
+    def _get_exported_resources(self):
+        return EXPORTED_RESOURCES
+
     @property
     def _use_buckd(self):
-        return not os.environ.get('NO_BUCKD') and not self._command_line.is_oop_javac()
+        return not os.environ.get('NO_BUCKD')
 
     def _environ_for_buck(self):
         env = os.environ.copy()
@@ -198,14 +202,17 @@ class BuckTool(object):
         with Tracing('BuckTool.launch_buck'):
             with JvmCrashLogger(self, self._buck_project.root):
                 if self._command_line.command == "clean" and \
-                        not self._command_line.is_help() and \
-                        not self._command_line.is_oop_javac():
+                        not self._command_line.is_help():
                     self.kill_buckd()
 
                 buck_version_uid = self._get_buck_version_uid()
 
+                if self._command_line.is_version():
+                    print("buck version {}".format(buck_version_uid))
+                    return 0
+
                 use_buckd = self._use_buckd
-                if not self._command_line.is_help() and not self._command_line.is_oop_javac():
+                if not self._command_line.is_help():
                     has_watchman = bool(which('watchman'))
                     if use_buckd and has_watchman:
                         running_version = self._buck_project.get_running_buckd_version()
@@ -254,15 +261,13 @@ class BuckTool(object):
                 command = ["buck"]
                 extra_default_options = [
                     "-Djava.io.tmpdir={0}".format(self._tmp_dir),
+                    "-Dfile.encoding=UTF-8",
                     "-XX:SoftRefLRUPolicyMSPerMB=0",
                     "-XX:+UseG1GC",
                 ]
                 command.extend(self._get_java_args(buck_version_uid, extra_default_options))
                 command.append("com.facebook.buck.cli.bootstrapper.ClassLoaderBootstrapper")
-                if self._command_line.is_oop_javac():
-                    command.append("com.facebook.buck.oop_javac.Main")
-                else:
-                    command.append("com.facebook.buck.cli.Main")
+                command.append("com.facebook.buck.cli.Main")
                 command.extend(sys.argv[1:])
 
                 now = int(round(time.time() * 1000))
@@ -323,6 +328,7 @@ class BuckTool(object):
             command = ["buckd"]
             extra_default_options = [
                 "-Dbuck.buckd_launch_time_nanos={0}".format(monotonic_time_nanos()),
+                "-Dfile.encoding=UTF-8",
                 "-XX:MaxGCPauseMillis={0}".format(GC_MAX_PAUSE_TARGET),
                 "-XX:SoftRefLRUPolicyMSPerMB=0",
                 # Stop Java waking up every 50ms to collect thread
@@ -404,6 +410,7 @@ class BuckTool(object):
 
             return returncode
 
+
     def kill_buckd(self):
         with Tracing('BuckTool.kill_buckd'):
             buckd_transport_file_path = self._buck_project.get_buckd_transport_file_path()
@@ -461,7 +468,7 @@ class BuckTool(object):
             if resource_lock_path is not None:
                 java_args.append("-Dbuck.resource_lock_path={0}".format(resource_lock_path))
 
-            for resource in EXPORTED_RESOURCES:
+            for resource in self._get_exported_resources():
                 if self._has_resource(resource):
                     java_args.append(
                         "-Dbuck.{0}={1}".format(
@@ -506,7 +513,7 @@ def install_signal_handlers():
 def platform_path(path):
     if sys.platform != 'cygwin':
         return path
-    return subprocess.check_output(['cygpath', '-w', path]).strip()
+    return check_output(['cygpath', '-w', path]).strip()
 
 
 def truncate_logs_pretty(logs):

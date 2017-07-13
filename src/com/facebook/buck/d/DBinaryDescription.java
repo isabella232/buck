@@ -19,6 +19,7 @@ package com.facebook.buck.d;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
@@ -40,7 +42,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -73,6 +74,8 @@ public class DBinaryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
@@ -80,14 +83,14 @@ public class DBinaryDescription
       throws NoSuchBuildTargetException {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
-                DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
-                params,
-                ruleFinder,
+                DDescriptionUtils.getSymlinkTreeTarget(buildTarget),
+                buildTarget,
+                projectFilesystem,
                 pathResolver,
                 args.getSrcs()));
 
@@ -95,7 +98,9 @@ public class DBinaryDescription
     // rule to the index.
     CxxLink nativeLinkable =
         DDescriptionUtils.createNativeLinkable(
-            params.withAppendedFlavor(BINARY_FLAVOR),
+            buildTarget.withAppendedFlavors(BINARY_FLAVOR),
+            projectFilesystem,
+            params,
             buildRuleResolver,
             cxxPlatform,
             dBuckConfig,
@@ -116,8 +121,9 @@ public class DBinaryDescription
     // Return a BinaryBuildRule implementation, so that this works
     // with buck run etc.
     return new DBinary(
-        params.copyReplacingExtraDeps(Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
-        ruleFinder,
+        buildTarget,
+        projectFilesystem,
+        params.withExtraDeps(ImmutableSortedSet.of(nativeLinkable)),
         executableBuilder.build(),
         nativeLinkable.getSourcePathToOutput());
   }

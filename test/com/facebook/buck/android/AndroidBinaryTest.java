@@ -20,7 +20,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
-import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.Keystore;
@@ -29,9 +28,12 @@ import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -45,8 +47,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.ObjectMappers;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Function;
 import com.google.common.base.Strings;
 import com.google.common.base.Suppliers;
@@ -57,10 +57,9 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -74,7 +73,8 @@ public class AndroidBinaryTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+    BuildContext buildContext = FakeBuildContext.withSourcePathResolver(pathResolver);
 
     // Two android_library deps, neither with an assets directory.
     BuildRule libraryOne =
@@ -125,7 +125,7 @@ public class AndroidBinaryTest {
         false,
         commands,
         buildableContext,
-        pathResolver);
+        buildContext);
 
     BuildTarget aaptPackageTarget =
         binaryBuildTarget.withFlavors(AndroidBinaryResourcesGraphEnhancer.AAPT_PACKAGE_FLAVOR);
@@ -188,6 +188,7 @@ public class AndroidBinaryTest {
                                 + ".jar"))),
         proguardOutputDir,
         buildableContext,
+        buildContext,
         false,
         expectedSteps);
 
@@ -243,7 +244,7 @@ public class AndroidBinaryTest {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Keystore keystore = addKeystoreRule(ruleResolver);
 
     BuildTarget targetInRootDirectory = BuildTargetFactory.newInstance("//:fb4a");
@@ -325,7 +326,7 @@ public class AndroidBinaryTest {
             .setDexCompression(DexStore.JAR)
             .build(ruleResolver);
 
-    Set<Path> classpath = Sets.newHashSet();
+    Set<Path> classpath = new HashSet<>();
     ImmutableSet.Builder<Path> secondaryDexDirectories = ImmutableSet.builder();
     ImmutableList.Builder<Step> commandsBuilder = ImmutableList.builder();
     Path primaryDexPath =
@@ -343,7 +344,8 @@ public class AndroidBinaryTest {
         Optional.empty(),
         Optional.empty(),
         /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)));
+        FakeBuildContext.withSourcePathResolver(
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the "
@@ -373,7 +375,7 @@ public class AndroidBinaryTest {
             .setIntraDexReorderResources(true, reorderTool, reorderData)
             .build(ruleResolver);
 
-    Set<Path> classpath = Sets.newHashSet();
+    Set<Path> classpath = new HashSet<>();
     ImmutableSet.Builder<Path> secondaryDexDirectories = ImmutableSet.builder();
     ImmutableList.Builder<Step> commandsBuilder = ImmutableList.builder();
     Path primaryDexPath =
@@ -391,7 +393,8 @@ public class AndroidBinaryTest {
         Optional.of(reorderTool),
         Optional.of(reorderData),
         /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)));
+        FakeBuildContext.withSourcePathResolver(
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the "
@@ -404,49 +407,11 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testCreateFilterResourcesStep() throws Exception {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule keystoreRule = addKeystoreRule(resolver);
-    BuildTarget target = BuildTargetFactory.newInstance("//:target");
-    AndroidBinaryBuilder builder =
-        AndroidBinaryBuilder.createBuilder(target)
-            .setManifest(new FakeSourcePath("AndroidManifest.xml"))
-            .setKeystore(keystoreRule.getBuildTarget())
-            .setResourceFilter(new ResourceFilter(ImmutableList.of("mdpi")))
-            .setResourceCompressionMode(ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS);
-
-    AndroidBinary buildRule = builder.build(resolver);
-    ImmutableList<Path> resourceDirectories = ImmutableList.of(Paths.get("one"), Paths.get("two"));
-
-    BuildRule aaptPackageRule =
-        resolver.getRule(BuildTargetFactory.newInstance("//:target#aapt_package"));
-    ResourcesFilter resourcesProvider =
-        (ResourcesFilter) ((AaptPackageResources) aaptPackageRule).getFilteredResourcesProvider();
-    ImmutableList.Builder<Path> filteredDirs = ImmutableList.builder();
-    resourcesProvider.createFilterResourcesStep(
-        /* whitelistedStringsDir */ ImmutableSet.of(),
-        /* locales */ ImmutableSet.of(),
-        resourcesProvider.createInResDirToOutResDirMap(resourceDirectories, filteredDirs));
-
-    assertEquals(
-        ImmutableList.of(
-            BuildTargets.getScratchPath(
-                buildRule.getProjectFilesystem(),
-                target.withFlavors(AndroidBinaryResourcesGraphEnhancer.RESOURCES_FILTER_FLAVOR),
-                "__filtered__%s__/0"),
-            BuildTargets.getScratchPath(
-                buildRule.getProjectFilesystem(),
-                target.withFlavors(AndroidBinaryResourcesGraphEnhancer.RESOURCES_FILTER_FLAVOR),
-                "__filtered__%s__/1")),
-        filteredDirs.build());
-  }
-
-  @Test
   public void testAddPostFilterCommandSteps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     BuildRule keystoreRule = addKeystoreRule(resolver);
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     AndroidBinaryBuilder builder =
@@ -472,49 +437,6 @@ public class AndroidBinaryTest {
   }
 
   @Test
-  public void testWriteFilterResourcesData() throws Exception {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule keystoreRule = addKeystoreRule(resolver);
-    BuildTarget target = BuildTargetFactory.newInstance("//:target");
-    AndroidBinaryBuilder builder =
-        AndroidBinaryBuilder.createBuilder(target)
-            .setPostFilterResourcesCmd(Optional.of("cmd"))
-            .setResourceFilter(new ResourceFilter(ImmutableList.of("mdpi")))
-            .setKeystore(keystoreRule.getBuildTarget())
-            .setManifest(new FakeSourcePath("manifest"));
-    BuildRule buildRule = builder.build(resolver);
-
-    BuildRule aaptPackageRule =
-        resolver.getRule(BuildTargetFactory.newInstance("//:target#aapt_package"));
-    ResourcesFilter resourcesFilter =
-        (ResourcesFilter) ((AaptPackageResources) aaptPackageRule).getFilteredResourcesProvider();
-    ByteArrayOutputStream dataOutputStream = new ByteArrayOutputStream();
-    ImmutableList<Path> resourceDirectories = ImmutableList.of(Paths.get("one"), Paths.get("two"));
-    ImmutableList.Builder<Path> filteredDirs = ImmutableList.builder();
-    resourcesFilter.writeFilterResourcesData(
-        dataOutputStream,
-        resourcesFilter.createInResDirToOutResDirMap(resourceDirectories, filteredDirs));
-
-    JsonNode jsonNode =
-        ObjectMappers.READER.readTree(dataOutputStream.toString(StandardCharsets.UTF_8.name()));
-    assertEquals(
-        BuildTargets.getScratchPath(
-                buildRule.getProjectFilesystem(),
-                target.withFlavors(AndroidBinaryResourcesGraphEnhancer.RESOURCES_FILTER_FLAVOR),
-                "__filtered__%s__/0")
-            .toString(),
-        jsonNode.get("res_dir_map").get("one").asText());
-    assertEquals(
-        BuildTargets.getScratchPath(
-                buildRule.getProjectFilesystem(),
-                target.withFlavors(AndroidBinaryResourcesGraphEnhancer.RESOURCES_FILTER_FLAVOR),
-                "__filtered__%s__/1")
-            .toString(),
-        jsonNode.get("res_dir_map").get("two").asText());
-  }
-
-  @Test
   public void noDxParametersAreHintsAndNotHardDependencies() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -532,7 +454,6 @@ public class AndroidBinaryTest {
   public void transitivePrebuiltJarsAreFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule keystoreRule = addKeystoreRule(resolver);
 
     BuildRule prebuiltJarGen =
@@ -549,7 +470,6 @@ public class AndroidBinaryTest {
         resolver.addToIndex(
             new FakeJavaLibrary(
                 BuildTargetFactory.newInstance("//:immediate_dep"),
-                pathResolver,
                 ImmutableSortedSet.of(transitivePrebuiltJarDep)));
 
     BuildRule rule =

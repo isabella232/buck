@@ -28,6 +28,7 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -45,12 +46,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.SortedSet;
+import java.util.TreeSet;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -181,8 +182,9 @@ public class AuditClasspathCommand extends AbstractCommand {
         Preconditions.checkNotNull(
                 ActionGraphCache.getFreshActionGraph(params.getBuckEventBus(), targetGraph))
             .getResolver();
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    SortedSet<Path> classpathEntries = Sets.newTreeSet();
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    SortedSet<Path> classpathEntries = new TreeSet<>();
 
     for (BuildTarget target : targets) {
       BuildRule rule = Preconditions.checkNotNull(resolver.requireRule(target));
@@ -218,7 +220,8 @@ public class AuditClasspathCommand extends AbstractCommand {
         Preconditions.checkNotNull(
                 ActionGraphCache.getFreshActionGraph(params.getBuckEventBus(), targetGraph))
             .getResolver();
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {

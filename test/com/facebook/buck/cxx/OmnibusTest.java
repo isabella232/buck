@@ -22,14 +22,16 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
@@ -62,11 +64,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -110,11 +115,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -164,11 +172,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -226,11 +237,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -286,11 +300,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -338,11 +355,14 @@ public class OmnibusTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     ImmutableMap<String, SourcePath> libs =
         toSonameMap(
             Omnibus.getSharedLibraries(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:rule")).build(),
+                target,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 resolver,
                 ruleFinder,
                 CxxPlatformUtils.DEFAULT_CONFIG,
@@ -367,7 +387,7 @@ public class OmnibusTest {
   }
 
   private CxxLink getCxxLinkRule(SourcePathRuleFinder ruleFinder, SourcePath path) {
-    return ((CxxLink) ruleFinder.getRuleOrThrow((ExplicitBuildTargetSourcePath) path));
+    return ((CxxLink) ruleFinder.getRule((ExplicitBuildTargetSourcePath) path));
   }
 
   private void assertCxxLinkContainsNativeLinkableInput(

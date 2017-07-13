@@ -41,7 +41,7 @@ if os.name == 'nt':
         return result
 
 
-@unittest.skipUnless(os.name == 'posix' or os.name == 'nt', 'Works on posix and windows only')
+@unittest.skipUnless(os.name == 'posix', 'This test works reliably on posix only')
 class TestNailgunConnection(unittest.TestCase):
     def setUp(self):
         self.setUpTransport()
@@ -83,7 +83,7 @@ class TestNailgunConnection(unittest.TestCase):
             creationflags = DETACHED_PROCESS
 
         self.ng_server_process = subprocess.Popen(
-            ['java', '-jar', self.getNailgunUberJar(), self.transport_address],
+            ['java', '-Djna.nosys=true', '-jar', self.getNailgunUberJar(), self.transport_address],
             close_fds=True,
             preexec_fn=preexec_fn,
             creationflags=creationflags,
@@ -92,7 +92,7 @@ class TestNailgunConnection(unittest.TestCase):
         self.assertIsNone(self.ng_server_process.poll())
 
         # Give Java some time to create the listening socket.
-        for i in range(0, 300):
+        for i in range(0, 600):
             if not transport_exists(self.transport_file):
                 time.sleep(0.01)
 

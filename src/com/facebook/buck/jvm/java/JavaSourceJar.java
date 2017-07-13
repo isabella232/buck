@@ -18,10 +18,12 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -37,12 +39,13 @@ import com.facebook.buck.zip.ZipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
-public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordinates, HasSources {
+public class JavaSourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements HasMavenCoordinates, HasSources {
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> sources;
   private final Path output;
@@ -50,14 +53,16 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
   private final Optional<String> mavenCoords;
 
   public JavaSourceJar(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableSortedSet<SourcePath> sources,
       Optional<String> mavenCoords) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.sources = sources;
-    BuildTarget target = params.getBuildTarget();
-    this.output = BuildTargets.getGenPath(getProjectFilesystem(), target, "%s" + Javac.SRC_JAR);
-    this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), target, "%s-srcs");
+    this.output =
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s" + Javac.SRC_JAR);
+    this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), buildTarget, "%s-srcs");
     this.mavenCoords = mavenCoords;
   }
 
@@ -68,11 +73,21 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
-    steps.add(RmStep.of(getProjectFilesystem(), output));
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), temp));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
+    steps.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output)));
 
-    Set<Path> seenPackages = Sets.newHashSet();
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), temp)));
+
+    Set<Path> seenPackages = new HashSet<>();
 
     // We only want to consider raw source files, since the java package finder doesn't have the
     // smarts to read the "package" line from a source file.
@@ -81,7 +96,10 @@ public class JavaSourceJar extends AbstractBuildRule implements HasMavenCoordina
       Path packageFolder = packageFinder.findJavaPackageFolder(source);
       Path packageDir = temp.resolve(packageFolder);
       if (seenPackages.add(packageDir)) {
-        steps.add(MkdirStep.of(getProjectFilesystem(), packageDir));
+        steps.add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), packageDir)));
       }
       steps.add(
           CopyStep.forFile(

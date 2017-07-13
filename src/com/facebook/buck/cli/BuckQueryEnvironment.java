@@ -26,12 +26,12 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.query.NoopQueryEvaluator;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryEnvironment;
 import com.facebook.buck.query.QueryException;
@@ -50,6 +50,7 @@ import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -70,6 +71,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 
 /**
  * The environment of a Buck query that can evaluate queries to produce a result.
@@ -78,14 +80,14 @@ import java.util.concurrent.ExecutionException;
  */
 public class BuckQueryEnvironment implements QueryEnvironment {
 
-  private static final Logger LOG = Logger.get(BuckQueryEnvironment.class);
-
   private final PerBuildState parserState;
   private final Cell rootCell;
   private final OwnersReport.Builder ownersReportBuilder;
+  private final ListeningExecutorService executor;
   private final TargetPatternEvaluator targetPatternEvaluator;
+  private final QueryEnvironment.TargetEvaluator queryTargetEvaluator;
 
-  private final Map<Cell, BuildFileTree> buildFileTrees = new HashMap<>();
+  private final ImmutableMap<Cell, BuildFileTree> buildFileTrees;
   private final Map<BuildTarget, QueryTarget> buildTargetToQueryTarget = new HashMap<>();
 
   // Query execution is single threaded, however the buildTransitiveClosure implementation
@@ -97,32 +99,47 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       Cell rootCell,
       OwnersReport.Builder ownersReportBuilder,
       PerBuildState parserState,
+      ListeningExecutorService executor,
       TargetPatternEvaluator targetPatternEvaluator) {
     this.parserState = parserState;
     this.rootCell = rootCell;
     this.ownersReportBuilder = ownersReportBuilder;
-    this.buildFileTrees.put(
-        rootCell,
-        new FilesystemBackedBuildFileTree(rootCell.getFilesystem(), rootCell.getBuildFileName()));
+    this.buildFileTrees =
+        rootCell
+            .getAllCells()
+            .stream()
+            .collect(
+                MoreCollectors.toImmutableMap(
+                    Function.identity(),
+                    cell ->
+                        new FilesystemBackedBuildFileTree(
+                            cell.getFilesystem(), cell.getBuildFileName())));
+    this.executor = executor;
     this.targetPatternEvaluator = targetPatternEvaluator;
+    this.queryTargetEvaluator = new TargetEvaluator(targetPatternEvaluator, executor);
   }
 
   public static BuckQueryEnvironment from(
       Cell rootCell,
       OwnersReport.Builder ownersReportBuilder,
       PerBuildState parserState,
+      ListeningExecutorService executor,
       TargetPatternEvaluator targetPatternEvaluator) {
     return new BuckQueryEnvironment(
-        rootCell, ownersReportBuilder, parserState, targetPatternEvaluator);
+        rootCell, ownersReportBuilder, parserState, executor, targetPatternEvaluator);
   }
 
   public static BuckQueryEnvironment from(
-      CommandRunnerParams params, PerBuildState parserState, boolean enableProfiling) {
+      CommandRunnerParams params,
+      PerBuildState parserState,
+      ListeningExecutorService executor,
+      boolean enableProfiling) {
     return from(
         params.getCell(),
         OwnersReport.builder(
             params.getCell(), params.getParser(), params.getBuckEventBus(), params.getConsole()),
         parserState,
+        executor,
         new TargetPatternEvaluator(
             params.getCell(),
             params.getBuckConfig(),
@@ -139,7 +156,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
     return parserState;
   }
 
-  public void preloadTargetPatterns(Iterable<String> patterns, ListeningExecutorService executor)
+  public void preloadTargetPatterns(Iterable<String> patterns)
       throws QueryException, InterruptedException {
     try {
       targetPatternEvaluator.preloadTargetPatterns(patterns, executor);
@@ -157,33 +174,17 @@ public class BuckQueryEnvironment implements QueryEnvironment {
    * @return the resulting set of targets.
    * @throws QueryException if the evaluation failed.
    */
-  public ImmutableSet<QueryTarget> evaluateQuery(
-      QueryExpression expr, ListeningExecutorService executor)
+  public ImmutableSet<QueryTarget> evaluateQuery(QueryExpression expr)
       throws QueryException, InterruptedException {
     Set<String> targetLiterals = new HashSet<>();
     expr.collectTargetPatterns(targetLiterals);
-    preloadTargetPatterns(targetLiterals, executor);
-    return expr.eval(this, executor);
+    preloadTargetPatterns(targetLiterals);
+    return new NoopQueryEvaluator().eval(expr, this);
   }
 
-  public ImmutableSet<QueryTarget> evaluateQuery(String query, ListeningExecutorService executor)
+  public ImmutableSet<QueryTarget> evaluateQuery(String query)
       throws QueryException, InterruptedException {
-    return evaluateQuery(QueryExpression.parse(query, getFunctions()), executor);
-  }
-
-  @Override
-  public ImmutableSet<QueryTarget> getTargetsMatchingPattern(
-      String pattern, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
-    try {
-      return ImmutableSet.copyOf(
-          Iterables.concat(
-              targetPatternEvaluator
-                  .resolveTargetPatterns(ImmutableList.of(pattern), executor)
-                  .values()));
-    } catch (BuildTargetException | BuildFileParseException | IOException e) {
-      throw new QueryException(e, "Error in resolving targets matching %s", pattern);
-    }
+    return evaluateQuery(QueryExpression.parse(query, this));
   }
 
   TargetNode<?, ?> getNode(QueryTarget target) throws QueryException {
@@ -236,8 +237,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets) throws QueryException {
     ImmutableSet.Builder<QueryTarget> result = new ImmutableSet.Builder<>();
     for (QueryTarget target : targets) {
       TargetNode<?, ?> node = getNode(target);
@@ -247,8 +247,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+  public Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets) throws QueryException {
     Set<QueryTarget> result = new LinkedHashSet<>();
     for (QueryTarget target : targets) {
       TargetNode<?, ?> node = getNode(target);
@@ -268,7 +267,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     Set<TargetNode<?, ?>> nodes = new LinkedHashSet<>();
     for (QueryTarget target : targets) {
       nodes.add(getNode(target));
@@ -277,7 +276,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
     new AbstractBreadthFirstTraversal<TargetNode<?, ?>>(nodes) {
       @Override
-      public ImmutableSet<TargetNode<?, ?>> visit(TargetNode<?, ?> node) {
+      public Iterable<TargetNode<?, ?>> visit(TargetNode<?, ?> node) {
         result.add(getOrCreateQueryBuildTarget(node.getBuildTarget()));
         return node.getParseDeps()
             .stream()
@@ -290,9 +289,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public void buildTransitiveClosure(
-      Set<QueryTarget> targets, int maxDepth, ListeningExecutorService executor)
-      throws QueryException, InterruptedException {
+  public void buildTransitiveClosure(Set<QueryTarget> targets, int maxDepth) throws QueryException {
     // Filter QueryTargets that are build targets and not yet present in the build target graph.
     ImmutableSet<BuildTarget> newBuildTargets =
         targets
@@ -320,7 +317,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       }
       propagateCauseIfInstanceOf(e, ExecutionException.class);
       propagateCauseIfInstanceOf(e, UncheckedExecutionException.class);
-    } catch (BuildFileParseException | BuildTargetException e) {
+    } catch (BuildFileParseException | BuildTargetException | InterruptedException e) {
       throw new QueryException(
           e, "Failed parsing: " + MoreExceptions.getHumanReadableOrLocalizedMessage(e));
     }
@@ -424,8 +421,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getTestsForTarget(QueryTarget target)
-      throws QueryException, InterruptedException {
+  public ImmutableSet<QueryTarget> getTestsForTarget(QueryTarget target) throws QueryException {
     return getTargetsFromBuildTargets(TargetNodes.getTestTargetsForNode(getNode(target)));
   }
 
@@ -440,12 +436,6 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       Preconditions.checkState(target instanceof QueryBuildTarget);
       BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();
       Cell cell = rootCell.getCell(buildTarget);
-
-      if (!buildFileTrees.containsKey(cell)) {
-        LOG.info("Creating a new filesystem-backed build file tree for %s", cell.getRoot());
-        buildFileTrees.put(
-            cell, new FilesystemBackedBuildFileTree(cell.getFilesystem(), cell.getBuildFileName()));
-      }
       BuildFileTree buildFileTree = Preconditions.checkNotNull(buildFileTrees.get(cell));
       Optional<Path> path = buildFileTree.getBasePathOfAncestorTarget(buildTarget.getBasePath());
       Preconditions.checkState(path.isPresent());
@@ -460,12 +450,10 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getFileOwners(
-      ImmutableList<String> files, ListeningExecutorService executor)
-      throws InterruptedException, QueryException {
+  public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files)
+      throws QueryException {
     try {
-      BuildFileTree buildFileTree = Preconditions.checkNotNull(buildFileTrees.get(rootCell));
-      OwnersReport report = ownersReportBuilder.build(buildFileTree, executor, files);
+      OwnersReport report = ownersReportBuilder.build(buildFileTrees, executor, files);
       return getTargetsFromTargetNodes(report.owners.keySet());
     } catch (BuildFileParseException | IOException e) {
       throw new QueryException(e, "Could not parse build targets.\n%s", e.getMessage());
@@ -473,25 +461,59 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public String getTargetKind(QueryTarget target) throws QueryException, InterruptedException {
+  public String getTargetKind(QueryTarget target) throws QueryException {
     return Description.getBuildRuleType(getNode(target).getDescription()).getName();
   }
 
   @Override
   public ImmutableSet<QueryTarget> getTargetsInAttribute(QueryTarget target, String attribute)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     return QueryTargetAccessor.getTargetsInAttribute(getNode(target), attribute);
   }
 
   @Override
   public ImmutableSet<Object> filterAttributeContents(
       QueryTarget target, String attribute, final Predicate<Object> predicate)
-      throws QueryException, InterruptedException {
+      throws QueryException {
     return QueryTargetAccessor.filterAttributeContents(getNode(target), attribute, predicate);
   }
 
   @Override
   public Iterable<QueryFunction> getFunctions() {
     return DEFAULT_QUERY_FUNCTIONS;
+  }
+
+  @Override
+  public QueryEnvironment.TargetEvaluator getTargetEvaluator() {
+    return queryTargetEvaluator;
+  }
+
+  private static class TargetEvaluator implements QueryEnvironment.TargetEvaluator {
+    private final TargetPatternEvaluator evaluator;
+    private final ListeningExecutorService executor;
+
+    private TargetEvaluator(TargetPatternEvaluator evaluator, ListeningExecutorService executor) {
+      this.evaluator = evaluator;
+      this.executor = executor;
+    }
+
+    @Override
+    public ImmutableSet<QueryTarget> evaluateTarget(String target) throws QueryException {
+      try {
+        return ImmutableSet.copyOf(
+            Iterables.concat(
+                evaluator.resolveTargetPatterns(ImmutableList.of(target), executor).values()));
+      } catch (BuildTargetException
+          | BuildFileParseException
+          | InterruptedException
+          | IOException e) {
+        throw new QueryException(e, "Error in resolving targets matching %s", target);
+      }
+    }
+
+    @Override
+    public Type getType() {
+      return Type.LAZY;
+    }
   }
 }

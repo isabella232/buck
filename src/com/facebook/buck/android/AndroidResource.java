@@ -16,20 +16,18 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
 import com.facebook.buck.android.aapt.MiniAapt;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -73,13 +71,11 @@ import javax.annotation.Nullable;
  * )
  * </pre>
  */
-public class AndroidResource extends AbstractBuildRule
+public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements AndroidPackageable,
         HasAndroidResourceDeps,
         InitializableFromDisk<String>,
         SupportsInputBasedRuleKey {
-
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, LIBRARY);
 
   @VisibleForTesting
   static final String METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE = "METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE";
@@ -135,6 +131,8 @@ public class AndroidResource extends AbstractBuildRule
   private final AtomicReference<String> rDotJavaPackage;
 
   public AndroidResource(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       final ImmutableSortedSet<BuildRule> deps,
@@ -149,6 +147,8 @@ public class AndroidResource extends AbstractBuildRule
       boolean resourceUnion,
       boolean isGrayscaleImageProcessingEnabled) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams.copyAppendingExtraDeps(
             Suppliers.compose(ruleFinder::filterBuildRuleInputs, symbolFilesFromDeps)));
     if (res != null && rDotJavaPackageArgument == null && manifestFile == null) {
@@ -167,7 +167,6 @@ public class AndroidResource extends AbstractBuildRule
     this.hasWhitelistedStrings = hasWhitelistedStrings;
     this.resourceUnion = resourceUnion;
 
-    BuildTarget buildTarget = buildRuleParams.getBuildTarget();
     this.pathToTextSymbolsDir =
         BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__%s_text_symbols__");
     this.pathToTextSymbolsFile = pathToTextSymbolsDir.resolve("R.txt");
@@ -196,7 +195,9 @@ public class AndroidResource extends AbstractBuildRule
   }
 
   public AndroidResource(
-      final BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       final ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
@@ -207,6 +208,8 @@ public class AndroidResource extends AbstractBuildRule
       @Nullable SourcePath manifestFile,
       boolean hasWhitelistedStrings) {
     this(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams,
         ruleFinder,
         deps,
@@ -222,7 +225,9 @@ public class AndroidResource extends AbstractBuildRule
   }
 
   public AndroidResource(
-      final BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       final ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
@@ -235,6 +240,8 @@ public class AndroidResource extends AbstractBuildRule
       boolean resourceUnion,
       boolean isGrayscaleImageProcessingEnabled) {
     this(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams,
         ruleFinder,
         deps,
@@ -281,7 +288,10 @@ public class AndroidResource extends AbstractBuildRule
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     steps.addAll(
         MakeCleanDirectoryStep.of(
-            getProjectFilesystem(), Preconditions.checkNotNull(pathToTextSymbolsDir)));
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                Preconditions.checkNotNull(pathToTextSymbolsDir))));
     if (getRes() == null) {
       return steps
           .add(new TouchStep(getProjectFilesystem(), pathToTextSymbolsFile))
@@ -358,11 +368,6 @@ public class AndroidResource extends AbstractBuildRule
       throw new RuntimeException("No package for " + getBuildTarget());
     }
     return rDotJavaPackage;
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   @Override

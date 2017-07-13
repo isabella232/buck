@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,7 +29,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -45,6 +45,8 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
   @Override
   public AndroidManifest createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -71,8 +73,9 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
             .build();
 
     return new AndroidManifest(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(newDeps), params.getExtraDeps()),
+        buildTarget,
+        projectFilesystem,
+        params.withDeclaredDeps(newDeps),
         args.getSkeleton(),
         manifestFiles);
   }

@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxInferEnhancer;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -29,7 +30,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -122,6 +122,8 @@ public class MultiarchFileInfos {
    * <p>Invariant: thinRules contain all the thin rules listed in info.getThinTargets().
    */
   public static BuildRule requireMultiarchRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       MultiarchFileInfo info,
@@ -144,12 +146,13 @@ public class MultiarchFileInfos {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     MultiarchFile multiarchFile =
         new MultiarchFile(
-            params.copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(ImmutableSortedSet.of()), Suppliers.ofInstance(thinRules)),
+            buildTarget,
+            projectFilesystem,
+            params.withoutDeclaredDeps().withExtraDeps(thinRules),
             ruleFinder,
             info.getRepresentativePlatform().getLipo(),
             inputs,
-            BuildTargets.getGenPath(params.getProjectFilesystem(), params.getBuildTarget(), "%s"));
+            BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s"));
     resolver.addToIndex(multiarchFile);
     return multiarchFile;
   }

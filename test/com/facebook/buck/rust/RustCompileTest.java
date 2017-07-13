@@ -20,22 +20,25 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.io.FileScrubber;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableCollection;
@@ -165,6 +168,7 @@ public class RustCompileTest {
 
       @Override
       public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
+          ProjectFilesystem projectFilesystem,
           BuildRuleParams baseParams,
           BuildRuleResolver ruleResolver,
           SourcePathRuleFinder ruleFinder,
@@ -219,7 +223,9 @@ public class RustCompileTest {
     private FakeRustCompileRule(
         BuildTarget target, ImmutableSortedSet<SourcePath> srcs, SourcePath rootModule) {
       super(
-          new FakeBuildRuleParamsBuilder(target).build(),
+          target,
+          new FakeProjectFilesystem(),
+          TestBuildRuleParams.create(),
           String.format("lib%s.rlib", target),
           fakeTool(),
           fakeLinker(),
@@ -242,7 +248,7 @@ public class RustCompileTest {
               new BuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
 
-      SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+      SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
       Optional<SourcePath> root =
           RustCompileUtils.getCrateRoot(

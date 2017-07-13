@@ -18,6 +18,7 @@ package com.facebook.buck.lua;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.file.WriteFile;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
@@ -31,9 +32,7 @@ import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Charsets;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -46,6 +45,10 @@ import org.immutables.value.Value;
 abstract class AbstractLuaScriptStarter implements Starter {
 
   private static final String STARTER = "com/facebook/buck/lua/starter.lua.in";
+
+  abstract ProjectFilesystem getProjectFilesystem();
+
+  abstract BuildTarget getBaseTarget();
 
   abstract BuildRuleParams getBaseParams();
 
@@ -80,23 +83,19 @@ abstract class AbstractLuaScriptStarter implements Starter {
   @Override
   public SourcePath build() {
     BuildTarget templateTarget =
-        BuildTarget.builder(getBaseParams().getBuildTarget())
+        BuildTarget.builder(getBaseTarget())
             .addFlavors(InternalFlavor.of("starter-template"))
             .build();
     WriteFile templateRule =
         getRuleResolver()
             .addToIndex(
                 new WriteFile(
-                    getBaseParams()
-                        .withBuildTarget(templateTarget)
-                        .copyReplacingDeclaredAndExtraDeps(
-                            Suppliers.ofInstance(ImmutableSortedSet.of()),
-                            Suppliers.ofInstance(ImmutableSortedSet.of())),
+                    templateTarget,
+                    getProjectFilesystem(),
+                    getBaseParams().withoutDeclaredDeps().withoutExtraDeps(),
                     getPureStarterTemplate(),
                     BuildTargets.getGenPath(
-                        getBaseParams().getProjectFilesystem(),
-                        templateTarget,
-                        "%s/starter.lua.in"),
+                        getProjectFilesystem(), templateTarget, "%s/starter.lua.in"),
                     /* executable */ false));
 
     final Tool lua = getLuaConfig().getLua(getRuleResolver());
@@ -104,6 +103,7 @@ abstract class AbstractLuaScriptStarter implements Starter {
         getRuleResolver()
             .addToIndex(
                 WriteStringTemplateRule.from(
+                    getProjectFilesystem(),
                     getBaseParams(),
                     getRuleFinder(),
                     getTarget(),

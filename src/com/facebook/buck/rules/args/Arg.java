@@ -64,7 +64,7 @@ public interface Arg extends RuleKeyAppendable {
   }
 
   static ImmutableList<String> stringify(
-      ImmutableCollection<Arg> args, SourcePathResolver pathResolver) {
+      Iterable<? extends Arg> args, SourcePathResolver pathResolver) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     for (Arg arg : args) {
       arg.appendToCommandLine(builder, pathResolver);
@@ -73,9 +73,9 @@ public interface Arg extends RuleKeyAppendable {
   }
 
   static <K> ImmutableMap<K, String> stringify(
-      ImmutableMap<K, Arg> argMap, SourcePathResolver pathResolver) {
+      ImmutableMap<K, ? extends Arg> argMap, SourcePathResolver pathResolver) {
     ImmutableMap.Builder<K, String> stringMap = ImmutableMap.builder();
-    for (Map.Entry<K, Arg> ent : argMap.entrySet()) {
+    for (Map.Entry<K, ? extends Arg> ent : argMap.entrySet()) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
       ent.getValue().appendToCommandLine(builder, pathResolver);
       stringMap.put(ent.getKey(), Joiner.on(" ").join(builder.build()));

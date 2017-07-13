@@ -22,7 +22,7 @@ import static org.hamcrest.Matchers.stringContainsInOrder;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.model.BuildFileTree;
@@ -51,6 +51,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -311,9 +312,9 @@ public class ParsePipelineTest {
   private Fixture createMultiThreadedFixture(String scenario) throws Exception {
     return new Fixture(
         scenario,
-        com.google.common.util.concurrent.MoreExecutors.listeningDecorator(
+        MoreExecutors.listeningDecorator(
             MostExecutors.newMultiThreadExecutor("ParsePipelineTest", 4)),
-        SpeculativeParsing.of(true));
+        PerBuildState.SpeculativeParsing.ENABLED);
   }
 
   // Use this method to make sure the Pipeline doesn't execute stuff on another thread, useful
@@ -321,8 +322,8 @@ public class ParsePipelineTest {
   private Fixture createSynchronousExecutionFixture(String scenario) throws Exception {
     return new Fixture(
         scenario,
-        com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService(),
-        SpeculativeParsing.of(false));
+        MoreExecutors.newDirectExecutorService(),
+        PerBuildState.SpeculativeParsing.DISABLED);
   }
 
   private class Fixture implements AutoCloseable {
@@ -343,10 +344,10 @@ public class ParsePipelineTest {
     public Fixture(
         String scenario,
         ListeningExecutorService executorService,
-        SpeculativeParsing speculativeParsing)
+        PerBuildState.SpeculativeParsing speculativeParsing)
         throws Exception {
       this.workspace = TestDataHelper.createProjectWorkspaceForScenario(this, scenario, tmp);
-      this.eventBus = BuckEventBusFactory.newInstance();
+      this.eventBus = BuckEventBusForTests.newInstance();
       this.console = new TestConsole();
       this.executorService = executorService;
       this.projectBuildFileParsers = new HashSet<>();
@@ -369,7 +370,8 @@ public class ParsePipelineTest {
                   projectBuildFileParsers.add(buildFileParser);
                 }
                 return buildFileParser;
-              });
+              },
+              false);
       final TargetNodeListener<TargetNode<?, ?>> nodeListener = (buildFile, node) -> {};
       LoadingCache<Cell, BuildFileTree> buildFileTrees =
           CacheBuilder.newBuilder()
@@ -394,7 +396,7 @@ public class ParsePipelineTest {
                   new TargetNodeFactory(coercerFactory)),
               this.executorService,
               this.eventBus,
-              speculativeParsing.value(),
+              speculativeParsing == PerBuildState.SpeculativeParsing.ENABLED,
               this.rawNodeParsePipeline);
     }
 

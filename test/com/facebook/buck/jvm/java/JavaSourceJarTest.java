@@ -25,21 +25,24 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -55,10 +58,13 @@ public class JavaSourceJarTest {
   public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//example:target");
 
     JavaSourceJar rule =
         new JavaSourceJar(
-            new FakeBuildRuleParamsBuilder("//example:target").build(),
+            buildTarget,
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             ImmutableSortedSet.of(),
             Optional.empty());
     resolver.addToIndex(rule);
@@ -66,7 +72,8 @@ public class JavaSourceJarTest {
     SourcePath output = rule.getSourcePathToOutput();
 
     assertNotNull(output);
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     assertThat(pathResolver.getRelativePath(output).toString(), endsWith(Javac.SRC_JAR));
   }
 
@@ -83,15 +90,18 @@ public class JavaSourceJarTest {
     // No need to verify. It's a stub. I don't care about the interactions.
     EasyMock.replay(finderStub);
 
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//example:target");
     JavaSourceJar rule =
         new JavaSourceJar(
-            new FakeBuildRuleParamsBuilder("//example:target").build(),
+            buildTarget,
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             ImmutableSortedSet.of(fileBased, ruleBased),
             Optional.empty());
 
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(
-                new SourcePathResolver(
+                DefaultSourcePathResolver.from(
                     new SourcePathRuleFinder(
                         new BuildRuleResolver(
                             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()))))

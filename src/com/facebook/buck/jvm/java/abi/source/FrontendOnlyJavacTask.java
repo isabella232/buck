@@ -132,11 +132,9 @@ public class FrontendOnlyJavacTask extends BuckJavacTask {
   private void initUtils() {
     Elements javacElements = javacTask.getElements();
     Trees javacTrees = super.getTrees();
-    types = new TreeBackedTypes(javacTask.getTypes());
-    elements = new TreeBackedElements(javacElements, javacTrees);
+    elements = new TreeBackedElements(javacElements);
+    types = new TreeBackedTypes(javacTask.getTypes(), elements);
     trees = new TreeBackedTrees(javacTrees, elements, types);
-    types.setElements(elements);
-    elements.setResolver(new TreeBackedElementResolver(elements, types));
   }
 
   @Override

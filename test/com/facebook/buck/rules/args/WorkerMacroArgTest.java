@@ -28,8 +28,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -37,6 +35,7 @@ import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.shell.WorkerToolBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -46,7 +45,6 @@ public class WorkerMacroArgTest {
   public void testWorkerMacroArgConstruction() throws MacroException, NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
@@ -75,7 +73,9 @@ public class WorkerMacroArgTest {
             resolver,
             "$(worker //:worker_rule) " + jobArgs);
     assertThat(arg.getJobArgs(), Matchers.equalTo(jobArgs));
-    assertThat(arg.getStartupArgs(pathResolver), Matchers.equalTo(startupArgs));
+    assertThat(
+        arg.getStartupCommand().subList(1, 2),
+        Matchers.equalTo(ImmutableList.<String>builder().add(startupArgs).build()));
     assertThat(arg.getMaxWorkers(), Matchers.equalTo(maxWorkers));
   }
 
@@ -107,9 +107,7 @@ public class WorkerMacroArgTest {
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRule nonWorkerBuildRule =
-        new FakeBuildRule(
-            BuildTargetFactory.newInstance("//:not_worker_rule"),
-            new SourcePathResolver(new SourcePathRuleFinder(resolver)));
+        new FakeBuildRule(BuildTargetFactory.newInstance("//:not_worker_rule"));
     resolver.addToIndex(nonWorkerBuildRule);
 
     MacroHandler macroHandler =

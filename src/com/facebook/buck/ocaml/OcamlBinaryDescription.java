@@ -17,6 +17,7 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -63,6 +64,8 @@ public class OcamlBinaryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -73,7 +76,7 @@ public class OcamlBinaryDescription
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> flags = ImmutableList.builder();
     flags.addAll(
         OcamlDescriptionEnhancer.toStringWithMacrosArgs(
-            params.getBuildTarget(), cellRoots, resolver, args.getCompilerFlags()));
+            buildTarget, cellRoots, resolver, args.getCompilerFlags()));
     if (ocamlBuckConfig.getWarningsFlags().isPresent() || args.getWarningsFlags().isPresent()) {
       flags.addAll(StringArg.from("-w"));
       flags.addAll(
@@ -83,6 +86,8 @@ public class OcamlBinaryDescription
     ImmutableList<String> linkerFlags = args.getLinkerFlags();
     return OcamlRuleBuilder.createBuildRule(
         ocamlBuckConfig,
+        buildTarget,
+        projectFilesystem,
         params,
         resolver,
         srcs,

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.HasJavaAbi;
@@ -34,8 +35,8 @@ import com.facebook.buck.util.DependencyMode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
+import java.util.SortedSet;
 
 public class AndroidLibraryGraphEnhancer {
 
@@ -50,9 +51,11 @@ public class AndroidLibraryGraphEnhancer {
   private final Optional<String> resourceUnionPackage;
   private final Optional<String> finalRName;
   private final boolean useOldStyleableFormat;
+  private final ProjectFilesystem projectFilesystem;
 
   public AndroidLibraryGraphEnhancer(
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Javac javac,
       JavacOptions javacOptions,
@@ -61,6 +64,7 @@ public class AndroidLibraryGraphEnhancer {
       Optional<String> resourceUnionPackage,
       Optional<String> finalRName,
       boolean useOldStyleableFormat) {
+    this.projectFilesystem = projectFilesystem;
     Preconditions.checkState(!HasJavaAbi.isAbiTarget(buildTarget));
     this.dummyRDotJavaBuildTarget = getDummyRDotJavaTarget(buildTarget);
     this.originalBuildRuleParams = buildRuleParams;
@@ -87,7 +91,7 @@ public class AndroidLibraryGraphEnhancer {
     if (previouslyCreated.isPresent()) {
       return previouslyCreated.map(input -> (DummyRDotJava) input);
     }
-    ImmutableSortedSet<BuildRule> originalDeps = originalBuildRuleParams.getBuildDeps();
+    SortedSet<BuildRule> originalDeps = originalBuildRuleParams.getBuildDeps();
     ImmutableSet<HasAndroidResourceDeps> androidResourceDeps;
 
     switch (resourceDependencyMode) {
@@ -117,17 +121,15 @@ public class AndroidLibraryGraphEnhancer {
     CompileToJarStepFactory compileToJarStepFactory =
         new JavacToJarStepFactory(javac, javacOptions, JavacOptionsAmender.IDENTITY);
     BuildRuleParams dummyRDotJavaParams =
-        compileToJarStepFactory
-            .addInputs(
-                // DummyRDotJava inherits no dependencies from its android_library beyond the compiler
-                // that is used to build it
-                originalBuildRuleParams.copyReplacingDeclaredAndExtraDeps(
-                    ImmutableSortedSet::of, ImmutableSortedSet::of),
-                ruleFinder)
-            .withBuildTarget(dummyRDotJavaBuildTarget);
+        compileToJarStepFactory.addInputs(
+            // DummyRDotJava inherits no dependencies from its android_library beyond the compiler
+            // that is used to build it
+            originalBuildRuleParams.withoutDeclaredDeps().withoutExtraDeps(), ruleFinder);
 
     DummyRDotJava dummyRDotJava =
         new DummyRDotJava(
+            dummyRDotJavaBuildTarget,
+            projectFilesystem,
             dummyRDotJavaParams,
             ruleFinder,
             androidResourceDeps,

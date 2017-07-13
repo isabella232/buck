@@ -16,9 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -32,14 +34,13 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 
 /** Build a shared library interface from an ELF shared library. */
-class ElfSharedLibraryInterface extends AbstractBuildRuleWithResolver
+class ElfSharedLibraryInterface extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey {
 
   // We only care about sections relevant to dynamic linking.
@@ -53,11 +54,13 @@ class ElfSharedLibraryInterface extends AbstractBuildRuleWithResolver
   @AddToRuleKey private final SourcePath input;
 
   private ElfSharedLibraryInterface(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       Tool objcopy,
       SourcePath input) {
-    super(buildRuleParams, resolver);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.pathResolver = resolver;
     this.objcopy = objcopy;
     this.input = input;
@@ -65,21 +68,22 @@ class ElfSharedLibraryInterface extends AbstractBuildRuleWithResolver
 
   public static ElfSharedLibraryInterface from(
       BuildTarget target,
-      BuildRuleParams baseParams,
+      ProjectFilesystem projectFilesystem,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Tool objcopy,
       SourcePath input) {
     return new ElfSharedLibraryInterface(
-        baseParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(objcopy.getDeps(ruleFinder))
-                        .addAll(ruleFinder.filterBuildRuleInputs(input))
-                        .build()),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
+        target,
+        projectFilesystem,
+        new BuildRuleParams(
+            () ->
+                ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(objcopy.getDeps(ruleFinder))
+                    .addAll(ruleFinder.filterBuildRuleInputs(input))
+                    .build(),
+            () -> ImmutableSortedSet.of(),
+            ImmutableSortedSet.of()),
         resolver,
         objcopy,
         input);
@@ -99,7 +103,10 @@ class ElfSharedLibraryInterface extends AbstractBuildRuleWithResolver
     Path output = getOutputDir().resolve(getSharedAbiLibraryName());
     buildableContext.recordArtifact(output);
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getOutputDir()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), getOutputDir())))
         .add(
             ElfExtractSectionsStep.of(
                 getProjectFilesystem(),

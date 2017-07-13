@@ -53,7 +53,8 @@ public final class AppleBuildRules {
               AppleBinaryDescription.class,
               AppleBundleDescription.class,
               AppleTestDescription.class,
-              HalideLibraryDescription.class);
+              HalideLibraryDescription.class,
+              SwiftLibraryDescription.class);
 
   private static final ImmutableSet<Class<? extends BuildRule>> XCODE_TARGET_BUILD_RULE_TEST_TYPES =
       ImmutableSet.of(AppleTest.class);
@@ -150,8 +151,17 @@ public final class AppleBuildRules {
     @SuppressWarnings("unchecked")
     GraphTraversable<TargetNode<?, ?>> graphTraversable =
         node -> {
-          if (!isXcodeTargetDescription(node.getDescription())
-              || SwiftLibraryDescription.isSwiftTarget(node.getBuildTarget())) {
+          // Handle resource exporting behavior of AppleResource.getResourceFromDeps
+          Optional<Iterable<TargetNode<?, ?>>> iterable =
+              node.castArg(AppleResourceDescriptionArg.class)
+                  .map(TargetNode::getConstructorArg)
+                  .map(arg -> targetGraph.getAll(arg.getResourcesFromDeps()));
+          if (iterable.isPresent()) {
+            return iterable.get().iterator();
+          }
+
+          // Stop traversal for rules outside the specific set.
+          if (!isXcodeTargetDescription(node.getDescription())) {
             return Collections.emptyIterator();
           }
 

@@ -52,8 +52,16 @@ class ClassesImpl implements Classes {
 
   @Override
   public void createJar(Path jarPath, boolean hashEntries) throws IOException {
-    JarBuilder jarBuilder = new JarBuilder().setShouldHashEntries(hashEntries);
+    JarBuilder jarBuilder =
+        new JarBuilder().setShouldMergeManifests(true).setShouldHashEntries(hashEntries);
 
+    writeToJar(jarBuilder);
+
+    jarBuilder.createJarFile(jarPath);
+  }
+
+  @Override
+  public void writeToJar(JarBuilder jarBuilder) throws IOException {
     List<Path> files =
         Files.walk(root.getRoot().toPath())
             .filter(path -> path.toFile().isFile())
@@ -68,8 +76,6 @@ class ClassesImpl implements Classes {
               "test",
               () -> Files.newInputStream(file)));
     }
-
-    jarBuilder.createJarFile(jarPath);
   }
 
   private Path resolveClassFilePath(String qualifiedName) {

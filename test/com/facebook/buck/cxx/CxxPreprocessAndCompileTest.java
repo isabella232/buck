@@ -30,9 +30,9 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
@@ -42,9 +42,11 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -97,8 +99,8 @@ public class CxxPreprocessAndCompileTest {
       new CompilerWithColorSupport(new HashedFileTool(Paths.get("compiler")));
   private static final CxxToolFlags DEFAULT_TOOL_FLAGS =
       CxxToolFlags.explicitBuilder()
-          .addPlatformFlags("-fsanitize=address")
-          .addRuleFlags("-O3")
+          .addPlatformFlags(StringArg.of("-fsanitize=address"))
+          .addRuleFlags(StringArg.of("-O3"))
           .build();
   private static final Path DEFAULT_OUTPUT = Paths.get("test.o");
   private static final SourcePath DEFAULT_INPUT = new FakeSourcePath("test.cpp");
@@ -124,9 +126,10 @@ public class CxxPreprocessAndCompileTest {
         new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
     FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
@@ -146,6 +149,8 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
+                    target,
+                    projectFilesystem,
                     params,
                     new CompilerDelegate(
                         pathResolver,
@@ -164,6 +169,8 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
+                    target,
+                    projectFilesystem,
                     params,
                     new CompilerDelegate(
                         pathResolver,
@@ -183,6 +190,8 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.preprocessAndCompile(
+                    target,
+                    projectFilesystem,
                     params,
                     new PreprocessorDelegate(
                         pathResolver,
@@ -213,13 +222,15 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
+                    target,
+                    projectFilesystem,
                     params,
                     new CompilerDelegate(
                         pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         CxxToolFlags.explicitBuilder()
-                            .addPlatformFlags("-different")
+                            .addPlatformFlags(StringArg.of("-different"))
                             .setRuleFlags(DEFAULT_TOOL_FLAGS.getRuleFlags())
                             .build()),
                     DEFAULT_OUTPUT,
@@ -235,6 +246,8 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
+                    target,
+                    projectFilesystem,
                     params,
                     new CompilerDelegate(
                         pathResolver,
@@ -242,7 +255,7 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_COMPILER,
                         CxxToolFlags.explicitBuilder()
                             .setPlatformFlags(DEFAULT_TOOL_FLAGS.getPlatformFlags())
-                            .addRuleFlags("-other", "flags")
+                            .addAllRuleFlags(StringArg.from("-other", "flags"))
                             .build()),
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUT,
@@ -257,6 +270,8 @@ public class CxxPreprocessAndCompileTest {
         new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
+                    target,
+                    projectFilesystem,
                     params,
                     new CompilerDelegate(
                         pathResolver,
@@ -278,9 +293,10 @@ public class CxxPreprocessAndCompileTest {
         new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
-    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    final BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    final BuildRuleParams params = TestBuildRuleParams.create();
     final FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
@@ -299,6 +315,8 @@ public class CxxPreprocessAndCompileTest {
         return new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.preprocessAndCompile(
+                    target,
+                    projectFilesystem,
                     params,
                     new PreprocessorDelegate(
                         pathResolver,
@@ -336,16 +354,17 @@ public class CxxPreprocessAndCompileTest {
   public void usesCorrectCommandForCompile() {
     // Setup some dummy values for inputs to the CxxPreprocessAndCompile.
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
     CxxToolFlags flags =
         CxxToolFlags.explicitBuilder()
-            .addPlatformFlags("-ffunction-sections")
-            .addRuleFlags("-O3")
+            .addPlatformFlags(StringArg.of("-ffunction-sections"))
+            .addRuleFlags(StringArg.of("-O3"))
             .build();
     Path output = Paths.get("test.o");
     Path input = Paths.get("test.ii");
@@ -353,6 +372,8 @@ public class CxxPreprocessAndCompileTest {
 
     CxxPreprocessAndCompile buildRule =
         CxxPreprocessAndCompile.compile(
+            target,
+            projectFilesystem,
             params,
             new CompilerDelegate(
                 pathResolver,
@@ -392,13 +413,12 @@ public class CxxPreprocessAndCompileTest {
     Tool compilerTool = new CommandTool.Builder().addInput(compiler).build();
 
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params =
-        new FakeBuildRuleParamsBuilder(target).setProjectFilesystem(filesystem).build();
+    BuildRuleParams params = TestBuildRuleParams.create();
     BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
 
     filesystem.writeContentsToPath(
@@ -408,6 +428,8 @@ public class CxxPreprocessAndCompileTest {
 
     CxxPreprocessAndCompile cxxPreprocess =
         CxxPreprocessAndCompile.preprocessAndCompile(
+            target,
+            filesystem,
             params,
             new PreprocessorDelegate(
                 pathResolver,
@@ -436,6 +458,8 @@ public class CxxPreprocessAndCompileTest {
 
     CxxPreprocessAndCompile cxxCompile =
         CxxPreprocessAndCompile.compile(
+            target,
+            filesystem,
             params,
             new CompilerDelegate(
                 pathResolver,
@@ -454,12 +478,13 @@ public class CxxPreprocessAndCompileTest {
   @Test
   public void usesColorFlagForCompilationWhenRequested() {
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
     Path output = Paths.get("test.o");
     Path input = Paths.get("test.ii");
     Path scratchDir = Paths.get("scratch");
@@ -473,6 +498,8 @@ public class CxxPreprocessAndCompileTest {
 
     CxxPreprocessAndCompile buildRule =
         CxxPreprocessAndCompile.compile(
+            target,
+            projectFilesystem,
             params,
             compilerDelegate,
             output,
@@ -497,18 +524,21 @@ public class CxxPreprocessAndCompileTest {
   @Test
   public void usesColorFlagForPreprocessingWhenRequested() throws Exception {
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
     Path output = Paths.get("test.ii");
     Path input = Paths.get("test.cpp");
     Path scratchDir = Paths.get("scratch");
 
     CxxPreprocessAndCompile buildRule =
         CxxPreprocessAndCompile.preprocessAndCompile(
+            target,
+            projectFilesystem,
             params,
             new PreprocessorDelegate(
                 pathResolver,

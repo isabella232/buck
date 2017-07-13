@@ -16,20 +16,26 @@
 
 package com.facebook.buck.lua;
 
+import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -44,22 +50,31 @@ public class LuaLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       final LuaLibraryDescriptionArg args) {
     final SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    return new LuaLibrary(params) {
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    return new LuaLibrary(buildTarget, projectFilesystem, params) {
+
+      @Override
+      public Iterable<BuildRule> getLuaPackageDeps(CxxPlatform cxxPlatform) {
+        return resolver.getAllRules(
+            LuaUtil.getDeps(cxxPlatform, args.getDeps(), args.getPlatformDeps()));
+      }
+
       @Override
       public LuaPackageComponents getLuaPackageComponents() {
         return LuaPackageComponents.builder()
             .putAllModules(
                 LuaUtil.toModuleMap(
-                    params.getBuildTarget(),
+                    buildTarget,
                     pathResolver,
                     "srcs",
-                    LuaUtil.getBaseModule(params.getBuildTarget(), args.getBaseModule()),
+                    LuaUtil.getBaseModule(buildTarget, args.getBaseModule()),
                     ImmutableList.of(args.getSrcs())))
             .build();
       }
@@ -76,5 +91,10 @@ public class LuaLibraryDescription
     }
 
     Optional<String> getBaseModule();
+
+    @Value.Default
+    default PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> getPlatformDeps() {
+      return PatternMatchedCollection.of();
+    }
   }
 }

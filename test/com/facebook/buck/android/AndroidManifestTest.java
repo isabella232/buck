@@ -21,6 +21,7 @@ import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
@@ -30,12 +31,12 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -49,7 +50,8 @@ import org.junit.Test;
 
 public class AndroidManifestTest {
 
-  public static final String MANIFEST_TARGET = "//java/com/example:manifest";
+  public static final BuildTarget MANIFEST_TARGET =
+      BuildTargetFactory.newInstance("//java/com/example:manifest");
 
   @Test
   public void testSimpleObserverMethods() {
@@ -59,9 +61,7 @@ public class AndroidManifestTest {
         new ExplicitBuildTargetSourcePath(
             androidManifest.getBuildTarget(),
             BuildTargets.getGenPath(
-                new FakeProjectFilesystem(),
-                BuildTargetFactory.newInstance(MANIFEST_TARGET),
-                "AndroidManifest__%s__.xml")),
+                new FakeProjectFilesystem(), MANIFEST_TARGET, "AndroidManifest__%s__.xml")),
         androidManifest.getSourcePathToOutput());
   }
 
@@ -110,7 +110,8 @@ public class AndroidManifestTest {
 
   private AndroidManifest createSimpleAndroidManifestRule() {
     // First, create the AndroidManifest object.
-    BuildRuleParams buildRuleParams = new FakeBuildRuleParamsBuilder(MANIFEST_TARGET).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams buildRuleParams = TestBuildRuleParams.create();
     AndroidManifestDescription description = new AndroidManifestDescription();
     AndroidManifestDescriptionArg arg =
         AndroidManifestDescriptionArg.builder()
@@ -119,9 +120,11 @@ public class AndroidManifestTest {
             .build();
     return description.createBuildRule(
         TargetGraph.EMPTY,
+        MANIFEST_TARGET,
+        projectFilesystem,
         buildRuleParams,
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
-        TestCellBuilder.createCellRoots(buildRuleParams.getProjectFilesystem()),
+        TestCellBuilder.createCellRoots(projectFilesystem),
         arg);
   }
 

@@ -18,10 +18,11 @@ package com.facebook.buck.rust;
 
 import com.facebook.buck.cxx.CxxPrepareForLinkStep;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -50,7 +51,8 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 
 /** Generate a rustc command line with all appropriate dependencies in place. */
-public class RustCompileRule extends AbstractBuildRule implements SupportsInputBasedRuleKey {
+public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements SupportsInputBasedRuleKey {
   @AddToRuleKey private final Tool compiler;
 
   @AddToRuleKey private final Linker linker;
@@ -86,6 +88,8 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
    * must also be passed to rustc for the interface details, and to be linked if its a binary crate.
    */
   protected RustCompileRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       String filename,
       Tool compiler,
@@ -96,7 +100,7 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
       ImmutableSortedSet<SourcePath> srcs,
       SourcePath rootModule,
       boolean hasOutput) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
 
     this.filename = filename;
     this.compiler = compiler;
@@ -113,6 +117,8 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
 
   public static RustCompileRule from(
       SourcePathRuleFinder ruleFinder,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       String filename,
       Tool compiler,
@@ -124,7 +130,9 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
       SourcePath rootModule,
       boolean hasOutput) {
     return new RustCompileRule(
-        params.copyReplacingExtraDeps(
+        buildTarget,
+        projectFilesystem,
+        params.withExtraDeps(
             Suppliers.memoize(
                 () ->
                     ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -184,7 +192,10 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
                     getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt"));
 
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)))
         .add(
             new SymlinkFilesIntoDirectoryStep(
                 getProjectFilesystem(),
@@ -195,7 +206,10 @@ public class RustCompileRule extends AbstractBuildRule implements SupportsInputB
                 scratchDir))
         .addAll(
             MakeCleanDirectoryStep.of(
-                getProjectFilesystem(), getOutputDir(getBuildTarget(), getProjectFilesystem())))
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    getOutputDir(getBuildTarget(), getProjectFilesystem()))))
         .addAll(
             CxxPrepareForLinkStep.create(
                 argFilePath,

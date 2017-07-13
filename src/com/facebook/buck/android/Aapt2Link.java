@@ -17,9 +17,11 @@
 package com.facebook.buck.android;
 
 import com.android.annotations.VisibleForTesting;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -38,9 +40,9 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,12 +55,14 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /** Perform the "aapt2 link" step of building an Android app. */
-public class Aapt2Link extends AbstractBuildRule {
+public class Aapt2Link extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final ImmutableList<Aapt2Compile> compileRules;
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
 
   Aapt2Link(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<Aapt2Compile> compileRules,
@@ -66,14 +70,16 @@ public class Aapt2Link extends AbstractBuildRule {
       SourcePath manifest,
       ManifestEntries manifestEntries) {
     super(
-        buildRuleParams.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(
+        buildTarget,
+        projectFilesystem,
+        buildRuleParams
+            .withDeclaredDeps(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(compileRules)
                     .addAll(RichStream.from(resourceRules).filter(BuildRule.class).toOnceIterable())
                     .addAll(ruleFinder.filterBuildRuleInputs(manifest))
-                    .build()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())));
+                    .build())
+            .withoutExtraDeps());
     this.compileRules = compileRules;
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
@@ -85,9 +91,14 @@ public class Aapt2Link extends AbstractBuildRule {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.addAll(
-        MakeCleanDirectoryStep.of(getProjectFilesystem(), getResourceApkPath().getParent()));
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                getResourceApkPath().getParent())));
 
     AaptPackageResources.prepareManifestForAapt(
+        context,
         steps,
         getProjectFilesystem(),
         getFinalManifestPath(),
@@ -97,7 +108,9 @@ public class Aapt2Link extends AbstractBuildRule {
     steps.add(
         new Aapt2LinkStep(
             getProjectFilesystem().getRootPath(),
-            compileRules
+            // Need to reverse the order of the rules because aapt2 allows later resources
+            // to override earlier ones, but aapt gives the earlier ones precedence.
+            Lists.reverse(compileRules)
                 .stream()
                 .map(Aapt2Compile::getSourcePathToOutput)
                 .map(context.getSourcePathResolver()::getAbsolutePath)));

@@ -22,12 +22,14 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.distributed.testutil.FakeFileContentsProvider;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.ActionGraph;
@@ -36,19 +38,21 @@ import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.slb.ThriftUtil;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.zip.CustomJarOutputStream;
@@ -78,6 +82,88 @@ public class DistBuildFileHashesTest {
   @Rule public TemporaryFolder tempDir = new TemporaryFolder();
 
   @Rule public TemporaryFolder archiveTempDir = new TemporaryFolder();
+
+  private abstract static class Fixture {
+
+    protected final ProjectFilesystem projectFilesystem;
+    protected final FileSystem javaFs;
+
+    protected final ProjectFilesystem secondProjectFilesystem;
+    protected final FileSystem secondJavaFs;
+
+    protected final ActionGraph actionGraph;
+    protected final BuildRuleResolver buildRuleResolver;
+    protected final SourcePathRuleFinder ruleFinder;
+    protected final SourcePathResolver sourcePathResolver;
+    protected final DistBuildFileHashes distributedBuildFileHashes;
+
+    public Fixture(ProjectFilesystem first, ProjectFilesystem second)
+        throws InterruptedException, IOException, NoSuchBuildTargetException {
+      projectFilesystem = first;
+      javaFs = projectFilesystem.getRootPath().getFileSystem();
+
+      secondProjectFilesystem = second;
+      secondJavaFs = secondProjectFilesystem.getRootPath().getFileSystem();
+
+      buildRuleResolver =
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+      sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
+      setUpRules(buildRuleResolver, sourcePathResolver);
+      actionGraph = new ActionGraph(buildRuleResolver.getBuildRules());
+      BuckConfig buckConfig = createBuckConfig();
+      Cell rootCell =
+          new TestCellBuilder().setFilesystem(projectFilesystem).setBuckConfig(buckConfig).build();
+
+      distributedBuildFileHashes =
+          new DistBuildFileHashes(
+              actionGraph,
+              sourcePathResolver,
+              ruleFinder,
+              createFileHashCache(),
+              new DistBuildCellIndexer(rootCell),
+              MoreExecutors.newDirectExecutorService(),
+              /* keySeed */ 0,
+              rootCell);
+    }
+
+    public Fixture(TemporaryFolder tempDir)
+        throws InterruptedException, IOException, NoSuchBuildTargetException {
+      this(
+          new ProjectFilesystem(tempDir.newFolder("first").toPath().toRealPath()),
+          new ProjectFilesystem(tempDir.newFolder("second").toPath().toRealPath()));
+    }
+
+    protected BuckConfig createBuckConfig() {
+      return FakeBuckConfig.builder().build();
+    }
+
+    protected abstract void setUpRules(
+        BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
+        throws IOException, NoSuchBuildTargetException;
+
+    private StackedFileHashCache createFileHashCache() throws InterruptedException {
+      ImmutableList.Builder<ProjectFileHashCache> cacheList = ImmutableList.builder();
+      cacheList.add(
+          DefaultFileHashCache.createDefaultFileHashCache(
+              projectFilesystem, FileHashCacheMode.PREFIX_TREE));
+      cacheList.add(
+          DefaultFileHashCache.createDefaultFileHashCache(
+              secondProjectFilesystem, FileHashCacheMode.PREFIX_TREE));
+      for (Path path : javaFs.getRootDirectories()) {
+        if (Files.isDirectory(path)) {
+          cacheList.add(
+              DefaultFileHashCache.createDefaultFileHashCache(
+                  new ProjectFilesystem(path), FileHashCacheMode.PREFIX_TREE));
+        }
+      }
+      return new StackedFileHashCache(cacheList.build());
+    }
+
+    public Path getPath(String first, String... more) {
+      return javaFs.getPath(first, more);
+    }
+  }
 
   private static class SingleFileFixture extends Fixture {
     protected Path javaSrcPath;
@@ -164,11 +250,19 @@ public class DistBuildFileHashesTest {
         .andReturn(f.writtenHashCode)
         .atLeastOnce();
     EasyMock.replay(mockCache);
+
+    FakeFileContentsProvider fakeFileContentsProvider =
+        new FakeFileContentsProvider.Builder()
+            .setFilesystemToWrite(materializeProjectFilesystem)
+            // We store paths with unix separator, which will be different than a path generated by
+            // a windows filesystem. So replace '\' by '/'.
+            .putFileContents(f.javaSrcPath.toString().replace('\\', '/'), f.writtenContents)
+            .build();
     MaterializerProjectFileHashCache materializer =
         new MaterializerProjectFileHashCache(
-            mockCache, fileHashes.get(0), new InlineContentsProvider());
+            mockCache, fileHashes.get(0), fakeFileContentsProvider);
 
-    materializer.get(materializeProjectFilesystem.resolve(f.javaSrcPath));
+    materializer.get(f.javaSrcPath);
     assertThat(
         materializeProjectFilesystem.readFileIfItExists(f.javaSrcPath),
         Matchers.equalTo(Optional.of(f.writtenContents)));
@@ -197,7 +291,7 @@ public class DistBuildFileHashesTest {
             mockCache, fileHashes.get(0), new InlineContentsProvider());
 
     try {
-      materializer.get(materializeProjectFilesystem.resolve(f.javaSrcPath));
+      materializer.get(f.javaSrcPath);
       Assert.fail("Materialization should have thrown because of mismatching hash.");
     } catch (RuntimeException e) {
       // expected.
@@ -262,11 +356,12 @@ public class DistBuildFileHashesTest {
         jarWriter.writeEntry("Archive.class", new ByteArrayInputStream(archiveMemberData));
       }
 
+      BuildTarget target = BuildTargetFactory.newInstance("//:with_tool");
       resolver.addToIndex(
           new BuildRuleWithToolAndPath(
-              new FakeBuildRuleParamsBuilder("//:with_tool")
-                  .setProjectFilesystem(projectFilesystem)
-                  .build(),
+              target,
+              projectFilesystem,
+              TestBuildRuleParams.create(),
               null,
               ArchiveMemberSourcePath.of(
                   new PathSourcePath(projectFilesystem, archivePath), archiveMemberPath)));
@@ -371,91 +466,19 @@ public class DistBuildFileHashesTest {
     Assert.assertEquals("B.java", secondaryCellHashes.getEntries().get(0).getPath().getPath());
   }
 
-  private abstract static class Fixture {
-
-    protected final ProjectFilesystem projectFilesystem;
-    protected final FileSystem javaFs;
-
-    protected final ProjectFilesystem secondProjectFilesystem;
-    protected final FileSystem secondJavaFs;
-
-    protected final ActionGraph actionGraph;
-    protected final BuildRuleResolver buildRuleResolver;
-    protected final SourcePathRuleFinder ruleFinder;
-    protected final SourcePathResolver sourcePathResolver;
-    protected final DistBuildFileHashes distributedBuildFileHashes;
-
-    public Fixture(ProjectFilesystem first, ProjectFilesystem second)
-        throws InterruptedException, IOException, NoSuchBuildTargetException {
-      projectFilesystem = first;
-      javaFs = projectFilesystem.getRootPath().getFileSystem();
-
-      secondProjectFilesystem = second;
-      secondJavaFs = secondProjectFilesystem.getRootPath().getFileSystem();
-
-      buildRuleResolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-      ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-      sourcePathResolver = new SourcePathResolver(ruleFinder);
-      setUpRules(buildRuleResolver, sourcePathResolver);
-      actionGraph = new ActionGraph(buildRuleResolver.getBuildRules());
-      BuckConfig buckConfig = createBuckConfig();
-      Cell rootCell =
-          new TestCellBuilder().setFilesystem(projectFilesystem).setBuckConfig(buckConfig).build();
-
-      distributedBuildFileHashes =
-          new DistBuildFileHashes(
-              actionGraph,
-              sourcePathResolver,
-              ruleFinder,
-              createFileHashCache(),
-              new DistBuildCellIndexer(rootCell),
-              MoreExecutors.newDirectExecutorService(),
-              /* keySeed */ 0,
-              rootCell);
-    }
-
-    public Fixture(TemporaryFolder tempDir)
-        throws InterruptedException, IOException, NoSuchBuildTargetException {
-      this(
-          new ProjectFilesystem(tempDir.newFolder("first").toPath().toRealPath()),
-          new ProjectFilesystem(tempDir.newFolder("second").toPath().toRealPath()));
-    }
-
-    protected BuckConfig createBuckConfig() {
-      return FakeBuckConfig.builder().build();
-    }
-
-    protected abstract void setUpRules(
-        BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
-        throws IOException, NoSuchBuildTargetException;
-
-    private StackedFileHashCache createFileHashCache() throws InterruptedException {
-      ImmutableList.Builder<ProjectFileHashCache> cacheList = ImmutableList.builder();
-      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem));
-      cacheList.add(DefaultFileHashCache.createDefaultFileHashCache(secondProjectFilesystem));
-      for (Path path : javaFs.getRootDirectories()) {
-        if (Files.isDirectory(path)) {
-          cacheList.add(
-              DefaultFileHashCache.createDefaultFileHashCache(new ProjectFilesystem(path)));
-        }
-      }
-      return new StackedFileHashCache(cacheList.build());
-    }
-
-    public Path getPath(String first, String... more) {
-      return javaFs.getPath(first, more);
-    }
-  }
-
-  private static class BuildRuleWithToolAndPath extends NoopBuildRule {
+  private static class BuildRuleWithToolAndPath extends NoopBuildRuleWithDeclaredAndExtraDeps {
 
     @AddToRuleKey Tool tool;
 
     @AddToRuleKey SourcePath sourcePath;
 
-    public BuildRuleWithToolAndPath(BuildRuleParams params, Tool tool, SourcePath sourcePath) {
-      super(params);
+    public BuildRuleWithToolAndPath(
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
+        BuildRuleParams params,
+        Tool tool,
+        SourcePath sourcePath) {
+      super(buildTarget, projectFilesystem, params);
       this.tool = tool;
       this.sourcePath = sourcePath;
     }

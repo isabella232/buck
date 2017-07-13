@@ -25,6 +25,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -34,10 +35,9 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
-import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.hamcrest.Matchers;
@@ -69,7 +69,7 @@ public class CalculateAbiFromClassesTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup the initial java library.
@@ -90,12 +90,12 @@ public class CalculateAbiFromClassesTest {
         CalculateAbiFromClasses.of(
             target,
             ruleFinder,
-            builder.createBuildRuleParams(resolver, filesystem),
+            filesystem,
+            builder.createBuildRuleParams(resolver),
             new DefaultBuildTargetSourcePath(javaLibraryTarget));
 
     FileHashCache initialHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     DefaultRuleKeyFactory initialRuleKeyFactory =
         new DefaultRuleKeyFactory(0, initialHashCache, pathResolver, ruleFinder);
     RuleKey initialKey = initialRuleKeyFactory.build(calculateAbi);
@@ -112,12 +112,11 @@ public class CalculateAbiFromClassesTest {
     resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(resolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     builder.build(resolver, filesystem);
 
     FileHashCache alteredHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     DefaultRuleKeyFactory alteredRuleKeyFactory =
         new DefaultRuleKeyFactory(0, alteredHashCache, pathResolver, ruleFinder);
     RuleKey alteredKey = alteredRuleKeyFactory.build(calculateAbi);
@@ -134,7 +133,7 @@ public class CalculateAbiFromClassesTest {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup the initial java library.
@@ -155,12 +154,12 @@ public class CalculateAbiFromClassesTest {
         CalculateAbiFromClasses.of(
             target,
             ruleFinder,
-            builder.createBuildRuleParams(resolver, filesystem),
+            filesystem,
+            builder.createBuildRuleParams(resolver),
             new DefaultBuildTargetSourcePath(javaLibraryTarget));
 
     FileHashCache initialHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     DefaultRuleKeyFactory initialRuleKeyFactory =
         new DefaultRuleKeyFactory(0, initialHashCache, pathResolver, ruleFinder);
     RuleKey initialKey = initialRuleKeyFactory.build(calculateAbi);
@@ -175,12 +174,11 @@ public class CalculateAbiFromClassesTest {
     resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(resolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     builder.build(resolver, filesystem);
 
     FileHashCache alteredHashCache =
-        new StackedFileHashCache(
-            ImmutableList.of(DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+        StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.PREFIX_TREE);
     DefaultRuleKeyFactory alteredRuleKeyFactory =
         new DefaultRuleKeyFactory(0, alteredHashCache, pathResolver, ruleFinder);
     RuleKey alteredKey = alteredRuleKeyFactory.build(calculateAbi);

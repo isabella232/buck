@@ -27,6 +27,7 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -51,14 +52,14 @@ public class AndroidLibraryIntegrationTest extends AbiCompilationModeTest {
     ProcessResult result =
         workspace.runBuckBuild("//java/com/sample/lib:lib_using_transitive_empty_res");
     result.assertFailure();
-    assertTrue(result.getStderr().contains("package R does not exist"));
+    assertTrue(result.getStderr().contains("package com.sample does not exist"));
   }
 
   @Test
   public void testAndroidKotlinBinaryDoesNotUseTransitiveResources()
       throws InterruptedException, IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    KotlinTestAssumptions.assumeCompilerAvailable();
+    KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
     ProcessResult result =
         workspace.runBuckBuild("//kotlin/com/sample/lib:lib_using_transitive_empty_res");
     result.assertFailure();
@@ -68,9 +69,18 @@ public class AndroidLibraryIntegrationTest extends AbiCompilationModeTest {
   @Test
   public void testAndroidKotlinLibraryCompilation() throws Exception {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    KotlinTestAssumptions.assumeCompilerAvailable();
+    KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
     ProcessResult result =
         workspace.runBuckBuild("//kotlin/com/sample/lib:lib_depending_on_main_lib");
+    result.assertSuccess();
+  }
+
+  @Test
+  @Ignore("https://github.com/facebook/buck/issues/1371")
+  public void testAndroidKotlinLibraryMixedSourcesCompilation() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
+    ProcessResult result = workspace.runBuckBuild("//kotlin/com/sample/lib:lib_mixed_sources");
     result.assertSuccess();
   }
 

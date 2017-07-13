@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class IjProjectBuckConfig {
@@ -38,9 +39,12 @@ public class IjProjectBuckConfig {
       BuckConfig buckConfig,
       @Nullable AggregationMode aggregationMode,
       @Nullable String generatedFilesListFilename,
+      @Nonnull String projectRoot,
+      String moduleGroupName,
       boolean isCleanerEnabled,
       boolean removeUnusedLibraries,
       boolean excludeArtifacts,
+      boolean includeTransitiveDependencies,
       boolean skipBuild) {
     Optional<String> excludedResourcePathsOption =
         buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "excluded_resource_paths");
@@ -98,13 +102,35 @@ public class IjProjectBuckConfig {
                 || buckConfig.getBooleanValue(PROJECT_BUCK_CONFIG_SECTION, "skip_build", false))
         .setAggregationMode(getAggregationMode(aggregationMode, buckConfig))
         .setGeneratedFilesListFilename(Optional.ofNullable(generatedFilesListFilename))
+        .setProjectRoot(projectRoot)
+        .setProjectPaths(new IjProjectPaths(projectRoot))
+        .setIncludeTransitiveDependency(
+            isIncludingTransitiveDependencyEnabled(includeTransitiveDependencies, buckConfig))
+        .setModuleGroupName(getModuleGroupName(moduleGroupName, buckConfig))
         .setIgnoredTargetLabels(
             buckConfig.getListWithoutComments(
                 INTELLIJ_BUCK_CONFIG_SECTION, "ignored_target_labels"))
         .setAggregatingAndroidResourceModulesEnabled(
             buckConfig.getBooleanValue(
                 INTELLIJ_BUCK_CONFIG_SECTION, "aggregate_android_resource_modules", false))
+        .setAggregationLimitForAndroidResourceModule(
+            buckConfig
+                .getInteger(
+                    INTELLIJ_BUCK_CONFIG_SECTION, "android_resource_module_aggregation_limit")
+                .orElse(Integer.MAX_VALUE))
+        .setGeneratingAndroidManifestEnabled(
+            buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "generate_android_manifest", false))
         .build();
+  }
+
+  private static String getModuleGroupName(String moduleGroupName, BuckConfig buckConfig) {
+    String name = moduleGroupName;
+    if (null == name) {
+      name =
+          buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "module_group_name").orElse("modules");
+    }
+    return name;
   }
 
   private static boolean isRemovingUnusedLibrariesEnabled(
@@ -112,6 +138,13 @@ public class IjProjectBuckConfig {
     return removeUnusedLibraries
         || buckConfig.getBooleanValue(
             INTELLIJ_BUCK_CONFIG_SECTION, "remove_unused_libraries", false);
+  }
+
+  private static boolean isIncludingTransitiveDependencyEnabled(
+      boolean includeTransitiveDependency, BuckConfig buckConfig) {
+    return includeTransitiveDependency
+        || buckConfig.getBooleanValue(
+            INTELLIJ_BUCK_CONFIG_SECTION, "include_transitive_dependencies", false);
   }
 
   private static boolean isExcludingArtifactsEnabled(

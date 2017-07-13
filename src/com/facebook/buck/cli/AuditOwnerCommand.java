@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.util.MoreExceptions;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -63,16 +62,12 @@ public class AuditOwnerCommand extends AbstractCommand {
                 pool.getExecutor(),
                 params.getCell(),
                 getEnableParserProfiling(),
-                SpeculativeParsing.of(true))) {
+                PerBuildState.SpeculativeParsing.ENABLED)) {
       BuckQueryEnvironment env =
-          BuckQueryEnvironment.from(params, parserState, getEnableParserProfiling());
+          BuckQueryEnvironment.from(
+              params, parserState, pool.getExecutor(), getEnableParserProfiling());
       return QueryCommand.runMultipleQuery(
-          params,
-          env,
-          pool.getExecutor(),
-          "owner('%s')",
-          getArguments(),
-          shouldGenerateJsonOutput());
+          params, env, "owner('%s')", getArguments(), shouldGenerateJsonOutput());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

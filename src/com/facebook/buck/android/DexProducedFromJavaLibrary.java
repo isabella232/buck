@@ -18,9 +18,12 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DexProducedFromJavaLibrary.BuildOutput;
 import com.facebook.buck.dalvik.EstimateDexWeightStep;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -71,7 +74,7 @@ import javax.annotation.Nullable;
  * until runtime. Unfortunately, because there is no such thing as an empty {@code .dex} file, we
  * cannot write a meaningful "dummy .dex" if there are no class files to pass to {@code dx}.
  */
-public class DexProducedFromJavaLibrary extends AbstractBuildRule
+public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey, InitializableFromDisk<BuildOutput> {
 
   @VisibleForTesting static final String WEIGHT_ESTIMATE = "weight_estimate";
@@ -82,11 +85,15 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
-  DexProducedFromJavaLibrary(BuildRuleParams params, JavaLibrary javaLibrary) {
-    super(params);
+  DexProducedFromJavaLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      JavaLibrary javaLibrary) {
+    super(buildTarget, projectFilesystem, params);
     this.javaLibrary = javaLibrary;
     this.javaLibrarySourcePath = javaLibrary.getSourcePathToOutput();
-    this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   @Override
@@ -94,10 +101,18 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
       BuildContext context, final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(RmStep.of(getProjectFilesystem(), getPathToDex()));
+    steps.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), getPathToDex())));
 
     // Make sure that the buck-out/gen/ directory exists for this.buildTarget.
-    steps.add(MkdirStep.of(getProjectFilesystem(), getPathToDex().getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                getPathToDex().getParent())));
 
     // If there are classes, run dx.
     final ImmutableSortedMap<String, HashCode> classNamesToHashes =
@@ -144,7 +159,8 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     AbstractExecutionStep recordArtifactAndMetadataStep =
         new AbstractExecutionStep(stepName) {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) throws IOException {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             if (hasClassesToDx) {
               buildableContext.recordArtifact(getPathToDex());
 

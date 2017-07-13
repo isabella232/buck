@@ -17,10 +17,11 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.RDotTxtEntry;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -41,7 +42,7 @@ import java.util.EnumSet;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
-public class GenerateRDotJava extends AbstractBuildRule {
+public class GenerateRDotJava extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey private final EnumSet<RDotTxtEntry.RType> bannedDuplicateResourceTypes;
   @AddToRuleKey private final SourcePath pathToRDotTxtFile;
   @AddToRuleKey private Optional<String> resourceUnionPackage;
@@ -51,6 +52,8 @@ public class GenerateRDotJava extends AbstractBuildRule {
   private FilteredResourcesProvider resourcesProvider;
 
   GenerateRDotJava(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       EnumSet<RDotTxtEntry.RType> bannedDuplicateResourceTypes,
@@ -60,6 +63,8 @@ public class GenerateRDotJava extends AbstractBuildRule {
       ImmutableSortedSet<BuildRule> resourceDeps,
       FilteredResourcesProvider resourcesProvider) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams.copyAppendingExtraDeps(
             getAllDeps(ruleFinder, pathToRDotTxtFile, resourceDeps, resourcesProvider)));
     this.bannedDuplicateResourceTypes = bannedDuplicateResourceTypes;
@@ -94,7 +99,11 @@ public class GenerateRDotJava extends AbstractBuildRule {
 
     // Merge R.txt of HasAndroidRes and generate the resulting R.java files per package.
     Path rDotJavaSrc = getPathToGeneratedRDotJavaSrcFiles();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), rDotJavaSrc));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                buildContext.getBuildCellRootPath(), getProjectFilesystem(), rDotJavaSrc)));
 
     Path rDotTxtPath = pathResolver.getAbsolutePath(pathToRDotTxtFile);
     MergeAndroidResourcesStep mergeStep =
@@ -111,7 +120,11 @@ public class GenerateRDotJava extends AbstractBuildRule {
     if (shouldBuildStringSourceMap) {
       // Make sure we have an output directory
       Path outputDirPath = getPathForNativeStringInfoDirectory();
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDirPath));
+
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  buildContext.getBuildCellRootPath(), getProjectFilesystem(), outputDirPath)));
 
       // Add the step that parses R.txt and all the strings.xml files, and
       // produces a JSON with android resource id's and xml paths for each string resource.
@@ -119,7 +132,8 @@ public class GenerateRDotJava extends AbstractBuildRule {
           new GenStringSourceMapStep(
               getProjectFilesystem(),
               rDotTxtPath.getParent(),
-              resourcesProvider.getResDirectories(),
+              resourcesProvider.getRelativeResDirectories(
+                  getProjectFilesystem(), buildContext.getSourcePathResolver()),
               outputDirPath);
       steps.add(genNativeStringInfo);
 

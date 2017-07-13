@@ -46,7 +46,6 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -94,16 +93,18 @@ public class AndroidResourceDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       AndroidResourceDescriptionArg args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    ImmutableSortedSet<Flavor> flavors = params.getBuildTarget().getFlavors();
+    ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     if (flavors.contains(RESOURCES_SYMLINK_TREE_FLAVOR)) {
-      return createSymlinkTree(ruleFinder, params, args.getRes(), "res");
+      return createSymlinkTree(buildTarget, projectFilesystem, args.getRes(), "res");
     } else if (flavors.contains(ASSETS_SYMLINK_TREE_FLAVOR)) {
-      return createSymlinkTree(ruleFinder, params, args.getAssets(), "assets");
+      return createSymlinkTree(buildTarget, projectFilesystem, args.getAssets(), "assets");
     }
 
     // Only allow android resource and library rules as dependencies.
@@ -116,7 +117,7 @@ public class AndroidResourceDescription
             .findFirst();
     if (invalidDep.isPresent()) {
       throw new HumanReadableException(
-          params.getBuildTarget()
+          buildTarget
               + " (android_resource): dependency "
               + invalidDep.get().getBuildTarget()
               + " ("
@@ -130,23 +131,23 @@ public class AndroidResourceDescription
     // we have to resort to some hackery to make sure things work correctly.
     Pair<Optional<SymlinkTree>, Optional<SourcePath>> resInputs =
         collectInputSourcePaths(
-            resolver, params.getBuildTarget(), RESOURCES_SYMLINK_TREE_FLAVOR, args.getRes());
+            resolver, buildTarget, RESOURCES_SYMLINK_TREE_FLAVOR, args.getRes());
     Pair<Optional<SymlinkTree>, Optional<SourcePath>> assetsInputs =
         collectInputSourcePaths(
-            resolver, params.getBuildTarget(), ASSETS_SYMLINK_TREE_FLAVOR, args.getAssets());
+            resolver, buildTarget, ASSETS_SYMLINK_TREE_FLAVOR, args.getAssets());
 
     if (flavors.contains(AAPT2_COMPILE_FLAVOR)) {
       Optional<SourcePath> resDir = resInputs.getSecond();
       Preconditions.checkArgument(
           resDir.isPresent(),
           "Tried to require rule %s, but no resource dir is preset.",
-          params.getBuildTarget());
+          buildTarget);
       params =
-          params.copyReplacingDeclaredAndExtraDeps(
-              Suppliers.ofInstance(
-                  ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(resDir.get()))),
-              Suppliers.ofInstance(ImmutableSortedSet.of()));
-      return new Aapt2Compile(params, resDir.get());
+          params
+              .withDeclaredDeps(
+                  ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(resDir.get())))
+              .withoutExtraDeps();
+      return new Aapt2Compile(buildTarget, projectFilesystem, params, resDir.get());
     }
 
     params =
@@ -162,13 +163,13 @@ public class AndroidResourceDescription
                     .orElse(ImmutableSet.of())));
 
     return new AndroidResource(
+        buildTarget,
+        projectFilesystem,
         // We only propagate other AndroidResource rule dependencies, as these are
         // the only deps which should control whether we need to re-run the aapt_package
         // step.
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(
-                AndroidResourceHelper.androidResOnly(params.getDeclaredDeps().get())),
-            params.getExtraDeps()),
+        params.withDeclaredDeps(
+            AndroidResourceHelper.androidResOnly(params.getDeclaredDeps().get())),
         ruleFinder,
         resolver.getAllRules(args.getDeps()),
         resInputs.getSecond().orElse(null),
@@ -183,8 +184,8 @@ public class AndroidResourceDescription
   }
 
   private SymlinkTree createSymlinkTree(
-      SourcePathRuleFinder ruleFinder,
-      BuildRuleParams params,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       Optional<Either<SourcePath, ImmutableSortedMap<String, SourcePath>>> symlinkAttribute,
       String outputDirName) {
     ImmutableMap<Path, SourcePath> links = ImmutableMap.of();
@@ -210,10 +211,8 @@ public class AndroidResourceDescription
       }
     }
     Path symlinkTreeRoot =
-        BuildTargets.getGenPath(params.getProjectFilesystem(), params.getBuildTarget(), "%s")
-            .resolve(outputDirName);
-    return new SymlinkTree(
-        params.getBuildTarget(), params.getProjectFilesystem(), symlinkTreeRoot, links, ruleFinder);
+        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s").resolve(outputDirName);
+    return new SymlinkTree(buildTarget, projectFilesystem, symlinkTreeRoot, links);
   }
 
   public static Optional<SourcePath> getResDirectoryForProject(

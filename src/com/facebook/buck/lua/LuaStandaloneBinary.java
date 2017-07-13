@@ -16,7 +16,10 @@
 
 package com.facebook.buck.lua;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -40,7 +43,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 /** Builds a Lua executable into a standalone package using a given packager tool. */
-public class LuaStandaloneBinary extends AbstractBuildRule {
+public class LuaStandaloneBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final Tool builder;
 
@@ -60,6 +63,8 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
   private final boolean cache;
 
   public LuaStandaloneBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Tool builder,
       ImmutableList<String> builderArgs,
@@ -69,7 +74,7 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
       String mainModule,
       Tool lua,
       boolean cache) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.builder = builder;
     this.builderArgs = builderArgs;
     this.output = output;
@@ -89,10 +94,17 @@ public class LuaStandaloneBinary extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
 
     // Make sure the parent directory exists.
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
 
     // Delete any other pex that was there (when switching between pex styles).
-    steps.add(RmStep.of(getProjectFilesystem(), output).withRecursive(true));
+    steps.add(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output))
+            .withRecursive(true));
 
     SourcePathResolver resolver = context.getSourcePathResolver();
 

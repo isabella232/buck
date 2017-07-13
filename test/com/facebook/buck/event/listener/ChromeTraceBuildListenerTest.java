@@ -16,6 +16,8 @@
 
 package com.facebook.buck.event.listener;
 
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -30,7 +32,7 @@ import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ChromeTraceEvent;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.CompilerPluginDurationEvent;
@@ -47,15 +49,10 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleDurationTracker;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.FakeClock;
@@ -70,15 +67,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.gson.Gson;
-import java.io.BufferedReader;
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -147,9 +141,11 @@ public class ChromeTraceBuildListenerTest {
     listener.outputTrace(invocationInfo.getBuildId());
 
     ImmutableList<String> files =
-        Arrays.stream(projectFilesystem.listFiles(invocationInfo.getLogDirectoryPath()))
+        projectFilesystem
+            .getDirectoryContents(invocationInfo.getLogDirectoryPath())
+            .stream()
             .filter(i -> i.toString().endsWith(".trace"))
-            .map(File::getName)
+            .map(path -> path.getFileName().toString())
             .collect(MoreCollectors.toImmutableList());
 
     assertEquals(4, files.size());
@@ -178,14 +174,7 @@ public class ChromeTraceBuildListenerTest {
 
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
 
-    FakeBuildRule rule =
-        new FakeBuildRule(
-            target,
-            new SourcePathResolver(
-                new SourcePathRuleFinder(
-                    new BuildRuleResolver(
-                        TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()))),
-            ImmutableSortedSet.of());
+    FakeBuildRule rule = new FakeBuildRule(target, ImmutableSortedSet.of());
     RuleKey ruleKey = new RuleKey("abc123");
     String stepShortName = "fakeStep";
     String stepDescription = "I'm a Fake Step!";
@@ -194,7 +183,7 @@ public class ChromeTraceBuildListenerTest {
     ImmutableSet<BuildTarget> buildTargets = ImmutableSet.of(target);
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
     Clock fakeClock = new IncrementingFakeClock(TimeUnit.MILLISECONDS.toNanos(1));
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance(fakeClock, buildId);
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance(fakeClock, buildId);
     eventBus.register(listener);
 
     CommandEvent.Started commandEventStarted =
@@ -294,10 +283,10 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(CommandEvent.finished(commandEventStarted, /* exitCode */ 0));
     listener.outputTrace(new BuildId("BUILD_ID"));
 
-    File resultFile = new File(tmpDir.getRoot(), "buck-out/log/build.trace");
-
     List<ChromeTraceEvent> originalResultList =
-        ObjectMappers.readValue(resultFile, new TypeReference<List<ChromeTraceEvent>>() {});
+        ObjectMappers.readValue(
+            tmpDir.getRoot().toPath().resolve("buck-out").resolve("log").resolve("build.trace"),
+            new TypeReference<List<ChromeTraceEvent>>() {});
     List<ChromeTraceEvent> resultListCopy = new ArrayList<>();
     resultListCopy.addAll(originalResultList);
     ImmutableMap<String, String> emptyArgs = ImmutableMap.of();
@@ -521,13 +510,14 @@ public class ChromeTraceBuildListenerTest {
 
     assertTrue(projectFilesystem.exists(tracePath));
 
-    BufferedReader reader =
-        new BufferedReader(
-            new InputStreamReader(
-                new GZIPInputStream(projectFilesystem.newFileInputStream(tracePath))));
+    BufferedInputStream stream =
+        new BufferedInputStream(
+            new GZIPInputStream(projectFilesystem.newFileInputStream(tracePath)));
 
-    List<?> elements = new Gson().fromJson(reader, List.class);
+    List<Object> elements =
+        ObjectMappers.createParser(stream).readValueAs(new TypeReference<List<Object>>() {});
     assertThat(elements, notNullValue());
+    assertThat(elements, not(empty()));
   }
 
   private static ChromeTraceBuckConfig chromeTraceConfig(int tracesToKeep, boolean compressTraces) {

@@ -24,8 +24,8 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -34,12 +34,13 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.google.common.base.Suppliers;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -69,6 +70,13 @@ public class AaptPackageResourcesTest {
     return new FakeSourcePath(filesystem, path);
   }
 
+  FilteredResourcesProvider createIdentifyResourcesProvider(String... paths) {
+    return new IdentityResourcesProvider(
+        RichStream.from(paths)
+            .map(p -> (SourcePath) new FakeSourcePath(filesystem, p))
+            .toImmutableList());
+  }
+
   @Before
   public void setUp() throws NoSuchBuildTargetException {
     filesystem = new FakeProjectFilesystem();
@@ -96,9 +104,9 @@ public class AaptPackageResourcesTest {
     resource2 = (AndroidResource) ruleResolver.requireRule(resourceNode2.getBuildTarget());
 
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    pathResolver = new SourcePathResolver(ruleFinder);
+    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     aaptTarget = BuildTargetFactory.newInstance("//foo:bar");
-    params = new FakeBuildRuleParamsBuilder(aaptTarget).build();
+    params = TestBuildRuleParams.create();
 
     hashCache = new FakeFileHashCache(new HashMap<>());
     createPathSourcePath("res1", "resources1");
@@ -165,13 +173,11 @@ public class AaptPackageResourcesTest {
     RuleKey previousRuleKey = calculateRuleKey(args);
 
     args.hasAndroidResourceDeps = ImmutableList.of(resource1, resource2);
-    args.filteredResourcesProvider =
-        new IdentityResourcesProvider(ImmutableList.of(Paths.get("res1"), Paths.get("res2")));
+    args.filteredResourcesProvider = createIdentifyResourcesProvider("res1", "res2");
     previousRuleKey = assertKeyChanged(previousRuleKey, args);
 
     args.hasAndroidResourceDeps = ImmutableList.of(resource1, resource2);
-    args.filteredResourcesProvider =
-        new IdentityResourcesProvider(ImmutableList.of(Paths.get("res2"), Paths.get("res1")));
+    args.filteredResourcesProvider = createIdentifyResourcesProvider("res2", "res1");
 
     // TODO(cjhopman): AaptPackageResources' rulekey doesn't properly reflect changes in the
     // ordering of resource-only dependencies.
@@ -200,17 +206,14 @@ public class AaptPackageResourcesTest {
     RuleKey previousRuleKey = calculateRuleKey(args);
 
     args.hasAndroidResourceDeps = ImmutableList.of(resource1, resource2);
-    args.filteredResourcesProvider =
-        new IdentityResourcesProvider(ImmutableList.of(Paths.get("res1"), Paths.get("res2")));
+    args.filteredResourcesProvider = createIdentifyResourcesProvider("res1", "res2");
     previousRuleKey = assertKeyChanged(previousRuleKey, args);
 
     args.filteredResourcesProvider =
         new ResourcesFilter(
-            params
-                .withBuildTarget(params.getBuildTarget().withFlavors(InternalFlavor.of("filter")))
-                .copyReplacingDeclaredAndExtraDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(resource1, resource2)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
+            aaptTarget.withFlavors(InternalFlavor.of("filter")),
+            filesystem,
+            params.withDeclaredDeps(ImmutableSortedSet.of(resource1, resource2)).withoutExtraDeps(),
             ImmutableList.of(resource1.getRes(), resource2.getRes()),
             ImmutableSet.of(),
             ImmutableSet.of(),
@@ -222,11 +225,9 @@ public class AaptPackageResourcesTest {
 
     args.filteredResourcesProvider =
         new ResourcesFilter(
-            params
-                .withBuildTarget(params.getBuildTarget().withFlavors(InternalFlavor.of("filter")))
-                .copyReplacingDeclaredAndExtraDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(resource1, resource2)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
+            aaptTarget.withFlavors(InternalFlavor.of("filter")),
+            filesystem,
+            params.withDeclaredDeps(ImmutableSortedSet.of(resource1, resource2)).withoutExtraDeps(),
             ImmutableList.of(resource1.getRes(), resource2.getRes()),
             ImmutableSet.of(),
             ImmutableSet.of("some_locale"),
@@ -259,6 +260,8 @@ public class AaptPackageResourcesTest {
     return new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
         .build(
             new AaptPackageResources(
+                aaptTarget,
+                filesystem,
                 params,
                 ruleFinder,
                 ruleResolver,

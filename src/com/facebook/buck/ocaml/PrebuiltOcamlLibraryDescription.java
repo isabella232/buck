@@ -16,6 +16,7 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -48,12 +49,12 @@ public class PrebuiltOcamlLibraryDescription
   @Override
   public OcamlLibrary createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       final PrebuiltOcamlLibraryDescriptionArg args) {
-
-    final BuildTarget target = params.getBuildTarget();
 
     final boolean bytecodeOnly = args.getBytecodeOnly();
 
@@ -63,28 +64,29 @@ public class PrebuiltOcamlLibraryDescription
     final String bytecodeLib = args.getBytecodeLib();
     final ImmutableList<String> cLibs = args.getCLibs();
 
-    final Path libPath = target.getBasePath().resolve(libDir);
+    final Path libPath = buildTarget.getBasePath().resolve(libDir);
     final Path includeDir = libPath.resolve(args.getIncludeDir());
 
     final Optional<SourcePath> staticNativeLibraryPath =
         bytecodeOnly
             ? Optional.empty()
-            : Optional.of(
-                new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(nativeLib)));
+            : Optional.of(new PathSourcePath(projectFilesystem, libPath.resolve(nativeLib)));
     final SourcePath staticBytecodeLibraryPath =
-        new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(bytecodeLib));
+        new PathSourcePath(projectFilesystem, libPath.resolve(bytecodeLib));
     final ImmutableList<SourcePath> staticCLibraryPaths =
         cLibs
             .stream()
-            .map(input -> new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(input)))
+            .map(input -> new PathSourcePath(projectFilesystem, libPath.resolve(input)))
             .collect(MoreCollectors.toImmutableList());
 
     final SourcePath bytecodeLibraryPath =
-        new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(bytecodeLib));
+        new PathSourcePath(projectFilesystem, libPath.resolve(bytecodeLib));
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     return new PrebuiltOcamlLibrary(
+        buildTarget,
+        projectFilesystem,
         params,
         ruleFinder,
         staticNativeLibraryPath,

@@ -23,6 +23,7 @@ import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacFactory;
@@ -43,7 +44,6 @@ import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -91,6 +91,8 @@ public class AndroidInstrumentationApkDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -100,9 +102,7 @@ public class AndroidInstrumentationApkDescription
     if (!(installableApk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
           "In %s, apk='%s' must be an android_binary() or apk_genrule() but was %s().",
-          params.getBuildTarget(),
-          installableApk.getFullyQualifiedName(),
-          installableApk.getType());
+          buildTarget, installableApk.getFullyQualifiedName(), installableApk.getType());
     }
     AndroidBinary apkUnderTest =
         ApkGenruleDescription.getUnderlyingApk((HasInstallableApk) installableApk);
@@ -123,11 +123,12 @@ public class AndroidInstrumentationApkDescription
                 resourceDetails.getResourcesWithNonEmptyResDir(),
                 resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()));
 
-    Path primaryDexPath =
-        AndroidBinary.getPrimaryDexPath(params.getBuildTarget(), params.getProjectFilesystem());
+    Path primaryDexPath = AndroidBinary.getPrimaryDexPath(buildTarget, projectFilesystem);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
+            buildTarget,
+            projectFilesystem,
             params,
             targetGraph,
             resolver,
@@ -171,15 +172,17 @@ public class AndroidInstrumentationApkDescription
             dxExecutorService,
             apkUnderTest.getManifestEntries(),
             cxxBuckConfig,
-            new APKModuleGraph(targetGraph, params.getBuildTarget(), Optional.empty()),
+            new APKModuleGraph(targetGraph, buildTarget, Optional.empty()),
             dxConfig,
             /* postFilterResourcesCommands */ Optional.empty());
 
     AndroidGraphEnhancementResult enhancementResult = graphEnhancer.createAdditionalBuildables();
 
     return new AndroidInstrumentationApk(
+        buildTarget,
+        projectFilesystem,
         params
-            .copyReplacingExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps()))
+            .withExtraDeps(enhancementResult.getFinalDeps())
             .copyAppendingExtraDeps(rulesToExcludeFromDex),
         ruleFinder,
         proGuardConfig.getProguardJarOverride(),

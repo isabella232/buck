@@ -18,6 +18,7 @@ package com.facebook.buck.go;
 
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -63,6 +64,8 @@ public class GoBinaryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -71,10 +74,12 @@ public class GoBinaryDescription
     GoPlatform platform =
         goBuckConfig
             .getPlatformFlavorDomain()
-            .getValue(params.getBuildTarget())
+            .getValue(buildTarget)
             .orElse(goBuckConfig.getDefaultPlatform());
 
     return GoDescriptors.createGoBinaryRule(
+        buildTarget,
+        projectFilesystem,
         params,
         resolver,
         goBuckConfig,

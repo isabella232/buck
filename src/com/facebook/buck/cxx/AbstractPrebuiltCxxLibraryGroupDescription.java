@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.MacroFinder;
@@ -31,7 +32,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -47,9 +48,11 @@ import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Multimaps;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.immutables.value.Value;
@@ -157,13 +160,15 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       final PrebuiltCxxLibraryGroupDescriptionArg args)
       throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    return new CustomPrebuiltCxxLibrary(params) {
+    return new CustomPrebuiltCxxLibrary(buildTarget, projectFilesystem, params) {
 
       private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
           transitiveCxxPreprocessorInputCache =
@@ -192,11 +197,14 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
           throws NoSuchBuildTargetException {
         CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
         builder.putAllPreprocessorFlags(
-            CxxFlags.getLanguageFlags(
-                args.getExportedPreprocessorFlags(),
-                PatternMatchedCollection.of(),
-                ImmutableMap.of(),
-                cxxPlatform));
+            ImmutableListMultimap.copyOf(
+                Multimaps.transformValues(
+                    CxxFlags.getLanguageFlags(
+                        args.getExportedPreprocessorFlags(),
+                        PatternMatchedCollection.of(),
+                        ImmutableMap.of(),
+                        cxxPlatform),
+                    StringArg::of)));
         for (SourcePath includeDir : args.getIncludeDirs()) {
           builder.addIncludes(CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, includeDir));
         }
@@ -223,7 +231,12 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
 
       @Override
       public NativeLinkableInput getNativeLinkableInput(
-          CxxPlatform cxxPlatform, Linker.LinkableDepType type) throws NoSuchBuildTargetException {
+          CxxPlatform cxxPlatform,
+          Linker.LinkableDepType type,
+          boolean forceLinkWhole,
+          ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
+          throws NoSuchBuildTargetException {
+
         if (!isPlatformSupported(cxxPlatform)) {
           return NativeLinkableInput.of();
         }
@@ -323,10 +336,11 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
     };
   }
 
-  private abstract static class CustomPrebuiltCxxLibrary extends NoopBuildRule
-      implements AbstractCxxLibrary {
-    public CustomPrebuiltCxxLibrary(BuildRuleParams params) {
-      super(params);
+  public abstract static class CustomPrebuiltCxxLibrary
+      extends NoopBuildRuleWithDeclaredAndExtraDeps implements AbstractCxxLibrary {
+    public CustomPrebuiltCxxLibrary(
+        BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {
+      super(buildTarget, projectFilesystem, params);
     }
   }
 

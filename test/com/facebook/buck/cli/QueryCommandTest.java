@@ -21,9 +21,10 @@ import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
+import com.facebook.buck.query.QueryEnvironment;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
@@ -35,16 +36,12 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.util.Optional;
-import java.util.concurrent.Executors;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockRunner;
 import org.easymock.Mock;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -55,7 +52,6 @@ public class QueryCommandTest {
 
   private QueryCommand queryCommand;
   private CommandRunnerParams params;
-  private ListeningExecutorService executor;
 
   @Mock private BuckQueryEnvironment env;
 
@@ -75,7 +71,7 @@ public class QueryCommandTest {
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
     queryCommand = new QueryCommand();
     queryCommand.outputAttributes = Suppliers.ofInstance(ImmutableSet.<String>of());
@@ -91,35 +87,37 @@ public class QueryCommandTest {
             ImmutableMap.copyOf(System.getenv()),
             new FakeJavaPackageFinder(),
             Optional.empty());
-    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-  }
-
-  @After
-  public void tearDown() {
-    executor.shutdown();
   }
 
   @Test
   public void testRunMultiQueryWithSet() throws Exception {
     queryCommand.setArguments(ImmutableList.of("deps(%Ss)", "//foo:bar", "//foo:baz"));
-    EasyMock.expect(env.evaluateQuery("deps(set('//foo:bar' '//foo:baz'))", executor))
+    EasyMock.expect(env.evaluateQuery("deps(set('//foo:bar' '//foo:baz'))"))
         .andReturn(ImmutableSet.of());
     EasyMock.replay(env);
-    queryCommand.formatAndRunQuery(params, env, executor);
+    queryCommand.formatAndRunQuery(params, env);
     EasyMock.verify(env);
   }
 
   @Test
   public void testRunMultiQuery() throws Exception {
     queryCommand.setArguments(ImmutableList.of("deps(%s)", "//foo:bar", "//foo:baz"));
+    QueryEnvironment.TargetEvaluator evaluator =
+        EasyMock.createNiceMock(QueryEnvironment.TargetEvaluator.class);
+    EasyMock.expect(evaluator.getType())
+        .andReturn(QueryEnvironment.TargetEvaluator.Type.LAZY)
+        .times(2);
     EasyMock.expect(env.getFunctions())
         .andReturn(BuckQueryEnvironment.DEFAULT_QUERY_FUNCTIONS)
         .anyTimes();
-    env.preloadTargetPatterns(ImmutableSet.of("//foo:bar", "//foo:baz"), executor);
-    EasyMock.expect(env.evaluateQuery("deps(//foo:bar)", executor)).andReturn(ImmutableSet.of());
-    EasyMock.expect(env.evaluateQuery("deps(//foo:baz)", executor)).andReturn(ImmutableSet.of());
+    EasyMock.expect(env.getTargetEvaluator()).andReturn(evaluator).times(2);
+    env.preloadTargetPatterns(ImmutableSet.of("//foo:bar", "//foo:baz"));
+    EasyMock.expect(env.evaluateQuery("deps(//foo:bar)")).andReturn(ImmutableSet.of());
+    EasyMock.expect(env.evaluateQuery("deps(//foo:baz)")).andReturn(ImmutableSet.of());
     EasyMock.replay(env);
-    queryCommand.formatAndRunQuery(params, env, executor);
+    EasyMock.replay(evaluator);
+    queryCommand.formatAndRunQuery(params, env);
     EasyMock.verify(env);
+    EasyMock.verify(evaluator);
   }
 }

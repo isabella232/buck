@@ -16,6 +16,7 @@
 
 package com.facebook.buck.go;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -30,7 +31,7 @@ import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -71,6 +72,7 @@ public class GoLibraryDescription
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
       final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       GoLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass)
@@ -110,22 +112,25 @@ public class GoLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GoLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
-    Optional<GoPlatform> platform =
-        goBuckConfig.getPlatformFlavorDomain().getValue(params.getBuildTarget());
+    Optional<GoPlatform> platform = goBuckConfig.getPlatformFlavorDomain().getValue(buildTarget);
 
     if (platform.isPresent()) {
       return GoDescriptors.createGoCompileRule(
+          buildTarget,
+          projectFilesystem,
           params,
           resolver,
           goBuckConfig,
           args.getPackageName()
               .map(Paths::get)
-              .orElse(goBuckConfig.getDefaultPackageName(params.getBuildTarget())),
+              .orElse(goBuckConfig.getDefaultPackageName(buildTarget)),
           args.getSrcs(),
           args.getCompilerFlags(),
           args.getAssemblerFlags(),
@@ -135,7 +140,7 @@ public class GoLibraryDescription
               .append(args.getExportedDeps()));
     }
 
-    return new NoopBuildRule(params);
+    return new NoopBuildRuleWithDeclaredAndExtraDeps(buildTarget, projectFilesystem, params);
   }
 
   @BuckStyleImmutable

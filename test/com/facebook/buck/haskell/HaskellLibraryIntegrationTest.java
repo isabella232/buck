@@ -59,17 +59,20 @@ public class HaskellLibraryIntegrationTest {
   }
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws IOException, InterruptedException {
 
     // We don't currently support windows.
     assumeThat(Platform.detect(), Matchers.not(Platform.WINDOWS));
 
     // Verify that the system contains a compiler.
-    HaskellTestUtils.assumeSystemCompiler();
+    HaskellVersion version = HaskellTestUtils.assumeSystemCompiler();
 
     // Setup the workspace.
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "library_test", tmp);
     workspace.setUp();
+
+    // Write out the `.buckconfig`.
+    workspace.writeContentsToPath(HaskellTestUtils.formatHaskellConfig(version), ".buckconfig");
   }
 
   @Test
@@ -103,5 +106,10 @@ public class HaskellLibraryIntegrationTest {
     workspace.writeContentsToPath("module OrderA where\n", "OrderA.hs");
     workspace.writeContentsToPath("module OrderB where\nimport OrderA\n", "OrderB.hs");
     workspace.runBuckBuild("//:order#default," + getLinkFlavor()).assertSuccess();
+  }
+
+  @Test
+  public void cHeader() throws IOException {
+    workspace.runBuckBuild("//:hs_header#default," + getLinkFlavor()).assertSuccess();
   }
 }

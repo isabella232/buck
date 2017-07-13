@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.HasJavaAbi;
@@ -23,12 +24,13 @@ import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.NoOpClassUsageFileWriter;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -64,13 +66,12 @@ import java.util.zip.ZipFile;
  * generate a corresponding {@code R.class} file. These are called "dummy" {@code R.java} files
  * since these are later merged together into a single {@code R.java} file by {@link AaptStep}.
  */
-public class DummyRDotJava extends AbstractBuildRule
+public class DummyRDotJava extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey, InitializableFromDisk<Object>, HasJavaAbi {
 
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
   private final Path outputJar;
   private final JarContentsSupplier outputJarContentsSupplier;
-  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey CompileToJarStepFactory compileStepFactory;
   @AddToRuleKey private final boolean forceFinalResourceIds;
   @AddToRuleKey private final Optional<String> unionPackage;
@@ -82,6 +83,8 @@ public class DummyRDotJava extends AbstractBuildRule
   private final ImmutableList<SourcePath> abiInputs;
 
   public DummyRDotJava(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       Set<HasAndroidResourceDeps> androidResourceDeps,
@@ -91,6 +94,8 @@ public class DummyRDotJava extends AbstractBuildRule
       Optional<String> finalRName,
       boolean useOldStyleableFormat) {
     this(
+        buildTarget,
+        projectFilesystem,
         params,
         ruleFinder,
         androidResourceDeps,
@@ -103,6 +108,8 @@ public class DummyRDotJava extends AbstractBuildRule
   }
 
   private DummyRDotJava(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       Set<HasAndroidResourceDeps> androidResourceDeps,
@@ -112,9 +119,11 @@ public class DummyRDotJava extends AbstractBuildRule
       Optional<String> finalRName,
       boolean useOldStyleableFormat,
       ImmutableList<SourcePath> abiInputs) {
-    super(params.copyAppendingExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiInputs)));
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
-    this.ruleFinder = ruleFinder;
+    super(
+        buildTarget,
+        projectFilesystem,
+        params.copyAppendingExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiInputs)));
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps =
         androidResourceDeps
@@ -143,7 +152,11 @@ public class DummyRDotJava extends AbstractBuildRule
       BuildContext context, final BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
     final Path rDotJavaSrcFolder = getRDotJavaSrcFolder(getBuildTarget(), getProjectFilesystem());
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), rDotJavaSrcFolder));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), rDotJavaSrcFolder)));
 
     // Generate the .java files and record where they will be written in javaSourceFilePaths.
     ImmutableSortedSet<Path> javaSourceFilePaths;
@@ -155,7 +168,13 @@ public class DummyRDotJava extends AbstractBuildRule
       // TODO(mbolin): Stop hardcoding com.facebook. This should match the package in the
       // associated TestAndroidManifest.xml file.
       Path emptyRDotJava = rDotJavaSrcFolder.resolve("com/facebook/R.java");
-      steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), emptyRDotJava.getParent()));
+
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  emptyRDotJava.getParent())));
       steps.add(
           new WriteFileStep(
               getProjectFilesystem(),
@@ -201,14 +220,27 @@ public class DummyRDotJava extends AbstractBuildRule
 
     // Clear out the directory where the .class files will be generated.
     final Path rDotJavaClassesFolder = getRDotJavaBinFolder();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), rDotJavaClassesFolder));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), rDotJavaClassesFolder)));
 
     Path pathToJarOutputDir = outputJar.getParent();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToJarOutputDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToJarOutputDir)));
 
     Path pathToSrcsList =
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__srcs");
-    steps.add(MkdirStep.of(getProjectFilesystem(), pathToSrcsList.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToSrcsList.getParent())));
 
     // Compile the .java files.
     compileStepFactory.createCompileStep(
@@ -216,7 +248,6 @@ public class DummyRDotJava extends AbstractBuildRule
         javaSourceFilePaths,
         getBuildTarget(),
         context.getSourcePathResolver(),
-        ruleFinder,
         getProjectFilesystem(),
         /* declared classpath */ ImmutableSortedSet.of(),
         rDotJavaClassesFolder,

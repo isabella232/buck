@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -51,17 +52,14 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   private final ImmutableSortedMap<Path, SourcePath> links;
   private final BuildTarget target;
   private final ProjectFilesystem filesystem;
-  private final SourcePathRuleFinder ruleFinder;
 
   public SymlinkTree(
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      final ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
+      final ImmutableMap<Path, SourcePath> links) {
     this.target = target;
     this.filesystem = filesystem;
-    this.ruleFinder = ruleFinder;
 
     Preconditions.checkState(
         !root.isAbsolute(), "Expected symlink tree root to be relative: %s", root);
@@ -142,11 +140,6 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
     return "symlink_tree";
   }
 
-  @Override
-  public BuildableProperties getProperties() {
-    return BuildableProperties.NONE;
-  }
-
   /**
    * SymlinkTree never has any compile-time deps, only runtime deps.
    *
@@ -163,9 +156,13 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
+
     return new ImmutableList.Builder<Step>()
         .add(getVerifyStep())
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), root))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), root)))
         .add(
             new SymlinkTreeStep(
                 getProjectFilesystem(),
@@ -200,7 +197,8 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   protected Step getVerifyStep() {
     return new AbstractExecutionStep("verify_symlink_tree") {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         for (ImmutableMap.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
           for (Path pathPart : entry.getKey()) {
             if (pathPart.toString().equals("..")) {
@@ -230,7 +228,7 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return links
         .values()
         .stream()

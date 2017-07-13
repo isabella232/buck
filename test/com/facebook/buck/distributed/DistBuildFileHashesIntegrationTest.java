@@ -24,7 +24,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -35,6 +35,7 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -46,6 +47,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
@@ -100,7 +102,7 @@ public class DistBuildFileHashesIntegrationTest {
             constructorArgMarshaller);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            BuckEventBusFactory.newInstance(),
+            BuckEventBusForTests.newInstance(),
             rootCell,
             /* enableProfiling */ false,
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
@@ -166,7 +168,7 @@ public class DistBuildFileHashesIntegrationTest {
             constructorArgMarshaller);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            BuckEventBusFactory.newInstance(),
+            BuckEventBusForTests.newInstance(),
             rootCell,
             /* enableProfiling */ false,
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
@@ -203,19 +205,25 @@ public class DistBuildFileHashesIntegrationTest {
       throws InterruptedException, IOException {
     ActionGraphCache cache = new ActionGraphCache(new BroadcastEventListener());
     ActionGraphAndResolver actionGraphAndResolver =
-        cache.getActionGraph(BuckEventBusFactory.newInstance(), true, false, targetGraph, KEY_SEED);
+        cache.getActionGraph(
+            BuckEventBusForTests.newInstance(), true, false, targetGraph, KEY_SEED);
     BuildRuleResolver ruleResolver = actionGraphAndResolver.getResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DistBuildCellIndexer cellIndexer = new DistBuildCellIndexer(rootCell);
 
     ImmutableList.Builder<ProjectFileHashCache> allCaches = ImmutableList.builder();
-    allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(rootCell.getFilesystem()));
+    allCaches.add(
+        DefaultFileHashCache.createDefaultFileHashCache(
+            rootCell.getFilesystem(), FileHashCacheMode.PREFIX_TREE));
     for (Path cellPath : rootCell.getKnownRoots()) {
       Cell cell = rootCell.getCell(cellPath);
-      allCaches.add(DefaultFileHashCache.createDefaultFileHashCache(cell.getFilesystem()));
+      allCaches.add(
+          DefaultFileHashCache.createDefaultFileHashCache(
+              cell.getFilesystem(), FileHashCacheMode.PREFIX_TREE));
     }
-    allCaches.addAll(DefaultFileHashCache.createOsRootDirectoriesCaches());
+    allCaches.addAll(
+        DefaultFileHashCache.createOsRootDirectoriesCaches(FileHashCacheMode.PREFIX_TREE));
     StackedFileHashCache stackedCache = new StackedFileHashCache(allCaches.build());
 
     return new DistBuildFileHashes(

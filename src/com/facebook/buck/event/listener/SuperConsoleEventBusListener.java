@@ -25,7 +25,9 @@ import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.LeafEvent;
+import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
+import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
@@ -454,11 +456,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         columns.add("STATUS: " + distBuildStatus.get().getStatus());
 
         int totalUploadErrorsCount = 0;
+        int totalFilesMaterialized = 0;
         ImmutableList.Builder<CacheRateStatsKeeper.CacheRateStatsUpdateEvent> slaveCacheStats =
             new ImmutableList.Builder<>();
 
         for (BuildSlaveStatus slaveStatus : distBuildStatus.get().getSlaveStatuses()) {
           totalUploadErrorsCount += slaveStatus.getHttpArtifactUploadsFailureCount();
+          totalFilesMaterialized += slaveStatus.getFilesMaterializedCount();
 
           if (slaveStatus.isSetCacheRateStats()) {
             slaveCacheStats.add(
@@ -488,6 +492,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
         if (totalUploadErrorsCount > 0) {
           columns.add(String.format("%d UPLOAD ERRORS", totalUploadErrorsCount));
+        }
+
+        if (totalFilesMaterialized > 0) {
+          columns.add(String.format("%d FILES MATERIALIZED", totalFilesMaterialized));
         }
 
         if (distBuildStatus.get().getMessage().isPresent()) {
@@ -627,6 +635,28 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void stepFinished(StepEvent.Finished finished) {
+    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+  }
+
+  // TODO(cjhopman): We should introduce a simple LeafEvent-like thing that everything that logs
+  // step-like things can subscribe to.
+  @Subscribe
+  public void simpleLeafEventStarted(LeafEvents.SimpleLeafEvent.Started started) {
+    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+  }
+
+  @Subscribe
+  public void simpleLeafEventFinished(LeafEvents.SimpleLeafEvent.Finished finished) {
+    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+  }
+
+  @Subscribe
+  public void ruleKeyCalculationStarted(RuleKeyCalculationEvent.Started started) {
+    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+  }
+
+  @Subscribe
+  public void ruleKeyCalculationFinished(RuleKeyCalculationEvent.Finished finished) {
     threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
   }
 

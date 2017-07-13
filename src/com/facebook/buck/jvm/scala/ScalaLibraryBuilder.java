@@ -16,8 +16,10 @@
 
 package com.facebook.buck.jvm.scala;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -31,11 +33,13 @@ public class ScalaLibraryBuilder extends DefaultJavaLibraryBuilder {
 
   ScalaLibraryBuilder(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
       ScalaBuckConfig scalaBuckConfig) {
-    super(targetGraph, params, buildRuleResolver, cellRoots);
+    super(targetGraph, buildTarget, projectFilesystem, params, buildRuleResolver, cellRoots);
     this.scalaBuckConfig = scalaBuckConfig;
   }
 

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.ide.intellij;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
@@ -187,6 +188,86 @@ public class ProjectIntegrationTest {
   @Test
   public void testAndroidResourceAggregation() throws InterruptedException, IOException {
     runBuckProjectAndVerify("android_resource_aggregation");
+  }
+
+  @Test
+  public void testAndroidResourceAggregationWithLimit() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("android_resource_aggregation_with_limit");
+  }
+
+  @Test
+  public void testProjectIncludesTestsByDefault() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_with_tests_by_default", "//modules/lib:lib");
+  }
+
+  @Test
+  public void testProjectExcludesTestsWhenRequested() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_without_tests", "--without-tests", "//modules/lib:lib");
+  }
+
+  @Test
+  public void testProjectExcludesDepTestsWhenRequested() throws InterruptedException, IOException {
+    runBuckProjectAndVerify(
+        "project_without_dep_tests", "--without-dependencies-tests", "//modules/lib:lib");
+  }
+
+  @Test
+  public void testUpdatingExistingWorkspace() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("update_existing_workspace");
+  }
+
+  @Test
+  public void testCreateNewWorkspace() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("create_new_workspace");
+  }
+
+  @Test
+  public void testUpdateMalformedWorkspace() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("update_malformed_workspace");
+  }
+
+  @Test
+  public void testUpdateWorkspaceWithoutIgnoredNodes() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("update_workspace_without_ignored_nodes");
+  }
+
+  @Test
+  public void testUpdateWorkspaceWithoutManagerNode() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("update_workspace_without_manager_node");
+  }
+
+  @Test
+  public void testUpdateWorkspaceWithoutProjectNode() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("update_workspace_without_project_node");
+  }
+
+  @Test
+  public void testProjectWthPackageBoundaryException() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_with_package_boundary_exception", "//project2:lib");
+  }
+
+  @Test
+  public void testProjectWithProjectRoot() throws InterruptedException, IOException {
+    runBuckProjectAndVerify(
+        "project_with_project_root",
+        "--intellij-project-root",
+        "project1",
+        "--intellij-include-transitive-dependencies",
+        "--intellij-module-group-name",
+        "",
+        "//project1/lib:lib");
+  }
+
+  @Test
+  public void testGeneratingAndroidManifest() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("generate_android_manifest");
+  }
+
+  @Test
+  public void testPreprocessScript() throws InterruptedException, IOException {
+    ProcessResult result = runBuckProjectAndVerify("preprocess_script_test");
+
+    assertEquals("intellij", result.getStdout().trim());
   }
 
   private ProcessResult runBuckProjectAndVerify(String folderWithTestData, String... commandArgs)

@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.AbstractJavacOptions.SpoolMode;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -31,7 +32,6 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -39,7 +39,7 @@ import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
   private static final Logger LOG = Logger.get(JavacToJarStepFactory.class);
@@ -47,6 +47,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
   private final Javac javac;
   private JavacOptions javacOptions;
   private final JavacOptionsAmender amender;
+  @Nullable private Path abiJar;
 
   public JavacToJarStepFactory(
       Javac javac, JavacOptions javacOptions, JavacOptionsAmender amender) {
@@ -55,24 +56,8 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
     this.amender = amender;
   }
 
-  public void setCompileAbi() {
-    javacOptions =
-        javacOptions
-            .withCompilationMode(JavacCompilationMode.ABI)
-            .withAnnotationProcessingParams(
-                abiProcessorsOnly(javacOptions.getAnnotationProcessingParams()));
-  }
-
-  private AnnotationProcessingParams abiProcessorsOnly(
-      AnnotationProcessingParams annotationProcessingParams) {
-    Preconditions.checkArgument(annotationProcessingParams.getLegacyProcessors().isEmpty());
-
-    return annotationProcessingParams.withModernProcessors(
-        annotationProcessingParams
-            .getModernProcessors()
-            .stream()
-            .filter(processor -> !processor.getDoesNotAffectAbi())
-            .collect(Collectors.toList()));
+  public void setCompileAbi(Path abiJar) {
+    this.abiJar = abiJar;
   }
 
   @Override
@@ -81,7 +66,6 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
       ImmutableSortedSet<Path> sourceFilePaths,
       BuildTarget invokingRule,
       SourcePathResolver resolver,
-      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
@@ -95,7 +79,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
 
     if (!javacOptions.getAnnotationProcessingParams().isEmpty()) {
       // Javac requires that the root directory for generated sources already exist.
-      addAnnotationGenFolderStep(buildTimeOptions, filesystem, steps, buildableContext);
+      addAnnotationGenFolderStep(buildTimeOptions, filesystem, steps, buildableContext, context);
     }
 
     steps.add(
@@ -112,7 +96,8 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
             resolver,
             filesystem,
             new ClasspathChecker(),
-            Optional.empty()));
+            Optional.empty(),
+            abiJar));
   }
 
   @Override
@@ -137,7 +122,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
   }
 
   @Override
-  Optional<String> getBootClasspath(BuildContext context) {
+  protected Optional<String> getBootClasspath(BuildContext context) {
     JavacOptions buildTimeOptions = amender.amend(javacOptions, context);
     return buildTimeOptions.getBootclasspath();
   }
@@ -199,25 +184,30 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
     if (isSpoolingToJarEnabled) {
       final JavacOptions buildTimeOptions = amender.amend(javacOptions, context);
       // Javac requires that the root directory for generated sources already exists.
-      addAnnotationGenFolderStep(buildTimeOptions, filesystem, steps, buildableContext);
+      addAnnotationGenFolderStep(buildTimeOptions, filesystem, steps, buildableContext, context);
 
       steps.add(
-          new JavacDirectToJarStep(
+          new JavacStep(
+              outputDirectory,
+              usedClassesFileWriter,
+              workingDirectory,
               sourceFilePaths,
-              invokingRule,
-              resolver,
-              filesystem,
+              pathToSrcsList,
               declaredClasspathEntries,
               javac,
               buildTimeOptions,
-              outputDirectory,
-              workingDirectory,
-              pathToSrcsList,
-              entriesToJar,
-              mainClass,
-              manifestFile,
-              outputJar,
-              usedClassesFileWriter));
+              invokingRule,
+              resolver,
+              filesystem,
+              new ClasspathChecker(),
+              Optional.of(
+                  DirectToJarOutputSettings.of(
+                      outputJar,
+                      buildTimeOptions.getClassesToRemoveFromJar(),
+                      entriesToJar,
+                      mainClass,
+                      manifestFile)),
+              abiJar));
     } else {
       super.createCompileToJarStep(
           context,
@@ -246,10 +236,14 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
       JavacOptions buildTimeOptions,
       ProjectFilesystem filesystem,
       ImmutableList.Builder<Step> steps,
-      BuildableContext buildableContext) {
+      BuildableContext buildableContext,
+      BuildContext buildContext) {
     Optional<Path> annotationGenFolder = buildTimeOptions.getGeneratedSourceFolderName();
     if (annotationGenFolder.isPresent()) {
-      steps.addAll(MakeCleanDirectoryStep.of(filesystem, annotationGenFolder.get()));
+      steps.addAll(
+          MakeCleanDirectoryStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  buildContext.getBuildCellRootPath(), filesystem, annotationGenFolder.get())));
       buildableContext.recordArtifact(annotationGenFolder.get());
     }
   }

@@ -18,16 +18,17 @@ package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
 import com.facebook.buck.util.liteinfersupport.Preconditions;
-import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.ClassTree;
-import com.sun.source.tree.ModifiersTree;
+import com.sun.source.util.TreePath;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.Name;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.type.TypeMirror;
 
 /**
@@ -35,7 +36,8 @@ import javax.lang.model.type.TypeMirror;
  * ClassTree}. This results in an incomplete implementation; see documentation for individual
  * methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeElement {
+class TreeBackedTypeElement extends TreeBackedParameterizable implements ArtificialTypeElement {
+  private final TreeBackedTypes types;
   private final TypeElement underlyingElement;
   private final ClassTree tree;
   @Nullable private StandaloneDeclaredType typeMirror;
@@ -43,13 +45,15 @@ class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeEle
   @Nullable private List<? extends TypeMirror> interfaces;
 
   TreeBackedTypeElement(
+      TreeBackedTypes types,
       TypeElement underlyingElement,
       TreeBackedElement enclosingElement,
-      ClassTree tree,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, tree, resolver);
+      TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
+    this.types = types;
     this.underlyingElement = underlyingElement;
-    this.tree = tree;
+    this.tree = (ClassTree) treePath.getLeaf();
     enclosingElement.addEnclosedElement(this);
   }
 
@@ -61,6 +65,22 @@ class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeEle
   @Override
   public TreeBackedElement getEnclosingElement() {
     return Preconditions.checkNotNull(super.getEnclosingElement());
+  }
+
+  @Override
+  protected void addEnclosedElement(Element element) {
+    if (!(element instanceof TreeBackedElement)) {
+      throw new IllegalArgumentException();
+    }
+    super.addEnclosedElement(element);
+  }
+
+  @Override
+  public List<TreeBackedElement> getEnclosedElements() {
+    @SuppressWarnings("unchecked")
+    List<TreeBackedElement> enclosedElements =
+        (List<TreeBackedElement>) super.getEnclosedElements();
+    return enclosedElements;
   }
 
   @Override
@@ -76,25 +96,22 @@ class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeEle
   @Override
   public StandaloneDeclaredType asType() {
     if (typeMirror == null) {
-      typeMirror = getResolver().createType(this);
+      typeMirror =
+          (StandaloneDeclaredType)
+              types.getDeclaredType(
+                  this,
+                  getTypeParameters()
+                      .stream()
+                      .map(TypeParameterElement::asType)
+                      .toArray(TypeMirror[]::new));
     }
     return typeMirror;
   }
 
   @Override
-  protected List<? extends AnnotationTree> getAnnotationTrees() {
-    ModifiersTree modifiersTree = tree == null ? null : tree.getModifiers();
-    if (modifiersTree == null) {
-      return Collections.emptyList();
-    }
-
-    return modifiersTree.getAnnotations();
-  }
-
-  @Override
   public TypeMirror getSuperclass() {
     if (superclass == null) {
-      superclass = getResolver().getCanonicalType(underlyingElement.getSuperclass());
+      superclass = getCanonicalizer().getCanonicalType(underlyingElement.getSuperclass());
     }
 
     return superclass;
@@ -108,7 +125,7 @@ class TreeBackedTypeElement extends TreeBackedParameterizable implements TypeEle
               underlyingElement
                   .getInterfaces()
                   .stream()
-                  .map(getResolver()::getCanonicalType)
+                  .map(getCanonicalizer()::getCanonicalType)
                   .collect(Collectors.toList()));
     }
     return interfaces;

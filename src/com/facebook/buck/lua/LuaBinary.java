@@ -16,8 +16,9 @@
 
 package com.facebook.buck.lua;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -35,27 +36,27 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 
-public class LuaBinary extends AbstractBuildRule implements BinaryBuildRule, HasRuntimeDeps {
+public class LuaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule, HasRuntimeDeps {
 
   private final Path output;
   private final Tool wrappedBinary;
   private final String mainModule;
   private final LuaPackageComponents components;
   private final Tool lua;
-  private final SourcePathRuleFinder ruleFinder;
   private final LuaConfig.PackageStyle packageStyle;
 
   public LuaBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePathRuleFinder ruleFinder,
       Path output,
       Tool wrappedBinary,
       String mainModule,
       LuaPackageComponents components,
       Tool lua,
       LuaConfig.PackageStyle packageStyle) {
-    super(buildRuleParams);
-    this.ruleFinder = ruleFinder;
+    super(buildTarget, projectFilesystem, buildRuleParams);
     Preconditions.checkArgument(!output.isAbsolute());
     this.output = output;
     this.wrappedBinary = wrappedBinary;
@@ -102,7 +103,7 @@ public class LuaBinary extends AbstractBuildRule implements BinaryBuildRule, Has
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(getDeclaredDeps().stream(), wrappedBinary.getDeps(ruleFinder).stream())
         .map(BuildRule::getBuildTarget);
   }

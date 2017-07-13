@@ -16,10 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.FileScrubber;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -40,7 +42,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -133,6 +134,7 @@ public class GnuLinker implements Linker {
    */
   @Override
   public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
@@ -141,13 +143,12 @@ public class GnuLinker implements Linker {
     UndefinedSymbolsLinkerScript rule =
         ruleResolver.addToIndex(
             new UndefinedSymbolsLinkerScript(
+                target,
+                projectFilesystem,
                 baseParams
-                    .withBuildTarget(target)
-                    .copyReplacingDeclaredAndExtraDeps(
-                        Suppliers.ofInstance(
-                            ImmutableSortedSet.copyOf(
-                                ruleFinder.filterBuildRuleInputs(symbolFiles))),
-                        Suppliers.ofInstance(ImmutableSortedSet.of())),
+                    .withDeclaredDeps(
+                        ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(symbolFiles)))
+                    .withoutExtraDeps(),
                 symbolFiles));
     return ImmutableList.of(SourcePathArg.of(rule.getSourcePathToOutput()));
   }
@@ -187,13 +188,17 @@ public class GnuLinker implements Linker {
 
   // Write all symbols to a linker script, using the `EXTERN` command to mark them as undefined
   // symbols.
-  private static class UndefinedSymbolsLinkerScript extends AbstractBuildRule {
+  private static class UndefinedSymbolsLinkerScript
+      extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     @AddToRuleKey private final Iterable<? extends SourcePath> symbolFiles;
 
     public UndefinedSymbolsLinkerScript(
-        BuildRuleParams buildRuleParams, Iterable<? extends SourcePath> symbolFiles) {
-      super(buildRuleParams);
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
+        BuildRuleParams buildRuleParams,
+        Iterable<? extends SourcePath> symbolFiles) {
+      super(buildTarget, projectFilesystem, buildRuleParams);
       this.symbolFiles = symbolFiles;
     }
 
@@ -208,7 +213,11 @@ public class GnuLinker implements Linker {
       final Path linkerScript = getLinkerScript();
       buildableContext.recordArtifact(linkerScript);
       return ImmutableList.of(
-          MkdirStep.of(getProjectFilesystem(), linkerScript.getParent()),
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  linkerScript.getParent())),
           new WriteFileStep(
               getProjectFilesystem(),
               () -> {

@@ -16,7 +16,10 @@
 
 package com.facebook.buck.js;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -33,7 +36,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class JsBundle extends AbstractBuildRule implements JsBundleOutputs {
+public class JsBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps implements JsBundleOutputs {
 
   @AddToRuleKey private final String bundleName;
 
@@ -44,12 +47,14 @@ public class JsBundle extends AbstractBuildRule implements JsBundleOutputs {
   @AddToRuleKey private final WorkerTool worker;
 
   protected JsBundle(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableSortedSet<SourcePath> libraries,
       ImmutableSet<String> entryPoints,
       String bundleName,
       WorkerTool worker) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.bundleName = bundleName;
     this.entryPoints = entryPoints;
     this.libraries = libraries;
@@ -63,8 +68,6 @@ public class JsBundle extends AbstractBuildRule implements JsBundleOutputs {
     final SourcePath jsOutputDir = getSourcePathToOutput();
     final SourcePath sourceMapFile = getSourcePathToSourceMap();
     final SourcePath resourcesDir = getSourcePathToResources();
-
-    this.getProjectFilesystem().getRootPath();
 
     String jobArgs =
         Stream.concat(
@@ -90,15 +93,28 @@ public class JsBundle extends AbstractBuildRule implements JsBundleOutputs {
     return ImmutableList.<Step>builder()
         .addAll(
             MakeCleanDirectoryStep.of(
-                getProjectFilesystem(),
-                sourcePathResolver.getRelativePath(
-                    JsUtil.relativeToOutputRoot(getBuildTarget(), getProjectFilesystem(), ""))))
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    sourcePathResolver.getRelativePath(
+                        JsUtil.relativeToOutputRoot(
+                            getBuildTarget(), getProjectFilesystem(), "")))))
         .add(
-            MkdirStep.of(getProjectFilesystem(), sourcePathResolver.getAbsolutePath(jsOutputDir)),
             MkdirStep.of(
-                getProjectFilesystem(),
-                sourcePathResolver.getAbsolutePath(sourceMapFile).getParent()),
-            MkdirStep.of(getProjectFilesystem(), sourcePathResolver.getAbsolutePath(resourcesDir)),
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    sourcePathResolver.getRelativePath(jsOutputDir))),
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    sourcePathResolver.getRelativePath(sourceMapFile).getParent())),
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    sourcePathResolver.getRelativePath(resourcesDir))),
             JsUtil.workerShellStep(
                 worker, jobArgs, getBuildTarget(), sourcePathResolver, getProjectFilesystem()))
         .build();

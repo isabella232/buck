@@ -23,6 +23,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.rules.query.QueryCache;
+import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
@@ -110,13 +112,20 @@ public abstract class AbstractNodeBuilder<
       throws NoSuchBuildTargetException {
 
     // The BuildRule determines its deps by extracting them from the rule parameters.
-    BuildRuleParams params = createBuildRuleParams(resolver, filesystem);
+    BuildRuleParams params = createBuildRuleParams(resolver);
 
     TArg builtArg = getPopulatedArg();
+
+    QueryCache cache = new QueryCache();
+    builtArg = QueryUtils.withDepsQuery(builtArg, target, cache, resolver, cellRoots, targetGraph);
+    builtArg =
+        QueryUtils.withProvidedDepsQuery(builtArg, target, cache, resolver, cellRoots, targetGraph);
+
     @SuppressWarnings("unchecked")
     TBuildRule rule =
         (TBuildRule)
-            description.createBuildRule(targetGraph, params, resolver, cellRoots, builtArg);
+            description.createBuildRule(
+                targetGraph, target, filesystem, params, resolver, cellRoots, builtArg);
     resolver.addToIndex(rule);
     return rule;
   }
@@ -130,42 +139,32 @@ public abstract class AbstractNodeBuilder<
       TargetNodeFactory factory = new TargetNodeFactory(TYPE_COERCER_FACTORY);
       TArg populatedArg = getPopulatedArg();
       TargetNode<TArg, TDescription> node =
-          factory.create(
-              // This hash will do in a pinch.
-              hash,
-              description,
-              populatedArg,
-              filesystem,
-              target,
-              getDepsFromArg(populatedArg),
-              ImmutableSet.of(
-                  VISIBILITY_PATTERN_PARSER.parse(null, VisibilityPatternParser.VISIBILITY_PUBLIC)),
-              ImmutableSet.of(),
-              cellRoots);
-      if (selectedVersions.isPresent()) {
-        node =
-            node.withTargetConstructorArgDepsAndSelectedVerisons(
-                node.getBuildTarget(),
-                node.getConstructorArg(),
-                node.getDeclaredDeps(),
-                node.getExtraDeps(),
-                node.getTargetGraphOnlyDeps(),
-                selectedVersions);
-      }
+          factory
+              .create(
+                  // This hash will do in a pinch.
+                  hash,
+                  description,
+                  populatedArg,
+                  filesystem,
+                  target,
+                  getDepsFromArg(populatedArg),
+                  ImmutableSet.of(
+                      VISIBILITY_PATTERN_PARSER.parse(
+                          null, VisibilityPatternParser.VISIBILITY_PUBLIC)),
+                  ImmutableSet.of(),
+                  cellRoots)
+              .withSelectedVersions(selectedVersions);
       return node;
     } catch (NoSuchBuildTargetException e) {
       throw new RuntimeException(e);
     }
   }
 
-  public BuildRuleParams createBuildRuleParams(
-      BuildRuleResolver resolver, ProjectFilesystem filesystem) {
+  public BuildRuleParams createBuildRuleParams(BuildRuleResolver resolver) {
     TargetNode<?, ?> node = build();
-    return new FakeBuildRuleParamsBuilder(target)
-        .setProjectFilesystem(filesystem)
-        .setDeclaredDeps(resolver.getAllRules(node.getDeclaredDeps()))
-        .setExtraDeps(resolver.getAllRules(node.getExtraDeps()))
-        .build();
+    return TestBuildRuleParams.create()
+        .withDeclaredDeps(resolver.getAllRules(node.getDeclaredDeps()))
+        .withExtraDeps(resolver.getAllRules(node.getExtraDeps()));
   }
 
   @SuppressWarnings("unchecked")

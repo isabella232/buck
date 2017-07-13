@@ -26,6 +26,7 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.ErrorType;
 import javax.lang.model.type.IntersectionType;
 import javax.lang.model.type.NoType;
 import javax.lang.model.type.PrimitiveType;
@@ -148,7 +149,25 @@ class DescriptorFactory {
               @Override
               public Type visitDeclared(DeclaredType t, Void aVoid) {
                 // The erasure of a parameterized type is just the unparameterized version (JLS8 4.6)
-                return Type.getObjectType(getInternalName((TypeElement) t.asElement()));
+                TypeElement typeElement = (TypeElement) t.asElement();
+
+                if (typeElement.getQualifiedName().contentEquals("")) {
+                  // javac 7 uses a DeclaredType to model an intersection type
+                  if (typeElement.getKind() == ElementKind.INTERFACE) {
+                    return getType(typeElement.getInterfaces().get(0));
+                  }
+
+                  return getType(typeElement.getSuperclass());
+                }
+
+                return Type.getObjectType(getInternalName(typeElement));
+              }
+
+              @Override
+              public Type visitError(ErrorType t, Void aVoid) {
+                // If there's an ErrorType, compilation is going to fail anyway, so it doesn't
+                // matter what we return.
+                return Type.getObjectType("java/lang/Object");
               }
 
               @Override

@@ -16,9 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -29,6 +32,7 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -46,7 +50,7 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 /** A build rule which preprocesses and/or compiles a C/C++ source in a single step. */
-public class CxxPreprocessAndCompile extends AbstractBuildRule
+public class CxxPreprocessAndCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey {
 
   /** The presence or absence of this field denotes whether the input needs to be preprocessed. */
@@ -64,6 +68,8 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
   private final Optional<SymlinkTree> sandboxTree;
 
   private CxxPreprocessAndCompile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Optional<PreprocessorDelegate> preprocessDelegate,
       CompilerDelegate compilerDelegate,
@@ -73,7 +79,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       Optional<CxxPrecompiledHeader> precompiledHeaderRule,
       DebugPathSanitizer sanitizer,
       Optional<SymlinkTree> sandboxTree) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.sandboxTree = sandboxTree;
     if (precompiledHeaderRule.isPresent()) {
       Preconditions.checkState(
@@ -88,11 +94,11 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
     this.precompiledHeaderRule = precompiledHeaderRule;
     this.sanitizer = sanitizer;
     Preconditions.checkArgument(
-        !params.getBuildTarget().getFlavors().contains(CxxStrip.RULE_FLAVOR)
-            || !StripStyle.FLAVOR_DOMAIN.containsAnyOf(params.getBuildTarget().getFlavors()),
+        !buildTarget.getFlavors().contains(CxxStrip.RULE_FLAVOR)
+            || !StripStyle.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
         "CxxPreprocessAndCompile should not be created with CxxStrip flavors");
     Preconditions.checkArgument(
-        !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(params.getBuildTarget().getFlavors()),
+        !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
         "CxxPreprocessAndCompile %s should not be created with LinkerMapMode flavor (%s)",
         this,
         LinkerMapMode.FLAVOR_DOMAIN);
@@ -100,6 +106,8 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
 
   /** @return a {@link CxxPreprocessAndCompile} step that compiles the given preprocessed source. */
   public static CxxPreprocessAndCompile compile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       CompilerDelegate compilerDelegate,
       Path output,
@@ -108,6 +116,8 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       DebugPathSanitizer sanitizer,
       Optional<SymlinkTree> sandboxTree) {
     return new CxxPreprocessAndCompile(
+        buildTarget,
+        projectFilesystem,
         params,
         Optional.empty(),
         compilerDelegate,
@@ -123,6 +133,8 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
    * @return a {@link CxxPreprocessAndCompile} step that preprocesses and compiles the given source.
    */
   public static CxxPreprocessAndCompile preprocessAndCompile(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       PreprocessorDelegate preprocessorDelegate,
       CompilerDelegate compilerDelegate,
@@ -133,6 +145,8 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       DebugPathSanitizer sanitizer,
       Optional<SymlinkTree> sandboxTree) {
     return new CxxPreprocessAndCompile(
+        buildTarget,
+        projectFilesystem,
         params,
         Optional.of(preprocessorDelegate),
         compilerDelegate,
@@ -177,15 +191,16 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
             .map(PreprocessorDelegate::getHeaderPathNormalizer)
             .orElseGet(() -> HeaderPathNormalizer.empty(resolver));
 
-    ImmutableList<String> arguments =
+    ImmutableList<Arg> arguments =
         compilerDelegate.getArguments(
             preprocessDelegate
                 .map(delegate -> delegate.getFlagsWithSearchPaths(precompiledHeaderRule))
                 .orElseGet(CxxToolFlags::of),
             getBuildTarget().getCellPath());
 
+    Path relativeInputPath = getRelativeInputPath(resolver);
+
     return new CxxPreprocessAndCompileStep(
-        getBuildTarget(),
         getProjectFilesystem(),
         preprocessDelegate.isPresent()
             ? CxxPreprocessAndCompileStep.Operation.PREPROCESS_AND_COMPILE
@@ -194,15 +209,23 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
         // Use a depfile if there's a preprocessing stage, this logic should be kept in sync with
         // getInputsAfterBuildingLocally.
         preprocessDelegate.isPresent() ? Optional.of(getDepFilePath()) : Optional.empty(),
-        getRelativeInputPath(resolver),
+        relativeInputPath,
         inputType,
         new CxxPreprocessAndCompileStep.ToolCommand(
-            compilerDelegate.getCommandPrefix(), arguments, compilerDelegate.getEnvironment()),
+            compilerDelegate.getCommandPrefix(),
+            Arg.stringify(arguments, resolver),
+            compilerDelegate.getEnvironment()),
         headerPathNormalizer,
         sanitizer,
         scratchDir,
         useArgfile,
-        compilerDelegate.getCompiler());
+        compilerDelegate.getCompiler(),
+        Optional.of(
+            CxxLogInfo.builder()
+                .setTarget(getBuildTarget())
+                .setSourcePath(relativeInputPath)
+                .setOutputPath(output)
+                .build()));
   }
 
   public Path getRelativeInputPath(SourcePathResolver resolver) {
@@ -222,7 +245,9 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
 
-    for (String flag : compilerDelegate.getCompilerFlags().getAllFlags()) {
+    for (String flag :
+        Arg.stringify(
+            compilerDelegate.getCompilerFlags().getAllFlags(), context.getSourcePathResolver())) {
       if (flag.equals("-ftest-coverage")) {
         buildableContext.recordArtifact(getGcnoPath(output));
         break;
@@ -230,8 +255,14 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
     }
 
     return new ImmutableList.Builder<Step>()
-        .add(MkdirStep.of(getProjectFilesystem(), output.getParent()))
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getScratchPath()))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), getScratchPath())))
         .add(
             makeMainStep(
                 context.getSourcePathResolver(),
@@ -275,7 +306,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
   }
 
   @Override
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+  public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
     if (preprocessDelegate.isPresent()) {
       return preprocessDelegate.get().getCoveredByDepFilePredicate();
     }
@@ -283,7 +314,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
   }
 
   @Override
-  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
     return (SourcePath path) -> false;
   }
 

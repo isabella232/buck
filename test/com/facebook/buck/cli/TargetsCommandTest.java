@@ -30,7 +30,7 @@ import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
@@ -66,7 +66,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
@@ -77,6 +76,7 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.Executors;
 import org.junit.After;
 import org.junit.Before;
@@ -95,7 +95,7 @@ public class TargetsCommandTest {
 
   private Iterable<TargetNode<?, ?>> buildTargetNodes(
       ProjectFilesystem filesystem, String buildTarget) {
-    SortedSet<TargetNode<?, ?>> buildRules = Sets.newTreeSet();
+    SortedSet<TargetNode<?, ?>> buildRules = new TreeSet<>();
     BuildTarget target = BuildTargetFactory.newInstance(filesystem.getRootPath(), buildTarget);
     TargetNode<?, ?> node = JavaLibraryBuilder.createBuilder(target).build();
     buildRules.add(node);
@@ -114,7 +114,7 @@ public class TargetsCommandTest {
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
     targetsCommand = new TargetsCommand();
     params =

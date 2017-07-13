@@ -21,7 +21,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.event.BuckEvent;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.step.ExecutionContext;
@@ -32,16 +32,24 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.worker.FakeWorkerProcess;
+import com.facebook.buck.worker.WorkerJobParams;
+import com.facebook.buck.worker.WorkerJobResult;
+import com.facebook.buck.worker.WorkerProcess;
+import com.facebook.buck.worker.WorkerProcessIdentity;
+import com.facebook.buck.worker.WorkerProcessParams;
+import com.facebook.buck.worker.WorkerProcessPool;
+import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,13 +66,13 @@ import org.junit.Test;
 public class WorkerShellStepTest {
 
   private static final String startupCommand = "startupCommand";
-  private static final String startupArgs = "startupArgs";
-  private static final String persistentStartupArgs = "persistentStartupArgs";
+  private static final String startupArg = "startupArg";
+  private static final String persistentStartupArg = "persistentStartupArg";
   private static final String persistentWorkerKey = "//:my-persistent-worker";
   private static final String fakeWorkerStartupCommand =
-      String.format("/bin/bash -e -c %s %s", startupCommand, startupArgs);
+      String.format("/bin/bash -e -c %s %s", startupCommand, startupArg);
   private static final String fakePersistentWorkerStartupCommand =
-      String.format("/bin/bash -e -c %s %s", startupCommand, persistentStartupArgs);
+      String.format("/bin/bash -e -c %s %s", startupCommand, persistentStartupArg);
 
   private WorkerShellStep createWorkerShellStep(
       @Nullable WorkerJobParams cmdParams,
@@ -78,30 +86,26 @@ public class WorkerShellStepTest {
   }
 
   private WorkerJobParams createJobParams() {
-    return createJobParams(ImmutableList.of(), "", ImmutableMap.of(), "");
+    return createJobParams(ImmutableList.of(), ImmutableMap.of(), "");
   }
 
   private WorkerJobParams createJobParams(
       ImmutableList<String> startupCommand,
-      String startupArgs,
       ImmutableMap<String, String> startupEnv,
       String jobArgs) {
-    return createJobParams(startupCommand, startupArgs, startupEnv, jobArgs, 1);
+    return createJobParams(startupCommand, startupEnv, jobArgs, 1);
   }
 
   private WorkerJobParams createJobParams(
       ImmutableList<String> startupCommand,
-      String startupArgs,
       ImmutableMap<String, String> startupEnv,
       String jobArgs,
       int maxWorkers) {
-    return createJobParams(
-        startupCommand, startupArgs, startupEnv, jobArgs, maxWorkers, null, null);
+    return createJobParams(startupCommand, startupEnv, jobArgs, maxWorkers, null, null);
   }
 
   private WorkerJobParams createJobParams(
       ImmutableList<String> startupCommand,
-      String startupArgs,
       ImmutableMap<String, String> startupEnv,
       String jobArgs,
       int maxWorkers,
@@ -112,7 +116,6 @@ public class WorkerShellStepTest {
         WorkerProcessParams.of(
             Paths.get("tmp").toAbsolutePath().normalize(),
             startupCommand,
-            startupArgs,
             startupEnv,
             maxWorkers,
             persistentWorkerKey == null || workerHash == null
@@ -165,7 +168,7 @@ public class WorkerShellStepTest {
             .setWorkerProcessPools(workerProcessMap)
             .setPersistentWorkerPools(persistentWorkerProcessMap)
             .setConsole(new TestConsole(Verbosity.ALL))
-            .setBuckEventBus(BuckEventBusFactory.newInstance())
+            .setBuckEventBus(BuckEventBusForTests.newInstance())
             .build();
 
     return context;
@@ -221,10 +224,12 @@ public class WorkerShellStepTest {
   public void testGetCommand() {
     WorkerJobParams cmdParams =
         createJobParams(
-            ImmutableList.of("command"), "--platform unix-like", ImmutableMap.of(), "job params");
+            ImmutableList.of("command", "--platform", "unix-like"),
+            ImmutableMap.of(),
+            "job params");
     WorkerJobParams cmdExeParams =
         createJobParams(
-            ImmutableList.of("command"), "--platform windows", ImmutableMap.of(), "job params");
+            ImmutableList.of("command", "--platform", "windows"), ImmutableMap.of(), "job params");
 
     WorkerShellStep step = createWorkerShellStep(cmdParams, null, cmdExeParams);
     assertThat(
@@ -254,7 +259,7 @@ public class WorkerShellStepTest {
     WorkerShellStep step =
         createWorkerShellStep(
             createJobParams(
-                ImmutableList.of(startupCommand), startupArgs, ImmutableMap.of(), "myJobArgs"),
+                ImmutableList.of(startupCommand, startupArg), ImmutableMap.of(), "myJobArgs"),
             null,
             null);
 
@@ -282,8 +287,7 @@ public class WorkerShellStepTest {
     WorkerShellStep step =
         createWorkerShellStep(
             createJobParams(
-                ImmutableList.of(startupCommand),
-                persistentStartupArgs,
+                ImmutableList.of(startupCommand, persistentStartupArg),
                 ImmutableMap.of(),
                 "myJobArgs",
                 1,
@@ -309,7 +313,7 @@ public class WorkerShellStepTest {
 
     WorkerJobParams params =
         createJobParams(
-            ImmutableList.of(startupCommand), startupArgs, ImmutableMap.of(), jobArgs1, 1);
+            ImmutableList.of(startupCommand, startupArg), ImmutableMap.of(), jobArgs1, 1);
 
     WorkerShellStep step1 = createWorkerShellStep(params, null, null);
     final WorkerShellStep step2 = createWorkerShellStep(params.withJobArgs(jobArgs2), null, null);
@@ -322,7 +326,7 @@ public class WorkerShellStepTest {
                 () -> {
                   try {
                     step2.execute(context);
-                  } catch (InterruptedException e) {
+                  } catch (InterruptedException | IOException e) {
                     throw new RuntimeException(e);
                   }
                 });
@@ -337,7 +341,7 @@ public class WorkerShellStepTest {
     WorkerShellStep step =
         createWorkerShellStep(
             createJobParams(
-                ImmutableList.of(startupCommand), startupArgs, ImmutableMap.of(), "myJobArgs"),
+                ImmutableList.of(startupCommand, startupArg), ImmutableMap.of(), "myJobArgs"),
             null,
             null);
 
@@ -360,10 +364,7 @@ public class WorkerShellStepTest {
         new WorkerShellStep(
             Optional.of(
                 createJobParams(
-                    ImmutableList.of(),
-                    "",
-                    ImmutableMap.of("BAK", "chicken"),
-                    "$FOO $BAR $BAZ $BAK")),
+                    ImmutableList.of(), ImmutableMap.of("BAK", "chicken"), "$FOO $BAR $BAZ $BAK")),
             Optional.empty(),
             Optional.empty(),
             new WorkerProcessPoolFactory(new FakeProjectFilesystem())) {
@@ -385,7 +386,7 @@ public class WorkerShellStepTest {
             .build();
 
     Map<String, String> processEnv =
-        Maps.newHashMap(
+        new HashMap<>(
             step.getFactory()
                 .getEnvironmentForProcess(
                     context,
@@ -419,7 +420,7 @@ public class WorkerShellStepTest {
             Optional.empty(),
             new WorkerProcessPoolFactory(new FakeProjectFilesystem()) {
               @Override
-              WorkerProcess createWorkerProcess(
+              public WorkerProcess createWorkerProcess(
                   ProcessExecutorParams processParams, ExecutionContext context, Path tmpDir)
                   throws IOException {
                 try {
@@ -437,12 +438,12 @@ public class WorkerShellStepTest {
         TestExecutionContext.newBuilder()
             .setPlatform(Platform.LINUX)
             .setConsole(new TestConsole(Verbosity.ALL))
-            .setBuckEventBus(BuckEventBusFactory.newInstance())
+            .setBuckEventBus(BuckEventBusForTests.newInstance())
             .build();
 
     WorkerJobParams jobParamsA =
         createJobParams(
-            ImmutableList.of(startupCommand), startupArgs, ImmutableMap.of(), jobArgsA, 2);
+            ImmutableList.of(startupCommand, startupArg), ImmutableMap.of(), jobArgsA, 2);
     WorkerShellStep stepA = new WorkerShellStepWithFakeProcesses(jobParamsA);
     WorkerShellStep stepB = new WorkerShellStepWithFakeProcesses(jobParamsA.withJobArgs(jobArgsB));
 
@@ -466,8 +467,7 @@ public class WorkerShellStepTest {
   }
 
   @Test
-  public void testWarningIsPrintedForIdenticalWorkerToolsWithDifferentCapacity()
-      throws InterruptedException {
+  public void testWarningIsPrintedForIdenticalWorkerToolsWithDifferentCapacity() throws Exception {
     int existingPoolSize = 2;
     int stepPoolSize = 4;
 
@@ -481,8 +481,7 @@ public class WorkerShellStepTest {
 
     WorkerJobParams params =
         createJobParams(
-            ImmutableList.of(startupCommand),
-            startupArgs,
+            ImmutableList.of(startupCommand, startupArg),
             ImmutableMap.of(),
             "jobArgs",
             stepPoolSize);
@@ -518,7 +517,7 @@ public class WorkerShellStepTest {
     public void run() {
       try {
         step.execute(context);
-      } catch (InterruptedException e) {
+      } catch (InterruptedException | IOException e) {
         throw new RuntimeException(e);
       }
     }

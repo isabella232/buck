@@ -20,16 +20,19 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import org.junit.Test;
 
 public class WorkerToolDescriptionTest {
@@ -71,13 +74,17 @@ public class WorkerToolDescriptionTest {
 
     WorkerToolDescription workerToolDescription =
         new WorkerToolDescription(FakeBuckConfig.builder().build());
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder("//arbitrary:target").build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//arbitrary:target");
+    BuildRuleParams params = TestBuildRuleParams.create();
     return (WorkerTool)
         workerToolDescription.createBuildRule(
             targetGraph,
+            buildTarget,
+            projectFilesystem,
             params,
             resolver,
-            TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
+            TestCellBuilder.createCellRoots(projectFilesystem),
             args);
   }
 }

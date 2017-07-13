@@ -16,8 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -26,7 +29,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
@@ -40,7 +42,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Ordering;
 import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import java.io.ByteArrayInputStream;
@@ -51,11 +53,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import javax.xml.bind.JAXBException;
 
 /** Build a fat JAR that packages an inner JAR along with any required native libraries. */
-public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
+public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule {
 
   private static final String FAT_JAR_INNER_JAR = "inner.jar";
   private static final String FAT_JAR_NATIVE_LIBRARY_RESOURCE_ROOT = "nativelibs";
@@ -67,7 +69,6 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
-  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Javac javac;
   @AddToRuleKey private final JavacOptions javacOptions;
   @AddToRuleKey private final SourcePath innerJar;
@@ -76,15 +77,15 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
   private final Path output;
 
   public JarFattener(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathRuleFinder ruleFinder,
       Javac javac,
       JavacOptions javacOptions,
       SourcePath innerJar,
       ImmutableMap<String, SourcePath> nativeLibraries,
       JavaRuntimeLauncher javaRuntimeLauncher) {
-    super(params);
-    this.ruleFinder = ruleFinder;
+    super(buildTarget, projectFilesystem, params);
     this.javac = javac;
     this.javacOptions = javacOptions;
     this.innerJar = innerJar;
@@ -103,14 +104,22 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     Path outputDir = getOutputDirectory();
     Path fatJarDir = outputDir.resolve("fat-jar-directory");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)));
 
     // Map of the system-specific shared library name to it's resource name as a string.
     ImmutableMap.Builder<String, String> sonameToResourceMapBuilder = ImmutableMap.builder();
     for (Map.Entry<String, SourcePath> entry : nativeLibraries.entrySet()) {
       String resource = FAT_JAR_NATIVE_LIBRARY_RESOURCE_ROOT + "/" + entry.getKey();
       sonameToResourceMapBuilder.put(entry.getKey(), resource);
-      steps.add(MkdirStep.of(getProjectFilesystem(), fatJarDir.resolve(resource).getParent()));
+      steps.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  context.getBuildCellRootPath(),
+                  getProjectFilesystem(),
+                  fatJarDir.resolve(resource).getParent())));
       steps.add(
           SymlinkFileStep.builder()
               .setFilesystem(getProjectFilesystem())
@@ -125,7 +134,8 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
     steps.add(writeFatJarInfo(fatJarInfo, sonameToResourceMap));
 
     // Build up the resource and src collections.
-    Set<Path> javaSourceFilePaths = Sets.newHashSet();
+    ImmutableSortedSet.Builder<Path> javaSourceFilePaths =
+        new ImmutableSortedSet.Builder<>(Ordering.natural());
     for (String srcResource : FAT_JAR_SRC_RESOURCES) {
       Path fatJarSource = outputDir.resolve(Paths.get(srcResource).getFileName());
       javaSourceFilePaths.add(fatJarSource);
@@ -137,7 +147,11 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     // Symlink the inner JAR into it's place in the fat JAR.
     steps.add(
-        MkdirStep.of(getProjectFilesystem(), fatJarDir.resolve(FAT_JAR_INNER_JAR).getParent()));
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                fatJarDir.resolve(FAT_JAR_INNER_JAR).getParent())));
     steps.add(
         SymlinkFileStep.builder()
             .setFilesystem(getProjectFilesystem())
@@ -161,17 +175,21 @@ public class JarFattener extends AbstractBuildRule implements BinaryBuildRule {
 
     Path pathToSrcsList =
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__srcs");
-    steps.add(MkdirStep.of(getProjectFilesystem(), pathToSrcsList.getParent()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToSrcsList.getParent())));
 
     CompileToJarStepFactory compileStepFactory =
         new JavacToJarStepFactory(javac, javacOptions, JavacOptionsAmender.IDENTITY);
 
     compileStepFactory.createCompileStep(
         context,
-        ImmutableSortedSet.copyOf(javaSourceFilePaths),
+        javaSourceFilePaths.build(),
         getBuildTarget(),
         context.getSourcePathResolver(),
-        ruleFinder,
         getProjectFilesystem(),
         /* classpathEntries */ ImmutableSortedSet.of(),
         fatJarDir,

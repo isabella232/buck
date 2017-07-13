@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -33,10 +34,11 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasProvidedDepsQuery;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
@@ -80,22 +82,27 @@ public class AndroidLibraryDescription
   @Override
   public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       AndroidLibraryDescriptionArg args)
       throws NoSuchBuildTargetException {
-    if (params.getBuildTarget().getFlavors().contains(JavaLibrary.SRC_JAR)) {
-      return new JavaSourceJar(params, args.getSrcs(), args.getMavenCoords());
+    if (buildTarget.getFlavors().contains(JavaLibrary.SRC_JAR)) {
+      return new JavaSourceJar(
+          buildTarget, projectFilesystem, params, args.getSrcs(), args.getMavenCoords());
     }
 
-    boolean hasDummyRDotJavaFlavor =
-        params.getBuildTarget().getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
-    JavacOptions javacOptions = JavacOptionsFactory.create(defaultOptions, params, resolver, args);
+    boolean hasDummyRDotJavaFlavor = buildTarget.getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
+    JavacOptions javacOptions =
+        JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);
     AndroidLibrary.Builder defaultJavaLibraryBuilder =
         (AndroidLibrary.Builder)
             AndroidLibrary.builder(
                     targetGraph,
+                    buildTarget,
+                    projectFilesystem,
                     params,
                     resolver,
                     cellRoots,
@@ -109,7 +116,7 @@ public class AndroidLibraryDescription
 
     if (hasDummyRDotJavaFlavor) {
       return defaultJavaLibraryBuilder.buildDummyRDotJava();
-    } else if (HasJavaAbi.isAbiTarget(params.getBuildTarget())) {
+    } else if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryBuilder.buildAbi();
     }
     return defaultJavaLibraryBuilder.build();
@@ -135,7 +142,8 @@ public class AndroidLibraryDescription
             buildTarget, cellRoots, constructorArg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
   }
 
-  public interface CoreArg extends JavaLibraryDescription.CoreArg {
+  public interface CoreArg
+      extends JavaLibraryDescription.CoreArg, HasDepsQuery, HasProvidedDepsQuery {
     Optional<SourcePath> getManifest();
 
     Optional<String> getResourceUnionPackage();
@@ -143,10 +151,6 @@ public class AndroidLibraryDescription
     Optional<String> getFinalRName();
 
     Optional<JvmLanguage> getLanguage();
-
-    Optional<Query> getDepsQuery();
-
-    Optional<Query> getProvidedDepsQuery();
   }
 
   @BuckStyleImmutable

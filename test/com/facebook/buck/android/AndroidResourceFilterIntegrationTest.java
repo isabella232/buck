@@ -184,6 +184,21 @@ public class AndroidResourceFilterIntegrationTest {
   }
 
   @Test
+  public void testPostFilterResourcesCmd() throws IOException {
+    String target = "//apps/sample:app_post_filter_cmd";
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(target);
+    result.assertSuccess();
+
+    Path apkFile =
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
+    ZipInspector zipInspector = new ZipInspector(apkFile);
+    zipInspector.assertFileExists("res/drawable/test_tiny_black.png");
+    zipInspector.assertFileExists("res/drawable/test_tiny_something.png");
+    zipInspector.assertFileExists("res/drawable/test_tiny_white.png");
+  }
+
+  @Test
   public void testApkWithStringsAsAssets() throws IOException {
     String target = "//apps/sample:app_comp_str";
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", target);
@@ -287,6 +302,24 @@ public class AndroidResourceFilterIntegrationTest {
             BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
 
     matchingLines = runAaptDumpResources(apkFile);
+    assertEquals(1, matchingLines);
+  }
+
+  @Test
+  public void testEnglishBuildDoesntContainFrenchStringsAapt2()
+      throws IOException, InterruptedException {
+    // TODO(dreiss): Remove this when aapt2 is everywhere.
+    ProjectWorkspace.ProcessResult foundAapt2 =
+        workspace.runBuckBuild("//apps/sample:check_for_aapt2");
+    Assume.assumeTrue(foundAapt2.getExitCode() == 0);
+
+    String target = "//apps/sample:app_en";
+    workspace.replaceFileContents("apps/sample/BUCK", "'aapt1', # app_en", "'aapt2',");
+    workspace.runBuckBuild(target).assertSuccess();
+    Path apkFile =
+        workspace.getPath(
+            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
+    int matchingLines = runAaptDumpResources(apkFile);
     assertEquals(1, matchingLines);
   }
 

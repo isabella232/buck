@@ -23,15 +23,17 @@ import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -61,6 +63,7 @@ public class CopyNativeLibrariesTest {
     Path source = filesystem.getPath("path", "to", "source");
     Path destination = filesystem.getPath("path", "to", "destination");
     createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
+        FakeBuildContext.NOOP_CONTEXT,
         ImmutableSet.of() /* cpuFilters */,
         source,
         destination,
@@ -74,6 +77,7 @@ public class CopyNativeLibrariesTest {
     Path source = filesystem.getPath("path", "to", "source");
     Path destination = filesystem.getPath("path", "to", "destination");
     createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
+        FakeBuildContext.NOOP_CONTEXT,
         ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
         source,
         destination,
@@ -81,7 +85,7 @@ public class CopyNativeLibrariesTest {
             String.format(
                 "[ -d %s ] && mkdir -p %s && cp -R %s%s* %s",
                 source.resolve("armeabi-v7a"),
-                filesystem.resolve(destination.resolve("armeabi-v7a")),
+                destination.resolve("armeabi-v7a"),
                 source.resolve("armeabi-v7a"),
                 File.separator,
                 destination.resolve("armeabi-v7a")),
@@ -93,6 +97,7 @@ public class CopyNativeLibrariesTest {
     Path source = filesystem.getPath("path", "to", "source");
     Path destination = filesystem.getPath("path", "to", "destination");
     createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
+        FakeBuildContext.NOOP_CONTEXT,
         ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARM, NdkCxxPlatforms.TargetCpuType.X86),
         source,
         destination,
@@ -100,14 +105,14 @@ public class CopyNativeLibrariesTest {
             String.format(
                 "[ -d %s ] && mkdir -p %s && cp -R %s%s* %s",
                 source.resolve("armeabi"),
-                filesystem.resolve(destination.resolve("armeabi")),
+                destination.resolve("armeabi"),
                 source.resolve("armeabi"),
                 File.separator,
                 destination.resolve("armeabi")),
             String.format(
                 "[ -d %s ] && mkdir -p %s && cp -R %s%s* %s",
                 source.resolve("x86"),
-                filesystem.resolve(destination.resolve("x86")),
+                destination.resolve("x86"),
                 source.resolve("x86"),
                 File.separator,
                 destination.resolve("x86")),
@@ -118,13 +123,15 @@ public class CopyNativeLibrariesTest {
   public void testCopyNativeLibrariesCopiesLibDirsInReverseTopoOrder() {
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
     SourcePathResolver pathResolver =
-        new SourcePathResolver(
+        DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     CopyNativeLibraries copyNativeLibraries =
         new CopyNativeLibraries(
-            new FakeBuildRuleParamsBuilder(target).build(),
+            target,
+            new FakeProjectFilesystem(),
+            TestBuildRuleParams.create(),
             ImmutableSet.of(new FakeSourcePath("lib1"), new FakeSourcePath("lib2")),
             ImmutableSet.of(),
             ImmutableSet.of(),
@@ -144,6 +151,7 @@ public class CopyNativeLibrariesTest {
   }
 
   private void createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
+      BuildContext context,
       ImmutableSet<TargetCpuType> cpuFilters,
       Path sourceDir,
       Path destinationDir,
@@ -151,17 +159,17 @@ public class CopyNativeLibrariesTest {
     // Invoke copyNativeLibrary to populate the steps.
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
     CopyNativeLibraries.copyNativeLibrary(
-        filesystem, sourceDir, destinationDir, cpuFilters, stepsBuilder);
+        context, filesystem, sourceDir, destinationDir, cpuFilters, stepsBuilder);
     ImmutableList<Step> steps = stepsBuilder.build();
 
     assertEquals(steps.size(), expectedCommandDescriptions.size());
-    ExecutionContext context =
+    ExecutionContext executionContext =
         TestExecutionContext.newBuilder()
             .setCellPathResolver(TestCellPathResolver.get(filesystem))
             .build();
 
     for (int i = 0; i < steps.size(); ++i) {
-      String description = steps.get(i).getDescription(context);
+      String description = steps.get(i).getDescription(executionContext);
       assertEquals(expectedCommandDescriptions.get(i), description);
     }
   }

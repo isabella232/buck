@@ -16,6 +16,8 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -45,6 +47,8 @@ public class PrebuiltNativeLibraryDescription
   @Override
   public PrebuiltNativeLibrary createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
@@ -52,15 +56,20 @@ public class PrebuiltNativeLibraryDescription
     ImmutableSortedSet<? extends SourcePath> librarySources;
     try {
       librarySources =
-          FluentIterable.from(params.getProjectFilesystem().getFilesUnderPath(args.getNativeLibs()))
-              .transform(p -> new PathSourcePath(params.getProjectFilesystem(), p))
+          FluentIterable.from(projectFilesystem.getFilesUnderPath(args.getNativeLibs()))
+              .transform(p -> new PathSourcePath(projectFilesystem, p))
               .toSortedSet(Ordering.natural());
     } catch (IOException e) {
       throw new HumanReadableException(e, "Error traversing directory %s.", args.getNativeLibs());
     }
 
     return new PrebuiltNativeLibrary(
-        params, args.getNativeLibs(), args.getIsAsset(), librarySources);
+        buildTarget,
+        projectFilesystem,
+        params,
+        args.getNativeLibs(),
+        args.getIsAsset(),
+        librarySources);
   }
 
   @BuckStyleImmutable

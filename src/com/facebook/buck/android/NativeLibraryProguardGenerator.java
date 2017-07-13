@@ -16,10 +16,12 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.MacroException;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -44,7 +46,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 
 /** This provides a way for android_binary rules to generate proguard config based on the */
-public class NativeLibraryProguardGenerator extends AbstractBuildRule {
+public class NativeLibraryProguardGenerator extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   public static final String OUTPUT_FORMAT = "%s/native-libs.pro";
   @AddToRuleKey private final ImmutableList<SourcePath> nativeLibsDirs;
   @AddToRuleKey private final BuildRule codeGenerator;
@@ -53,20 +55,22 @@ public class NativeLibraryProguardGenerator extends AbstractBuildRule {
   private final Path outputPath;
 
   NativeLibraryProguardGenerator(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<SourcePath> nativeLibsDirs,
       BuildRule codeGenerator) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams.copyAppendingExtraDeps(
             RichStream.from(ruleFinder.filterBuildRuleInputs(nativeLibsDirs))
                 .concat(RichStream.of(codeGenerator))
                 .toImmutableList()));
     this.nativeLibsDirs = nativeLibsDirs;
     this.codeGenerator = codeGenerator;
-    this.outputPath =
-        BuildTargets.getGenPath(
-            buildRuleParams.getProjectFilesystem(), getBuildTarget(), OUTPUT_FORMAT);
+    this.outputPath = BuildTargets.getGenPath(projectFilesystem, getBuildTarget(), OUTPUT_FORMAT);
   }
 
   @Override
@@ -80,7 +84,10 @@ public class NativeLibraryProguardGenerator extends AbstractBuildRule {
     Path outputDir = outputPath.getParent();
     buildableContext.recordArtifact(outputDir);
     return ImmutableList.<Step>builder()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)))
         .add(new RunConfigGenStep(context.getSourcePathResolver()))
         .build();
   }

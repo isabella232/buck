@@ -31,7 +31,6 @@
 package com.facebook.buck.query;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.Collection;
 
 /**
@@ -56,9 +55,8 @@ import java.util.Collection;
 public abstract class QueryExpression {
 
   /** Scan and parse the specified query expression. */
-  public static QueryExpression parse(
-      String query, Iterable<QueryEnvironment.QueryFunction> functions) throws QueryException {
-    return QueryParser.parse(query, functions);
+  public static QueryExpression parse(String query, QueryEnvironment env) throws QueryException {
+    return QueryParser.parse(query, env);
   }
 
   protected QueryExpression() {}
@@ -69,17 +67,43 @@ public abstract class QueryExpression {
    *
    * <p>Failures resulting from evaluation of an ill-formed query cause QueryException to be thrown.
    */
-  public abstract ImmutableSet<QueryTarget> eval(
-      QueryEnvironment env, ListeningExecutorService executor)
-      throws QueryException, InterruptedException;
+  abstract ImmutableSet<QueryTarget> eval(QueryEvaluator evaluator, QueryEnvironment env)
+      throws QueryException;
 
   /**
    * Collects all target patterns that are referenced anywhere within this query expression and adds
    * them to the given collection, which must be mutable.
+   *
+   * <p>This is intended to accumulate patterns from multiple expressions for preloading at once.
    */
-  public abstract void collectTargetPatterns(Collection<String> literals);
+  public void collectTargetPatterns(Collection<String> literals) {
+    traverse(new TargetPatternCollector(literals));
+  }
+
+  /** Accepts and applies the given visitor. */
+  public abstract void traverse(Visitor visitor);
+
+  /** Returns a set of all targets referenced from literals within this query expression. */
+  public ImmutableSet<QueryTarget> getTargets(QueryEnvironment env) throws QueryException {
+    QueryTargetCollector collector = new QueryTargetCollector(env);
+    traverse(collector);
+    return collector.getTargets();
+  }
 
   /** Returns this query expression pretty-printed. */
   @Override
   public abstract String toString();
+
+  /**
+   * Visits a query expression, and returns whether the traversal should continue downwards or stop
+   * and ignore any subexpressions.
+   */
+  interface Visitor {
+    VisitResult visit(QueryExpression exp);
+  }
+
+  enum VisitResult {
+    CONTINUE,
+    SKIP_SUBTREE
+  }
 }

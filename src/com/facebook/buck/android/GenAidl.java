@@ -17,18 +17,18 @@
 package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.Javac.SRC_ZIP;
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
@@ -58,9 +58,7 @@ import java.nio.file.Path;
  * )
  * </pre>
  */
-public class GenAidl extends AbstractBuildRule {
-
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID);
+public class GenAidl extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   // TODO(#2493457): This rule uses the aidl binary (part of the Android SDK), so the RuleKey
   // should incorporate which version of aidl is used.
@@ -69,20 +67,19 @@ public class GenAidl extends AbstractBuildRule {
   private final Path output;
   private final Path genPath;
 
-  GenAidl(BuildRuleParams params, SourcePath aidlFilePath, String importPath) {
-    super(params);
+  GenAidl(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      SourcePath aidlFilePath,
+      String importPath) {
+    super(buildTarget, projectFilesystem, params);
     this.aidlFilePath = aidlFilePath;
     this.importPath = importPath;
-    BuildTarget buildTarget = params.getBuildTarget();
     this.genPath = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s");
     this.output =
         genPath.resolve(
             String.format("lib%s%s", buildTarget.getShortNameAndFlavorPostfix(), SRC_ZIP));
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   @Override
@@ -96,11 +93,18 @@ public class GenAidl extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
-    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), genPath));
+    commands.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), genPath)));
 
     BuildTarget target = getBuildTarget();
     Path outputDirectory = BuildTargets.getScratchPath(getProjectFilesystem(), target, "__%s.aidl");
-    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDirectory));
+
+    commands.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)));
 
     AidlStep command =
         new AidlStep(
@@ -125,7 +129,10 @@ public class GenAidl extends AbstractBuildRule {
                   target, importPath, target.getBasePath()));
     }
 
-    commands.add(MkdirStep.of(getProjectFilesystem(), genDirectory));
+    commands.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), genDirectory)));
 
     commands.add(
         new JarDirectoryStep(

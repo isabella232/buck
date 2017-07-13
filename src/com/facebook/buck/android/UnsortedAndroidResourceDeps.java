@@ -39,7 +39,7 @@ public class UnsortedAndroidResourceDeps {
           RobolectricTest.class);
 
   public interface Callback {
-    public void onRuleVisited(BuildRule rule, Set<BuildRule> depsToVisit);
+    void onRuleVisited(BuildRule rule, Set<BuildRule> depsToVisit);
   }
 
   private final ImmutableSet<HasAndroidResourceDeps> resourceDeps;
@@ -69,7 +69,7 @@ public class UnsortedAndroidResourceDeps {
         new AbstractBreadthFirstTraversal<BuildRule>(rules) {
 
           @Override
-          public Set<BuildRule> visit(BuildRule rule) {
+          public Iterable<BuildRule> visit(BuildRule rule) {
             HasAndroidResourceDeps androidResourceRule = null;
             if (rule instanceof HasAndroidResourceDeps) {
               androidResourceRule = (HasAndroidResourceDeps) rule;

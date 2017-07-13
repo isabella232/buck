@@ -35,17 +35,16 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
-import java.util.SortedSet;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -140,7 +139,8 @@ public class AuditInputCommand extends AbstractCommand {
         Cell cell = cellRoot.isPresent() ? cellRoot.get() : params.getCell();
         LOG.debug("Looking at inputs for %s", node.getBuildTarget().getFullyQualifiedName());
 
-        SortedSet<Path> targetInputs = new TreeSet<>();
+        ImmutableSortedSet.Builder<Path> targetInputs =
+            new ImmutableSortedSet.Builder<>(Ordering.natural());
         for (Path input : node.getInputs()) {
           LOG.debug("Walking input %s", input);
           try {
@@ -154,8 +154,7 @@ public class AuditInputCommand extends AbstractCommand {
             throw new RuntimeException(e);
           }
         }
-        targetToInputs.put(
-            node.getBuildTarget().getFullyQualifiedName(), ImmutableSortedSet.copyOf(targetInputs));
+        targetToInputs.put(node.getBuildTarget().getFullyQualifiedName(), targetInputs.build());
       }
     }.traverse();
 
@@ -170,7 +169,7 @@ public class AuditInputCommand extends AbstractCommand {
     // than once.
     new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(graph) {
 
-      final Set<Path> inputs = Sets.newHashSet();
+      final Set<Path> inputs = new HashSet<>();
 
       @Override
       public void visit(TargetNode<?, ?> node) {

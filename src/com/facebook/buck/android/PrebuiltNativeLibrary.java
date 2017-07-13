@@ -16,7 +16,9 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -41,7 +43,7 @@ import javax.annotation.Nullable;
  * )
  * </pre>
  */
-public class PrebuiltNativeLibrary extends AbstractBuildRule
+public class PrebuiltNativeLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements NativeLibraryBuildRule, AndroidPackageable {
 
   @AddToRuleKey private final boolean isAsset;
@@ -52,11 +54,13 @@ public class PrebuiltNativeLibrary extends AbstractBuildRule
   private final ImmutableSortedSet<? extends SourcePath> librarySources;
 
   protected PrebuiltNativeLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Path nativeLibsDirectory,
       boolean isAsset,
       ImmutableSortedSet<? extends SourcePath> librarySources) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.isAsset = isAsset;
     this.libraryPath = nativeLibsDirectory;
     this.librarySources = librarySources;
