@@ -242,7 +242,6 @@ public class AdbHelper implements AndroidDevicesHelper {
     return success;
   }
 
-<<<<<<< HEAD
   /** Installs apk on specific device. Reports success or failure to console. */
   @SuppressWarnings("PMD.PrematureDeclaration")
   @SuppressForbidden
@@ -399,9 +398,7 @@ public class AdbHelper implements AndroidDevicesHelper {
     return value;
   }
 
-=======
   @Override
->>>>>>> master
   @SuppressForbidden
   public int startActivity(
       SourcePathResolver pathResolver,
