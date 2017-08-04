@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -49,7 +50,6 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Iterator;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
@@ -200,7 +200,7 @@ public class CxxPrecompiledHeader extends AbstractBuildRuleWithDeclaredAndExtraD
       BuildContext context, CellPathResolver cellPathResolver) throws IOException {
     try {
       return ImmutableList.<SourcePath>builder()
-          .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines(context)))
+          .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(getDependencies(context)))
           .add(input)
           .build();
     } catch (Depfiles.HeaderVerificationException e) {
@@ -217,13 +217,13 @@ public class CxxPrecompiledHeader extends AbstractBuildRuleWithDeclaredAndExtraD
     return getSuffixedOutput(pathResolver, ".dep");
   }
 
-  public ImmutableList<Path> readDepFileLines(BuildContext context)
+  private ImmutableList<Path> getDependencies(BuildContext context)
       throws IOException, Depfiles.HeaderVerificationException {
     try {
       return depFileCache.get(
           context,
           () ->
-              Depfiles.parseAndOutputBuckCompatibleDepfile(
+              Depfiles.parseAndVerifyDependencies(
                   context.getEventBus(),
                   getProjectFilesystem(),
                   preprocessorDelegate.getHeaderPathNormalizer(),
@@ -231,7 +231,8 @@ public class CxxPrecompiledHeader extends AbstractBuildRuleWithDeclaredAndExtraD
                   getDepFilePath(context.getSourcePathResolver()),
                   // TODO(10194465): This uses relative path so as to get relative paths in the dep file
                   getRelativeInputPath(context.getSourcePathResolver()),
-                  output));
+                  output,
+                  compilerDelegate.getDependencyTrackingMode()));
     } catch (ExecutionException e) {
       // Unwrap and re-throw the loader's Exception.
       Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
@@ -275,51 +276,5 @@ public class CxxPrecompiledHeader extends AbstractBuildRuleWithDeclaredAndExtraD
         /* useArgFile*/ true,
         compilerDelegate.getCompiler(),
         Optional.empty());
-  }
-
-  /**
-   * Helper method for dealing with compiler flags in a precompiled header build.
-   *
-   * <p>
-   *
-   * <p>Triage the given list of compiler flags, and divert {@code -I} flags' arguments to {@code
-   * iDirsBuilder}, do similar for {@code -isystem} flags and {@code iSystemDirsBuilder}, and
-   * finally output other non-include-path related stuff to {@code nonIncludeFlagsBuilder}.
-   *
-   * <p>
-   *
-   * <p>Note that while Buck doesn't tend to produce {@code -I} and {@code -isystem} flags without a
-   * space between the flag and its argument, though historically compilers have accepted that.
-   * We'll accept that here as well, inserting a break between the flag and its parameter.
-   *
-   * @param iDirsBuilder a builder which will receive a list of directories provided with the {@code
-   *     -I} option (the flag itself will not be added to this builder)
-   * @param iSystemDirsBuilder a builder which will receive a list of directories provided with the
-   *     {@code -isystem} option (the flag itself will not be added to this builder)
-   * @param nonIncludeFlagsBuilder builder that receives all the stuff not outputted to the above.
-   */
-  public static void separateIncludePathArgs(
-      ImmutableList<String> flags,
-      ImmutableList.Builder<String> iDirsBuilder,
-      ImmutableList.Builder<String> iSystemDirsBuilder,
-      ImmutableList.Builder<String> nonIncludeFlagsBuilder) {
-
-    // TODO(steveo): unused?
-
-    Iterator<String> it = flags.iterator();
-    while (it.hasNext()) {
-      String flag = it.next();
-      if (flag.equals("-I") && it.hasNext()) {
-        iDirsBuilder.add(it.next());
-      } else if (flag.startsWith("-I")) {
-        iDirsBuilder.add(flag.substring("-I".length()));
-      } else if (flag.equals("-isystem") && it.hasNext()) {
-        iSystemDirsBuilder.add(it.next());
-      } else if (flag.startsWith("-isystem")) {
-        iSystemDirsBuilder.add(flag.substring("-isystem".length()));
-      } else {
-        nonIncludeFlagsBuilder.add(flag);
-      }
-    }
   }
 }

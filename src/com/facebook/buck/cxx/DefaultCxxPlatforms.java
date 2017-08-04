@@ -16,6 +16,17 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.Archiver;
+import com.facebook.buck.cxx.platform.BsdArchiver;
+import com.facebook.buck.cxx.platform.CompilerProvider;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxToolProvider;
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
+import com.facebook.buck.cxx.platform.GnuArchiver;
+import com.facebook.buck.cxx.platform.LinkerProvider;
+import com.facebook.buck.cxx.platform.PosixNmSymbolNameTool;
+import com.facebook.buck.cxx.platform.PreprocessorProvider;
+import com.facebook.buck.cxx.platform.WindowsArchiver;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -83,8 +94,7 @@ public class DefaultCxxPlatforms {
         defaultLinker = defaultCxxFrontend;
         linkerType = LinkerProvider.Type.GNU;
         archiver = new GnuArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
-        compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.GCC);
+        compilerSanitizer = new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of());
         binaryExtension = Optional.empty();
         ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;
@@ -98,8 +108,7 @@ public class DefaultCxxPlatforms {
         defaultLinker = defaultCxxFrontend;
         linkerType = LinkerProvider.Type.DARWIN;
         archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
-        compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.CLANG);
+        compilerSanitizer = new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of());
         binaryExtension = Optional.empty();
         ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;
@@ -121,8 +130,7 @@ public class DefaultCxxPlatforms {
             new WindowsArchiver(
                 new HashedFileTool(
                     getExecutablePath(DEFAULT_WINDOWS_LIB, Paths.get(DEFAULT_WINDOWS_LIB), env)));
-        compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.WINDOWS);
+        compilerSanitizer = new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of());
         binaryExtension = Optional.of("exe");
         defaultToolType = Optional.of(CxxToolProvider.Type.WINDOWS);
         ranlibCommand = DEFAULT_WINDOWS_RANLIB;
@@ -137,8 +145,7 @@ public class DefaultCxxPlatforms {
         defaultLinker = defaultCxxFrontend;
         linkerType = LinkerProvider.Type.GNU;
         archiver = new BsdArchiver(new HashedFileTool(getExecutablePath("ar", DEFAULT_AR, env)));
-        compilerSanitizer =
-            new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of(), CxxToolProvider.Type.GCC);
+        compilerSanitizer = new PrefixMapDebugPathSanitizer(".", ImmutableBiMap.of());
         binaryExtension = Optional.empty();
         ranlibCommand = DEFAULT_UNIX_RANLIB;
         break;

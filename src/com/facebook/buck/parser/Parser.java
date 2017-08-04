@@ -285,13 +285,12 @@ public class Parser {
           for (BuildTarget dep : node.getParseDeps()) {
             try {
               state.getTargetNode(dep);
-            } catch (BuildFileParseException | BuildTargetException | HumanReadableException e) {
-              throw new HumanReadableException(
-                  e,
-                  "Couldn't get dependency '%s' of target '%s':\n%s",
-                  dep,
-                  target,
-                  e.getMessage());
+            } catch (BuildFileParseException e) {
+              throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
+            } catch (BuildTargetException e) {
+              throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
+            } catch (HumanReadableException e) {
+              throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
             }
           }
           return node.getParseDeps().iterator();

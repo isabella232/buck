@@ -115,17 +115,19 @@ public class AndroidBinaryTest {
 
     FakeBuildableContext buildableContext = new FakeBuildableContext();
 
-    androidBinary.addProguardCommands(
-        packageableCollection
-            .getClasspathEntriesToDex()
-            .stream()
-            .map(pathResolver::getRelativePath)
-            .collect(MoreCollectors.toImmutableSet()),
-        pathResolver.getAllAbsolutePaths(packageableCollection.getProguardConfigs()),
-        false,
-        commands,
-        buildableContext,
-        buildContext);
+    androidBinary
+        .getBuildableForTests()
+        .addProguardCommands(
+            packageableCollection
+                .getClasspathEntriesToDex()
+                .stream()
+                .map(pathResolver::getRelativePath)
+                .collect(MoreCollectors.toImmutableSet()),
+            pathResolver.getAllAbsolutePaths(packageableCollection.getProguardConfigs()),
+            false,
+            commands,
+            buildableContext,
+            buildContext);
 
     BuildTarget aaptPackageTarget =
         binaryBuildTarget.withFlavors(AndroidBinaryResourcesGraphEnhancer.AAPT_PACKAGE_FLAVOR);
@@ -291,7 +293,7 @@ public class AndroidBinaryTest {
             target.withFlavors(AndroidBinaryResourcesGraphEnhancer.AAPT_PACKAGE_FLAVOR),
             "__%s__proguard__/.proguard");
     Path proguardDir =
-        AndroidBinary.getProguardOutputFromInputClasspath(
+        AndroidBinaryBuildable.getProguardOutputFromInputClasspath(
             proguardConfigDir,
             BuildTargets.getScratchPath(
                 rule.getProjectFilesystem(), libBaseTarget, "lib__%s__classes"));
@@ -335,17 +337,19 @@ public class AndroidBinaryTest {
             .getBuckPaths()
             .getScratchDir()
             .resolve(".dex/classes.dex");
-    splitDexRule.addDexingSteps(
-        classpath,
-        Suppliers.ofInstance(ImmutableMap.of()),
-        secondaryDexDirectories,
-        commandsBuilder,
-        primaryDexPath,
-        Optional.empty(),
-        Optional.empty(),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
-        FakeBuildContext.withSourcePathResolver(
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
+    splitDexRule
+        .getBuildableForTests()
+        .addDexingSteps(
+            classpath,
+            Suppliers.ofInstance(ImmutableMap.of()),
+            secondaryDexDirectories,
+            commandsBuilder,
+            primaryDexPath,
+            Optional.empty(),
+            Optional.empty(),
+            /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
+            FakeBuildContext.withSourcePathResolver(
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the "
@@ -384,17 +388,19 @@ public class AndroidBinaryTest {
             .getBuckPaths()
             .getScratchDir()
             .resolve(".dex/classes.dex");
-    splitDexRule.addDexingSteps(
-        classpath,
-        Suppliers.ofInstance(ImmutableMap.of()),
-        secondaryDexDirectories,
-        commandsBuilder,
-        primaryDexPath,
-        Optional.of(reorderTool),
-        Optional.of(reorderData),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
-        FakeBuildContext.withSourcePathResolver(
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
+    splitDexRule
+        .getBuildableForTests()
+        .addDexingSteps(
+            classpath,
+            Suppliers.ofInstance(ImmutableMap.of()),
+            secondaryDexDirectories,
+            commandsBuilder,
+            primaryDexPath,
+            Optional.of(reorderTool),
+            Optional.of(reorderData),
+            /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
+            FakeBuildContext.withSourcePathResolver(
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver))));
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the "
@@ -420,19 +426,26 @@ public class AndroidBinaryTest {
             .setResourceFilter(new ResourceFilter(ImmutableList.of("mdpi")))
             .setKeystore(keystoreRule.getBuildTarget())
             .setManifest(new FakeSourcePath("manifest"));
-    builder.build(resolver);
+    AndroidBinary androidBinary = builder.build(resolver);
 
     BuildRule aaptPackageRule =
         resolver.getRule(BuildTargetFactory.newInstance("//:target#aapt_package"));
     ResourcesFilter resourcesFilter =
         (ResourcesFilter) ((AaptPackageResources) aaptPackageRule).getFilteredResourcesProvider();
     ImmutableList.Builder<Step> stepsBuilder = new ImmutableList.Builder<>();
-    resourcesFilter.addPostFilterCommandSteps(
-        StringArg.of("cmd"), pathResolver, stepsBuilder, Paths.get("data.json"));
+    resourcesFilter.addPostFilterCommandSteps(StringArg.of("cmd"), pathResolver, stepsBuilder);
     ImmutableList<Step> steps = stepsBuilder.build();
 
+    Path dataPath =
+        BuildTargets.getGenPath(
+            androidBinary.getProjectFilesystem(),
+            resourcesFilter.getBuildTarget(),
+            "%s/post_filter_resources_data.json");
+    Path rJsonPath =
+        BuildTargets.getGenPath(
+            androidBinary.getProjectFilesystem(), resourcesFilter.getBuildTarget(), "%s/R.json");
     assertEquals(
-        ImmutableList.of("bash", "-c", "cmd data.json"),
+        ImmutableList.of("bash", "-c", "cmd " + dataPath + " " + rJsonPath),
         ((BashStep) steps.get(0)).getShellCommand(null));
   }
 

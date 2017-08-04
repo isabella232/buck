@@ -178,7 +178,6 @@ public class JavaLibraryDescription
                 javaBuckConfig)
             .setArgs(args)
             .setJavacOptions(javacOptions)
-            .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
             .setTrackClassUsage(javacOptions.trackClassUsage());
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
@@ -212,6 +211,8 @@ public class JavaLibraryDescription
 
     @Hint(isInput = false)
     Optional<Path> getResourcesRoot();
+
+    Optional<SourcePath> getUnbundledResourcesRoot();
 
     Optional<SourcePath> getManifestFile();
 

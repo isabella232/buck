@@ -26,6 +26,10 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.CompilerProvider;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxToolProvider;
+import com.facebook.buck.cxx.platform.PreprocessorProvider;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -834,7 +838,7 @@ public class CxxSourceRuleFactoryTest {
               input,
               ImmutableList.of());
       CxxPreprocessAndCompile cxxCompile =
-          cxxSourceRuleFactory.createCompileBuildRule(name, cxxSource);
+          cxxSourceRuleFactory.requireCompileBuildRule(name, cxxSource);
       assertThat(
           cxxCompile.makeMainStep(sourcePathResolver, scratchDir, false).getCommand(),
           hasItems("-x", expected));

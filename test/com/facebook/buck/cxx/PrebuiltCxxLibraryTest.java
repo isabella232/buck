@@ -18,6 +18,8 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -74,7 +76,7 @@ public class PrebuiltCxxLibraryTest {
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
-                    filesystem, FileHashCacheMode.PREFIX_TREE)));
+                    filesystem, FileHashCacheMode.DEFAULT)));
     DefaultRuleKeyFactory factory =
         new DefaultRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
 

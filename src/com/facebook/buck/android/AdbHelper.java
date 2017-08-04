@@ -28,6 +28,7 @@ import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.annotations.SuppressForbidden;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.StartActivityEvent;
@@ -38,6 +39,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
+import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
@@ -55,7 +57,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -95,6 +96,9 @@ public class AdbHelper implements AndroidDevicesHelper {
   private final boolean restartAdbOnFailure;
   private final Supplier<ImmutableList<AndroidDevice>> devicesSupplier;
 
+  private static Optional<Supplier<ImmutableList<AndroidDevice>>> devicesSupplierForTests =
+      Optional.empty();
+
   public AdbHelper(
       AdbOptions adbOptions,
       TargetDeviceOptions deviceOptions,
@@ -107,12 +111,18 @@ public class AdbHelper implements AndroidDevicesHelper {
     this.devicesSupplier = Suppliers.memoize(this::getDevicesImpl);
   }
 
+  @VisibleForTesting
+  public static void setDevicesSupplierForTests(
+      Optional<Supplier<ImmutableList<AndroidDevice>>> devicesSupplierForTests) {
+    AdbHelper.devicesSupplierForTests = devicesSupplierForTests;
+  }
+
   @Override
   public ImmutableList<AndroidDevice> getDevices(boolean quiet) throws InterruptedException {
     ImmutableList<AndroidDevice> devices = devicesSupplier.get();
     if (!quiet && devices.size() > 1) {
       // Report if multiple devices are matching the filter.
-      getConsole().getStdOut().printf("Found " + devices.size() + " matching devices.\n");
+      printMessage("Found " + devices.size() + " matching devices.\n");
     }
     return devices;
   }
@@ -132,7 +142,7 @@ public class AdbHelper implements AndroidDevicesHelper {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @SuppressForbidden
   @Override
-  public boolean adbCall(String description, AdbDeviceCallable func, boolean quiet)
+  public synchronized boolean adbCall(String description, AdbDeviceCallable func, boolean quiet)
       throws InterruptedException {
     List<AndroidDevice> devices;
 
@@ -165,8 +175,8 @@ public class AdbHelper implements AndroidDevicesHelper {
     try {
       results = Futures.allAsList(futures).get();
     } catch (ExecutionException ex) {
-      getConsole().printBuildFailure("Failed: " + description);
-      ex.printStackTrace(getConsole().getStdErr());
+      printError("Failed: " + description);
+      printStacktrace(ex);
       return false;
     } catch (InterruptedException e) {
       try {
@@ -194,17 +204,32 @@ public class AdbHelper implements AndroidDevicesHelper {
 
     // Report results.
     if (successCount > 0 && !quiet) {
-      getConsole()
-          .printSuccess(
-              String.format("Successfully ran %s on %d device(s)", description, successCount));
+      printSuccess(String.format("Successfully ran %s on %d device(s)", description, successCount));
     }
     if (failureCount > 0) {
-      getConsole()
-          .printBuildFailure(
-              String.format("Failed to %s on %d device(s).", description, failureCount));
+      printError(String.format("Failed to %s on %d device(s).", description, failureCount));
     }
 
     return failureCount == 0;
+  }
+
+  private void printMessage(String message) {
+    getBuckEventBus().post(ConsoleEvent.info(message));
+  }
+
+  private void printSuccess(String successMessage) {
+    Ansi ansi = contextSupplier.get().getAnsi();
+    getBuckEventBus().post(ConsoleEvent.info(ansi.asHighlightedSuccessText(successMessage)));
+  }
+
+  private void printError(String failureMessage) {
+    getBuckEventBus().post(ConsoleEvent.severe(failureMessage));
+  }
+
+  private void printStacktrace(ExecutionException ex) {
+    // TODO(cjhopman): This message should not be sent directly to the console. Will probably
+    // require making adbCall() propagate exceptions correctly.
+    ex.printStackTrace(getConsole().getStdErr());
   }
 
   @Override
@@ -264,10 +289,10 @@ public class AdbHelper implements AndroidDevicesHelper {
 
       // Sanity check.
       if (launcherActivities.isEmpty()) {
-        getConsole().printBuildFailure("No launchable activities found.");
+        printError("No launchable activities found.");
         return 1;
       } else if (launcherActivities.size() > 1) {
-        getConsole().printBuildFailure("Default activity is ambiguous.");
+        printError("Default activity is ambiguous.");
         return 1;
       }
 
@@ -280,8 +305,7 @@ public class AdbHelper implements AndroidDevicesHelper {
 
     final String activityToRun = activity;
 
-    PrintStream stdOut = getConsole().getStdOut();
-    stdOut.println(String.format("Starting activity %s...", activityToRun));
+    printMessage(String.format("Starting activity %s...", activityToRun));
 
     StartActivityEvent.Started started =
         StartActivityEvent.started(hasInstallableApk.getBuildTarget(), activityToRun);
@@ -326,7 +350,10 @@ public class AdbHelper implements AndroidDevicesHelper {
   public static String tryToExtractPackageNameFromManifest(
       SourcePathResolver pathResolver, ApkInfo apkInfo) {
     Path pathToManifest = pathResolver.getAbsolutePath(apkInfo.getManifestPath());
+    return tryToExtractPackageNameFromManifest(pathToManifest);
+  }
 
+  static String tryToExtractPackageNameFromManifest(Path pathToManifest) {
     // Note that the file may not exist if AndroidManifest.xml is a generated file
     // and the rule has not been built yet.
     if (!Files.isRegularFile(pathToManifest)) {
@@ -354,7 +381,7 @@ public class AdbHelper implements AndroidDevicesHelper {
   @SuppressForbidden
   List<IDevice> filterDevices(IDevice[] allDevices) {
     if (allDevices.length == 0) {
-      getConsole().printBuildFailure("No devices are found.");
+      printError("No devices are found.");
       return null;
     }
 
@@ -400,16 +427,15 @@ public class AdbHelper implements AndroidDevicesHelper {
 
     // Filtered out all devices.
     if (onlineDevices == 0) {
-      getConsole().printBuildFailure("No devices are found.");
+      printError("No devices are found.");
       return null;
     }
 
     if (devices.isEmpty()) {
-      getConsole()
-          .printBuildFailure(
-              String.format(
-                  "Found %d connected device(s), but none of them matches specified filter.",
-                  onlineDevices));
+      printError(
+          String.format(
+              "Found %d connected device(s), but none of them matches specified filter.",
+              onlineDevices));
       return null;
     }
 
@@ -471,6 +497,9 @@ public class AdbHelper implements AndroidDevicesHelper {
 
   @SuppressForbidden
   private ImmutableList<AndroidDevice> getDevicesImpl() {
+    if (devicesSupplierForTests.isPresent()) {
+      return devicesSupplierForTests.get().get();
+    }
     // Initialize adb connection.
     AndroidDebugBridge adb;
     try {
@@ -479,7 +508,7 @@ public class AdbHelper implements AndroidDevicesHelper {
       throw new RuntimeException(e);
     }
     if (adb == null) {
-      getConsole().printBuildFailure("Failed to create adb connection.");
+      printError("Failed to create adb connection.");
       return ImmutableList.of();
     }
 
@@ -487,17 +516,16 @@ public class AdbHelper implements AndroidDevicesHelper {
     List<IDevice> devices = filterDevices(adb.getDevices());
     // Found multiple devices but multi-install mode is not enabled.
     if (devices != null && devices.size() > 1 && !options.isMultiInstallModeEnabled()) {
-      getConsole()
-          .printBuildFailure(
-              String.format(
-                  "%d device(s) matches specified device filter (1 expected).\n"
-                      + "Either disconnect other devices or enable multi-install mode (%s).",
-                  devices.size(), AdbOptions.MULTI_INSTALL_MODE_SHORT_ARG));
+      printError(
+          String.format(
+              "%d device(s) matches specified device filter (1 expected).\n"
+                  + "Either disconnect other devices or enable multi-install mode (%s).",
+              devices.size(), AdbOptions.MULTI_INSTALL_MODE_SHORT_ARG));
       return ImmutableList.of();
     }
 
     if (devices == null && restartAdbOnFailure) {
-      getConsole().printErrorText("No devices found with adb, restarting adb-server.");
+      printError("No devices found with adb, restarting adb-server.");
       adb.restart();
       devices = filterDevices(adb.getDevices());
     }
@@ -540,8 +568,14 @@ public class AdbHelper implements AndroidDevicesHelper {
     return adbCall(
         "install exopackage apk",
         device ->
-            new ExopackageInstaller(pathResolver, contextSupplier.get(), hasInstallableApk, device)
-                .doInstall(processName),
+            new ExopackageInstaller(
+                    pathResolver,
+                    contextSupplier.get(),
+                    hasInstallableApk.getProjectFilesystem(),
+                    tryToExtractPackageNameFromManifest(
+                        pathResolver, hasInstallableApk.getApkInfo()),
+                    device)
+                .doInstall(hasInstallableApk.getApkInfo(), processName),
         quiet);
   }
 

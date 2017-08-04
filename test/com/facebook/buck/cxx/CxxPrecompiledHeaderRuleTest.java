@@ -26,6 +26,10 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.Compiler;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxToolProvider;
+import com.facebook.buck.cxx.platform.PreprocessorProvider;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -235,7 +239,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
             .build();
     CxxPreprocessAndCompile lib1 =
-        factory1.createPreprocessAndCompileBuildRule("lib1.cpp", newSource("lib1.cpp"));
+        factory1.requirePreprocessAndCompileBuildRule("lib1.cpp", newSource("lib1.cpp"));
     ruleResolver.addToIndex(lib1);
     ImmutableList<String> cmd1 =
         lib1.makeMainStep(pathResolver, Paths.get("/tmp/x"), false).getCommand();
@@ -246,7 +250,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
             .build();
     CxxPreprocessAndCompile lib2 =
-        factory2.createPreprocessAndCompileBuildRule("lib2.cpp", newSource("lib2.cpp"));
+        factory2.requirePreprocessAndCompileBuildRule("lib2.cpp", newSource("lib2.cpp"));
     ruleResolver.addToIndex(lib2);
     ImmutableList<String> cmd2 =
         lib2.makeMainStep(pathResolver, Paths.get("/tmp/x"), false).getCommand();
@@ -257,7 +261,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
             .build();
     CxxPreprocessAndCompile lib3 =
-        factory3.createPreprocessAndCompileBuildRule("lib3.cpp", newSource("lib3.cpp"));
+        factory3.requirePreprocessAndCompileBuildRule("lib3.cpp", newSource("lib3.cpp"));
     ruleResolver.addToIndex(lib3);
     ImmutableList<String> cmd3 =
         lib3.makeMainStep(pathResolver, Paths.get("/tmp/x"), false).getCommand();
@@ -300,7 +304,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
             .build();
     CxxPreprocessAndCompile lib =
-        factory1.createPreprocessAndCompileBuildRule(
+        factory1.requirePreprocessAndCompileBuildRule(
             "lib.cpp",
             newCxxSourceBuilder()
                 .setPath(new FakeSourcePath("lib.cpp"))
@@ -348,7 +352,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .addCxxPreprocessorInput(cxxPreprocessorInput)
             .build();
     CxxPreprocessAndCompile lib1 =
-        lib1Factory.createPreprocessAndCompileBuildRule("lib1.cpp", newSource("lib1.cpp"));
+        lib1Factory.requirePreprocessAndCompileBuildRule("lib1.cpp", newSource("lib1.cpp"));
     ruleResolver.addToIndex(lib1);
 
     ImmutableList<String> lib1Cmd =
@@ -365,7 +369,7 @@ public class CxxPrecompiledHeaderRuleTest {
             .setPrecompiledHeader(new DefaultBuildTargetSourcePath(pchTarget))
             .build();
     CxxPreprocessAndCompile lib2 =
-        lib2Factory.createPreprocessAndCompileBuildRule("lib2.cpp", newSource("lib2.cpp"));
+        lib2Factory.requirePreprocessAndCompileBuildRule("lib2.cpp", newSource("lib2.cpp"));
     ruleResolver.addToIndex(lib2);
     ImmutableList<String> lib2Cmd =
         lib2.makeMainStep(pathResolver, Paths.get("/tmp/y"), false).getCommand();

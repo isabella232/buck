@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -302,7 +303,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRuleWithDeclaredAndExt
 
   @Override
   public boolean useDependencyFileRuleKeys() {
-    return compilerDelegate.isDependencyFileSupported();
+    return true;
   }
 
   @Override
@@ -318,6 +319,25 @@ public class CxxPreprocessAndCompile extends AbstractBuildRuleWithDeclaredAndExt
     return (SourcePath path) -> false;
   }
 
+  // see com.facebook.buck.cxx.AbstractCxxSourceRuleFactory.getSandboxedCxxSource()
+  private SourcePath getOriginalInput(SourcePathResolver sourcePathResolver) {
+    // The current logic of handling depfiles for cxx requires that all headers files and source
+    // files are "deciphered' from links from symlink tree to original locations.
+    // It already happens in Depfiles.parseAndOutputBuckCompatibleDepfile via header normalizer.
+    // This special case is for applying the same logic for an input cxx file in the case
+    // when cxx.sandbox_sources=true.
+    if (preprocessDelegate.isPresent()) {
+      Path absPath = sourcePathResolver.getAbsolutePath(input);
+      HeaderPathNormalizer headerPathNormalizer =
+          preprocessDelegate.get().getHeaderPathNormalizer();
+      Optional<Path> original = headerPathNormalizer.getAbsolutePathForUnnormalizedPath(absPath);
+      if (original.isPresent()) {
+        return headerPathNormalizer.getSourcePathForAbsolutePath(original.get());
+      }
+    }
+    return input;
+  }
+
   @Override
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) throws IOException {
@@ -325,22 +345,23 @@ public class CxxPreprocessAndCompile extends AbstractBuildRuleWithDeclaredAndExt
 
     // If present, include all inputs coming from the preprocessor tool.
     if (preprocessDelegate.isPresent()) {
-      Iterable<Path> depFileLines;
+      Iterable<Path> dependencies;
       try {
-        depFileLines =
-            Depfiles.parseAndOutputBuckCompatibleDepfile(
+        dependencies =
+            Depfiles.parseAndVerifyDependencies(
                 context.getEventBus(),
                 getProjectFilesystem(),
                 preprocessDelegate.get().getHeaderPathNormalizer(),
                 preprocessDelegate.get().getHeaderVerification(),
                 getDepFilePath(),
                 getRelativeInputPath(context.getSourcePathResolver()),
-                output);
+                output,
+                compilerDelegate.getDependencyTrackingMode());
       } catch (Depfiles.HeaderVerificationException e) {
         throw new HumanReadableException(e);
       }
 
-      inputs.addAll(preprocessDelegate.get().getInputsAfterBuildingLocally(depFileLines));
+      inputs.addAll(preprocessDelegate.get().getInputsAfterBuildingLocally(dependencies));
     }
 
     // If present, include all inputs coming from the compiler tool.
@@ -352,7 +373,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRuleWithDeclaredAndExt
     }
 
     // Add the input.
-    inputs.add(input);
+    inputs.add(getOriginalInput(context.getSourcePathResolver()));
 
     return inputs.build();
   }

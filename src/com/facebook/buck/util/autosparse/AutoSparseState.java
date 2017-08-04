@@ -34,6 +34,25 @@ public interface AutoSparseState {
   String getRevisionId();
 
   /**
+   * Register a known buck-out path with the state, so it knows to ignore such paths.
+   *
+   * <p>This is an optimisation strategy, not passing these in could result in slower sparse state
+   * tracking.
+   *
+   * @param path The path to a buck-out directory; any path below this will be ignored from a sparse
+   *     state point of view.
+   */
+  void addBuckOut(Path path);
+
+  /**
+   * Update the configuration. The state can be shared between multiple cells each with custom
+   * ignore paths and other 'local' configuration that has to be tracked.
+   *
+   * @param config The new configuration from which to update local settings.
+   */
+  void updateConfig(AutoSparseConfig config);
+
+  /**
    * Query the source control manifest for information on a file.
    *
    * @param path the file to get the manifest information for

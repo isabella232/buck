@@ -22,6 +22,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -65,7 +66,7 @@ public final class KnownBuildRuleTypesTestUtil {
                   .setCommand(
                       ImmutableList.of(path + File.separator + python.getKey() + extension, "-"))
                   .build(),
-              new FakeProcess(0, "CPython " + python.getValue().replace('.', ' '), ""));
+              new FakeProcess(0, "CPython " + python.getValue(), ""));
         }
       }
     }
@@ -87,15 +88,14 @@ public final class KnownBuildRuleTypesTestUtil {
       throws InterruptedException, IOException {
     BuckConfig config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
     List<String> paths = getPaths(environment);
-
-    return KnownBuildRuleTypes.createInstance(
-        config,
-        filesystem,
+    ProcessExecutor executor =
         new FakeProcessExecutor(
             ImmutableMap.<ProcessExecutorParams, FakeProcess>builder()
                 .put(XCODE_SELECT_PARAMS, XCODE_SELECT_PROCESS)
                 .putAll(getPythonProcessMap(paths))
-                .build()),
-        new FakeAndroidDirectoryResolver());
+                .build());
+
+    return KnownBuildRuleTypes.createInstance(
+        config, filesystem, executor, new FakeAndroidDirectoryResolver());
   }
 }

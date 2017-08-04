@@ -50,6 +50,8 @@ public class JavacStep implements Step {
 
   private final ClassUsageFileWriter usedClassesFileWriter;
 
+  private final Optional<Path> generatedCodeDirectory;
+
   private final Optional<Path> workingDirectory;
 
   private final ImmutableSortedSet<Path> javaSourceFilePaths;
@@ -77,6 +79,7 @@ public class JavacStep implements Step {
   public JavacStep(
       Path outputDirectory,
       ClassUsageFileWriter usedClassesFileWriter,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
@@ -91,6 +94,7 @@ public class JavacStep implements Step {
       @Nullable Path abiJar) {
     this.outputDirectory = outputDirectory;
     this.usedClassesFileWriter = usedClassesFileWriter;
+    this.generatedCodeDirectory = generatedCodeDirectory;
     this.workingDirectory = workingDirectory;
     this.javaSourceFilePaths = javaSourceFilePaths;
     this.pathToSrcsList = pathToSrcsList;
@@ -108,12 +112,6 @@ public class JavacStep implements Step {
   @Override
   public final StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    return tryBuildWithFirstOrderDeps(context, filesystem);
-  }
-
-  private StepExecutionResult tryBuildWithFirstOrderDeps(
-      ExecutionContext context, ProjectFilesystem filesystem)
-      throws InterruptedException, IOException {
     javacOptions.validateOptions(classpathChecker::validateClasspath);
 
     Verbosity verbosity =
@@ -139,54 +137,46 @@ public class JavacStep implements Step {
               firstOrderContext.getProcessExecutor(),
               getAbsolutePathsForJavacInputs(getJavac()),
               directToJarOutputSettings);
-      return performBuild(context, stdout, stderr, getJavac(), javacExecutionContext);
-    }
-  }
-
-  private StepExecutionResult performBuild(
-      ExecutionContext context,
-      CapturingPrintStream stdout,
-      CapturingPrintStream stderr,
-      Javac javac,
-      JavacExecutionContext javacExecutionContext)
-      throws InterruptedException {
-    ImmutableList<JavacPluginJsr199Fields> pluginFields =
-        ImmutableList.copyOf(
-            javacOptions
-                .getAnnotationProcessingParams()
-                .getAnnotationProcessors(filesystem, resolver)
-                .stream()
-                .map(ResolvedJavacPluginProperties::getJavacPluginJsr199Fields)
-                .collect(Collectors.toList()));
-    int declaredDepsBuildResult;
-    String firstOrderStdout;
-    String firstOrderStderr;
-    Optional<String> returnedStderr;
-    try (Javac.Invocation invocation =
-        javac.newBuildInvocation(
-            javacExecutionContext,
-            invokingRule,
-            getOptions(context, declaredClasspathEntries),
-            pluginFields,
-            javaSourceFilePaths,
-            pathToSrcsList,
-            workingDirectory,
-            javacOptions.getCompilationMode())) {
-      if (abiJar != null) {
-        declaredDepsBuildResult =
-            invocation.buildSourceAbiJar(filesystem.resolve(Preconditions.checkNotNull(abiJar)));
-      } else {
-        declaredDepsBuildResult = invocation.buildClasses();
+      ImmutableList<JavacPluginJsr199Fields> pluginFields =
+          ImmutableList.copyOf(
+              javacOptions
+                  .getAnnotationProcessingParams()
+                  .getAnnotationProcessors(this.filesystem, resolver)
+                  .stream()
+                  .map(ResolvedJavacPluginProperties::getJavacPluginJsr199Fields)
+                  .collect(Collectors.toList()));
+      int declaredDepsBuildResult;
+      String firstOrderStdout;
+      String firstOrderStderr;
+      Optional<String> returnedStderr;
+      try (Javac.Invocation invocation =
+          getJavac()
+              .newBuildInvocation(
+                  javacExecutionContext,
+                  invokingRule,
+                  getOptions(context, declaredClasspathEntries),
+                  pluginFields,
+                  javaSourceFilePaths,
+                  pathToSrcsList,
+                  workingDirectory,
+                  javacOptions.getCompilationMode())) {
+        if (abiJar != null) {
+          declaredDepsBuildResult =
+              invocation.buildSourceAbiJar(
+                  this.filesystem.resolve(Preconditions.checkNotNull(abiJar)));
+        } else {
+          declaredDepsBuildResult = invocation.buildClasses();
+        }
       }
+      firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
+      firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
+      if (declaredDepsBuildResult != 0) {
+        returnedStderr = processBuildFailure(context, firstOrderStdout, firstOrderStderr);
+      } else {
+        returnedStderr = Optional.empty();
+      }
+      return StepExecutionResult.of(declaredDepsBuildResult, returnedStderr);
     }
-    firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
-    firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
-    if (declaredDepsBuildResult != 0) {
-      returnedStderr = processBuildFailure(context, firstOrderStdout, firstOrderStderr);
-    } else {
-      returnedStderr = Optional.empty();
-    }
-    return StepExecutionResult.of(declaredDepsBuildResult, returnedStderr);
   }
 
   private Optional<String> processBuildFailure(
@@ -273,7 +263,13 @@ public class JavacStep implements Step {
   ImmutableList<String> getOptions(
       ExecutionContext context, ImmutableSortedSet<Path> buildClasspathEntries) {
     return getOptions(
-        javacOptions, filesystem, resolver, outputDirectory, context, buildClasspathEntries);
+        javacOptions,
+        filesystem,
+        resolver,
+        outputDirectory,
+        generatedCodeDirectory,
+        context,
+        buildClasspathEntries);
   }
 
   public static ImmutableList<String> getOptions(
@@ -281,6 +277,7 @@ public class JavacStep implements Step {
       ProjectFilesystem filesystem,
       SourcePathResolver pathResolver,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       ExecutionContext context,
       ImmutableSortedSet<Path> buildClasspathEntries) {
     final ImmutableList.Builder<String> builder = ImmutableList.builder();
@@ -312,6 +309,10 @@ public class JavacStep implements Step {
 
     // Specify the output directory.
     builder.add("-d").add(filesystem.resolve(outputDirectory).toString());
+
+    if (generatedCodeDirectory.isPresent()) {
+      builder.add("-s").add(filesystem.resolve(generatedCodeDirectory.get()).toString());
+    }
 
     // Build up and set the classpath.
     if (!buildClasspathEntries.isEmpty()) {

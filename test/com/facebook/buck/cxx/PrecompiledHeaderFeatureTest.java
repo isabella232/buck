@@ -20,6 +20,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxToolProvider;
+import com.facebook.buck.cxx.platform.Preprocessor;
+import com.facebook.buck.cxx.platform.PreprocessorProvider;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
@@ -96,7 +100,7 @@ public class PrecompiledHeaderFeatureTest {
               .setPrefixHeader(new FakeSourcePath(headerFilename))
               .setPrecompiledHeader(Optional.empty())
               .build()
-              .createPreprocessAndCompileBuildRule(
+              .requirePreprocessAndCompileBuildRule(
                   "foo.c", preconfiguredCxxSourceBuilder().build());
       boolean hasPchFlag =
           commandLineContainsPchFlag(
@@ -201,7 +205,7 @@ public class PrecompiledHeaderFeatureTest {
                   .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
                   .build();
           BuildRule rule =
-              factory.createPreprocessAndCompileBuildRule(
+              factory.requirePreprocessAndCompileBuildRule(
                   "foo.c", preconfiguredCxxSourceBuilder().addFlags("-I", from.toString()).build());
           return FluentIterable.from(rule.getBuildDeps())
               .filter(CxxPrecompiledHeader.class)
@@ -238,7 +242,7 @@ public class PrecompiledHeaderFeatureTest {
                   .setPrefixHeader(new FakeSourcePath(("foo.h")))
                   .build();
           BuildRule rule =
-              factory.createPreprocessAndCompileBuildRule(
+              factory.requirePreprocessAndCompileBuildRule(
                   "foo.c", preconfiguredCxxSourceBuilder().build());
           return FluentIterable.from(rule.getBuildDeps())
               .filter(CxxPrecompiledHeader.class)
@@ -278,7 +282,7 @@ public class PrecompiledHeaderFeatureTest {
                   .setPrefixHeader(new FakeSourcePath(("foo.h")))
                   .build();
           BuildRule rule =
-              factory.createPreprocessAndCompileBuildRule(
+              factory.requirePreprocessAndCompileBuildRule(
                   "foo.c", preconfiguredCxxSourceBuilder().build());
           return FluentIterable.from(rule.getBuildDeps())
               .filter(CxxPrecompiledHeader.class)

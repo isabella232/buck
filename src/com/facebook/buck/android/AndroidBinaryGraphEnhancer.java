@@ -58,7 +58,6 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import java.nio.file.Path;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
@@ -99,7 +98,6 @@ public class AndroidBinaryGraphEnhancer {
   private final CellPathResolver cellRoots;
   private final PackageType packageType;
   private final boolean shouldPreDex;
-  private final Path primaryDexPath;
   private final DexSplitMode dexSplitMode;
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ImmutableSet<BuildTarget> resourcesToExclude;
@@ -135,7 +133,6 @@ public class AndroidBinaryGraphEnhancer {
       ImmutableSet<TargetCpuType> cpuFilters,
       boolean shouldBuildStringSourceMap,
       boolean shouldPreDex,
-      Path primaryDexPath,
       DexSplitMode dexSplitMode,
       ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
       ImmutableSet<BuildTarget> resourcesToExclude,
@@ -173,7 +170,6 @@ public class AndroidBinaryGraphEnhancer {
     this.cellRoots = cellRoots;
     this.packageType = packageType;
     this.shouldPreDex = shouldPreDex;
-    this.primaryDexPath = primaryDexPath;
     this.dexSplitMode = dexSplitMode;
     this.buildTargetsToExcludeFromDex = buildTargetsToExcludeFromDex;
     this.resourcesToExclude = resourcesToExclude;
@@ -315,7 +311,6 @@ public class AndroidBinaryGraphEnhancer {
               .setJavacOptions(javacOptions.withSourceLevel("7").withTargetLevel("7"))
               .setSrcs(
                   ImmutableSortedSet.of(generateCodeForMergedLibraryMap.getSourcePathToOutput()))
-              .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
               .setSourceAbisAllowed(false)
               .build();
       ruleResolver.addToIndex(compileMergedNativeLibMapGenCode);
@@ -395,7 +390,6 @@ public class AndroidBinaryGraphEnhancer {
                 javaBuckConfig)
             .setJavacOptions(javacOptions.withSourceLevel("7").withTargetLevel("7"))
             .setSrcs(ImmutableSortedSet.of(trimUberRDotJava.getSourcePathToOutput()))
-            .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
             .setSourceAbisAllowed(false)
             .build();
     ruleResolver.addToIndex(compileUberRDotJava);
@@ -534,8 +528,7 @@ public class AndroidBinaryGraphEnhancer {
       // Java package.
       String javaPackage = entry.getKey();
       Flavor flavor = InternalFlavor.of("buildconfig_" + javaPackage.replace('.', '_'));
-      BuildTarget buildTargetWithFlavors =
-          BuildTarget.builder(originalBuildTarget).addFlavors(flavor).build();
+      BuildTarget buildTargetWithFlavors = originalBuildTarget.withAppendedFlavors(flavor);
       BuildRuleParams buildConfigParams =
           new BuildRuleParams(
               /* declaredDeps */ Suppliers.ofInstance(ImmutableSortedSet.of()),
@@ -588,7 +581,6 @@ public class AndroidBinaryGraphEnhancer {
             originalBuildTarget.withAppendedFlavors(DEX_MERGE_FLAVOR),
             projectFilesystem,
             paramsForPreDexMerge,
-            primaryDexPath,
             dexSplitMode,
             apkModuleGraph,
             allPreDexDeps,
@@ -631,7 +623,7 @@ public class AndroidBinaryGraphEnhancer {
       // See whether the corresponding IntermediateDexRule has already been added to the
       // ruleResolver.
       BuildTarget originalTarget = javaLibrary.getBuildTarget();
-      BuildTarget preDexTarget = BuildTarget.builder(originalTarget).addFlavors(DEX_FLAVOR).build();
+      BuildTarget preDexTarget = originalTarget.withAppendedFlavors(DEX_FLAVOR);
       Optional<BuildRule> preDexRule = ruleResolver.getRuleOptional(preDexTarget);
       if (preDexRule.isPresent()) {
         preDexDeps.put(

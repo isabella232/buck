@@ -18,10 +18,12 @@ package com.facebook.buck.log.memory;
 
 import com.facebook.buck.log.LogFormatter;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.slb.NoHealthyServersException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Formatter;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -150,4 +152,19 @@ public class MemoryHandler extends Handler {
 
   @Override
   public void close() throws SecurityException {}
+
+  @Override
+  public boolean isLoggable(LogRecord record) {
+    if (record.getThrown() instanceof NoHealthyServersException) {
+      // We don't need to log NoHealthyServersException since it's an expected behavior when the
+      // network connection is bad.
+      return false;
+    } else if (record.getThrown() instanceof CancellationException) {
+      // Don't log cancellation here since it's not actionable.  If the cancellation is due to an
+      // error elsewhere, that error will get logged anyways.
+      return false;
+    } else {
+      return super.isLoggable(record);
+    }
+  }
 }

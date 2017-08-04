@@ -2,12 +2,14 @@ from __future__ import print_function
 import errno
 import glob
 import json
+import logging
 import os
 import platform
 import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 import traceback
@@ -44,7 +46,6 @@ class Resource(object):
 # Resource that get propagated to buck via system properties.
 EXPORTED_RESOURCES = [
     Resource("testrunner_classes"),
-    Resource("abi_processor_classes"),
     Resource("path_to_asm_jar"),
     Resource("logging_config_file"),
     Resource("path_to_rawmanifest_py", basename='rawmanifest.py'),
@@ -99,6 +100,20 @@ class BuckToolException(Exception):
     pass
 
 
+class ExecuteTarget(Exception):
+    def __init__(self, path, argv, envp, cwd):
+        self._path = path
+        self._argv = argv
+        self._envp = envp
+        self._cwd = cwd
+
+    def execve(self):
+        # Restore default handling of SIGPIPE.  See https://bugs.python.org/issue1652.
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+        os.chdir(self._cwd)
+        os.execvpe(self._path, self._argv, self._envp)
+
+
 class JvmCrashLogger(object):
     def __init__(self, buck_tool, project_root):
         self._buck_tool = buck_tool
@@ -133,7 +148,7 @@ class JvmCrashLogger(object):
         for file in errors:
             with open(file, 'r') as f:
                 message, loglines = self._format_jvm_errors(f)
-                print(loglines, file=sys.stderr)
+                logging.error(loglines)
 
 
 class BuckTool(object):
@@ -144,6 +159,9 @@ class BuckTool(object):
         self._tmp_dir = platform_path(buck_project.tmp_dir)
         self._stdout_file = os.path.join(self._tmp_dir, "stdout")
         self._stderr_file = os.path.join(self._tmp_dir, "stderr")
+        self._fake_buck_version = os.environ.get('BUCK_FAKE_VERSION')
+        if self._fake_buck_version:
+            logging.info("Using fake buck version: {}".format(self._fake_buck_version))
 
         self._pathsep = os.pathsep
         if sys.platform == 'cygwin':
@@ -198,6 +216,60 @@ class BuckTool(object):
         env['BUCK_TTY'] = str(int(sys.stdin.isatty()))
         return env
 
+    def _run_with_nailgun(self, argv, env):
+        '''
+        Run the command using nailgun.  If the daemon is busy, block until it becomes free.
+        '''
+        exit_code = 2
+        busy_diagnostic_displayed = False
+        while exit_code == 2:
+            with NailgunConnection(
+                    self._buck_project.get_buckd_transport_address(),
+                    cwd=self._buck_project.root) as c:
+                now = int(round(time.time() * 1000))
+                env['BUCK_PYTHON_SPACE_INIT_TIME'] = \
+                    str(now - self._init_timestamp)
+                exit_code = c.send_command(
+                    'com.facebook.buck.cli.Main',
+                    argv,
+                    env=env,
+                    cwd=self._buck_project.root)
+                if exit_code == 2:
+                    env['BUCK_BUILD_ID'] = str(uuid.uuid4())
+                    now = time.time()
+                    if not busy_diagnostic_displayed:
+                        logging.info("Buck daemon is busy with another command. " +
+                                     "Waiting for it to become free...\n" +
+                                     "You can use 'buck kill' to kill buck " +
+                                     "if you suspect buck is stuck.")
+                        busy_diagnostic_displayed = True
+                    time.sleep(1)
+        return exit_code
+
+    def _run_with_buckd(self, env):
+        '''
+        Run the buck command using buckd.  If the command is "run", get the path, args, etc. from
+        the daemon, and raise an exception that tells __main__ to run that binary
+        '''
+        with Tracing('buck', args={'command': sys.argv[1:]}):
+            argv = sys.argv[1:]
+            if len(argv) == 0 or argv[0] != 'run':
+                return self._run_with_nailgun(argv, env)
+            else:
+                with tempfile.NamedTemporaryFile(dir=self._tmp_dir) as argsfile:
+                    # Splice in location of command file to run outside buckd
+                    argv = [argv[0]] + ['--command-args-file', argsfile.name] + argv[1:]
+                    exit_code = self._run_with_nailgun(argv, env)
+                    if exit_code != 0:
+                        # Build failed, so there's nothing to run.  Exit normally.
+                        return exit_code
+                    cmd = json.load(argsfile)
+                    path = cmd['path'].encode('utf8')
+                    argv = [arg.encode('utf8') for arg in cmd['argv']]
+                    envp = {k.encode('utf8'): v.encode('utf8') for k, v in cmd['envp'].iteritems()}
+                    cwd = cmd['cwd'].encode('utf8')
+                    raise ExecuteTarget(path, argv, envp, cwd)
+
     def launch_buck(self, build_id):
         with Tracing('BuckTool.launch_buck'):
             with JvmCrashLogger(self, self._buck_project.root):
@@ -223,40 +295,15 @@ class BuckTool(object):
                         if not self._is_buckd_running():
                             self.launch_buckd(buck_version_uid=buck_version_uid)
                     elif use_buckd and not has_watchman:
-                        print("Not using buckd because watchman isn't installed.",
-                              file=sys.stderr)
+                        logging.warning("Not using buckd because watchman isn't installed.")
                     elif not use_buckd:
-                        print("Not using buckd because NO_BUCKD is set.",
-                              file=sys.stderr)
+                        logging.warning("Not using buckd because NO_BUCKD is set.")
 
                 env = self._environ_for_buck()
                 env['BUCK_BUILD_ID'] = build_id
 
                 if use_buckd and self._is_buckd_running():
-                    with Tracing('buck', args={'command': sys.argv[1:]}):
-                        exit_code = 2
-                        last_diagnostic_time = 0
-                        while exit_code == 2:
-                            with NailgunConnection(
-                                    self._buck_project.get_buckd_transport_address(),
-                                    cwd=self._buck_project.root) as c:
-                                now = int(round(time.time() * 1000))
-                                env['BUCK_PYTHON_SPACE_INIT_TIME'] = \
-                                    str(now - self._init_timestamp)
-                                exit_code = c.send_command(
-                                    'com.facebook.buck.cli.Main',
-                                    sys.argv[1:],
-                                    env=env,
-                                    cwd=self._buck_project.root)
-                                if exit_code == 2:
-                                    env['BUCK_BUILD_ID'] = str(uuid.uuid4())
-                                    now = time.time()
-                                    if now - last_diagnostic_time > DAEMON_BUSY_MESSAGE_SECONDS:
-                                        print('Daemon is busy, waiting for it to become free...',
-                                              file=sys.stderr)
-                                        last_diagnostic_time = now
-                                    time.sleep(1)
-                        return exit_code
+                    return self._run_with_buckd(env)
 
                 command = ["buck"]
                 extra_default_options = [
@@ -415,7 +462,7 @@ class BuckTool(object):
         with Tracing('BuckTool.kill_buckd'):
             buckd_transport_file_path = self._buck_project.get_buckd_transport_file_path()
             if transport_exists(buckd_transport_file_path):
-                print("Shutting down nailgun server...", file=sys.stderr)
+                logging.debug("Shutting down buck daemon.")
                 try:
                     with NailgunConnection(self._buck_project.get_buckd_transport_address(),
                                            cwd=self._buck_project.root) as c:
@@ -539,7 +586,7 @@ def setup_watchman_watch():
             # FileSystemWatcher will take too long to process events.
             raise BuckToolException(message)
 
-        print("Using watchman.", file=sys.stderr)
+        logging.debug("Using watchman.")
 
 
 def transport_exists(path):

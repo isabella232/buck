@@ -16,6 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.Linkers;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.NativeLinkables;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.JsonConcatenate;
 import com.facebook.buck.log.Logger;
@@ -172,15 +178,14 @@ public class CxxDescriptionEnhancer {
       HeaderVisibility headerVisibility,
       boolean shouldCreateHeadersSymlinks) {
     BuildTarget untypedTarget = CxxLibraryDescription.getUntypedBuildTarget(buildTarget);
-    BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-            untypedTarget, headerVisibility, cxxPlatform.getFlavor());
 
-    // Check the cache...
     return (HeaderSymlinkTree)
         ruleResolver.computeIfAbsent(
-            headerSymlinkTreeTarget,
-            () ->
+            // TODO(yiding): this build target gets recomputed in createHeaderSymlinkTree, it should
+            // be passed down instead.
+            CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
+                untypedTarget, headerVisibility, cxxPlatform.getFlavor()),
+            (ignored) ->
                 createHeaderSymlinkTree(
                     untypedTarget,
                     projectFilesystem,
@@ -211,15 +216,16 @@ public class CxxDescriptionEnhancer {
   @VisibleForTesting
   public static BuildTarget createHeaderSymlinkTreeTarget(
       BuildTarget target, HeaderVisibility headerVisibility, Flavor... flavors) {
-    return BuildTarget.builder(target)
-        .addFlavors(getHeaderSymlinkTreeFlavor(headerVisibility))
-        .addFlavors(flavors)
-        .build();
+    return target.withAppendedFlavors(
+        ImmutableSet.<Flavor>builder()
+            .add(getHeaderSymlinkTreeFlavor(headerVisibility))
+            .add(flavors)
+            .build());
   }
 
   @VisibleForTesting
   public static BuildTarget createSandboxSymlinkTreeTarget(BuildTarget target, Flavor platform) {
-    return BuildTarget.builder(target).addFlavors(platform).addFlavors(SANDBOX_TREE_FLAVOR).build();
+    return target.withAppendedFlavors(platform, SANDBOX_TREE_FLAVOR);
   }
 
   /** @return the absolute {@link Path} to use for the symlink tree of headers. */
@@ -555,10 +561,8 @@ public class CxxDescriptionEnhancer {
 
   public static BuildTarget createStaticLibraryBuildTarget(
       BuildTarget target, Flavor platform, CxxSourceRuleFactory.PicType pic) {
-    return BuildTarget.builder(target)
-        .addFlavors(platform)
-        .addFlavors(pic == CxxSourceRuleFactory.PicType.PDC ? STATIC_FLAVOR : STATIC_PIC_FLAVOR)
-        .build();
+    return target.withAppendedFlavors(
+        platform, pic == CxxSourceRuleFactory.PicType.PDC ? STATIC_FLAVOR : STATIC_PIC_FLAVOR);
   }
 
   public static BuildTarget createSharedLibraryBuildTarget(
@@ -576,7 +580,7 @@ public class CxxDescriptionEnhancer {
         throw new IllegalStateException(
             "Only SHARED and MACH_O_BUNDLE types expected, got: " + linkType);
     }
-    return BuildTarget.builder(target).addFlavors(platform).addFlavors(linkFlavor).build();
+    return target.withAppendedFlavors(platform, linkFlavor);
   }
 
   public static Path getStaticLibraryPath(
@@ -863,24 +867,26 @@ public class CxxDescriptionEnhancer {
 
     // Generate and add all the build rules to preprocess and compile the source to the
     // resolver and get the `SourcePath`s representing the generated object files.
+    CxxSourceRuleFactory.PicType pic =
+        linkStyle == Linker.LinkableDepType.STATIC
+            ? CxxSourceRuleFactory.PicType.PDC
+            : CxxSourceRuleFactory.PicType.PIC;
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
-        CxxSourceRuleFactory.requirePreprocessAndCompileRules(
-            projectFilesystem,
-            target,
-            resolver,
-            sourcePathResolver,
-            ruleFinder,
-            cxxBuckConfig,
-            cxxPlatform,
-            cxxPreprocessorInput,
-            allCompilerFlags,
-            prefixHeader,
-            precompiledHeader,
-            srcs,
-            linkStyle == Linker.LinkableDepType.STATIC
-                ? CxxSourceRuleFactory.PicType.PDC
-                : CxxSourceRuleFactory.PicType.PIC,
-            sandboxTree);
+        CxxSourceRuleFactory.of(
+                projectFilesystem,
+                target,
+                resolver,
+                sourcePathResolver,
+                ruleFinder,
+                cxxBuckConfig,
+                cxxPlatform,
+                cxxPreprocessorInput,
+                allCompilerFlags,
+                prefixHeader,
+                precompiledHeader,
+                pic,
+                sandboxTree)
+            .requirePreprocessAndCompileRules(srcs);
 
     // Build up the linker flags, which support macro expansion.
     CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
@@ -1003,7 +1009,7 @@ public class CxxDescriptionEnhancer {
     return (CxxLink)
         resolver.computeIfAbsentThrowing(
             linkRuleTarget,
-            () ->
+            ignored ->
                 // Generate the final link rule.  We use the top-level target as the link rule's
                 // target, so that it corresponds to the actual binary we build.
                 CxxLinkableEnhancer.createCxxLinkableBuildRule(
@@ -1039,12 +1045,10 @@ public class CxxDescriptionEnhancer {
       StripStyle stripStyle,
       BuildRule unstrippedBinaryRule,
       CxxPlatform cxxPlatform) {
-    BuildTarget stripBuildTarget =
-        baseBuildTarget.withAppendedFlavors(CxxStrip.RULE_FLAVOR, stripStyle.getFlavor());
     return (CxxStrip)
         resolver.computeIfAbsent(
-            stripBuildTarget,
-            () ->
+            baseBuildTarget.withAppendedFlavors(CxxStrip.RULE_FLAVOR, stripStyle.getFlavor()),
+            stripBuildTarget ->
                 new CxxStrip(
                     stripBuildTarget,
                     projectFilesystem,
@@ -1104,10 +1108,8 @@ public class CxxDescriptionEnhancer {
     for (BuildTarget dep : args.getDeps()) {
       Optional<CxxCompilationDatabaseDependencies> compilationDatabases =
           resolver.requireMetadata(
-              BuildTarget.builder(dep)
-                  .addFlavors(CxxCompilationDatabase.COMPILATION_DATABASE)
-                  .addFlavors(cxxPlatformFlavor.get())
-                  .build(),
+              dep.withAppendedFlavors(
+                  CxxCompilationDatabase.COMPILATION_DATABASE, cxxPlatformFlavor.get()),
               CxxCompilationDatabaseDependencies.class);
       if (compilationDatabases.isPresent()) {
         sourcePaths.addAll(compilationDatabases.get().getSourcePaths());
@@ -1132,10 +1134,7 @@ public class CxxDescriptionEnhancer {
    */
   public static BuildTarget createSharedLibrarySymlinkTreeTarget(
       BuildTarget target, Flavor platform) {
-    return BuildTarget.builder(target)
-        .addFlavors(SHARED_LIBRARY_SYMLINK_TREE_FLAVOR)
-        .addFlavors(platform)
-        .build();
+    return target.withAppendedFlavors(SHARED_LIBRARY_SYMLINK_TREE_FLAVOR, platform);
   }
 
   /** @return the {@link Path} to use for the symlink tree of headers. */

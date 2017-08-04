@@ -56,8 +56,6 @@ public final class JavacOptionsFactory {
 
     builder.addAllExtraArguments(jvmLibraryArg.getExtraArguments());
 
-    builder.addAllClassesToRemoveFromJar(jvmLibraryArg.getRemoveClasses());
-
     AnnotationProcessingParams annotationParams =
         jvmLibraryArg.buildAnnotationProcessingParams(
             buildTarget, projectFilesystem, resolver, defaultOptions.getSafeAnnotationProcessors());

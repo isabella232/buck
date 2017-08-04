@@ -107,8 +107,7 @@ public class GroovyTestDescription
                 cellRoots,
                 javacOptions,
                 groovyBuckConfig)
-            .setArgs(args)
-            .setGeneratedSourceFolder(defaultJavacOptions.getGeneratedSourceFolderName());
+            .setArgs(args);
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryBuilder.buildAbi();
@@ -136,7 +135,8 @@ public class GroovyTestDescription
         args.getRunTestSeparately(),
         args.getForkMode(),
         args.getStdOutLogLevel(),
-        args.getStdErrLogLevel());
+        args.getStdErrLogLevel(),
+        args.getUnbundledResourcesRoot());
   }
 
   @Override

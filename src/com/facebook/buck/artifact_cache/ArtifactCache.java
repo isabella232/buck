@@ -32,7 +32,7 @@ public interface ArtifactCache extends AutoCloseable {
    * @return whether it was a {@link CacheResultType#MISS} (indicating a failure) or some type of
    *     hit.
    */
-  CacheResult fetch(RuleKey ruleKey, LazyPath output);
+  ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output);
 
   /**
    * Store the artifact at path specified by output to cache, such that it can later be fetched

@@ -79,6 +79,7 @@ java_library(
 java_immutables_library(
     name = "types",
     srcs = [
+        "AbstractSdkEnvironment.java",
         "Cell.java",
         "CellProvider.java",
         "KnownBuildRuleTypes.java",
@@ -105,8 +106,8 @@ java_immutables_library(
         "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
-        "//src/com/facebook/buck/cxx:platform",
         "//src/com/facebook/buck/cxx:rules",
+        "//src/com/facebook/buck/cxx/platform:platform",
         "//src/com/facebook/buck/d:d",
         "//src/com/facebook/buck/dotnet:dotnet",
         "//src/com/facebook/buck/event:interfaces",
@@ -174,7 +175,6 @@ java_library(
 java_library(
     name = "abstract_description_arg",
     srcs = [
-        "AbstractDescriptionArg.java",
         "CommonDescriptionArg.java",
         "HasContacts.java",
         "HasDeclaredDeps.java",
@@ -234,6 +234,7 @@ java_immutables_library(
         "DependencyAggregation.java",
         "Description.java",
         "ExportDependencies.java",
+        "HasDeclaredAndExtraDeps.java",
         "HasPostBuildSteps.java",
         "HasRuntimeDeps.java",
         "HashedFileTool.java",

@@ -16,6 +16,13 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.Linkers;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.NativeLinkables;
+import com.facebook.buck.cxx.platform.Preprocessor;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
@@ -59,6 +66,7 @@ import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatorOverridingDescription;
@@ -80,6 +88,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.immutables.value.Value;
 
 public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenruleDescriptionArg>
@@ -892,7 +901,8 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
     }
 
     public String replace(ImmutableList<String> args) throws MacroException {
-      return String.format("$(%s %s)", name, Joiner.on(' ').join(args));
+      return String.format(
+          "$(%s)", RichStream.of(name).concat(args.stream()).collect(Collectors.joining(" ")));
     }
   }
 

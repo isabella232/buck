@@ -42,7 +42,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -55,11 +54,11 @@ import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -84,7 +83,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.SortedSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -120,8 +118,6 @@ public class AndroidBinaryDescription
           PACKAGE_STRING_ASSETS_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
           AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR);
-
-  public static final Flavor INSTALL_FLAVOR = InternalFlavor.of("install");
 
   private final JavaBuckConfig javaBuckConfig;
   private final JavaOptions javaOptions;
@@ -270,7 +266,6 @@ public class AndroidBinaryDescription
               ImmutableSet.copyOf(args.getCpuFilters()),
               args.isBuildStringSourceMap(),
               shouldPreDex,
-              AndroidBinary.getPrimaryDexPath(buildTarget, projectFilesystem),
               dexSplitMode,
               args.getNoDx(),
               /* resourcesToExclude */ ImmutableSet.of(),
@@ -359,8 +354,7 @@ public class AndroidBinaryDescription
               args.getCpuFilters(),
               resourceFilter,
               exopackageModes,
-              MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver),
-              args.getPreprocessJavaClassesBash(),
+              getPreprocessJavaClassesBash(args, buildTarget, resolver, cellRoots),
               rulesToExcludeFromDex,
               result,
               args.isReorderClassesIntraDex(),
@@ -376,39 +370,11 @@ public class AndroidBinaryDescription
               args.getIsCacheable());
       // The exo installer is always added to the index so that the action graph is the same
       // between build and install calls.
-      resolver.addToIndex(
-          createExoInstaller(
-              buildTarget.withFlavors(INSTALL_FLAVOR),
-              projectFilesystem,
-              resolver,
-              androidBinary,
-              androidInstallConfig));
+      new AndroidBinaryInstallGraphEnhancer(
+              androidInstallConfig, projectFilesystem, buildTarget, androidBinary)
+          .enhance(resolver);
       return androidBinary;
     }
-  }
-
-  private BuildRule createExoInstaller(
-      BuildTarget buildTarget,
-      ProjectFilesystem filesystem,
-      BuildRuleResolver resolver,
-      AndroidBinary binary,
-      AndroidInstallConfig androidInstallConfig) {
-    BuildRule installer;
-    if (androidInstallConfig.getConcurrentInstallEnabled(
-        Optional.ofNullable(resolver.getEventBus()))) {
-      binary.getClass();
-      throw new UnsupportedOperationException("concurrent_install not yet supported");
-    } else {
-      installer =
-          new NoopBuildRule(buildTarget, filesystem) {
-            @Override
-            public SortedSet<BuildRule> getBuildDeps() {
-              return ImmutableSortedSet.of();
-            }
-          };
-    }
-    resolver.addToIndex(installer);
-    return installer;
   }
 
   private DexSplitMode createDexSplitMode(
@@ -506,6 +472,15 @@ public class AndroidBinaryDescription
       BuildRuleResolver resolver,
       CellPathResolver cellRoots) {
     return arg.getPostFilterResourcesCmd()
+        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver)::apply);
+  }
+
+  private Optional<Arg> getPreprocessJavaClassesBash(
+      AndroidBinaryDescriptionArg arg,
+      BuildTarget buildTarget,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots) {
+    return arg.getPreprocessJavaClassesBash()
         .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver)::apply);
   }
 

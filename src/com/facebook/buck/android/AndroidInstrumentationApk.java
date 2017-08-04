@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * Apk that functions as a test package in Android.
@@ -78,7 +79,6 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         apkUnderTest.getCpuFilters(),
         apkUnderTest.getResourceFilter(),
         EnumSet.noneOf(ExopackageMode.class),
-        apkUnderTest.getMacroExpander(),
         // preprocessJavaClassBash is not supported in instrumentation
         Optional.empty(),
         rulesToExcludeFromDex,
@@ -96,6 +96,11 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         Optional.empty(),
         true);
     this.apkUnderTest = apkUnderTest;
+  }
+
+  @Override
+  public Stream<BuildTarget> getInstallHelpers() {
+    return Stream.of();
   }
 
   public AndroidBinary getApkUnderTest() {

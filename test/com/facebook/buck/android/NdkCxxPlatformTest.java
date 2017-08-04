@@ -28,14 +28,14 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
-import com.facebook.buck.cxx.DebugPathSanitizer;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -126,13 +126,13 @@ public class NdkCxxPlatformTest {
       switch (operation) {
         case PREPROCESS_AND_COMPILE:
           rule =
-              cxxSourceRuleFactory.createPreprocessAndCompileBuildRule(
+              cxxSourceRuleFactory.requirePreprocessAndCompileBuildRule(
                   source,
                   CxxSource.of(CxxSource.Type.CXX, new FakeSourcePath(source), ImmutableList.of()));
           break;
         case COMPILE:
           rule =
-              cxxSourceRuleFactory.createCompileBuildRule(
+              cxxSourceRuleFactory.requireCompileBuildRule(
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,

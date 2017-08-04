@@ -15,6 +15,10 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.Compiler;
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
+import com.facebook.buck.cxx.platform.GccCompiler;
+import com.facebook.buck.cxx.platform.WindowsCompiler;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
@@ -35,18 +39,11 @@ import java.util.stream.Stream;
 public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
 
   private final String fakeCompilationDirectory;
-  private final boolean isGcc;
-  private final CxxToolProvider.Type cxxType;
-
   private final ImmutableBiMap<Path, String> other;
 
   public PrefixMapDebugPathSanitizer(
-      String fakeCompilationDirectory,
-      ImmutableBiMap<Path, String> other,
-      CxxToolProvider.Type cxxType) {
+      String fakeCompilationDirectory, ImmutableBiMap<Path, String> other) {
     this.fakeCompilationDirectory = fakeCompilationDirectory;
-    this.isGcc = cxxType == CxxToolProvider.Type.GCC;
-    this.cxxType = cxxType;
     this.other = other;
   }
 
@@ -56,19 +53,21 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
   }
 
   @Override
-  ImmutableMap<String, String> getCompilationEnvironment(Path workingDir, boolean shouldSanitize) {
+  public ImmutableMap<String, String> getCompilationEnvironment(
+      Path workingDir, boolean shouldSanitize) {
     return ImmutableMap.of("PWD", workingDir.toString());
   }
 
   @Override
-  void restoreCompilationDirectory(Path path, Path workingDir) throws IOException {
+  public void restoreCompilationDirectory(Path path, Path workingDir) throws IOException {
     // There should be nothing to sanitize in the compilation directory because the compilation
     // flags took care of it.
   }
 
   @Override
-  ImmutableList<String> getCompilationFlags(Path workingDir, ImmutableMap<Path, Path> prefixMap) {
-    if (cxxType == CxxToolProvider.Type.WINDOWS) {
+  public ImmutableList<String> getCompilationFlags(
+      Compiler compiler, Path workingDir, ImmutableMap<Path, Path> prefixMap) {
+    if (compiler instanceof WindowsCompiler) {
       return ImmutableList.of();
     }
 
@@ -84,7 +83,7 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
         // argument list too long errors, so avoid adding `-fdebug-prefix-map` flags for each
         // `prefixMap` entry.
         .concat(
-            isGcc
+            compiler instanceof GccCompiler
                 ? Stream.empty()
                 : prefixMap
                     .entrySet()
@@ -95,7 +94,7 @@ public class PrefixMapDebugPathSanitizer extends DebugPathSanitizer {
         .map(p -> getDebugPrefixMapFlag(p.getKey(), p.getValue()))
         .forEach(flags::add);
 
-    if (isGcc) {
+    if (compiler instanceof GccCompiler) {
       // If we recorded switches in the debug info, the -fdebug-prefix-map values would contain the
       // unsanitized paths.
       flags.add("-gno-record-gcc-switches");

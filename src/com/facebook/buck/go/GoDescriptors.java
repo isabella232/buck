@@ -79,9 +79,8 @@ abstract class GoDescriptors {
                   @Override
                   public ImmutableSet<GoLinkable> apply(BuildTarget input) {
                     BuildTarget flavoredTarget =
-                        BuildTarget.builder(input)
-                            .addFlavors(platform.getFlavor(), TRANSITIVE_LINKABLES_FLAVOR)
-                            .build();
+                        input.withAppendedFlavors(
+                            platform.getFlavor(), TRANSITIVE_LINKABLES_FLAVOR);
                     try {
                       return resolver.requireMetadata(flavoredTarget, ImmutableSet.class).get();
                     } catch (NoSuchBuildTargetException ex) {
@@ -273,19 +272,16 @@ abstract class GoDescriptors {
 
     // TODO(mikekap): Make a single test main gen, rather than one per test. The generator itself
     // doesn't vary per test.
-    BuildTarget generatorTarget =
-        sourceBuildTarget.withFlavors(InternalFlavor.of("make-test-main-gen"));
     BuildRule generator =
         resolver.computeIfAbsentThrowing(
-            generatorTarget,
-            () -> {
-              BuildTarget generatorSourceTarget =
-                  sourceBuildTarget.withAppendedFlavors(InternalFlavor.of("test-main-gen-source"));
+            sourceBuildTarget.withFlavors(InternalFlavor.of("make-test-main-gen")),
+            generatorTarget -> {
               WriteFile writeFile =
                   (WriteFile)
                       resolver.computeIfAbsent(
-                          generatorSourceTarget,
-                          () ->
+                          sourceBuildTarget.withAppendedFlavors(
+                              InternalFlavor.of("test-main-gen-source")),
+                          generatorSourceTarget ->
                               new WriteFile(
                                   generatorSourceTarget,
                                   projectFilesystem,
@@ -322,13 +318,11 @@ abstract class GoDescriptors {
   }
 
   private static BuildTarget createSymlinkTreeTarget(BuildTarget source) {
-    return BuildTarget.builder(source).addFlavors(InternalFlavor.of("symlink-tree")).build();
+    return source.withAppendedFlavors(InternalFlavor.of("symlink-tree"));
   }
 
   private static BuildTarget createTransitiveSymlinkTreeTarget(BuildTarget source) {
-    return BuildTarget.builder(source)
-        .addFlavors(InternalFlavor.of("transitive-symlink-tree"))
-        .build();
+    return source.withAppendedFlavors(InternalFlavor.of("transitive-symlink-tree"));
   }
 
   private static GoLinkable requireGoLinkable(
@@ -336,7 +330,7 @@ abstract class GoDescriptors {
       throws NoSuchBuildTargetException {
     Optional<GoLinkable> linkable =
         resolver.requireMetadata(
-            BuildTarget.builder(target).addFlavors(platform.getFlavor()).build(), GoLinkable.class);
+            target.withAppendedFlavors(platform.getFlavor()), GoLinkable.class);
     if (!linkable.isPresent()) {
       throw new HumanReadableException(
           "%s (needed for %s) is not an instance of go_library!",

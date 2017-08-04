@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -73,6 +73,17 @@ public abstract class AutoSparseStateEvents extends AbstractBuckEvent
 
   /** Event posted when the sparse profile refresh fails */
   public static class SparseRefreshFailed extends AutoSparseStateEvents {
+    private static String PENDING_CHANGES = "cannot change sparseness due to pending changes";
+    private static String NO_SUITABLE_RESPONSE = "no suitable response from remote hg";
+
+    private static String STDOUT_HEADER = "stdout:\n";
+    private static String STDERR_HEADER = "stderr:\n";
+    private static String TRACEBACK_HEADER = "Traceback (most recent call last)";
+    private static String ABORT_PREFIX = "abort: ";
+
+    private static String SPARSE_ISSUE_INTRO =
+        "hg sparse failed to refresh your working copy, due to the following problems:";
+
     @JsonView(JsonViews.MachineReadableLog.class)
     private String output;
 
@@ -84,6 +95,32 @@ public abstract class AutoSparseStateEvents extends AbstractBuckEvent
     @Override
     public String getEventName() {
       return "AutoSparseSparseRefreshFailed";
+    }
+
+    public String getFailureDetails() {
+      // Look for failure information the end-user should know about
+      if (output.contains(PENDING_CHANGES) || output.contains(NO_SUITABLE_RESPONSE)) {
+        // Sparse profile can't be materialised
+        String trimmed = output.trim();
+        int outstart = trimmed.indexOf(STDOUT_HEADER) + STDOUT_HEADER.length();
+        int errstart = trimmed.indexOf(STDERR_HEADER, outstart);
+        int errend = trimmed.indexOf(TRACEBACK_HEADER, errstart);
+        int abortstart = trimmed.lastIndexOf(ABORT_PREFIX);
+        if (outstart > -1 && errstart > -1 && errend > -1 && abortstart > -1) {
+          String stdout = trimmed.substring(outstart, errstart - 1).trim();
+          String stderr = trimmed.substring(errstart + STDERR_HEADER.length(), errend - 1).trim();
+          String lastLine = trimmed.substring(abortstart + ABORT_PREFIX.length()).trim();
+          return String.join(
+              "\n",
+              SPARSE_ISSUE_INTRO,
+              "", // empty line separating intro from error
+              stdout.isEmpty() ? stderr : stdout,
+              lastLine,
+              "" // extra empty line after
+              );
+        }
+      }
+      return "";
     }
   }
 }

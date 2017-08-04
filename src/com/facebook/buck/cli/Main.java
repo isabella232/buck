@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.config.CellConfig.MalformedOverridesException;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 
@@ -29,6 +30,7 @@ import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
+import com.facebook.buck.config.RawConfig;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
@@ -109,6 +111,7 @@ import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
+import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.WatchmanWatcherException;
@@ -179,6 +182,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -192,11 +196,22 @@ import org.kohsuke.args4j.CmdLineException;
 
 public final class Main {
 
+  /**
+   * Force JNA to be initialized early to avoid deadlock race condition.
+   *
+   * <p>See: https://github.com/java-native-access/jna/issues/652
+   */
+  @SuppressWarnings("unused")
+  public static final int JNA_POINTER_SIZE = Pointer.SIZE;
+
   /** Trying again won't help. */
   public static final int FAIL_EXIT_CODE = 1;
 
   /** Trying again later might work. */
   public static final int BUSY_EXIT_CODE = 2;
+
+  /** Internal error exit code, meaning Buck fails with unknown exception */
+  public static final int INTERNAL_ERROR_EXIT_CODE = 13;
 
   /** The command was interrupted */
   public static final int INTERRUPTED_EXIT_CODE = 130;
@@ -365,6 +380,7 @@ public final class Main {
               args);
     } catch (InterruptedException | ClosedByInterruptException e) {
       // We're about to exit, so it's acceptable to swallow interrupts here.
+      exitCode = INTERRUPTED_EXIT_CODE;
       LOG.debug(e, "Interrupted");
     } catch (IOException e) {
       if (e.getMessage().startsWith("No space left on device")) {
@@ -375,12 +391,15 @@ public final class Main {
     } catch (HumanReadableException e) {
       makeStandardConsole(context).printBuildFailure(e.getHumanReadableErrorMessage());
     } catch (InterruptionFailedException e) { // Command could not be interrupted.
+      exitCode = INTERRUPTED_EXIT_CODE;
       if (context.isPresent()) {
-        context.get().getNGServer().shutdown(true); // Exit process to halt command execution.
+        context.get().getNGServer().shutdown(false);
       }
     } catch (BuckIsDyingException e) {
+      exitCode = INTERNAL_ERROR_EXIT_CODE;
       LOG.warn(e, "Fallout because buck was already dying");
     } catch (Throwable t) {
+      exitCode = INTERNAL_ERROR_EXIT_CODE;
       LOG.error(t, "Uncaught exception at top level");
     } finally {
       LOG.debug("Done.");
@@ -474,10 +493,20 @@ public final class Main {
 
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
-    Config config =
-        Configs.createDefaultConfig(
-            canonicalRootPath,
-            command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME));
+    ImmutableMap<RelativeCellName, Path> cellMapping =
+        DefaultCellPathResolver.bootstrapPathMapping(
+            canonicalRootPath, Configs.createDefaultConfig(canonicalRootPath));
+    RawConfig rootCellConfigOverrides = RawConfig.of();
+    try {
+      ImmutableMap<Path, RawConfig> overridesByPath =
+          command.getConfigOverrides().getOverridesByPath(cellMapping);
+      rootCellConfigOverrides =
+          Optional.ofNullable(overridesByPath.get(canonicalRootPath)).orElse(RawConfig.of());
+    } catch (MalformedOverridesException exception) {
+      rootCellConfigOverrides =
+          command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME);
+    }
+    Config config = Configs.createDefaultConfig(canonicalRootPath, rootCellConfigOverrides);
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
     DefaultCellPathResolver cellPathResolver =
         new DefaultCellPathResolver(filesystem.getRootPath(), config);
@@ -737,6 +766,7 @@ public final class Main {
             // stderr.
             Closeable logErrorToEventBus =
                 loggerThreadMappingScope.setWriter(createWriterForConsole(consoleListener));
+            Scope ddmLibLogRedirector = DdmLibLogRedirector.redirectDdmLogger(buildEventBus);
 
             // NOTE: This will only run during the lifetime of the process and will flush on close.
             CounterRegistry counterRegistry =
@@ -827,7 +857,8 @@ public final class Main {
                       vcBuckConfig.getHgCmd(),
                       buckConfig.getEnvironment()),
                   vcBuckConfig.getPregeneratedVersionControlStats());
-          if (command.subcommand instanceof AbstractCommand) {
+          if (command.subcommand instanceof AbstractCommand
+              && !(command.subcommand instanceof DistBuildCommand)) {
             AbstractCommand subcommand = (AbstractCommand) command.subcommand;
             if (!commandMode.equals(CommandMode.TEST)) {
               vcStatsGenerator.generateStatsAsync(
@@ -845,7 +876,10 @@ public final class Main {
 
           CommandEvent.Started startedEvent =
               CommandEvent.started(
-                  args.length > 0 ? args[0] : "", remainingArgs, daemon.isPresent(), getBuckPID());
+                  command.getDeclaredSubCommandName(),
+                  remainingArgs,
+                  daemon.isPresent(),
+                  getBuckPID());
           buildEventBus.post(startedEvent);
 
           // Create or get Parser and invalidate cached command parameters.
@@ -926,8 +960,7 @@ public final class Main {
             processManager = Optional.of(new PkillProcessManager(processExecutor));
           }
           Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
-              new AndroidPlatformTargetSupplier(
-                  androidDirectoryResolver, androidBuckConfig, buildEventBus);
+              new AndroidPlatformTargetSupplier(androidDirectoryResolver, androidBuckConfig);
 
           // At this point, we have parsed options but haven't started
           // running the command yet.  This is a good opportunity to
@@ -983,7 +1016,6 @@ public final class Main {
                         .setBuildInfoStoreManager(storeManager)
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
-            exitCode = INTERRUPTED_EXIT_CODE;
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
             throw e;
           }
@@ -1009,7 +1041,7 @@ public final class Main {
           LOG.debug(t, "Failing build on exception.");
           closeHttpExecutorService(cacheBuckConfig, Optional.empty(), httpWriteExecutorService);
           closeDiskIoExecutorService(diskIoExecutorService);
-          flushEventListeners(console, buildId, eventListeners);
+          flushAndCloseEventListeners(console, buildId, eventListeners);
           throw t;
         } finally {
           if (commandSemaphoreAcquired) {
@@ -1036,7 +1068,7 @@ public final class Main {
         }
 
         closeDiskIoExecutorService(diskIoExecutorService);
-        flushEventListeners(console, buildId, eventListeners);
+        flushAndCloseEventListeners(console, buildId, eventListeners);
         return exitCode;
       }
     } finally {
@@ -1060,12 +1092,15 @@ public final class Main {
     return new Console(verbosity, stdOut, stdErr, buckConfig.createAnsi(color));
   }
 
-  private void flushEventListeners(
+  private void flushAndCloseEventListeners(
       Console console, BuildId buildId, ImmutableList<BuckEventListener> eventListeners)
-      throws InterruptedException {
+      throws InterruptedException, IOException {
     for (BuckEventListener eventListener : eventListeners) {
       try {
         eventListener.outputTrace(buildId);
+        if (eventListener instanceof Closeable) {
+          ((Closeable) eventListener).close();
+        }
       } catch (RuntimeException e) {
         PrintStream stdErr = console.getStdErr();
         stdErr.println("Ignoring non-fatal error!  The stack trace is below:");
@@ -1463,10 +1498,9 @@ public final class Main {
       specifiedBuildId = System.getenv().get(BUCK_BUILD_ID_ENV_VAR);
     }
     if (specifiedBuildId == null) {
-      throw new RuntimeException("Missing build id value.");
-    } else {
-      return new BuildId(specifiedBuildId);
+      specifiedBuildId = UUID.randomUUID().toString();
     }
+    return new BuildId(specifiedBuildId);
   }
 
   private static void installUncaughtExceptionHandler(final Optional<NGContext> context) {
@@ -1485,7 +1519,7 @@ public final class Main {
             // We pass false for exitVM because otherwise Nailgun exits with code 0.
             context.get().getNGServer().shutdown(/* exitVM */ false);
           }
-          NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(FAIL_EXIT_CODE);
+          NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(INTERNAL_ERROR_EXIT_CODE);
         });
   }
 
@@ -1515,16 +1549,14 @@ public final class Main {
       Libc.Constants.rFDCLOEXEC = Libc.Constants.LINUX_FD_CLOEXEC;
       Libc.Constants.rFGETFD = Libc.Constants.LINUX_F_GETFD;
       Libc.Constants.rFSETFD = Libc.Constants.LINUX_F_SETFD;
-      openPtyLibrary =
-          (Libc.OpenPtyLibrary) Native.loadLibrary("libutil", Libc.OpenPtyLibrary.class);
+      openPtyLibrary = Native.loadLibrary("libutil", Libc.OpenPtyLibrary.class);
     } else if (platform == Platform.MACOS) {
       Libc.Constants.rTIOCSCTTY = Libc.Constants.DARWIN_TIOCSCTTY;
       Libc.Constants.rFDCLOEXEC = Libc.Constants.DARWIN_FD_CLOEXEC;
       Libc.Constants.rFGETFD = Libc.Constants.DARWIN_F_GETFD;
       Libc.Constants.rFSETFD = Libc.Constants.DARWIN_F_SETFD;
       openPtyLibrary =
-          (Libc.OpenPtyLibrary)
-              Native.loadLibrary(com.sun.jna.Platform.C_LIBRARY_NAME, Libc.OpenPtyLibrary.class);
+          Native.loadLibrary(com.sun.jna.Platform.C_LIBRARY_NAME, Libc.OpenPtyLibrary.class);
     } else {
       LOG.info("not enabling process killing on nailgun exit: unknown OS %s", osName);
       return;

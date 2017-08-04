@@ -18,6 +18,13 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkTarget;
+import com.facebook.buck.cxx.platform.NativeLinkTargetMode;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.SharedLibraryInterfaceFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -145,8 +152,12 @@ public class PrebuiltCxxLibraryDescription
     String flav = cxxPlatform.map(input -> input.getFlavor().toString()).orElse("");
     return new MacroHandler(
         ImmutableMap.of(
-            "location", new LocationMacroExpander(),
-            "platform", new StringExpander(flav)));
+            "location",
+            cxxPlatform
+                .<LocationMacroExpander>map(CxxLocationMacroExpander::new)
+                .orElseGet(LocationMacroExpander::new),
+            "platform",
+            new StringExpander(flav)));
   }
 
   private static SourcePath getApplicableSourcePath(
@@ -399,7 +410,7 @@ public class PrebuiltCxxLibraryDescription
 
     // Otherwise, we need to build it from the static lib.
     BuildTarget sharedTarget =
-        BuildTarget.builder(buildTarget).addFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR).build();
+        buildTarget.withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR);
 
     // If not, setup a single link rule to link it from the static lib.
     Path builtSharedLibraryPath =

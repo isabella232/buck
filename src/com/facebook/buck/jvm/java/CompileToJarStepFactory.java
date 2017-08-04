@@ -22,23 +22,20 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
  * Creates the necessary steps to compile the source files, apply post process classes commands, and
  * pack the output .class files into a Jar.
  */
-public interface CompileToJarStepFactory extends RuleKeyAppendable {
+public interface CompileToJarStepFactory {
 
   default BuildRuleParams addInputs(BuildRuleParams params, SourcePathRuleFinder ruleFinder) {
     return params
@@ -64,9 +61,10 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
+      Optional<Path> depFilePath,
       Path pathToSrcsList,
-      ClassUsageFileWriter usedClassesFile,
       /* output params */
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext);
@@ -76,7 +74,7 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       Path outputDirectory,
       Optional<String> mainClass,
       Optional<Path> manifestFile,
-      ImmutableSet<Pattern> classesToRemoveFromJar,
+      RemoveClassesPatternsMatcher classesToRemoveFromJar,
       Path outputJar,
       ImmutableList.Builder<Step> steps);
 
@@ -89,7 +87,9 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
+      Optional<Path> depFilePath,
       Path pathToSrcsList,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<Path> entriesToJar,
@@ -97,8 +97,7 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       Optional<Path> manifestFile,
       Path outputJar,
       /* output params */
-      ClassUsageFileWriter usedClassesFileWriter,
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext,
-      ImmutableSet<Pattern> classesToRemoveFromJar);
+      RemoveClassesPatternsMatcher classesToRemoveFromJar);
 }

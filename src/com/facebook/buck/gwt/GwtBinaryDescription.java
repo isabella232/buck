@@ -22,7 +22,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -100,17 +99,15 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
           return rule.getBuildDeps();
         }
 
-        BuildTarget gwtModuleTarget =
-            BuildTargets.createFlavoredBuildTarget(
-                javaLibrary.getBuildTarget().checkUnflavored(), JavaLibrary.GWT_MODULE_FLAVOR);
-
         Optional<BuildRule> gwtModule;
         if (javaLibrary.getSourcePathToOutput() != null) {
           gwtModule =
               Optional.of(
                   resolver.computeIfAbsent(
-                      gwtModuleTarget,
-                      () -> {
+                      BuildTarget.of(
+                          javaLibrary.getBuildTarget().checkUnflavored(),
+                          ImmutableSet.of(JavaLibrary.GWT_MODULE_FLAVOR)),
+                      gwtModuleTarget -> {
                         ImmutableSortedSet<SourcePath> filesForGwtModule =
                             ImmutableSortedSet.<SourcePath>naturalOrder()
                                 .addAll(javaLibrary.getSources())

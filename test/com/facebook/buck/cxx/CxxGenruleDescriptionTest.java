@@ -17,6 +17,8 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
@@ -169,7 +171,7 @@ public class CxxGenruleDescriptionTest {
     BuildTarget translated = BuildTargetFactory.newInstance("//something:else");
     CxxGenruleBuilder builder =
         new CxxGenruleBuilder(target)
-            .setCmd(String.format("$(cppflags %s)", original))
+            .setCmd(String.format("$(cppflags %s) $(cxxppflags)", original))
             .setOut("foo");
     TargetNode<CxxGenruleDescriptionArg, CxxGenruleDescription> node = builder.build();
     TargetNodeTranslator translator =
@@ -180,7 +182,8 @@ public class CxxGenruleDescriptionTest {
             .translateConstructorArg(
                 target, node.getCellNames(), translator, node.getConstructorArg());
     assertThat(
-        translatedArg.get().getCmd().get(), Matchers.equalTo("$(cppflags //something:else)"));
+        translatedArg.get().getCmd().get(),
+        Matchers.equalTo("$(cppflags //something:else) $(cxxppflags)"));
   }
 
   @Test

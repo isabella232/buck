@@ -34,7 +34,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 public class DefaultFileHashCache implements ProjectFileHashCache {
@@ -53,7 +53,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
       FileHashCacheMode fileHashCacheMode) {
     this.projectFilesystem = projectFilesystem;
     this.ignoredPredicate = ignoredPredicate;
-    final Function<Path, HashCodeAndFileType> hashLoader =
+    FileHashCacheEngine.ValueLoader<HashCodeAndFileType> hashLoader =
         path -> {
           try {
             return getHashCodeAndFileType(path);
@@ -62,7 +62,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
           }
         };
 
-    final Function<Path, Long> sizeLoader =
+    FileHashCacheEngine.ValueLoader<Long> sizeLoader =
         path -> {
           try {
             return getPathSize(path);
@@ -72,13 +72,13 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
         };
     switch (fileHashCacheMode) {
       case PARALLEL_COMPARISON:
-        fileHashCacheEngine = new ComboFileHashCache(hashLoader::apply, sizeLoader::apply);
+        fileHashCacheEngine = new ComboFileHashCache(hashLoader, sizeLoader);
         break;
       case LOADING_CACHE:
-        fileHashCacheEngine = new LoadingCacheFileHashCache(hashLoader::apply, sizeLoader::apply);
+        fileHashCacheEngine = new LoadingCacheFileHashCache(hashLoader, sizeLoader);
         break;
       case PREFIX_TREE:
-        fileHashCacheEngine = new FileSystemMapFileHashCache(hashLoader::apply, sizeLoader::apply);
+        fileHashCacheEngine = new FileSystemMapFileHashCache(hashLoader, sizeLoader);
         break;
       default:
         throw new RuntimeException(
@@ -209,6 +209,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     Preconditions.checkArgument(!relativePath.isAbsolute());
     checkNotIgnored(relativePath);
     return fileHashCacheEngine.getSize(relativePath);
+  }
+
+  @Override
+  public Optional<HashCode> getIfPresent(Path relativePath) {
+    Preconditions.checkArgument(!relativePath.isAbsolute());
+    checkNotIgnored(relativePath);
+    return Optional.ofNullable(fileHashCacheEngine.getIfPresent(relativePath))
+        .map(HashCodeAndFileType::getHashCode);
   }
 
   @Override

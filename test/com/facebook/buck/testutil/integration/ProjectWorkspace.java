@@ -336,10 +336,6 @@ public class ProjectWorkspace {
             .omitEmptyStrings()
             .splitToList(buildResult.getStdout());
 
-    // Skip the first line, which is just "The outputs are:".
-    assertThat(lines.get(0), Matchers.equalTo("The outputs are:"));
-    lines = lines.subList(1, lines.size());
-
     Splitter lineSplitter = Splitter.on(' ').trimResults();
     ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
     for (String line : lines) {
@@ -671,11 +667,12 @@ public class ProjectWorkspace {
     Files.move(getPath(source), getPath(dest));
   }
 
-  public void replaceFileContents(
+  public boolean replaceFileContents(
       String pathRelativeToProjectRoot, String target, String replacement) throws IOException {
     String fileContents = getFileContents(pathRelativeToProjectRoot);
-    fileContents = fileContents.replace(target, replacement);
-    writeContentsToPath(fileContents, pathRelativeToProjectRoot);
+    String newFileContents = fileContents.replace(target, replacement);
+    writeContentsToPath(newFileContents, pathRelativeToProjectRoot);
+    return !newFileContents.equals(fileContents);
   }
 
   public void writeContentsToPath(

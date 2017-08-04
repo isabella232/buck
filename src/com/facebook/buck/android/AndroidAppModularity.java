@@ -93,6 +93,8 @@ public class AndroidAppModularity extends AbstractBuildRuleWithDeclaredAndExtraD
             Optional.empty(),
             /*skipProguard*/ true));
 
+    buildableContext.recordArtifact(metadataFile);
+
     return steps.build();
   }
 
@@ -100,6 +102,6 @@ public class AndroidAppModularity extends AbstractBuildRuleWithDeclaredAndExtraD
   public SourcePath getSourcePathToOutput() {
     return new ExplicitBuildTargetSourcePath(
         getBuildTarget(),
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.modulemetadata.txt"));
+        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/modulemetadata.txt"));
   }
 }

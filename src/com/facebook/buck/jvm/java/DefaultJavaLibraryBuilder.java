@@ -37,14 +37,12 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 public class DefaultJavaLibraryBuilder {
@@ -59,7 +57,6 @@ public class DefaultJavaLibraryBuilder {
   protected final SourcePathRuleFinder ruleFinder;
   protected ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
   protected ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
-  protected Optional<Path> generatedSourceFolder = Optional.empty();
   protected Optional<SourcePath> proguardConfig = Optional.empty();
   protected ImmutableList<String> postprocessClassesCommands = ImmutableList.of();
   protected ImmutableSortedSet<BuildRule> fullJarExportedDeps = ImmutableSortedSet.of();
@@ -67,14 +64,17 @@ public class DefaultJavaLibraryBuilder {
   protected boolean trackClassUsage = false;
   protected boolean compileAgainstAbis = false;
   protected Optional<Path> resourcesRoot = Optional.empty();
+  protected Optional<SourcePath> unbundledResourcesRoot = Optional.empty();
   protected Optional<SourcePath> manifestFile = Optional.empty();
   protected Optional<String> mavenCoords = Optional.empty();
   protected ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
-  protected ImmutableSet<Pattern> classesToRemoveFromJar = ImmutableSet.of();
+  protected RemoveClassesPatternsMatcher classesToRemoveFromJar =
+      RemoveClassesPatternsMatcher.EMPTY;
   protected JavacOptionsAmender javacOptionsAmender = JavacOptionsAmender.IDENTITY;
   protected boolean sourceAbisAllowed = true;
   @Nullable protected JavacOptions javacOptions = null;
   @Nullable private JavaLibraryDescription.CoreArg args = null;
+  @Nullable private CompileToJarStepFactory compileStepFactory;
 
   protected DefaultJavaLibraryBuilder(
       TargetGraph targetGraph,
@@ -121,6 +121,7 @@ public class DefaultJavaLibraryBuilder {
     return setSrcs(args.getSrcs())
         .setResources(args.getResources())
         .setResourcesRoot(args.getResourcesRoot())
+        .setUnbundledResourcesRoot(args.getUnbundledResourcesRoot())
         .setProguardConfig(args.getProguardConfig())
         .setPostprocessClassesCommands(args.getPostprocessClassesCommands())
         .setExportedDeps(args.getExportedDeps())
@@ -128,7 +129,8 @@ public class DefaultJavaLibraryBuilder {
         .setTests(args.getTests())
         .setManifestFile(args.getManifestFile())
         .setMavenCoords(args.getMavenCoords())
-        .setSourceAbisAllowed(args.getGenerateAbiFromSource().orElse(sourceAbisAllowed));
+        .setSourceAbisAllowed(args.getGenerateAbiFromSource().orElse(sourceAbisAllowed))
+        .setClassesToRemoveFromJar(new RemoveClassesPatternsMatcher(args.getRemoveClasses()));
   }
 
   public DefaultJavaLibraryBuilder setJavacOptions(JavacOptions javacOptions) {
@@ -154,11 +156,6 @@ public class DefaultJavaLibraryBuilder {
   public DefaultJavaLibraryBuilder setResources(ImmutableSortedSet<SourcePath> resources) {
     this.resources =
         ResourceValidator.validateResources(sourcePathResolver, projectFilesystem, resources);
-    return this;
-  }
-
-  public DefaultJavaLibraryBuilder setGeneratedSourceFolder(Optional<Path> generatedSourceFolder) {
-    this.generatedSourceFolder = generatedSourceFolder;
     return this;
   }
 
@@ -199,6 +196,11 @@ public class DefaultJavaLibraryBuilder {
     return this;
   }
 
+  public DefaultJavaLibraryBuilder setUnbundledResourcesRoot(Optional<SourcePath> unbundledResourcesRoot) {
+    this.unbundledResourcesRoot = unbundledResourcesRoot;
+    return this;
+  }
+
   public DefaultJavaLibraryBuilder setManifestFile(Optional<SourcePath> manifestFile) {
     this.manifestFile = manifestFile;
     return this;
@@ -215,8 +217,14 @@ public class DefaultJavaLibraryBuilder {
   }
 
   public DefaultJavaLibraryBuilder setClassesToRemoveFromJar(
-      ImmutableSet<Pattern> classesToRemoveFromJar) {
+      RemoveClassesPatternsMatcher classesToRemoveFromJar) {
     this.classesToRemoveFromJar = classesToRemoveFromJar;
+    return this;
+  }
+
+  public DefaultJavaLibraryBuilder setCompileStepFactory(
+      @Nullable CompileToJarStepFactory compileStepFactory) {
+    this.compileStepFactory = compileStepFactory;
     return this;
   }
 
@@ -245,7 +253,7 @@ public class DefaultJavaLibraryBuilder {
     @Nullable private ImmutableSortedSet<BuildRule> compileTimeClasspathFullDeps;
     @Nullable private ImmutableSortedSet<BuildRule> compileTimeClasspathAbiDeps;
     @Nullable private ZipArchiveDependencySupplier abiClasspath;
-    @Nullable private CompileToJarStepFactory compileStepFactory;
+    @Nullable private JarBuildStepsFactory jarBuildStepsFactory;
     @Nullable private BuildTarget abiJar;
 
     protected DefaultJavaLibrary build() throws NoSuchBuildTargetException {
@@ -254,25 +262,14 @@ public class DefaultJavaLibraryBuilder {
           projectFilesystem,
           getFinalParams(),
           sourcePathResolver,
-          ruleFinder,
-          srcs,
-          resources,
-          generatedSourceFolder,
+          getJarBuildStepsFactory(),
           proguardConfig,
-          postprocessClassesCommands,
           getFinalFullJarDeclaredDeps(),
           fullJarExportedDeps,
           fullJarProvidedDeps,
-          getFinalCompileTimeClasspathSourcePaths(),
-          getAbiClasspath(),
           getAbiJar(),
-          trackClassUsage,
-          getCompileStepFactory(),
-          resourcesRoot,
-          manifestFile,
           mavenCoords,
-          tests,
-          classesToRemoveFromJar);
+          tests);
     }
 
     protected BuildRule buildAbi() throws NoSuchBuildTargetException {
@@ -349,20 +346,8 @@ public class DefaultJavaLibraryBuilder {
     private BuildRule buildAbiFromSource() throws NoSuchBuildTargetException {
       BuildTarget libraryTarget = HasJavaAbi.getLibraryTarget(initialBuildTarget);
       BuildTarget abiTarget = HasJavaAbi.getSourceAbiJar(libraryTarget);
-      JavacToJarStepFactory compileStepFactory = (JavacToJarStepFactory) getCompileStepFactory();
       return new CalculateAbiFromSource(
-          abiTarget,
-          projectFilesystem,
-          getFinalParams(),
-          ruleFinder,
-          srcs,
-          resources,
-          getFinalCompileTimeClasspathSourcePaths(),
-          getAbiClasspath(),
-          compileStepFactory,
-          resourcesRoot,
-          manifestFile,
-          classesToRemoveFromJar);
+          abiTarget, projectFilesystem, getFinalParams(), ruleFinder, getJarBuildStepsFactory());
     }
 
     private BuildRule buildAbiFromClasses() throws NoSuchBuildTargetException {
@@ -529,6 +514,30 @@ public class DefaultJavaLibraryBuilder {
     protected CompileToJarStepFactory buildCompileStepFactory() {
       return new JavacToJarStepFactory(
           getJavac(), Preconditions.checkNotNull(javacOptions), javacOptionsAmender);
+    }
+
+    protected final JarBuildStepsFactory getJarBuildStepsFactory()
+        throws NoSuchBuildTargetException {
+      if (jarBuildStepsFactory == null) {
+        jarBuildStepsFactory = buildJarBuildStepsFactory();
+      }
+      return jarBuildStepsFactory;
+    }
+
+    protected JarBuildStepsFactory buildJarBuildStepsFactory() throws NoSuchBuildTargetException {
+      return new JarBuildStepsFactory(
+          projectFilesystem,
+          ruleFinder,
+          getCompileStepFactory(),
+          srcs,
+          resources,
+          resourcesRoot,
+          manifestFile,
+          postprocessClassesCommands,
+          getAbiClasspath(),
+          trackClassUsage,
+          getFinalCompileTimeClasspathSourcePaths(),
+          classesToRemoveFromJar);
     }
   }
 

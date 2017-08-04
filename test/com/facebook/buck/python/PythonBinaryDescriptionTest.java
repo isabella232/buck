@@ -23,10 +23,10 @@ import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLink;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.cxx.NativeLinkStrategy;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.NativeLinkStrategy;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -1024,7 +1024,7 @@ public class PythonBinaryDescriptionTest {
         new DefaultRuleKeyFactory(
             new RuleKeyFieldLoader(0),
             StackedFileHashCache.createDefaultHashCaches(
-                rule.getProjectFilesystem(), FileHashCacheMode.PREFIX_TREE),
+                rule.getProjectFilesystem(), FileHashCacheMode.DEFAULT),
             DefaultSourcePathResolver.from(ruleFinder),
             ruleFinder);
     return ruleKeyFactory.build(rule);

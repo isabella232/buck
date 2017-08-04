@@ -116,8 +116,7 @@ public class KotlinTestDescription
                 kotlinBuckConfig,
                 javaBuckConfig)
             .setArgs(args)
-            .setJavacOptions(javacOptions)
-            .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName());
+            .setJavacOptions(javacOptions);
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryBuilder.buildAbi();
@@ -145,7 +144,8 @@ public class KotlinTestDescription
         args.getRunTestSeparately(),
         args.getForkMode(),
         args.getStdOutLogLevel(),
-        args.getStdErrLogLevel());
+        args.getStdErrLogLevel(),
+        args.getUnbundledResourcesRoot());
   }
 
   @Override

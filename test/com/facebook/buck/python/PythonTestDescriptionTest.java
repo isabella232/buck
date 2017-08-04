@@ -20,8 +20,8 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -574,7 +574,7 @@ public class PythonTestDescriptionTest {
         new DefaultRuleKeyFactory(
             new RuleKeyFieldLoader(0),
             StackedFileHashCache.createDefaultHashCaches(
-                rule.getProjectFilesystem(), FileHashCacheMode.PREFIX_TREE),
+                rule.getProjectFilesystem(), FileHashCacheMode.DEFAULT),
             DefaultSourcePathResolver.from(ruleFinder),
             ruleFinder);
     return ruleKeyFactory.build(rule);

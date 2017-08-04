@@ -34,13 +34,13 @@ import com.dd.plist.NSDictionary;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -781,7 +781,7 @@ public class AppleCxxPlatformsTest {
       switch (operation) {
         case PREPROCESS_AND_COMPILE:
           rule =
-              cxxSourceRuleFactory.createPreprocessAndCompileBuildRule(
+              cxxSourceRuleFactory.requirePreprocessAndCompileBuildRule(
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX,
@@ -790,7 +790,7 @@ public class AppleCxxPlatformsTest {
           break;
         case COMPILE:
           rule =
-              cxxSourceRuleFactory.createCompileBuildRule(
+              cxxSourceRuleFactory.requireCompileBuildRule(
                   source,
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,

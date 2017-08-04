@@ -17,9 +17,9 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatforms;
-import com.facebook.buck.cxx.NativeLinkable;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.NativeLinkable;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.MacroException;
@@ -127,7 +127,6 @@ public class JavaTestDescription
                 javaBuckConfig)
             .setArgs(args)
             .setJavacOptions(javacOptions)
-            .setGeneratedSourceFolder(javacOptions.getGeneratedSourceFolderName())
             .setTrackClassUsage(javacOptions.trackClassUsage());
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
@@ -157,7 +156,8 @@ public class JavaTestDescription
         args.getRunTestSeparately(),
         args.getForkMode(),
         args.getStdOutLogLevel(),
-        args.getStdErrLogLevel());
+        args.getStdErrLogLevel(),
+        args.getUnbundledResourcesRoot());
   }
 
   @Override

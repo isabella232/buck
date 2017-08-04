@@ -29,6 +29,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.keys.AbstractRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.rules.keys.RuleKeyFactory;
@@ -78,7 +79,7 @@ public class RuleKeyTest {
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
-                    filesystem, FileHashCacheMode.PREFIX_TREE)));
+                    filesystem, FileHashCacheMode.DEFAULT)));
     BuildRuleResolver ruleResolver1 =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRuleResolver ruleResolver2 =
@@ -590,7 +591,7 @@ public class RuleKeyTest {
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
-                    new FakeProjectFilesystem(), FileHashCacheMode.PREFIX_TREE)));
+                    new FakeProjectFilesystem(), FileHashCacheMode.DEFAULT)));
 
     BuildRule buildRule1 =
         new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "bar");
@@ -619,7 +620,7 @@ public class RuleKeyTest {
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
-                    new FakeProjectFilesystem(), FileHashCacheMode.PREFIX_TREE)));
+                    new FakeProjectFilesystem(), FileHashCacheMode.DEFAULT)));
 
     BuildRule buildRule1 =
         new TestRuleKeyAppendableBuildRule(target, projectFilesystem, params, "foo", "bar");
@@ -801,7 +802,7 @@ public class RuleKeyTest {
         .newBuilderForTesting(buildRule);
   }
 
-  private RuleKeyResult<RuleKey> buildResult(RuleKeyBuilder<HashCode> builder) {
+  private RuleKeyResult<RuleKey> buildResult(AbstractRuleKeyBuilder<HashCode> builder) {
     return ((DefaultRuleKeyFactory.Builder<HashCode>) builder).buildResult(RuleKey::new);
   }
 }
