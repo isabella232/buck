@@ -18,6 +18,8 @@ package com.facebook.buck.event.listener;
 import static com.facebook.buck.rules.BuildRuleSuccessType.BUILT_LOCALLY;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.distributed.DistBuildCreatedEvent;
+import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.parser.ParseEvent;
@@ -51,18 +53,21 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final TestResultFormatter testFormatter;
   private final ImmutableList.Builder<TestStatusMessage> testStatusMessageBuilder =
       ImmutableList.builder();
+  private final boolean hideSucceededRules;
 
   public SimpleConsoleEventBusListener(
       Console console,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
+      boolean hideSucceededRules,
+      int numberOfSlowRulesToShow,
       Locale locale,
       Path testLogPath,
-      String buildId,
       ExecutionEnvironment executionEnvironment) {
-    super(console, clock, locale, executionEnvironment);
+    super(console, clock, locale, executionEnvironment, true, numberOfSlowRulesToShow);
     this.locale = locale;
     this.parseTime = new AtomicLong(0);
+    this.hideSucceededRules = hideSucceededRules;
 
     this.testFormatter =
         new TestResultFormatter(
@@ -71,10 +76,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
             summaryVerbosity,
             locale,
             Optional.of(testLogPath));
-
-    ImmutableList.Builder<String> buildMetaDataLines = ImmutableList.builder();
-    buildMetaDataLines.add("Build ID: " + buildId);
-    printLines(buildMetaDataLines);
   }
 
   @Override
@@ -91,8 +92,30 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
             /* suffix */ Optional.empty(),
             clock.currentTimeMillis(),
             0L,
-            buckFilesProcessing.values(),
-            getEstimatedProgressOfProcessingBuckFiles(),
+            buckFilesParsingEvents.values(),
+            getEstimatedProgressOfParsingBuckFiles(),
+            Optional.empty(),
+            lines));
+    printLines(lines);
+  }
+
+  @Override
+  @Subscribe
+  public void actionGraphFinished(ActionGraphEvent.Finished finished) {
+    super.actionGraphFinished(finished);
+    if (console.getVerbosity().isSilent()) {
+      return;
+    }
+    ImmutableList.Builder<String> lines = ImmutableList.builder();
+    this.parseTime.set(
+        logEventPair(
+            "CREATING ACTION GRAPH",
+            /* suffix */ Optional.empty(),
+            clock.currentTimeMillis(),
+            0L,
+            actionGraphEvents.values(),
+            Optional.empty(),
+            Optional.empty(),
             lines));
     printLines(lines);
   }
@@ -109,7 +132,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     long buildStartedTime = buildStarted != null ? buildStarted.getTimestamp() : Long.MAX_VALUE;
     long buildFinishedTime = buildFinished != null ? buildFinished.getTimestamp() : currentMillis;
     Collection<EventPair> processingEvents =
-        getEventsBetween(buildStartedTime, buildFinishedTime, buckFilesProcessing.values());
+        getEventsBetween(buildStartedTime, buildFinishedTime, actionGraphEvents.values());
     long offsetMs = getTotalCompletedTimeFromEventPairs(processingEvents);
     logEventPair(
         "BUILDING",
@@ -119,6 +142,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         buildStarted,
         buildFinished,
         getApproximateBuildProgress(),
+        Optional.empty(),
         lines);
 
     String httpStatus = renderHttpUploads();
@@ -127,6 +151,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     }
 
     lines.add(getNetworkStatsLine(finished));
+
+    showTopSlowBuildRules(lines);
 
     printLines(lines);
   }
@@ -147,6 +173,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         installStarted,
         installFinished,
         Optional.empty(),
+        Optional.empty(),
         lines);
     printLines(lines);
   }
@@ -154,7 +181,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   @Subscribe
   public void logEvent(ConsoleEvent event) {
     if (console.getVerbosity().isSilent()
-        && !event.getLevel().equals(Level.WARNING)
         && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
@@ -230,7 +256,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
             formatElapsedTime(finished.getDuration().getWallMillisDuration()),
             finished.getBuildRule().getFullyQualifiedName());
 
-    if (BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null))
+    if ((BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null)) && !hideSucceededRules)
         || console.getVerbosity().shouldPrintBinaryRunInformation()) {
       console.getStdErr().println(line);
     }
@@ -267,6 +293,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       }
       testStatusMessageBuilder.add(finished.getTestStatusMessage());
     }
+  }
+
+  @Subscribe
+  public void onDistBuildCreatedEvent(DistBuildCreatedEvent distBuildCreatedEvent) {
+    ImmutableList.Builder<String> lines =
+        ImmutableList.<String>builder()
+            .add("STAMPEDE ID: " + distBuildCreatedEvent.getStampedeId());
+    printLines(lines);
   }
 
   private void printLines(ImmutableList.Builder<String> lines) {

@@ -86,6 +86,7 @@ import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -107,6 +108,7 @@ import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.Libc;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
@@ -124,6 +126,7 @@ import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
+import com.facebook.buck.util.environment.NetworkInfo;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.network.MacIpv6BugWorkaround;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
@@ -143,8 +146,10 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.eventbus.EventBus;
 import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGListeningAddress;
 import com.martiansoftware.nailgun.NGServer;
@@ -166,6 +171,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -174,7 +180,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
@@ -201,7 +206,6 @@ public final class Main {
    *
    * <p>See: https://github.com/java-native-access/jna/issues/652
    */
-  @SuppressWarnings("unused")
   public static final int JNA_POINTER_SIZE = Pointer.SIZE;
 
   /** Trying again won't help. */
@@ -315,7 +319,9 @@ public final class Main {
 
   public interface KnownBuildRuleTypesFactoryFactory {
     KnownBuildRuleTypesFactory create(
-        ProcessExecutor processExecutor, AndroidDirectoryResolver androidDirectoryResolver);
+        ProcessExecutor processExecutor,
+        AndroidDirectoryResolver androidDirectoryResolver,
+        SdkEnvironment sdkEnvironment);
   }
 
   private final KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
@@ -377,7 +383,7 @@ public final class Main {
               commandMode,
               watchmanFreshInstanceAction,
               initTimestamp,
-              args);
+              ImmutableList.copyOf(args));
     } catch (InterruptedException | ClosedByInterruptException e) {
       // We're about to exit, so it's acceptable to swallow interrupts here.
       exitCode = INTERRUPTED_EXIT_CODE;
@@ -436,10 +442,11 @@ public final class Main {
       CommandMode commandMode,
       WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
       final long initTimestamp,
-      String... unexpandedCommandLineArgs)
+      ImmutableList<String> unexpandedCommandLineArgs)
       throws IOException, InterruptedException {
 
-    String[] args = BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, projectRoot);
+    ImmutableList<String> args =
+        BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, projectRoot);
 
     // Parse the command line args.
     BuckCommand command = new BuckCommand();
@@ -484,9 +491,7 @@ public final class Main {
                   .format(new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
         }
         String buildRev = System.getProperty("buck.git_commit", "(unknown)");
-        LOG.debug(
-            "Starting up (build date %s, rev %s), args: %s",
-            buildDateStr, buildRev, Arrays.toString(args));
+        LOG.debug("Starting up (build date %s, rev %s), args: %s", buildDateStr, buildRev, args);
         LOG.debug("System properties: %s", System.getProperties());
       }
     }
@@ -602,6 +607,9 @@ public final class Main {
 
       ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
+      SdkEnvironment sdkEnvironment =
+          SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+
       Clock clock;
       boolean enableThreadCpuTime =
           buckConfig.getBooleanValue("build", "enable_thread_cpu_time", true);
@@ -619,11 +627,17 @@ public final class Main {
               context, parserConfig, projectWatchList, clientEnvironment, console, clock)) {
 
         KnownBuildRuleTypesFactory factory =
-            knownBuildRuleTypesFactoryFactory.create(processExecutor, androidDirectoryResolver);
+            knownBuildRuleTypesFactoryFactory.create(
+                processExecutor, androidDirectoryResolver, sdkEnvironment);
 
         Cell rootCell =
             CellProvider.createForLocalBuild(
-                    filesystem, watchman, buckConfig, command.getConfigOverrides(), factory)
+                    filesystem,
+                    watchman,
+                    buckConfig,
+                    command.getConfigOverrides(),
+                    factory,
+                    sdkEnvironment)
                 .getCellByPath(filesystem.getRootPath());
 
         Optional<Daemon> daemon =
@@ -707,6 +721,8 @@ public final class Main {
         ExecutorService diskIoExecutorService = MostExecutors.newSingleThreadExecutor("Disk I/O");
         ListeningExecutorService httpWriteExecutorService =
             getHttpWriteExecutorService(cacheBuckConfig);
+        ListeningExecutorService httpFetchExecutorService =
+            getHttpFetchExecutorService(cacheBuckConfig);
         ScheduledExecutorService counterAggregatorExecutor =
             Executors.newSingleThreadScheduledExecutor(
                 new CommandThreadFactory("CounterAggregatorThread"));
@@ -724,6 +740,11 @@ public final class Main {
             ExecutorPool.PROJECT,
             listeningDecorator(
                 MostExecutors.newMultiThreadExecutor("Project", buckConfig.getNumThreads())));
+
+        ScheduledExecutorService scheduledExecutorPool =
+            Executors.newScheduledThreadPool(
+                buckConfig.getNumThreadsForSchedulerPool(),
+                new CommandThreadFactory(getClass().getName() + "SchedulerThreadPool"));
 
         // Create and register the event buses that should listen to broadcast events.
         // If the build doesn't have a daemon create a new instance.
@@ -748,7 +769,6 @@ public final class Main {
             BuildInfoStoreManager storeManager = new BuildInfoStoreManager();
             AbstractConsoleEventBusListener consoleListener =
                 createConsoleEventListener(
-                    buildId.toString(),
                     clock,
                     new SuperConsoleConfig(buckConfig),
                     console,
@@ -797,6 +817,7 @@ public final class Main {
                   filesystem,
                   executionEnvironment.getWifiSsid(),
                   httpWriteExecutorService,
+                  httpFetchExecutorService,
                   Optional.of(asyncCloseable));
 
           ProgressEstimator progressEstimator =
@@ -814,12 +835,16 @@ public final class Main {
 
           Iterable<BuckEventListener> commandEventListeners =
               command.getSubcommand().isPresent()
-                  ? command.getSubcommand().get().getEventListeners()
+                  ? command
+                      .getSubcommand()
+                      .get()
+                      .getEventListeners(executors, scheduledExecutorPool)
                   : ImmutableList.of();
 
           eventListeners =
               addEventListeners(
                   buildEventBus,
+                  daemon.map(d -> d.getFileEventBus()),
                   rootCell.getFilesystem(),
                   invocationInfo,
                   rootCell.getBuckConfig(),
@@ -829,6 +854,28 @@ public final class Main {
                   counterRegistry,
                   commandEventListeners
                   );
+
+          if (buckConfig.isBuckConfigLocalWarningEnabled() && !console.getVerbosity().isSilent()) {
+            ImmutableList<Path> localConfigFiles =
+                rootCell
+                    .getAllCells()
+                    .stream()
+                    .map(
+                        cell ->
+                            cell.getRoot().resolve(Configs.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME))
+                    .filter(path -> Files.isRegularFile(path))
+                    .collect(MoreCollectors.toImmutableList());
+            if (localConfigFiles.size() > 0) {
+              String message =
+                  localConfigFiles.size() == 1
+                      ? "Using local configuration:"
+                      : "Using local configurations:";
+              buildEventBus.post(ConsoleEvent.warning(message));
+              for (Path localConfigFile : localConfigFiles) {
+                buildEventBus.post(ConsoleEvent.warning(String.format("- %s", localConfigFile)));
+              }
+            }
+          }
 
           if (commandMode == CommandMode.RELEASE && buckConfig.isPublicAnnouncementsEnabled()) {
             PublicAnnouncementManager announcementManager =
@@ -844,6 +891,7 @@ public final class Main {
 
           // This needs to be after the registration of the event listener so they can pick it up.
           if (watchmanFreshInstanceAction == WatchmanWatcher.FreshInstanceAction.NONE) {
+            LOG.debug("new Buck daemon");
             buildEventBus.post(DaemonEvent.newDaemonInstance());
           }
 
@@ -868,11 +916,10 @@ public final class Main {
                   buildEventBus);
             }
           }
+          NetworkInfo.generateActiveNetworkAsync(diskIoExecutorService, buildEventBus);
 
           ImmutableList<String> remainingArgs =
-              args.length > 1
-                  ? ImmutableList.copyOf(Arrays.copyOfRange(args, 1, args.length))
-                  : ImmutableList.of();
+              args.isEmpty() ? ImmutableList.of() : args.subList(1, args.size());
 
           CommandEvent.Started startedEvent =
               CommandEvent.started(
@@ -1007,10 +1054,12 @@ public final class Main {
                         .setBuckConfig(buckConfig)
                         .setFileHashCache(fileHashCache)
                         .setExecutors(executors)
+                        .setScheduledExecutor(scheduledExecutorPool)
                         .setBuildEnvironmentDescription(buildEnvironmentDescription)
                         .setVersionedTargetGraphCache(versionedTargetGraphCache)
                         .setActionGraphCache(actionGraphCache)
                         .setKnownBuildRuleTypesFactory(factory)
+                        .setSdkEnvironment(sdkEnvironment)
                         .setInvocationInfo(Optional.of(invocationInfo))
                         .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
                         .setBuildInfoStoreManager(storeManager)
@@ -1061,6 +1110,8 @@ public final class Main {
           for (ExecutorPool p : executors.keySet()) {
             closeExecutorService(p.toString(), executors.get(p), EXECUTOR_SERVICES_TIMEOUT_SECONDS);
           }
+          closeExecutorService(
+              "ScheduledExecutorService", scheduledExecutorPool, EXECUTOR_SERVICES_TIMEOUT_SECONDS);
         }
         if (context.isPresent() && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
           context.get().in.close(); // Avoid client exit triggering client disconnection handling.
@@ -1221,6 +1272,14 @@ public final class Main {
     }
   }
 
+  private static ListeningExecutorService getHttpFetchExecutorService(
+      ArtifactCacheBuckConfig buckConfig) {
+    return listeningDecorator(
+        MostExecutors.newMultiThreadExecutor(
+            new ThreadFactoryBuilder().setNameFormat("cache-fetch-%d").build(),
+            buckConfig.getHttpFetchConcurrency()));
+  }
+
   private static ConsoleHandlerState.Writer createWriterForConsole(
       final AbstractConsoleEventBusListener console) {
     return new ConsoleHandlerState.Writer() {
@@ -1283,8 +1342,7 @@ public final class Main {
     return new Pair<>(daemonForParser.getTypeCoercerFactory(), daemonForParser.getParser());
   }
 
-  private ImmutableList<ProjectFileHashCache> getFileHashCachesFromDaemon(Daemon daemon)
-      throws IOException {
+  private ImmutableList<ProjectFileHashCache> getFileHashCachesFromDaemon(Daemon daemon) {
     return daemon.getFileHashCaches();
   }
 
@@ -1342,6 +1400,7 @@ public final class Main {
   @SuppressWarnings("PMD.PrematureDeclaration")
   private ImmutableList<BuckEventListener> addEventListeners(
       BuckEventBus buckEventBus,
+      Optional<EventBus> fileEventBus,
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
       BuckConfig buckConfig,
@@ -1363,9 +1422,11 @@ public final class Main {
     ChromeTraceBuckConfig chromeTraceConfig = buckConfig.getView(ChromeTraceBuckConfig.class);
     if (chromeTraceConfig.isChromeTraceCreationEnabled()) {
       try {
-        eventListenersBuilder.add(
+        ChromeTraceBuildListener chromeTraceBuildListener =
             new ChromeTraceBuildListener(
-                projectFilesystem, invocationInfo, clock, chromeTraceConfig));
+                projectFilesystem, invocationInfo, clock, chromeTraceConfig);
+        eventListenersBuilder.add(chromeTraceBuildListener);
+        fileEventBus.ifPresent(bus -> bus.register(chromeTraceBuildListener));
       } catch (IOException e) {
         LOG.error("Unable to create ChromeTrace listener!");
       }
@@ -1437,7 +1498,6 @@ public final class Main {
   }
 
   private AbstractConsoleEventBusListener createConsoleEventListener(
-      String buildId,
       Clock clock,
       SuperConsoleConfig config,
       Console console,
@@ -1466,9 +1526,10 @@ public final class Main {
         console,
         clock,
         testResultSummaryVerbosity,
+        config.getHideSucceededRulesInLogMode(),
+        config.getNumberOfSlowRulesToShow(),
         locale,
         testLogPath,
-        buildId,
         executionEnvironment);
   }
 
@@ -1602,7 +1663,7 @@ public final class Main {
     private static final ScheduledExecutorService housekeepingExecutorService =
         Executors.newSingleThreadScheduledExecutor();
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
       try {
         daemonizeIfPossible();
         if (isSessionLeader) {

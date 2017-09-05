@@ -227,8 +227,11 @@ public class IjProjectTemplateDataPreparer {
   }
 
   public ImmutableCollection<IjFolder> createExcludes(final IjModule module) throws IOException {
-    final ImmutableList.Builder<IjFolder> excludesBuilder = ImmutableList.builder();
     final Path moduleBasePath = module.getModuleBasePath();
+    if (!projectFilesystem.exists(moduleBasePath)) {
+      return ImmutableList.of();
+    }
+    final ImmutableList.Builder<IjFolder> excludesBuilder = ImmutableList.builder();
     projectFilesystem.walkRelativeFileTree(
         moduleBasePath,
         new FileVisitor<Path>() {
@@ -367,6 +370,16 @@ public class IjProjectTemplateDataPreparer {
 
     boolean isAndroidFacetPresent = androidFacetOptional.isPresent();
     androidProperties.put("enabled", isAndroidFacetPresent);
+
+    Path basePath = module.getModuleBasePath();
+
+    Optional<Path> extraCompilerOutputPath = projectConfig.getExtraCompilerOutputModulesPath();
+    if (isAndroidFacetPresent
+        || (extraCompilerOutputPath.isPresent()
+            && basePath.toString().contains(extraCompilerOutputPath.get().toString()))) {
+      addAndroidCompilerOutputPath(androidProperties, module, basePath);
+    }
+
     if (!isAndroidFacetPresent) {
       return androidProperties;
     }
@@ -381,15 +394,12 @@ public class IjProjectTemplateDataPreparer {
         projectConfig.isAggregatingAndroidResourceModulesEnabled()
             && projectConfig.getAggregationMode() != AggregationMode.NONE);
 
-    Path basePath = module.getModuleBasePath();
-
     addAndroidApkPaths(androidProperties, module, basePath, androidFacet);
     addAndroidAssetPaths(androidProperties, module, androidFacet);
     addAndroidGenPath(androidProperties, androidFacet, basePath);
     addAndroidManifestPath(androidProperties, basePath, androidFacet);
     addAndroidProguardPath(androidProperties, androidFacet);
     addAndroidResourcePaths(androidProperties, module, androidFacet);
-    addAndroidCompilerOutputPath(androidProperties, module, basePath);
 
     return androidProperties;
   }
@@ -509,18 +519,17 @@ public class IjProjectTemplateDataPreparer {
   }
 
   /**
-   * IntelliJ may not be able to find classes on the compiler output path if the jar_spool_mode is
-   * set to direct_to_jar.
+   * IntelliJ may not be able to find classes on the compiler output path if the jars are retrieved
+   * from the network cache.
    */
   private void addAndroidCompilerOutputPath(
       Map<String, Object> androidProperties, IjModule module, Path moduleBasePath) {
     // The compiler output path is relative to the project root
     Optional<Path> compilerOutputPath = module.getCompilerOutputPath();
     if (compilerOutputPath.isPresent()) {
-      Path relativeCompilerOutputPath = moduleBasePath.relativize(compilerOutputPath.get());
       androidProperties.put(
           "compiler_output_path",
-          "/" + MorePaths.pathWithUnixSeparators(relativeCompilerOutputPath));
+          IjProjectPaths.toModuleDirRelativeString(compilerOutputPath.get(), moduleBasePath));
     }
   }
 
