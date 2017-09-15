@@ -515,7 +515,7 @@ public class RealAndroidDevice implements AndroidDevice {
       if (installViaSd) {
         reason = deviceInstallPackageViaSd(apk.getAbsolutePath());
       } else {
-        device.installPackage(apk.getAbsolutePath(), true, "-g");
+        device.installPackage(apk.getAbsolutePath(), true);
       }
       if (reason != null) {
         console.printBuildFailure(String.format("Failed to install apk on %s: %s.", name, reason));
