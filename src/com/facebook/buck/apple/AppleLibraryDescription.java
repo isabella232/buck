@@ -34,6 +34,7 @@ import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -78,9 +79,12 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -602,6 +606,18 @@ public class AppleLibraryDescription
       unstrippedTarget = unstrippedTarget.withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     }
 
+    Optional<CxxPlatform> platform = delegate.getCxxPlatforms().getValue(buildTarget);
+    Optional<Type> libType = LIBRARY_TYPE.getValue(buildTarget);
+    Optional<HeaderMode> headerMode = CxxLibraryDescription.HEADER_MODE.getValue(buildTarget);
+    if (platform.isPresent()
+        && libType.isPresent()
+        && libType.get().equals(Type.EXPORTED_HEADERS)
+        && headerMode.isPresent()
+        && headerMode.get().equals(HeaderMode.SYMLINK_TREE_WITH_MODULEMAP)) {
+      return createExportedModuleSymlinkTreeBuildRule(
+          buildTarget, projectFilesystem, resolver, args);
+    }
+
     return resolver.computeIfAbsent(
         unstrippedTarget,
         unstrippedTarget1 -> {
@@ -635,6 +651,31 @@ public class AppleLibraryDescription
     return AppleDebuggableBinary.isBuildRuleDebuggable(buildRule);
   }
 
+  /** @return a {@link HeaderSymlinkTree} for the exported headers of this C/C++ library. */
+  private HeaderSymlinkTree createExportedModuleSymlinkTreeBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleResolver resolver,
+      AppleNativeTargetDescriptionArg args) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+
+    Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(args, buildTarget);
+    ImmutableSortedMap<String, SourcePath> headers =
+        AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+            buildTarget,
+            pathResolver::getRelativePath,
+            headerPathPrefix,
+            args.getExportedHeaders());
+
+    return CxxDescriptionEnhancer.createHeaderSymlinkTree(
+        buildTarget,
+        projectFilesystem,
+        HeaderMode.SYMLINK_TREE_WITH_MODULEMAP,
+        CxxPreprocessables.resolveHeaderMap(Paths.get(""), headers),
+        HeaderVisibility.PUBLIC);
+  }
+
   <U> Optional<U> createMetadataForLibrary(
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
@@ -648,11 +689,44 @@ public class AppleLibraryDescription
 
     // Forward to C/C++ library description.
     if (CxxLibraryDescription.METADATA_TYPE.containsAnyOf(buildTarget.getFlavors())) {
-      CxxLibraryDescriptionArg.Builder delegateArg = CxxLibraryDescriptionArg.builder().from(args);
-      AppleDescriptions.populateCxxLibraryDescriptionArg(
-          pathResolver, delegateArg, args, buildTarget);
-      return delegate.createMetadata(
-          buildTarget, resolver, cellRoots, delegateArg.build(), selectedVersions, metadataClass);
+      Optional<Map.Entry<Flavor, CxxLibraryDescription.MetadataType>> cxxMetaDataType =
+          CxxLibraryDescription.METADATA_TYPE.getFlavorAndValue(buildTarget);
+      if (args.isModular()) {
+        BuildTarget baseTarget = buildTarget.withoutFlavors(cxxMetaDataType.get().getKey());
+        if (cxxMetaDataType
+            .get()
+            .getValue()
+            .equals(CxxLibraryDescription.MetadataType.CXX_PREPROCESSOR_INPUT)) {
+          Map.Entry<Flavor, CxxPlatform> platform =
+              delegate
+                  .getCxxPlatforms()
+                  .getFlavorAndValue(buildTarget)
+                  .orElseThrow(IllegalArgumentException::new);
+          Map.Entry<Flavor, HeaderVisibility> visibility =
+              CxxLibraryDescription.HEADER_VISIBILITY
+                  .getFlavorAndValue(buildTarget)
+                  .orElseThrow(IllegalArgumentException::new);
+          baseTarget = baseTarget.withoutFlavors(platform.getKey(), visibility.getKey());
+
+          CxxPreprocessorInput.Builder cxxPreprocessorInputBuilder = CxxPreprocessorInput.builder();
+          HeaderSymlinkTree symlinkTree =
+              (HeaderSymlinkTree)
+                  resolver.requireRule(
+                      baseTarget
+                          .withoutFlavors(LIBRARY_TYPE.getFlavors())
+                          .withAppendedFlavors(
+                              CxxLibraryDescription.Type.EXPORTED_HEADERS.getFlavor(),
+                              platform.getKey(),
+                              HeaderMode.SYMLINK_TREE_WITH_MODULEMAP.getFlavor()));
+          cxxPreprocessorInputBuilder.addIncludes(
+              CxxSymlinkTreeHeaders.from(symlinkTree, CxxPreprocessables.IncludeType.LOCAL));
+          CxxPreprocessorInput cxxPreprocessorInput = cxxPreprocessorInputBuilder.build();
+          return Optional.of(cxxPreprocessorInput).map(metadataClass::cast);
+        }
+      } else {
+        return forwardMetadataToCxxLibraryDescription(
+            buildTarget, resolver, cellRoots, selectedVersions, args, metadataClass, pathResolver);
+      }
     }
 
     if (metadataClass.isAssignableFrom(FrameworkDependencies.class)
@@ -684,7 +758,6 @@ public class AppleLibraryDescription
 
     Optional<Map.Entry<Flavor, MetadataType>> metaType =
         METADATA_TYPE.getFlavorAndValue(buildTarget);
-
     if (metaType.isPresent()) {
       BuildTarget baseTarget = buildTarget.withoutFlavors(metaType.get().getKey());
       switch (metaType.get().getValue()) {
@@ -771,6 +844,21 @@ public class AppleLibraryDescription
     }
 
     return Optional.empty();
+  }
+
+  private <U> Optional<U> forwardMetadataToCxxLibraryDescription(
+      BuildTarget buildTarget,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
+      Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
+      AppleNativeTargetDescriptionArg args,
+      Class<U> metadataClass,
+      SourcePathResolver pathResolver) {
+    CxxLibraryDescriptionArg.Builder delegateArg = CxxLibraryDescriptionArg.builder().from(args);
+    AppleDescriptions.populateCxxLibraryDescriptionArg(
+        pathResolver, delegateArg, args, buildTarget);
+    return delegate.createMetadata(
+        buildTarget, resolver, cellRoots, delegateArg.build(), selectedVersions, metadataClass);
   }
 
   @Override
