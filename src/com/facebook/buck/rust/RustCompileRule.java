@@ -19,7 +19,7 @@ package com.facebook.buck.rust;
 import com.facebook.buck.cxx.CxxPrepareForLinkStep;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -64,6 +64,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final SourcePath rootModule;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
+  @AddToRuleKey private final RustBuckConfig.RemapSrcPaths remapSrcPaths;
 
   private final Path scratchDir;
   private final String filename;
@@ -99,7 +100,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> srcs,
       SourcePath rootModule,
-      boolean hasOutput) {
+      boolean hasOutput,
+      RustBuckConfig.RemapSrcPaths remapSrcPaths) {
     super(buildTarget, projectFilesystem, buildRuleParams);
 
     this.filename = filename;
@@ -113,6 +115,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-container");
     this.hasOutput = hasOutput;
+    this.remapSrcPaths = remapSrcPaths;
   }
 
   public static RustCompileRule from(
@@ -128,7 +131,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
-      boolean hasOutput) {
+      boolean hasOutput,
+      RustBuckConfig.RemapSrcPaths remapSrcPaths) {
     return new RustCompileRule(
         buildTarget,
         projectFilesystem,
@@ -155,7 +159,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         linkerArgs,
         sources,
         rootModule,
-        hasOutput);
+        hasOutput,
+        remapSrcPaths);
   }
 
   protected static Path getOutputDir(BuildTarget target, ProjectFilesystem filesystem) {
@@ -243,6 +248,9 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 if (executionContext.getAnsi().isAnsiTerminal()) {
                   cmd.add("--color=always");
                 }
+
+                remapSrcPaths.addRemapOption(cmd, scratchDir.toString() + "/");
+
                 cmd.add(String.format("-Clinker=%s", linkerCmd.get(0)))
                     .add(String.format("-Clink-arg=@%s", argFilePath))
                     .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
@@ -279,7 +287,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getOutput());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getOutput());
   }
 
   SourcePath getCrateRoot() {

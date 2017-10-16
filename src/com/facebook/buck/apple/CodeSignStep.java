@@ -17,7 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.dd.plist.NSDictionary;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -44,6 +44,7 @@ class CodeSignStep implements Step {
   private final Optional<Tool> codesignAllocatePath;
   private final Optional<Path> dryRunResultsPath;
   private final ProjectFilesystem filesystem;
+  private final ImmutableList<String> codesignFlags;
 
   public CodeSignStep(
       ProjectFilesystem filesystem,
@@ -53,7 +54,8 @@ class CodeSignStep implements Step {
       Supplier<CodeSignIdentity> codeSignIdentitySupplier,
       Tool codesign,
       Optional<Tool> codesignAllocatePath,
-      Optional<Path> dryRunResultsPath) {
+      Optional<Path> dryRunResultsPath,
+      ImmutableList<String> codesignFlags) {
     this.filesystem = filesystem;
     this.resolver = resolver;
     this.pathToSign = pathToSign;
@@ -62,6 +64,7 @@ class CodeSignStep implements Step {
     this.codesign = codesign;
     this.codesignAllocatePath = codesignAllocatePath;
     this.dryRunResultsPath = dryRunResultsPath;
+    this.codesignFlags = codesignFlags;
   }
 
   @Override
@@ -87,6 +90,7 @@ class CodeSignStep implements Step {
     ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
     commandBuilder.addAll(codesign.getCommandPrefix(resolver));
     commandBuilder.add("--force", "--sign", getIdentityArg(codeSignIdentitySupplier.get()));
+    commandBuilder.addAll(codesignFlags);
     if (pathToSigningEntitlements.isPresent()) {
       commandBuilder.add("--entitlements", pathToSigningEntitlements.get().toString());
     }
@@ -98,9 +102,8 @@ class CodeSignStep implements Step {
             .build();
     // Must specify that stdout is expected or else output may be wrapped in Ansi escape chars.
     Set<ProcessExecutor.Option> options = EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
-    ProcessExecutor.Result result;
     ProcessExecutor processExecutor = context.getProcessExecutor();
-    result =
+    ProcessExecutor.Result result =
         processExecutor.launchAndExecute(
             processExecutorParams,
             options,

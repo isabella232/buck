@@ -16,22 +16,25 @@
 package com.facebook.buck.haskell;
 
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -54,15 +57,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
-
-  BuildRuleResolver buildRuleResolver;
+public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule {
 
   @AddToRuleKey HaskellSources srcs;
 
   @AddToRuleKey ImmutableList<String> compilerFlags;
 
-  @AddToRuleKey Optional<BuildTarget> ghciBinDep;
+  @AddToRuleKey Optional<SourcePath> ghciBinDep;
 
   @AddToRuleKey Optional<SourcePath> ghciInit;
 
@@ -103,10 +105,9 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver buildRuleResolver,
       HaskellSources srcs,
       ImmutableList<String> compilerFlags,
-      Optional<BuildTarget> ghciBinDep,
+      Optional<SourcePath> ghciBinDep,
       Optional<SourcePath> ghciInit,
       BuildRule omnibusSharedObject,
       ImmutableSortedMap<String, SourcePath> solibs,
@@ -122,7 +123,6 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       Path ghciCc,
       Path ghciCpp) {
     super(buildTarget, projectFilesystem, params);
-    this.buildRuleResolver = buildRuleResolver;
     this.srcs = srcs;
     this.compilerFlags = compilerFlags;
     this.ghciBinDep = ghciBinDep;
@@ -161,10 +161,10 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       HaskellSources srcs,
       ImmutableList<String> compilerFlags,
-      Optional<BuildTarget> ghciBinDep,
+      Optional<SourcePath> ghciBinDep,
       Optional<SourcePath> ghciInit,
       BuildRule omnibusSharedObject,
       ImmutableSortedMap<String, SourcePath> solibs,
@@ -180,7 +180,6 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       Path ghciCc,
       Path ghciCpp) {
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableSet.Builder<BuildRule> extraDeps = ImmutableSet.builder();
 
     extraDeps.add(omnibusSharedObject);
@@ -193,9 +192,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       extraDeps.addAll(pkg.getDeps(ruleFinder)::iterator);
     }
 
-    if (ghciBinDep.isPresent()) {
-      extraDeps.add(resolver.getRule(ghciBinDep.get()));
-    }
+    ghciBinDep.flatMap(ruleFinder::getRule).ifPresent(extraDeps::add);
 
     extraDeps.addAll(ruleFinder.filterBuildRuleInputs(solibs.values()));
 
@@ -203,7 +200,6 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         buildTarget,
         projectFilesystem,
         params.copyAppendingExtraDeps(extraDeps.build()),
-        resolver,
         srcs,
         compilerFlags,
         ghciBinDep,
@@ -229,7 +225,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getOutputDir());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getOutputDir());
   }
 
   @Override
@@ -373,8 +369,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
         Path binDir = dir.resolve(name + ".bin");
         Path bin = binDir.resolve("ghci");
-        BuildRule rule = buildRuleResolver.getRule(ghciBinDep.get());
-        SourcePath sp = rule.getSourcePathToOutput();
+        SourcePath sp = ghciBinDep.get();
 
         steps.addAll(
             MakeCleanDirectoryStep.of(
@@ -432,11 +427,24 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       throw new RuntimeException(ex);
     }
 
-    Path script = dir.resolve(name);
+    Path script = scriptPath();
     steps.add(
         new StringTemplateStep(
             ghciScriptTemplate, getProjectFilesystem(), script, templateArgs.build()));
     steps.add(new MakeExecutableStep(getProjectFilesystem(), script));
+
+    buildableContext.recordArtifact(dir);
+
     return steps.build();
+  }
+
+  private Path scriptPath() {
+    return getOutputDir().resolve(getBuildTarget().getShortName());
+  }
+
+  @Override
+  public Tool getExecutableCommand() {
+    SourcePath p = ExplicitBuildTargetSourcePath.of(getBuildTarget(), scriptPath());
+    return new CommandTool.Builder().addArg(SourcePathArg.of(p)).build();
   }
 }

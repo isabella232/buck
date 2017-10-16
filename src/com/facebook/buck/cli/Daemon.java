@@ -19,14 +19,15 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.FileHashCacheEvent;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.httpserver.WebServer;
-import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.WatchmanCursor;
+import com.facebook.buck.io.WatchmanWatcher;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -39,10 +40,9 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.WatchmanWatcher;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
-import com.facebook.buck.util.cache.WatchedFileHashCache;
+import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
+import com.facebook.buck.util.cache.impl.WatchedFileHashCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.collect.ImmutableList;
@@ -99,7 +99,7 @@ final class Daemon implements Closeable {
     this.hashCaches = hashCachesBuilder.build();
 
     this.broadcastEventListener = new BroadcastEventListener();
-    this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
+    this.actionGraphCache = new ActionGraphCache();
     this.versionedTargetGraphCache = new VersionedTargetGraphCache();
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
@@ -110,7 +110,6 @@ final class Daemon implements Closeable {
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory));
     fileEventBus.register(parser);
-    fileEventBus.register(actionGraphCache);
 
     // Build the the rule key cache recycler.
     this.defaultRuleKeyFactoryCacheRecycler =
@@ -236,7 +235,6 @@ final class Daemon implements Closeable {
   }
 
   void watchFileSystem(
-      CommandEvent commandEvent,
       BuckEventBus eventBus,
       WatchmanWatcher watchmanWatcher,
       WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
@@ -248,7 +246,6 @@ final class Daemon implements Closeable {
     // disconnections.
     synchronized (parser) {
       parser.recordParseStartTime(eventBus);
-      fileEventBus.post(commandEvent);
       // Track the file hash cache invalidation run time.
       FileHashCacheEvent.InvalidationStarted started = FileHashCacheEvent.invalidationStarted();
       eventBus.post(started);

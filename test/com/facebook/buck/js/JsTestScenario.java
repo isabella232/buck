@@ -17,15 +17,15 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.apple.AppleLibraryBuilder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -154,6 +154,11 @@ public class JsTestScenario {
       return this;
     }
 
+    public Builder bundleGenrule(JsBundleGenruleBuilder.Options options) {
+      nodes.add(new JsBundleGenruleBuilder(options, filesystem).build());
+      return this;
+    }
+
     private void addLibrary(
         BuildTarget target,
         @Nullable String basePath,
@@ -182,7 +187,7 @@ public class JsTestScenario {
     public JsTestScenario build() {
       final TargetGraph graph = TargetGraphFactory.newInstance(nodes);
       final BuildRuleResolver resolver =
-          new DefaultBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
+          new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
       for (TargetNode<?, ?> node : nodes) {
         resolver.requireRule(node.getBuildTarget());
       }

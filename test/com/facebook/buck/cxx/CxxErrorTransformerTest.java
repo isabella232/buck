@@ -20,12 +20,12 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.oneOf;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -50,7 +50,7 @@ public class CxxErrorTransformerTest {
   public static Collection<Object[]> data() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -59,7 +59,7 @@ public class CxxErrorTransformerTest {
     Path replacement = filesystem.resolve("hello/world.h");
 
     HeaderPathNormalizer.Builder normalizerBuilder = new HeaderPathNormalizer.Builder(pathResolver);
-    normalizerBuilder.addHeader(new FakeSourcePath(replacement.toString()), original);
+    normalizerBuilder.addHeader(FakeSourcePath.of(replacement.toString()), original);
     HeaderPathNormalizer normalizer = normalizerBuilder.build();
 
     return ImmutableList.copyOf(

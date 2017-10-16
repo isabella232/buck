@@ -17,7 +17,7 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JarParameters;
@@ -36,7 +36,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.zip.ZipCompressionLevel;
+import com.facebook.buck.util.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,8 +56,9 @@ public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final AndroidResource androidResource;
   private final SourcePath assembledResourceDirectory;
   private final SourcePath assembledAssetsDirectory;
-  private final Optional<Path> assembledNativeLibs;
-  private final ImmutableSet<SourcePath> nativeLibAssetsDirectories;
+  private final Optional<SourcePath> assembledNativeLibs;
+  private final Optional<SourcePath> assembledNativeLibsAssets;
+
   private final ImmutableSortedSet<SourcePath> classpathsToIncludeInJar;
 
   public AndroidAar(
@@ -68,8 +69,8 @@ public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
       AndroidResource androidResource,
       SourcePath assembledResourceDirectory,
       SourcePath assembledAssetsDirectory,
-      Optional<Path> assembledNativeLibs,
-      ImmutableSet<SourcePath> nativeLibAssetsDirectories,
+      Optional<SourcePath> assembledNativeLibs,
+      Optional<SourcePath> assembledNativeLibsAssets,
       ImmutableSortedSet<SourcePath> classpathsToIncludeInJar) {
     super(buildTarget, projectFilesystem, params);
     this.pathToOutputFile =
@@ -80,7 +81,7 @@ public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.assembledAssetsDirectory = assembledAssetsDirectory;
     this.assembledResourceDirectory = assembledResourceDirectory;
     this.assembledNativeLibs = assembledNativeLibs;
-    this.nativeLibAssetsDirectories = nativeLibAssetsDirectories;
+    this.assembledNativeLibsAssets = assembledNativeLibsAssets;
     this.classpathsToIncludeInJar = classpathsToIncludeInJar;
   }
 
@@ -149,20 +150,19 @@ public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
       commands.add(
           CopyStep.forDirectory(
               getProjectFilesystem(),
-              assembledNativeLibs.get(),
+              context.getSourcePathResolver().getRelativePath(assembledNativeLibs.get()),
               temp.resolve("jni"),
               CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
 
-    // move native assets into tmp folder under assets/lib/
-    for (SourcePath dir : nativeLibAssetsDirectories) {
-      CopyNativeLibraries.copyNativeLibrary(
-          context,
-          getProjectFilesystem(),
-          context.getSourcePathResolver().getAbsolutePath(dir),
-          temp.resolve("assets").resolve("lib"),
-          ImmutableSet.of(),
-          commands);
+    // move native asset libs into tmp folder under assets/lib
+    if (assembledNativeLibsAssets.isPresent()) {
+      commands.add(
+          CopyStep.forDirectory(
+              getProjectFilesystem(),
+              context.getSourcePathResolver().getRelativePath(assembledNativeLibsAssets.get()),
+              temp.resolve("assets").resolve("lib"),
+              CopyStep.DirectoryMode.CONTENTS_ONLY));
     }
 
     // do the zipping
@@ -187,7 +187,7 @@ public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToOutputFile);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), pathToOutputFile);
   }
 
   @Override

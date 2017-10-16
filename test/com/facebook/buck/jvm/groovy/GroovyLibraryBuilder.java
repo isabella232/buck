@@ -18,7 +18,7 @@ package com.facebook.buck.jvm.groovy;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
@@ -38,7 +38,7 @@ public class GroovyLibraryBuilder
   protected GroovyLibraryBuilder(
       BuildTarget target, ProjectFilesystem projectFilesystem, HashCode hashCode) {
     super(
-        new GroovyLibraryDescription(null, DEFAULT_JAVAC_OPTIONS),
+        new GroovyLibraryDescription(null, null, DEFAULT_JAVAC_OPTIONS),
         target,
         projectFilesystem,
         hashCode);
@@ -55,6 +55,6 @@ public class GroovyLibraryBuilder
   }
 
   public GroovyLibraryBuilder addSrc(Path path) {
-    return addSrc(new PathSourcePath(projectFilesystem, path));
+    return addSrc(PathSourcePath.of(projectFilesystem, path));
   }
 }

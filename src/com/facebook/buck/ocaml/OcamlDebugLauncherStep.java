@@ -16,9 +16,9 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.Shell;
@@ -37,7 +37,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 
-/** OCaml linking step. Dependencies and inputs should be topologically ordered */
+/** Creates a debug launcher script for an ocaml binary */
 public class OcamlDebugLauncherStep implements Step {
 
   private final ProjectFilesystem filesystem;
@@ -65,6 +65,7 @@ public class OcamlDebugLauncherStep implements Step {
   private String getDebugLauncherScript(String debugCmdStr) {
     ImmutableList.Builder<String> debugFile = ImmutableList.builder();
     debugFile.add("#!/bin/sh");
+    debugFile.add("export CAML_LD_LIBRARY_PATH; unset -v CAML_LD_LIBRARY_PATH");
     debugFile.add(debugCmdStr);
 
     return Joiner.on("\n").join(debugFile.build());
@@ -107,11 +108,14 @@ public class OcamlDebugLauncherStep implements Step {
     return getShortName();
   }
 
-  public static class Args implements RuleKeyAppendable {
-    public final Tool ocamlDebug;
+  public static class Args implements AddsToRuleKey {
+    @AddToRuleKey public final Tool ocamlDebug;
+
+    @AddToRuleKey(stringify = true)
     public final Path bytecodeOutput;
+
     public final ImmutableList<OcamlLibrary> ocamlInput;
-    public final ImmutableList<String> bytecodeIncludeFlags;
+    @AddToRuleKey public final ImmutableList<String> bytecodeIncludeFlags;
 
     public Args(
         Tool ocamlDebug,
@@ -126,13 +130,6 @@ public class OcamlDebugLauncherStep implements Step {
 
     public Path getOutput() {
       return Paths.get(bytecodeOutput.toString() + ".debug");
-    }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("ocamlDebug", ocamlDebug)
-          .setReflectively("bytecodeOutput", bytecodeOutput.toString())
-          .setReflectively("flags", bytecodeIncludeFlags);
     }
   }
 }

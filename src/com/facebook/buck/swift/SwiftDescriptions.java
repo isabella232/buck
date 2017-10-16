@@ -20,7 +20,7 @@ import static com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage.
 import static com.facebook.buck.swift.SwiftLibraryDescription.SWIFT_COMPANION_FLAVOR;
 
 import com.facebook.buck.cxx.CxxLibraryDescription;
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -38,19 +38,24 @@ public class SwiftDescriptions {
   /** Utility class: do not instantiate. */
   private SwiftDescriptions() {}
 
+  public static boolean isSwiftSource(
+      SourceWithFlags source, SourcePathResolver sourcePathResolver) {
+    return MorePaths.getFileExtension(sourcePathResolver.getAbsolutePath(source.getSourcePath()))
+        .equalsIgnoreCase(SWIFT_EXTENSION);
+  }
+
   static ImmutableSortedSet<SourcePath> filterSwiftSources(
       SourcePathResolver sourcePathResolver, ImmutableSet<SourceWithFlags> srcs) {
     ImmutableSortedSet.Builder<SourcePath> swiftSrcsBuilder = ImmutableSortedSet.naturalOrder();
     for (SourceWithFlags source : srcs) {
-      if (MorePaths.getFileExtension(sourcePathResolver.getAbsolutePath(source.getSourcePath()))
-          .equalsIgnoreCase(SWIFT_EXTENSION)) {
+      if (isSwiftSource(source, sourcePathResolver)) {
         swiftSrcsBuilder.add(source.getSourcePath());
       }
     }
     return swiftSrcsBuilder.build();
   }
 
-  static void populateSwiftLibraryDescriptionArg(
+  public static void populateSwiftLibraryDescriptionArg(
       final SourcePathResolver sourcePathResolver,
       SwiftLibraryDescriptionArg.Builder output,
       final CxxLibraryDescription.CommonArg args,

@@ -16,6 +16,9 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.TargetCpuType;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.LinkOutputPostprocessor;
@@ -31,17 +34,17 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -116,7 +119,7 @@ class NativeLibraryMergeEnhancer {
       SourcePathRuleFinder ruleFinder,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       Map<String, List<Pattern>> mergeMap,
       Optional<BuildTarget> nativeLibraryMergeGlue,
       Optional<ImmutableSortedSet<String>> nativeLibraryMergeLocalizedSymbols,
@@ -873,55 +876,49 @@ class NativeLibraryMergeEnhancer {
       }
 
       String soname = getSoname(cxxPlatform);
-      BuildTarget target = getBuildTargetForPlatform(cxxPlatform);
-      Optional<BuildRule> ruleOptional = ruleResolver.getRuleOptional(target);
-      BuildRule rule = null;
-      if (ruleOptional.isPresent()) {
-        rule = ruleOptional.get();
-      } else {
-        rule =
-            CxxLinkableEnhancer.createCxxLinkableBuildRule(
-                cxxBuckConfig,
-                cxxPlatform,
-                projectFilesystem,
-                ruleResolver,
-                pathResolver,
-                ruleFinder,
-                target,
-                Linker.LinkType.SHARED,
-                Optional.of(soname),
-                BuildTargets.getGenPath(projectFilesystem, target, "%s/" + getSoname(cxxPlatform)),
-                // Android Binaries will use share deps by default.
-                Linker.LinkableDepType.SHARED,
-                /* thinLto */ false,
-                Iterables.concat(
-                    getNativeLinkableDepsForPlatform(cxxPlatform),
-                    getNativeLinkableExportedDepsForPlatform(cxxPlatform)),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableSet.of(),
-                ImmutableSet.of(),
-                getImmediateNativeLinkableInput(cxxPlatform),
-                constituents.isActuallyMerged()
-                    ? symbolsToLocalize.map(SymbolLocalizingPostprocessor::new)
-                    : Optional.empty());
-        ruleResolver.addToIndex(rule);
-      }
+      BuildRule rule =
+          ruleResolver.computeIfAbsent(
+              getBuildTargetForPlatform(cxxPlatform),
+              target ->
+                  CxxLinkableEnhancer.createCxxLinkableBuildRule(
+                      cxxBuckConfig,
+                      cxxPlatform,
+                      projectFilesystem,
+                      ruleResolver,
+                      pathResolver,
+                      ruleFinder,
+                      target,
+                      Linker.LinkType.SHARED,
+                      Optional.of(soname),
+                      BuildTargets.getGenPath(
+                          projectFilesystem, target, "%s/" + getSoname(cxxPlatform)),
+                      // Android Binaries will use share deps by default.
+                      Linker.LinkableDepType.SHARED,
+                      /* thinLto */ false,
+                      Iterables.concat(
+                          getNativeLinkableDepsForPlatform(cxxPlatform),
+                          getNativeLinkableExportedDepsForPlatform(cxxPlatform)),
+                      Optional.empty(),
+                      Optional.empty(),
+                      ImmutableSet.of(),
+                      ImmutableSet.of(),
+                      getImmediateNativeLinkableInput(cxxPlatform),
+                      constituents.isActuallyMerged()
+                          ? symbolsToLocalize.map(SymbolLocalizingPostprocessor::new)
+                          : Optional.empty()));
       return ImmutableMap.of(soname, rule.getSourcePathToOutput());
     }
   }
 
   private static class SymbolLocalizingPostprocessor implements LinkOutputPostprocessor {
-    private final ImmutableSortedSet<String> symbolsToLocalize;
+    @AddToRuleKey private final ImmutableSortedSet<String> symbolsToLocalize;
+
+    @SuppressWarnings("unused")
+    @AddToRuleKey
+    private final String postprocessorType = "localize-dynamic-symbols";
 
     SymbolLocalizingPostprocessor(ImmutableSortedSet<String> symbolsToLocalize) {
       this.symbolsToLocalize = symbolsToLocalize;
-    }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("postprocessor.type", "localize-dynamic-symbols");
-      sink.setReflectively("symbolsToLocalize", symbolsToLocalize);
     }
 
     @Override

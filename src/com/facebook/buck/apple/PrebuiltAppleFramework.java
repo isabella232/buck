@@ -16,6 +16,8 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.platform_type.ApplePlatformType;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -24,17 +26,17 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -68,13 +70,12 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @AddToRuleKey private final NativeLinkable.Linkage preferredLinkage;
 
-  private final BuildRuleResolver ruleResolver;
-
   @AddToRuleKey private final SourcePath frameworkPath;
   private final String frameworkName;
   private final Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags;
   private final ImmutableSet<FrameworkPath> frameworks;
   private final Optional<Pattern> supportedPlatformsRegex;
+  private final FlavorDomain<AppleCxxPlatform> applePlatformFlavorDomain;
 
   private final Map<Pair<Flavor, Linker.LinkableDepType>, NativeLinkableInput> nativeLinkableCache =
       new HashMap<>();
@@ -87,16 +88,15 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
       SourcePath frameworkPath,
       Linkage preferredLinkage,
       ImmutableSet<FrameworkPath> frameworks,
       Optional<Pattern> supportedPlatformsRegex,
-      Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags) {
+      Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags,
+      FlavorDomain<AppleCxxPlatform> applePlatformFlavorDomain) {
     super(buildTarget, projectFilesystem, params);
     this.frameworkPath = frameworkPath;
-    this.ruleResolver = ruleResolver;
     this.exportedLinkerFlags = exportedLinkerFlags;
     this.preferredLinkage = preferredLinkage;
     this.frameworks = frameworks;
@@ -105,6 +105,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
     this.frameworkName = pathResolver.getAbsolutePath(frameworkPath).getFileName().toString();
     this.out =
         BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s").resolve(frameworkName);
+    this.applePlatformFlavorDomain = applePlatformFlavorDomain;
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
@@ -140,7 +141,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), out);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), out);
   }
 
   @Override
@@ -162,8 +163,6 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
     if (isPlatformSupported(cxxPlatform)) {
       builder.addAllFrameworks(frameworks);
-
-      ruleResolver.requireRule(this.getBuildTarget());
       builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     }
     return builder.build();
@@ -207,9 +206,17 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
     frameworkPaths.add(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     if (type == Linker.LinkableDepType.SHARED) {
-      linkerArgsBuilder.addAll(
-          StringArg.from(
-              "-rpath", "@loader_path/Frameworks", "-rpath", "@executable_path/Frameworks"));
+      Optional<AppleCxxPlatform> appleCxxPlatform =
+          applePlatformFlavorDomain.getValue(ImmutableSet.of(cxxPlatform.getFlavor()));
+      final boolean isMacTarget =
+          appleCxxPlatform
+              .map(p -> p.getAppleSdk().getApplePlatform().getType() == ApplePlatformType.MAC)
+              .orElse(false);
+      final String loaderPath =
+          isMacTarget ? "@loader_path/../Frameworks" : "@loader_path/Frameworks";
+      final String executablePath =
+          isMacTarget ? "@executable_path/../Frameworks" : "@loader_path/Frameworks";
+      linkerArgsBuilder.addAll(StringArg.from("-rpath", loaderPath, "-rpath", executablePath));
     }
 
     final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();

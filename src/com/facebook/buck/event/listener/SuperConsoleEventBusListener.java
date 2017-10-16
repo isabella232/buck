@@ -18,8 +18,8 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
-import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
@@ -31,6 +31,7 @@ import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.TestRunEvent;
@@ -155,12 +156,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private boolean hideEmptyDownload;
 
   @GuardedBy("distBuildSlaveTrackerLock")
-  private final Map<RunId, BuildSlaveStatus> distBuildSlaveTracker;
+  private final Map<BuildSlaveRunId, BuildSlaveStatus> distBuildSlaveTracker;
 
   private final Set<String> actionGraphCacheMessage = new HashSet<>();
 
   /** Maximum width of the terminal. */
   private final int outputMaxColumns;
+
+  private final Optional<String> buildIdLine;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
@@ -171,7 +174,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath,
-      TimeZone timeZone) {
+      TimeZone timeZone,
+      Optional<BuildId> buildId) {
     this(
         config,
         console,
@@ -185,7 +189,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         500L,
         500L,
         1000L,
-        true);
+        true,
+        buildId);
   }
 
   @VisibleForTesting
@@ -202,8 +207,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       long minimumDurationMillisecondsToShowParse,
       long minimumDurationMillisecondsToShowActionGraph,
       long minimumDurationMillisecondsToShowWatchman,
-      boolean hideEmptyDownload) {
-    super(console, clock, locale, executionEnvironment, false, config.getNumberOfSlowRulesToShow());
+      boolean hideEmptyDownload,
+      Optional<BuildId> buildId) {
+    super(
+        console,
+        clock,
+        locale,
+        executionEnvironment,
+        false,
+        config.getNumberOfSlowRulesToShow(),
+        config.shouldShowSlowRulesInConsole());
     this.locale = locale;
     this.formatTimeFunction = this::formatElapsedTime;
     this.webServer = webServer;
@@ -247,16 +260,21 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.distBuildSlaveTracker = new LinkedHashMap<>();
 
     int outputMaxColumns = 80;
-    Optional<String> columnsStr = executionEnvironment.getenv("COLUMNS");
+    Optional<String> columnsStr = executionEnvironment.getenv("BUCK_TERM_COLUMNS");
     if (columnsStr.isPresent()) {
       try {
         outputMaxColumns = Integer.parseInt(columnsStr.get());
       } catch (NumberFormatException e) {
         LOG.debug(
-            "the environment variable COLUMNS did not contain a valid value: %s", columnsStr.get());
+            "the environment variable BUCK_TERM_COLUMNS did not contain a valid value: %s",
+            columnsStr.get());
       }
     }
     this.outputMaxColumns = outputMaxColumns;
+    this.buildIdLine =
+        buildId.isPresent()
+            ? Optional.of(SimpleConsoleEventBusListener.getBuildLogLine(buildId.get()))
+            : Optional.empty();
   }
 
   /** Schedules a runnable that updates the console output at a fixed interval. */
@@ -321,10 +339,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     Iterable<String> renderedLines =
         Iterables.concat(
             MoreIterables.zipAndConcat(
-                Iterables.cycle(ansi.clearLine()), logLines, Iterables.cycle("\n")),
+                Iterables.cycle(ansi.clearLine()),
+                logLines,
+                Iterables.cycle(ansi.clearToTheEndOfLine() + "\n")),
             ansi.asNoWrap(
                 MoreIterables.zipAndConcat(
-                    Iterables.cycle(ansi.clearLine()), lines, Iterables.cycle("\n"))));
+                    Iterables.cycle(ansi.clearLine()),
+                    lines,
+                    Iterables.cycle(ansi.clearToTheEndOfLine() + "\n"))));
 
     // Number of lines remaining to clear because of old output once we displayed
     // the new output.
@@ -357,8 +379,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
    * @param currentTimeMillis The time in ms to use when computing elapsed times.
    */
   @VisibleForTesting
-  ImmutableList<String> createRenderLinesAtTime(long currentTimeMillis) {
+  public ImmutableList<String> createRenderLinesAtTime(long currentTimeMillis) {
     ImmutableList.Builder<String> lines = ImmutableList.builder();
+
+    if (buildIdLine.isPresent()) {
+      lines.add(buildIdLine.get());
+    }
 
     logEventPair(
         "Processing filesystem changes",
@@ -371,17 +397,18 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         Optional.of(this.minimumDurationMillisecondsToShowWatchman),
         lines);
 
-    logEventPair(
-        "Parsing buck files",
-        /* suffix */ Optional.empty(),
-        currentTimeMillis,
-        /* offsetMs */ 0L,
-        buckFilesParsingEvents.values(),
-        getEstimatedProgressOfParsingBuckFiles(),
-        Optional.of(this.minimumDurationMillisecondsToShowParse),
-        lines);
-
     long parseTime =
+        logEventPair(
+            "Parsing buck files",
+            /* suffix */ Optional.empty(),
+            currentTimeMillis,
+            /* offsetMs */ 0L,
+            buckFilesParsingEvents.values(),
+            getEstimatedProgressOfParsingBuckFiles(),
+            Optional.of(this.minimumDurationMillisecondsToShowParse),
+            lines);
+
+    long actionGraphTime =
         logEventPair(
             "Creating action graph",
             /* suffix */ Optional.empty(),
@@ -414,7 +441,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     // If parsing has not finished, then there is no build rule information to print yet.
-    if (buildStarted == null || parseTime == UNFINISHED_EVENT_PAIR) {
+    if (buildStarted == null
+        || parseTime == UNFINISHED_EVENT_PAIR
+        || actionGraphTime == UNFINISHED_EVENT_PAIR) {
       return lines.build();
     }
 
@@ -782,7 +811,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     super.onDistBuildStatusEvent(event);
     synchronized (distBuildSlaveTrackerLock) {
       for (BuildSlaveStatus status : event.getStatus().getSlaveStatuses()) {
-        distBuildSlaveTracker.put(status.runId, status);
+        distBuildSlaveTracker.put(status.buildSlaveRunId, status);
       }
     }
   }
@@ -961,7 +990,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   @Subscribe
-  @SuppressWarnings("unused")
   public void watchmanFileCreation(WatchmanStatusEvent.FileCreation event) {
     LOG.debug("Watchman notified about file addition: " + event.getFilename());
     printFileAddedOrRemoved();
@@ -969,7 +997,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   @Subscribe
-  @SuppressWarnings("unused")
   public void watchmanFileDeletion(WatchmanStatusEvent.FileDeletion event) {
     LOG.debug("Watchman notified about file deletion: " + event.getFilename());
     printFileAddedOrRemoved();

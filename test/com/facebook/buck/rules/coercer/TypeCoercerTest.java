@@ -41,6 +41,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.devtools.build.lib.collect.nestedset.NestedSetBuilder;
+import com.google.devtools.build.lib.syntax.SkylarkNestedSet;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.nio.file.Path;
@@ -361,8 +363,8 @@ public class TypeCoercerTest {
     Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), input);
     ImmutableList<SourceWithFlags> expectedResult =
         ImmutableList.of(
-            SourceWithFlags.of(new FakeSourcePath("foo.m")),
-            SourceWithFlags.of(new FakeSourcePath("bar.m")));
+            SourceWithFlags.of(FakeSourcePath.of("foo.m")),
+            SourceWithFlags.of(FakeSourcePath.of("bar.m")));
     assertEquals(expectedResult, result);
   }
 
@@ -379,8 +381,8 @@ public class TypeCoercerTest {
     Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), input);
     ImmutableList<SourceWithFlags> expectedResult =
         ImmutableList.of(
-            SourceWithFlags.of(new FakeSourcePath("foo.m"), ImmutableList.of("-Wall", "-Werror")),
-            SourceWithFlags.of(new FakeSourcePath("bar.m"), ImmutableList.of("-fobjc-arc")));
+            SourceWithFlags.of(FakeSourcePath.of("foo.m"), ImmutableList.of("-Wall", "-Werror")),
+            SourceWithFlags.of(FakeSourcePath.of("bar.m"), ImmutableList.of("-fobjc-arc")));
     assertEquals(expectedResult, result);
   }
 
@@ -399,12 +401,12 @@ public class TypeCoercerTest {
     Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), input);
     ImmutableList<SourceWithFlags> expectedResult =
         ImmutableList.of(
-            SourceWithFlags.of(new FakeSourcePath("Group1/foo.m")),
+            SourceWithFlags.of(FakeSourcePath.of("Group1/foo.m")),
             SourceWithFlags.of(
-                new FakeSourcePath("Group1/bar.m"), ImmutableList.of("-Wall", "-Werror")),
-            SourceWithFlags.of(new FakeSourcePath("Group2/baz.m")),
+                FakeSourcePath.of("Group1/bar.m"), ImmutableList.of("-Wall", "-Werror")),
+            SourceWithFlags.of(FakeSourcePath.of("Group2/baz.m")),
             SourceWithFlags.of(
-                new FakeSourcePath("Group2/blech.m"), ImmutableList.of("-fobjc-arc")));
+                FakeSourcePath.of("Group2/blech.m"), ImmutableList.of("-fobjc-arc")));
     assertEquals(expectedResult, result);
   }
 
@@ -616,6 +618,20 @@ public class TypeCoercerTest {
         getCoerceException(
             TestFields.class.getField("eitherPathOrListOfStrings").getGenericType(),
             invalidListOfStrings));
+  }
+
+  @Test
+  public void canCoerceDepsetToImmutableList() throws Exception {
+    Type type = TestFields.class.getField("listOfStrings").getGenericType();
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
+    SkylarkNestedSet depset =
+        SkylarkNestedSet.of(
+            String.class, NestedSetBuilder.<String>stableOrder().add("foo").add("bar").build());
+
+    Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), depset);
+    ImmutableList<String> expected = ImmutableList.of("foo", "bar");
+
+    assertEquals(expected, result);
   }
 
   @SuppressFieldNotInitialized

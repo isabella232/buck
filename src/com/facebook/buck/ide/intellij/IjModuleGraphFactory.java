@@ -26,7 +26,7 @@ import com.facebook.buck.ide.intellij.model.IjModuleFactory;
 import com.facebook.buck.ide.intellij.model.IjModuleType;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.IjProjectElement;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.TargetGraph;
@@ -38,8 +38,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -233,7 +233,7 @@ public final class IjModuleGraphFactory {
     Optional<Path> extraCompileOutputRootPath = projectConfig.getExtraCompilerOutputModulesPath();
 
     for (final IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
-      Map<IjProjectElement, DependencyType> moduleDeps = new HashMap<>();
+      Map<IjProjectElement, DependencyType> moduleDeps = new LinkedHashMap<>();
 
       for (Map.Entry<BuildTarget, DependencyType> entry : module.getDependencies().entrySet()) {
         BuildTarget depBuildTarget = entry.getKey();
@@ -282,13 +282,13 @@ public final class IjModuleGraphFactory {
           }
         }
 
-        for (IjProjectElement depElement : depElements) {
-          Preconditions.checkState(!depElement.equals(module));
-          DependencyType.putWithMerge(moduleDeps, depElement, depType);
-        }
         for (IjProjectElement depElement : transitiveDepElements) {
           Preconditions.checkState(!depElement.equals(module));
           DependencyType.putWithMerge(moduleDeps, depElement, DependencyType.RUNTIME);
+        }
+        for (IjProjectElement depElement : depElements) {
+          Preconditions.checkState(!depElement.equals(module));
+          DependencyType.putWithMerge(moduleDeps, depElement, depType);
         }
       }
 

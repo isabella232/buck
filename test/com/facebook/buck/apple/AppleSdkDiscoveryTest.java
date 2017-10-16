@@ -23,7 +23,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.AppleSdk;
+import com.facebook.buck.apple.toolchain.AppleSdkPaths;
+import com.facebook.buck.apple.toolchain.AppleToolchain;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -77,12 +81,14 @@ public class AppleSdkDiscoveryTest {
   @Test
   public void shouldResolveSdkVersionConflicts() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "sdk-discovery-conflict", temp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "sdk-discovery-conflict", temp.newFolder("conflict"));
     workspace.setUp();
-    Path root = workspace.getPath("");
+    Path root = workspace.getPath("Platforms");
 
     ProjectWorkspace emptyWorkspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "sdk-discovery-empty", temp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "sdk-discovery-empty", temp.newFolder("empty"));
     emptyWorkspace.setUp();
     Path path = emptyWorkspace.getPath("");
 
@@ -109,16 +115,15 @@ public class AppleSdkDiscoveryTest {
         AppleSdkPaths.builder()
             .setDeveloperPath(path)
             .addToolchainPaths(path.resolve("Toolchains/XcodeDefault.xctoolchain"))
-            .setPlatformPath(root.resolve("Platforms/MacOSX.platform"))
-            .setSdkPath(root.resolve("Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk"))
+            .setPlatformPath(root.resolve("MacOSX.platform"))
+            .setSdkPath(root.resolve("MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk"))
             .build();
     AppleSdkPaths macosxDebugPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(path)
             .addToolchainPaths(path.resolve("Toolchains/XcodeDefault.xctoolchain"))
-            .setPlatformPath(root.resolve("Platforms/MacOSX.platform"))
-            .setSdkPath(
-                root.resolve("Platforms/MacOSX.platform/Developer/SDKs/MacOSX-Debug10.9.sdk"))
+            .setPlatformPath(root.resolve("MacOSX.platform"))
+            .setSdkPath(root.resolve("MacOSX.platform/Developer/SDKs/MacOSX-Debug10.9.sdk"))
             .build();
 
     ImmutableMap<AppleSdk, AppleSdkPaths> expected =
@@ -139,12 +144,14 @@ public class AppleSdkDiscoveryTest {
   @Test
   public void shouldFindPlatformsInExtraPlatformDirectories() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "sdk-discovery-minimal", temp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "sdk-discovery-minimal", temp.newFolder("minimal"));
     workspace.setUp();
-    Path root = workspace.getPath("");
+    Path root = workspace.getPath("Platforms");
 
     ProjectWorkspace emptyWorkspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "sdk-discovery-empty", temp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "sdk-discovery-empty", temp.newFolder("empty"));
     emptyWorkspace.setUp();
     Path path = emptyWorkspace.getPath("");
 
@@ -163,8 +170,8 @@ public class AppleSdkDiscoveryTest {
         AppleSdkPaths.builder()
             .setDeveloperPath(path)
             .addToolchainPaths(path.resolve("Toolchains/XcodeDefault.xctoolchain"))
-            .setPlatformPath(root.resolve("Platforms/MacOSX.platform"))
-            .setSdkPath(root.resolve("Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk"))
+            .setPlatformPath(root.resolve("MacOSX.platform"))
+            .setSdkPath(root.resolve("MacOSX.platform/Developer/SDKs/MacOSX10.9.sdk"))
             .build();
 
     ImmutableMap<AppleSdk, AppleSdkPaths> expected =

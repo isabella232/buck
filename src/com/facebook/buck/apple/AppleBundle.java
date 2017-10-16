@@ -20,14 +20,18 @@ import com.dd.plist.NSArray;
 import com.dd.plist.NSNumber;
 import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
+import com.facebook.buck.apple.platform_type.ApplePlatformType;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.NativeTestable;
-import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -71,12 +75,12 @@ import com.google.common.io.Files;
 import com.google.common.util.concurrent.Futures;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -134,6 +138,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final boolean dryRunCodeSigning;
 
+  @AddToRuleKey private final ImmutableList<String> codesignFlags;
+
   // Need to use String here as RuleKeyBuilder requires that paths exist to compute hashes.
   @AddToRuleKey private final ImmutableMap<SourcePath, String> extensionBundlePaths;
 
@@ -177,7 +183,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
       boolean dryRunCodeSigning,
-      boolean cacheable) {
+      boolean cacheable,
+      ImmutableList<String> codesignFlags) {
     super(buildTarget, projectFilesystem, params);
     this.extension =
         extension.isLeft() ? extension.getLeft().toFileExtension() : extension.getRight();
@@ -210,6 +217,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.xcodeVersion = appleCxxPlatform.getXcodeVersion();
     this.dryRunCodeSigning = dryRunCodeSigning;
     this.cacheable = cacheable;
+    this.codesignFlags = codesignFlags;
 
     bundleBinaryPath = bundleRoot.resolve(binaryPath);
     hasBinary = binary.isPresent() && binary.get().getSourcePathToOutput() != null;
@@ -250,7 +258,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), bundleRoot);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), bundleRoot);
   }
 
   public Path getInfoPlistPath() {
@@ -580,7 +588,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
-          bundleRoot.resolve(Paths.get("Frameworks")),
+          bundleRoot.resolve(destinations.getFrameworksPath()),
           dryRunCodeSigning
               ? Optional.<Supplier<CodeSignIdentity>>empty()
               : Optional.of(codeSignIdentitySupplier),
@@ -599,7 +607,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 codesignAllocatePath,
                 dryRunCodeSigning
                     ? Optional.of(codeSignOnCopyPath.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
-                    : Optional.empty()));
+                    : Optional.empty(),
+                codesignFlags));
       }
 
       stepsBuilder.add(
@@ -613,11 +622,12 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
               codesignAllocatePath,
               dryRunCodeSigning
                   ? Optional.of(bundleRoot.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
-                  : Optional.empty()));
+                  : Optional.empty(),
+              codesignFlags));
     } else {
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
-          bundleRoot.resolve(Paths.get("Frameworks")),
+          bundleRoot.resolve(destinations.getFrameworksPath()),
           Optional.<Supplier<CodeSignIdentity>>empty(),
           stepsBuilder,
           false /* is for packaging? */);
@@ -761,9 +771,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private ImmutableMap<String, NSObject> getInfoPlistOverrideKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
 
-    if (platform.getName().contains("osx")) {
+    if (platform.getType() == ApplePlatformType.MAC) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(false));
-    } else if (!platform.getName().contains("watch") && !isLegacyWatchApp()) {
+    } else if (!platform.getType().isWatch() && !isLegacyWatchApp()) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(true));
     }
 
@@ -772,23 +782,36 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
-    final String platformName = platform.getName();
 
-    if (platformName.contains("osx")) {
-      keys.put("NSHighResolutionCapable", new NSNumber(true));
-      keys.put("NSSupportsAutomaticGraphicsSwitching", new NSNumber(true));
-      keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("MacOSX")));
-    } else if (platformName.contains("iphoneos")) {
-      keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("iPhoneOS")));
-    } else if (platformName.contains("iphonesimulator")) {
-      keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("iPhoneSimulator")));
-    } else if (platformName.contains("watchos") && !isLegacyWatchApp()) {
-      keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("WatchOS")));
-    } else if (platformName.contains("watchsimulator") && !isLegacyWatchApp()) {
-      keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("WatchSimulator")));
+    switch (platform.getType()) {
+      case MAC:
+        keys.put("NSHighResolutionCapable", new NSNumber(true));
+        keys.put("NSSupportsAutomaticGraphicsSwitching", new NSNumber(true));
+        keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("MacOSX")));
+        break;
+      case IOS_DEVICE:
+        keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("iPhoneOS")));
+        break;
+      case IOS_SIMULATOR:
+        keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("iPhoneSimulator")));
+        break;
+      case WATCH_DEVICE:
+        if (!isLegacyWatchApp()) {
+          keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("WatchOS")));
+        }
+        break;
+      case WATCH_SIMULATOR:
+        if (!isLegacyWatchApp()) {
+          keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("WatchSimulator")));
+        }
+        break;
+      case TV_DEVICE:
+      case TV_SIMULATOR:
+      case UNKNOWN:
+        break;
     }
 
-    keys.put("DTPlatformName", new NSString(platformName));
+    keys.put("DTPlatformName", new NSString(platform.getName()));
     keys.put("DTPlatformVersion", new NSString(sdkVersion));
     keys.put("DTSDKName", new NSString(sdkName + sdkVersion));
     keys.put("MinimumOSVersion", new NSString(minOSVersion));
@@ -975,12 +998,14 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    if (binary.get() instanceof ProvidesLinkedBinaryDeps) {
-      List<BuildRule> linkDeps = new ArrayList<>();
-      linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getCompileDeps());
-      linkDeps.addAll(((ProvidesLinkedBinaryDeps) binary.get()).getStaticLibraryDeps());
-      if (linkDeps.size() > 0) {
-        return Stream.concat(Stream.of(binary.get()), linkDeps.stream())
+    // When "running" an app bundle, ensure debug symbols are available.
+    if (binary.get() instanceof HasAppleDebugSymbolDeps) {
+      List<BuildRule> symbolDeps =
+          ((HasAppleDebugSymbolDeps) binary.get())
+              .getAppleDebugSymbolDeps()
+              .collect(Collectors.toList());
+      if (!symbolDeps.isEmpty()) {
+        return Stream.concat(Stream.of(binary.get()), symbolDeps.stream())
             .map(BuildRule::getBuildTarget);
       }
     }
@@ -995,7 +1020,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
-        .addArg(SourcePathArg.of(new PathSourcePath(getProjectFilesystem(), bundleBinaryPath)))
+        .addArg(SourcePathArg.of(PathSourcePath.of(getProjectFilesystem(), bundleBinaryPath)))
         .build();
   }
 }

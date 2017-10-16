@@ -37,7 +37,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -145,7 +145,7 @@ public class CxxPythonExtensionDescription
         .resolve(getExtensionName(moduleName));
   }
 
-  private ImmutableList<com.facebook.buck.rules.args.Arg> getExtensionArgs(
+  private ImmutableList<Arg> getExtensionArgs(
       BuildTarget target,
       ProjectFilesystem projectFilesystem,
       BuildRuleResolver ruleResolver,
@@ -199,7 +199,8 @@ public class CxxPythonExtensionDescription
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps),
             args.getIncludeDirs(),
-            sandboxTree);
+            sandboxTree,
+            args.getRawHeaders());
 
     // Generate rule to build the object files.
     ImmutableMultimap<CxxSource.Type, Arg> compilerFlags =
@@ -230,7 +231,7 @@ public class CxxPythonExtensionDescription
                 sandboxTree)
             .requirePreprocessAndCompileRules(srcs);
 
-    ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
+    ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
     CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
             args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform)
         .stream()

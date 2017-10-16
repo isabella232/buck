@@ -23,19 +23,19 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.BorrowablePath;
-import com.facebook.buck.io.LazyPath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.BorrowablePath;
+import com.facebook.buck.io.file.LazyPath;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -86,7 +86,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(0L));
@@ -102,7 +102,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(0L));
@@ -110,7 +110,7 @@ public class DirArtifactCacheTest {
     Files.write(fileX, "x".getBytes(UTF_8));
     BuildRule inputRuleX = new BuildRuleForTest(fileX);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
@@ -134,7 +134,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -142,7 +142,7 @@ public class DirArtifactCacheTest {
     Files.write(fileX, "x".getBytes(UTF_8));
     BuildRule inputRuleX = new BuildRuleForTest(fileX);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
@@ -180,7 +180,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -188,7 +188,7 @@ public class DirArtifactCacheTest {
     Files.write(fileX, "x".getBytes(UTF_8));
     BuildRule inputRuleX = new BuildRuleForTest(fileX);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
@@ -229,7 +229,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -245,7 +245,7 @@ public class DirArtifactCacheTest {
     assertFalse(inputRuleX.equals(inputRuleZ));
     assertFalse(inputRuleY.equals(inputRuleZ));
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     ruleResolver.addToIndex(inputRuleY);
@@ -334,7 +334,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -346,7 +346,7 @@ public class DirArtifactCacheTest {
     BuildRule inputRuleY = new BuildRuleForTest(fileY);
     assertFalse(inputRuleX.equals(inputRuleY));
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     ruleResolver.addToIndex(inputRuleY);
@@ -386,7 +386,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READONLY,
             /* maxCacheSizeBytes */ Optional.of(0L));
@@ -402,7 +402,7 @@ public class DirArtifactCacheTest {
     assertFalse(inputRuleX.equals(inputRuleZ));
     assertFalse(inputRuleY.equals(inputRuleZ));
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     ruleResolver.addToIndex(inputRuleY);
@@ -474,7 +474,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(tmpDir.getRoot()),
+            TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot()),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(1024L));
@@ -500,7 +500,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(tmpDir.getRoot()),
+            TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot()),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -533,7 +533,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(3L));
@@ -569,7 +569,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(3L));
@@ -603,7 +603,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             cacheDir,
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.of(9L));
@@ -616,7 +616,7 @@ public class DirArtifactCacheTest {
     BuildRule inputRuleY = new BuildRuleForTest(fileY);
     BuildRule inputRuleZ = new BuildRuleForTest(fileZ);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(inputRuleX);
     ruleResolver.addToIndex(inputRuleY);
@@ -697,7 +697,7 @@ public class DirArtifactCacheTest {
     dirArtifactCache =
         new DirArtifactCache(
             "dir",
-            new ProjectFilesystem(cacheDir),
+            TestProjectFilesystems.createProjectFilesystem(cacheDir),
             Paths.get("."),
             CacheReadMode.READWRITE,
             /* maxCacheSizeBytes */ Optional.empty());
@@ -783,7 +783,7 @@ public class DirArtifactCacheTest {
     private BuildRuleForTest(Path file) {
       super(BuildTargetFactory.newInstance("//foo:" + file.getFileName().toString()));
       // TODO(15468825) - PathSourcePath should be relative!11!!11!1!!!
-      this.file = new PathSourcePath(new FakeProjectFilesystem(), file);
+      this.file = FakeSourcePath.of(new FakeProjectFilesystem(), file);
     }
   }
 }

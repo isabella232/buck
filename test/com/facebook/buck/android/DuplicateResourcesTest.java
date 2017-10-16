@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
+import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescription;
@@ -109,13 +110,13 @@ public class DuplicateResourcesTest {
 
     mainRes =
         AndroidResourceBuilder.createBuilder(mainResTarget)
-            .setRes(new FakeSourcePath(filesystem, "main_app/res"))
+            .setRes(FakeSourcePath.of(filesystem, "main_app/res"))
             .setRDotJavaPackage("package")
             .build();
 
     directDepRes =
         AndroidResourceBuilder.createBuilder(directDepResTarget)
-            .setRes(new FakeSourcePath(filesystem, "direct_dep/res"))
+            .setRes(FakeSourcePath.of(filesystem, "direct_dep/res"))
             .setRDotJavaPackage("package")
             .setDeps(ImmutableSortedSet.of(transitiveDepResTarget, transitiveDepLibTarget))
             .build();
@@ -127,14 +128,14 @@ public class DuplicateResourcesTest {
 
     transitiveDepRes =
         AndroidResourceBuilder.createBuilder(transitiveDepResTarget)
-            .setRes(new FakeSourcePath(filesystem, "transitive_dep/res"))
+            .setRes(FakeSourcePath.of(filesystem, "transitive_dep/res"))
             .setRDotJavaPackage("package")
             .setDeps(ImmutableSortedSet.of(bottomDepResTarget))
             .build();
 
     bottomDepRes =
         AndroidResourceBuilder.createBuilder(bottomDepResTarget)
-            .setRes(new FakeSourcePath(filesystem, "bottom_dep/res"))
+            .setRes(FakeSourcePath.of(filesystem, "bottom_dep/res"))
             .setRDotJavaPackage("package")
             .build();
 
@@ -146,8 +147,8 @@ public class DuplicateResourcesTest {
 
     keystore =
         KeystoreBuilder.createBuilder(keystoreTarget)
-            .setStore(new FakeSourcePath(filesystem, "store"))
-            .setProperties(new FakeSourcePath(filesystem, "properties"))
+            .setStore(FakeSourcePath.of(filesystem, "store"))
+            .setProperties(FakeSourcePath.of(filesystem, "properties"))
             .build();
   }
 
@@ -227,7 +228,7 @@ public class DuplicateResourcesTest {
     return AndroidBinaryBuilder.createBuilder(androidBinaryTarget)
         .setOriginalDeps(deps)
         .setKeystore(keystoreTarget)
-        .setManifest(new FakeSourcePath(filesystem, "manifest.xml"))
+        .setManifest(FakeSourcePath.of(filesystem, "manifest.xml"))
         .build();
   }
 
@@ -249,7 +250,8 @@ public class DuplicateResourcesTest {
             BuckEventBusForTests.newInstance(
                 new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
             new DefaultTargetNodeToBuildRuleTransformer(),
-            targetGraph);
+            targetGraph,
+            ActionGraphParallelizationMode.DISABLED);
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(

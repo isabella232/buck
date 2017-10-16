@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidLibraryBuilder;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
@@ -89,12 +90,12 @@ public class AuditClasspathCommandTest {
             .build();
     TargetNode<?, ?> keystoreNode =
         KeystoreBuilder.createBuilder(keystoreTarget)
-            .setStore(new FakeSourcePath("debug.keystore"))
-            .setProperties(new FakeSourcePath("keystore.properties"))
+            .setStore(FakeSourcePath.of("debug.keystore"))
+            .setProperties(FakeSourcePath.of("keystore.properties"))
             .build();
     TargetNode<?, ?> testAndroidNode =
         AndroidBinaryBuilder.createBuilder(testAndroidTarget)
-            .setManifest(new FakeSourcePath("AndroidManifest.xml"))
+            .setManifest(FakeSourcePath.of("AndroidManifest.xml"))
             .setKeystore(keystoreTarget)
             .setOriginalDeps(ImmutableSortedSet.of(androidLibraryTarget, javaLibraryTarget))
             .build();

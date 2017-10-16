@@ -19,7 +19,7 @@ package com.facebook.buck.rules.keys;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
@@ -31,7 +31,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -86,16 +86,16 @@ public class RuleKeyBuilderTest {
   private static final Path PATH_1 = Paths.get("path1");
   private static final Path PATH_2 = Paths.get("path2");
   private static final ProjectFilesystem FILESYSTEM = new FakeProjectFilesystem();
-  private static final SourcePath SOURCE_PATH_1 = new PathSourcePath(FILESYSTEM, PATH_1);
-  private static final SourcePath SOURCE_PATH_2 = new PathSourcePath(FILESYSTEM, PATH_2);
+  private static final SourcePath SOURCE_PATH_1 = PathSourcePath.of(FILESYSTEM, PATH_1);
+  private static final SourcePath SOURCE_PATH_2 = PathSourcePath.of(FILESYSTEM, PATH_2);
   private static final ArchiveMemberSourcePath ARCHIVE_PATH_1 =
       ArchiveMemberSourcePath.of(SOURCE_PATH_1, Paths.get("member"));
   private static final ArchiveMemberSourcePath ARCHIVE_PATH_2 =
       ArchiveMemberSourcePath.of(SOURCE_PATH_2, Paths.get("member"));
   private static final DefaultBuildTargetSourcePath TARGET_PATH_1 =
-      new DefaultBuildTargetSourcePath(TARGET_1);
+      DefaultBuildTargetSourcePath.of(TARGET_1);
   private static final DefaultBuildTargetSourcePath TARGET_PATH_2 =
-      new DefaultBuildTargetSourcePath(TARGET_2);
+      DefaultBuildTargetSourcePath.of(TARGET_2);
 
   @Test
   public void testUniqueness() {
@@ -267,7 +267,7 @@ public class RuleKeyBuilderTest {
   }
 
   // This ugliness is necessary as we don't have mocks in Buck unit tests.
-  private static class FakeBuildRuleResolver extends DefaultBuildRuleResolver {
+  private static class FakeBuildRuleResolver extends SingleThreadedBuildRuleResolver {
     private final Map<BuildTarget, BuildRule> ruleMap;
 
     public FakeBuildRuleResolver(Map<BuildTarget, BuildRule> ruleMap) {

@@ -16,10 +16,10 @@
 
 package com.facebook.buck.python;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
@@ -30,6 +30,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
+import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PackagedResource;
 import com.facebook.buck.util.ProcessExecutor;
@@ -67,7 +68,7 @@ public class PythonBuckConfig {
               new CacheLoader<ProjectFilesystem, PathSourcePath>() {
                 @Override
                 public PathSourcePath load(@Nonnull ProjectFilesystem filesystem) {
-                  return new PathSourcePath(
+                  return PathSourcePath.of(
                       filesystem,
                       PythonBuckConfig.class + "/__test_main__.py",
                       new PackagedResource(filesystem, PythonBuckConfig.class, "__test_main__.py"));
@@ -193,7 +194,8 @@ public class PythonBuckConfig {
   }
 
   private Tool getRawPexTool(BuildRuleResolver resolver) {
-    Optional<Tool> executable = delegate.getTool(SECTION, "path_to_pex", resolver);
+    Optional<Tool> executable =
+        delegate.getView(ToolConfig.class).getTool(SECTION, "path_to_pex", resolver);
     if (executable.isPresent()) {
       return executable.get();
     }
@@ -210,7 +212,7 @@ public class PythonBuckConfig {
   }
 
   public Optional<Tool> getPexExecutor(BuildRuleResolver resolver) {
-    return delegate.getTool(SECTION, "path_to_pex_executer", resolver);
+    return delegate.getView(ToolConfig.class).getTool(SECTION, "path_to_pex_executer", resolver);
   }
 
   public NativeLinkStrategy getNativeLinkStrategy() {

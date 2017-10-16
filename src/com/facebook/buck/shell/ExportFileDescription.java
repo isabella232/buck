@@ -16,7 +16,7 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -82,7 +82,7 @@ public class ExportFileDescription
       src = args.getSrc().get();
     } else {
       src =
-          new PathSourcePath(
+          PathSourcePath.of(
               projectFilesystem,
               buildTarget.getBasePath().resolve(buildTarget.getShortNameAndFlavorPostfix()));
     }

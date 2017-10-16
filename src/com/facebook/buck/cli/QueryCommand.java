@@ -18,9 +18,9 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.Dot;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
@@ -237,7 +237,7 @@ public class QueryCommand extends AbstractCommand {
         env.getTargetGraph(),
         "result_graph",
         env.getNodesFromQueryTargets(queryResult),
-        targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
+        targetNode -> targetNode.getBuildTarget().getFullyQualifiedName(),
         targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName(),
         params.getConsole().getStdOut(),
         shouldGenerateBFSOutput());

@@ -17,7 +17,10 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.RDotTxtEntry;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.android.exopackage.ExopackageMode;
+import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
+import com.facebook.buck.android.packageable.AndroidPackageableCollection;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -51,9 +54,13 @@ class AndroidBinaryResourcesGraphEnhancer {
   private static final Flavor SPLIT_RESOURCES_FLAVOR = InternalFlavor.of("split_resources");
   static final Flavor GENERATE_STRING_SOURCE_MAP_FLAVOR =
       InternalFlavor.of("generate_string_source_map");
+  private static final Flavor MERGE_THIRD_PARTY_JAR_RESOURCES_FLAVOR =
+      InternalFlavor.of("merge_third_party_jar_resources");
+  private static final Flavor WRITE_EXO_RESOURCES_HASH_FLAVOR =
+      InternalFlavor.of("write_exo_resources_hash");
 
   private final SourcePathRuleFinder ruleFinder;
-  private final FilterResourcesStep.ResourceFilter resourceFilter;
+  private final FilterResourcesSteps.ResourceFilter resourceFilter;
   private final ResourcesFilter.ResourceCompressionMode resourceCompressionMode;
   private final ImmutableSet<String> locales;
   private final BuildTarget buildTarget;
@@ -80,7 +87,7 @@ class AndroidBinaryResourcesGraphEnhancer {
       boolean exopackageForResources,
       SourcePath manifest,
       AndroidBinary.AaptMode aaptMode,
-      FilterResourcesStep.ResourceFilter resourceFilter,
+      FilterResourcesSteps.ResourceFilter resourceFilter,
       ResourcesFilter.ResourceCompressionMode resourceCompressionMode,
       ImmutableSet<String> locales,
       Optional<String> resourceUnionPackage,
@@ -129,7 +136,7 @@ class AndroidBinaryResourcesGraphEnhancer {
 
     ImmutableList<SourcePath> getPrimaryApkAssetZips();
 
-    ImmutableList<SourcePath> getExoResources();
+    ImmutableList<ExopackagePathAndHash> getExoResources();
   }
 
   AndroidBinaryResourcesGraphEnhancementResult enhance(
@@ -146,6 +153,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     FilteredResourcesProvider filteredResourcesProvider;
     boolean needsResourceFiltering =
         resourceFilter.isEnabled()
+            || postFilterResourcesCmd.isPresent()
             || resourceCompressionMode.isStoreStringsAsAssets()
             || !locales.isEmpty();
 
@@ -197,7 +205,7 @@ class AndroidBinaryResourcesGraphEnhancer {
             "exopackage_modes and resource_compression_mode for android_binary %s are "
                 + "incompatible. Either remove %s from exopackage_modes or disable storing strings "
                 + "as assets.",
-            buildTarget, AndroidBinary.ExopackageMode.RESOURCES);
+            buildTarget, ExopackageMode.RESOURCES);
       }
       packageStringAssets =
           Optional.of(
@@ -213,20 +221,29 @@ class AndroidBinaryResourcesGraphEnhancer {
     resultBuilder.setPackageStringAssets(packageStringAssets);
 
     SourcePath pathToRDotTxt;
+    final ImmutableList<ExopackagePathAndHash> exoResources;
     if (exopackageForResources) {
       MergeAssets mergeAssets =
           createMergeAssetsRule(packageableCollection.getAssetsDirectories(), Optional.empty());
       SplitResources splitResources =
           createSplitResourcesRule(
               aaptOutputInfo.getPrimaryResourcesApkPath(), aaptOutputInfo.getPathToRDotTxt());
+      MergeThirdPartyJarResources mergeThirdPartyJarResource =
+          createMergeThirdPartyJarResources(packageableCollection.getPathsToThirdPartyJars());
 
       ruleResolver.addToIndex(mergeAssets);
       ruleResolver.addToIndex(splitResources);
+      ruleResolver.addToIndex(mergeThirdPartyJarResource);
 
       pathToRDotTxt = splitResources.getPathToRDotTxt();
       resultBuilder.setPrimaryResourcesApkPath(splitResources.getPathToPrimaryResources());
-      resultBuilder.addExoResources(splitResources.getPathToExoResources());
-      resultBuilder.addExoResources(mergeAssets.getSourcePathToOutput());
+
+      exoResources =
+          ImmutableList.of(
+              withFileHashCodeRule(splitResources.getPathToExoResources(), "exo_resources"),
+              withFileHashCodeRule(mergeAssets.getSourcePathToOutput(), "merged_assets"),
+              withFileHashCodeRule(
+                  mergeThirdPartyJarResource.getSourcePathToOutput(), "third_party_jar_resources"));
 
       ruleResolver.addToIndex(splitResources);
       ruleResolver.addToIndex(mergeAssets);
@@ -243,7 +260,9 @@ class AndroidBinaryResourcesGraphEnhancer {
         resultBuilder.addPrimaryApkAssetZips(
             packageStringAssets.get().getSourcePathToStringAssetsZip());
       }
+      exoResources = ImmutableList.of();
     }
+    resultBuilder.setExoResources(exoResources);
 
     Optional<GenerateRDotJava> generateRDotJava = Optional.empty();
     if (filteredResourcesProvider.hasResources()) {
@@ -256,7 +275,8 @@ class AndroidBinaryResourcesGraphEnhancer {
       ruleResolver.addToIndex(generateRDotJava.get());
 
       if (shouldBuildStringSourceMap) {
-        ruleResolver.addToIndex(createGenerateStringSourceMap());
+        ruleResolver.addToIndex(
+            createGenerateStringSourceMap(pathToRDotTxt, filteredResourcesProvider));
       }
     }
 
@@ -267,6 +287,27 @@ class AndroidBinaryResourcesGraphEnhancer {
         .setRDotJavaDir(
             generateRDotJava.map(GenerateRDotJava::getSourcePathToGeneratedRDotJavaSrcFiles))
         .build();
+  }
+
+  private ExopackagePathAndHash withFileHashCodeRule(SourcePath pathToFile, String name) {
+    WriteFileHashCode fileHashCode =
+        new WriteFileHashCode(
+            buildTarget.withAppendedFlavors(
+                WRITE_EXO_RESOURCES_HASH_FLAVOR, InternalFlavor.of(name)),
+            projectFilesystem,
+            ruleFinder,
+            pathToFile);
+    ruleResolver.addToIndex(fileHashCode);
+    return ExopackagePathAndHash.of(pathToFile, fileHashCode.getSourcePathToOutput());
+  }
+
+  private MergeThirdPartyJarResources createMergeThirdPartyJarResources(
+      ImmutableSet<SourcePath> pathsToThirdPartyJars) {
+    return new MergeThirdPartyJarResources(
+        buildTarget.withAppendedFlavors(MERGE_THIRD_PARTY_JAR_RESOURCES_FLAVOR),
+        projectFilesystem,
+        ruleFinder,
+        pathsToThirdPartyJars);
   }
 
   private SplitResources createSplitResourcesRule(
@@ -333,16 +374,18 @@ class AndroidBinaryResourcesGraphEnhancer {
         bannedDuplicateResourceTypes,
         pathToRDotTxtFile,
         resourceUnionPackage,
-        shouldBuildStringSourceMap,
         resourceDeps,
         resourcesProvider);
   }
 
-  private GenerateStringSourceMap createGenerateStringSourceMap() {
+  private GenerateStringSourceMap createGenerateStringSourceMap(
+      SourcePath pathToRDotTxtFile, FilteredResourcesProvider filteredResourcesProvider) {
     return new GenerateStringSourceMap(
         buildTarget.withAppendedFlavors(GENERATE_STRING_SOURCE_MAP_FLAVOR),
         projectFilesystem,
-        ruleFinder);
+        ruleFinder,
+        pathToRDotTxtFile,
+        filteredResourcesProvider);
   }
 
   private ResourcesFilter createResourcesFilter(

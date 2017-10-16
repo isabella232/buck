@@ -24,9 +24,9 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.WatchmanDiagnosticEvent;
-import com.facebook.buck.json.BuildFileParseException;
-import com.facebook.buck.json.ProjectBuildFileParserOptions;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.TestCellBuilder;
@@ -142,10 +142,7 @@ public class PythonDslProjectBuildFileParserTest {
       buildFileParser.initIfNeeded();
       buildFileParser.getAllRulesAndMetaRules(Paths.get("foo"), new AtomicLong());
     }
-    assertThat(
-        consoleEvents,
-        Matchers.contains(
-            Matchers.hasToString("Warning raised by BUCK file parser: Don't Panic!")));
+    assertThat(consoleEvents.get(1).getMessage(), Matchers.containsString("| Don't Panic!"));
   }
 
   @Test

@@ -22,7 +22,7 @@ import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -34,6 +34,7 @@ import com.google.common.base.Predicate;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -72,6 +73,15 @@ public class CxxPreprocessables {
       @Override
       public Iterable<String> includeArgs(Preprocessor pp, Iterable<String> includeRoots) {
         return pp.quoteIncludeArgs(includeRoots);
+      }
+    },
+
+    /** Headers are not added by buck */
+    RAW {
+      @Override
+      public Iterable<String> includeArgs(
+          Preprocessor preprocessor, Iterable<String> includeRoots) {
+        return ImmutableList.of();
       }
     },
     ;
@@ -215,14 +225,21 @@ public class CxxPreprocessables {
               @Override
               public ImmutableMap<BuildTarget, CxxPreprocessorInput> load(
                   @Nonnull CxxPlatform key) {
-                Map<BuildTarget, CxxPreprocessorInput> builder = new LinkedHashMap<>();
-                builder.put(
-                    preprocessorDep.getBuildTarget(), preprocessorDep.getCxxPreprocessorInput(key));
-                for (CxxPreprocessorDep dep : preprocessorDep.getCxxPreprocessorDeps(key)) {
-                  builder.putAll(dep.getTransitiveCxxPreprocessorInput(key));
-                }
-                return ImmutableMap.copyOf(builder);
+                return computeTransitiveCxxToPreprocessorInputMap(key, preprocessorDep, true);
               }
             });
+  }
+
+  public static ImmutableMap<BuildTarget, CxxPreprocessorInput>
+      computeTransitiveCxxToPreprocessorInputMap(
+          @Nonnull CxxPlatform key, CxxPreprocessorDep preprocessorDep, boolean includeDep) {
+    Map<BuildTarget, CxxPreprocessorInput> builder = new LinkedHashMap<>();
+    if (includeDep) {
+      builder.put(preprocessorDep.getBuildTarget(), preprocessorDep.getCxxPreprocessorInput(key));
+    }
+    for (CxxPreprocessorDep dep : preprocessorDep.getCxxPreprocessorDeps(key)) {
+      builder.putAll(dep.getTransitiveCxxPreprocessorInput(key));
+    }
+    return ImmutableMap.copyOf(builder);
   }
 }

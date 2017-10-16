@@ -31,23 +31,28 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.config.ConfigBuilder;
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.config.ActionGraphParallelizationMode;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.listener.BroadcastEventListener;
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.json.BuildFileParseException;
-import com.facebook.buck.json.ParseBuckFileEvent;
+import com.facebook.buck.io.WatchmanOverflowEvent;
+import com.facebook.buck.io.WatchmanPathEvent;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.parser.events.ParseBuckFileEvent;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
 import com.facebook.buck.rules.ActionGraphCache;
@@ -66,8 +71,7 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.buck.util.WatchmanOverflowEvent;
-import com.facebook.buck.util.WatchmanPathEvent;
+import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -82,13 +86,6 @@ import com.google.common.eventbus.Subscribe;
 import com.google.common.hash.HashCode;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.google.devtools.build.lib.syntax.BuildFileAST;
-import com.google.devtools.build.lib.syntax.Environment;
-import com.google.devtools.build.lib.syntax.Mutability;
-import com.google.devtools.build.lib.syntax.ParserInputSource;
-import com.google.devtools.build.lib.util.BlazeClock;
-import com.google.devtools.build.lib.vfs.FileSystemUtils;
-import com.google.devtools.build.lib.vfs.inmemoryfs.InMemoryFileSystem;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -205,7 +202,8 @@ public class ParserTest {
     // Create a temp directory with some build files.
     Path root = tempDir.getRoot().toRealPath();
     filesystem =
-        new ProjectFilesystem(root, ConfigBuilder.createFromText("[project]", "ignore = **/*.swp"));
+        TestProjectFilesystems.createProjectFilesystem(
+            root, ConfigBuilder.createFromText("[project]", "ignore = **/*.swp"));
     cellRoot = filesystem.getRootPath();
     eventBus = BuckEventBusForTests.newInstance();
 
@@ -1116,7 +1114,7 @@ public class ParserTest {
 
     Path newTempDir = Files.createTempDirectory("junit-temp-path").toRealPath();
     Files.createFile(newTempDir.resolve("bar.py"));
-    ProjectFilesystem newFilesystem = new ProjectFilesystem(newTempDir);
+    ProjectFilesystem newFilesystem = TestProjectFilesystems.createProjectFilesystem(newTempDir);
     BuckConfig config =
         FakeBuckConfig.builder()
             .setFilesystem(newFilesystem)
@@ -1190,6 +1188,28 @@ public class ParserTest {
             WatchmanPathEvent.Kind.MODIFY,
             Paths.get("bar").resolve("BUCK"));
     parser.onFileSystemChange(modifyEvent);
+
+    parser.buildTargetGraph(eventBus, cell, false, executorService, buildTargets);
+  }
+
+  @Test
+  public void depsetCanBeUsedForSpecifyingDeps() throws Exception {
+    tempDir.newFolder("foo");
+    tempDir.newFolder("bar");
+
+    Path testFooBuckFile = tempDir.newFile("foo/BUCK");
+    Files.write(
+        testFooBuckFile, "java_library(name = 'foo', visibility=['PUBLIC'])\n".getBytes(UTF_8));
+
+    Path testBarBuckFile = tempDir.newFile("bar/BUCK");
+    Files.write(
+        testBarBuckFile,
+        ("java_library(name = 'bar',\n" + "  deps = depset(['//foo:foo']))\n").getBytes(UTF_8));
+
+    // Fetch //bar:bar#src to put it in cache.
+    BuildTarget barTarget =
+        BuildTargetFactory.newInstance(cellRoot, "//bar", "bar", InternalFlavor.of("src"));
+    Iterable<BuildTarget> buildTargets = ImmutableList.of(barTarget);
 
     parser.buildTargetGraph(eventBus, cell, false, executorService, buildTargets);
   }
@@ -1418,7 +1438,7 @@ public class ParserTest {
 
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
-          ImmutableSortedSet.of(new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java"))),
+          ImmutableSortedSet.of(PathSourcePath.of(filesystem, Paths.get("foo/bar/Bar.java"))),
           libRule.getJavaSrcs());
     }
 
@@ -1436,8 +1456,8 @@ public class ParserTest {
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
           ImmutableSet.of(
-              new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java")),
-              new PathSourcePath(filesystem, Paths.get("foo/bar/Baz.java"))),
+              PathSourcePath.of(filesystem, Paths.get("foo/bar/Bar.java")),
+              PathSourcePath.of(filesystem, Paths.get("foo/bar/Baz.java"))),
           libRule.getJavaSrcs());
     }
   }
@@ -1472,8 +1492,8 @@ public class ParserTest {
 
       assertEquals(
           ImmutableSortedSet.of(
-              new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java")),
-              new PathSourcePath(filesystem, Paths.get("foo/bar/Baz.java"))),
+              PathSourcePath.of(filesystem, Paths.get("foo/bar/Bar.java")),
+              PathSourcePath.of(filesystem, Paths.get("foo/bar/Baz.java"))),
           libRule.getJavaSrcs());
     }
 
@@ -1490,7 +1510,7 @@ public class ParserTest {
 
       JavaLibrary libRule = (JavaLibrary) resolver.requireRule(libTarget);
       assertEquals(
-          ImmutableSortedSet.of(new PathSourcePath(filesystem, Paths.get("foo/bar/Bar.java"))),
+          ImmutableSortedSet.of(PathSourcePath.of(filesystem, Paths.get("foo/bar/Bar.java"))),
           libRule.getJavaSrcs());
     }
   }
@@ -1788,6 +1808,7 @@ public class ParserTest {
   public void defaultFlavorsInRuleArgsAppliedToTarget() throws Exception {
     // We depend on Xcode platforms for this test.
     assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     Path buckFile = cellRoot.resolve("lib/BUCK");
     Files.createDirectories(buckFile.getParent());
@@ -1828,6 +1849,7 @@ public class ParserTest {
   public void defaultFlavorsInConfigAppliedToTarget() throws Exception {
     // We depend on Xcode platforms for this test.
     assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     Path buckFile = cellRoot.resolve("lib/BUCK");
     Files.createDirectories(buckFile.getParent());
@@ -2189,22 +2211,33 @@ public class ParserTest {
   }
 
   @Test
-  public void testSkylark() throws Exception {
-    InMemoryFileSystem fileSystem = new InMemoryFileSystem(BlazeClock.instance());
-    com.google.devtools.build.lib.vfs.Path root = fileSystem.getPath("/");
-    com.google.devtools.build.lib.vfs.Path buckFile = root.getChild("BUCK");
-    FileSystemUtils.writeContentAsLatin1(buckFile, "x = 1 + 2");
-    BuildFileAST buildFileAst =
-        BuildFileAST.parseBuildFile(ParserInputSource.create(buckFile), null);
-    try (Mutability mutability = Mutability.create("test")) {
-      Environment env = Environment.builder(mutability).build();
-      assertTrue(buildFileAst.exec(env, /* eventHandler */ null));
-      assertEquals(env.lookup("x"), 3);
-    }
+  public void testSkylarkSyntaxParsing() throws Exception {
+    Path buckFile = cellRoot.resolve("BUCK");
+    Files.write(
+        buckFile,
+        Joiner.on("\n")
+            .join(
+                ImmutableList.of(
+                    "# BUILD FILE SYNTAX: SKYLARK",
+                    "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')",
+                    "glob(['*.txt'])"))
+            .getBytes(UTF_8));
+
+    BuckConfig config =
+        FakeBuckConfig.builder()
+            .setFilesystem(filesystem)
+            .setSections("[parser]", "polyglot_parsing_enabled=true")
+            .build();
+
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
+
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
   }
 
   private BuildRuleResolver buildActionGraph(BuckEventBus eventBus, TargetGraph targetGraph) {
-    return Preconditions.checkNotNull(ActionGraphCache.getFreshActionGraph(eventBus, targetGraph))
+    return Preconditions.checkNotNull(
+            ActionGraphCache.getFreshActionGraph(
+                eventBus, targetGraph, ActionGraphParallelizationMode.DISABLED))
         .getResolver();
   }
 

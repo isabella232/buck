@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.scala;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
@@ -35,7 +35,7 @@ public class FauxScalaLibraryBuilder
 
   private FauxScalaLibraryBuilder(
       BuildTarget target, ProjectFilesystem projectFilesystem, HashCode hashCode) {
-    super(new ScalaLibraryDescription(null), target, projectFilesystem, hashCode);
+    super(new ScalaLibraryDescription(null, null, null), target, projectFilesystem, hashCode);
     this.projectFilesystem = projectFilesystem;
   }
 
@@ -49,6 +49,6 @@ public class FauxScalaLibraryBuilder
   }
 
   public FauxScalaLibraryBuilder addSrc(Path path) {
-    return addSrc(new PathSourcePath(projectFilesystem, path));
+    return addSrc(PathSourcePath.of(projectFilesystem, path));
   }
 }

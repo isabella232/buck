@@ -17,14 +17,16 @@
 package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.JacocoConstants.JACOCO_EXEC_COVERAGE_FILE;
+import static java.util.stream.Collectors.joining;
 
-import com.facebook.buck.io.MoreFiles;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.test.CoverageReportFormat;
-import com.facebook.buck.zip.Unzip;
+import com.facebook.buck.util.zip.Unzip;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -50,7 +52,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
   private final Set<String> sourceDirectories;
   private final Set<Path> jarFiles;
   private final Path outputDirectory;
-  private CoverageReportFormat format;
+  private final Set<CoverageReportFormat> formats;
   private final String title;
   private final Path propertyFile;
   private final Optional<String> coverageIncludes;
@@ -62,7 +64,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
       Set<String> sourceDirectories,
       Set<Path> jarFiles,
       Path outputDirectory,
-      CoverageReportFormat format,
+      Set<CoverageReportFormat> formats,
       String title,
       Optional<String> coverageIncludes,
       Optional<String> coverageExcludes) {
@@ -72,7 +74,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
     this.sourceDirectories = ImmutableSet.copyOf(sourceDirectories);
     this.jarFiles = ImmutableSet.copyOf(jarFiles);
     this.outputDirectory = outputDirectory;
-    this.format = format;
+    this.formats = formats;
     this.title = title;
     this.propertyFile = outputDirectory.resolve("parameters.properties");
     this.coverageIncludes = coverageIncludes;
@@ -94,7 +96,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
         extractedClassesDirectories.add(jarFile);
       } else {
         Path extractClassDir = Files.createTempDirectory("extractedClasses");
-        populateClassesDir(jarFile, extractClassDir);
+        populateClassesDir(context.getProjectFilesystemFactory(), jarFile, extractClassDir);
         extractedClassesDirectories.add(extractClassDir);
         tempDirs.add(extractClassDir);
       }
@@ -130,7 +132,9 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
 
     properties.setProperty("jacoco.output.dir", filesystem.resolve(outputDirectory).toString());
     properties.setProperty("jacoco.exec.data.file", JACOCO_EXEC_COVERAGE_FILE);
-    properties.setProperty("jacoco.format", format.toString().toLowerCase());
+    properties.setProperty(
+        "jacoco.format",
+        formats.stream().map(format -> format.name().toLowerCase()).collect(joining(",")));
     properties.setProperty("jacoco.title", title);
 
     properties.setProperty("classes.jars", formatPathSet(jarFiles));
@@ -172,12 +176,17 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
    * ReportGenerator.java needs a class-directory to work with, so if we instead have a jar file we
    * extract it first.
    */
-  private void populateClassesDir(Path outputJar, Path classesDir) throws InterruptedException {
+  private void populateClassesDir(
+      ProjectFilesystemFactory projectFilesystemFactory, Path outputJar, Path classesDir)
+      throws InterruptedException {
     try {
       Preconditions.checkState(
           filesystem.exists(outputJar), String.valueOf(outputJar) + " does not exist");
       Unzip.extractZipFile(
-          outputJar, classesDir, Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+          projectFilesystemFactory,
+          outputJar,
+          classesDir,
+          Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

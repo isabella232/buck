@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rust;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
@@ -24,6 +24,7 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -38,6 +39,31 @@ public class RustBuckConfig {
   private static final String RUSTC_CHECK_FLAGS = "rustc_check_flags";
   private static final String RUSTC_TEST_FLAGS = "rustc_test_flags";
   private static final String UNFLAVORED_BINARIES = "unflavored_binaries";
+  private static final String REMAP_SRC_PATHS = "remap_src_paths";
+
+  enum RemapSrcPaths {
+    NO, // no path remapping
+    UNSTABLE, // remap using unstable command-line option
+    YES, // remap using stable command-line option
+    ;
+
+    public void addRemapOption(ImmutableList.Builder<String> cmd, String basedir) {
+      switch (this) {
+        case NO:
+          break;
+        case UNSTABLE:
+          cmd.add("-Zremap-path-prefix-from=" + basedir);
+          cmd.add("-Zremap-path-prefix-to=");
+          break;
+        case YES:
+          cmd.add("--remap-path-prefix");
+          cmd.add(basedir + "=");
+          break;
+        default:
+          throw new RuntimeException("addRemapOption() not implemented for " + this);
+      }
+    }
+  }
 
   private final BuckConfig delegate;
 
@@ -47,6 +73,7 @@ public class RustBuckConfig {
 
   ToolProvider getRustCompiler() {
     return delegate
+        .getView(ToolConfig.class)
         .getToolProvider(SECTION, "compiler")
         .orElseGet(
             () -> {
@@ -124,7 +151,7 @@ public class RustBuckConfig {
   }
 
   Optional<ToolProvider> getLinker() {
-    return delegate.getToolProvider(SECTION, "linker");
+    return delegate.getView(ToolConfig.class).getToolProvider(SECTION, "linker");
   }
 
   LinkerProvider getLinkerProvider(CxxPlatform cxxPlatform, LinkerProvider.Type defaultType) {
@@ -151,11 +178,23 @@ public class RustBuckConfig {
   }
 
   /**
-   * Get rustc flags for rust_library() rules.
+   * Get unflavored_binaries option. This controls whether executables have the build flavor in
+   * their path. This is useful for making the path more deterministic (though really external tools
+   * should be asking what the path is).
    *
-   * @return List of rustc_library_flags, as well as common rustc_flags.
+   * @return Boolean of whether to use unflavored paths.
    */
   boolean getUnflavoredBinaries() {
     return delegate.getBoolean(SECTION, UNFLAVORED_BINARIES).orElse(false);
+  }
+
+  /**
+   * Get source path remapping option. This controls whether we ask rustc to remap source paths in
+   * all output (ie, compiler messages, file!() macros, debug info, etc).
+   *
+   * @return Remapping mode
+   */
+  RemapSrcPaths getRemapSrcPaths() {
+    return delegate.getEnum(SECTION, REMAP_SRC_PATHS, RemapSrcPaths.class).orElse(RemapSrcPaths.NO);
   }
 }

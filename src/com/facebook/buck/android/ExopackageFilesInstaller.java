@@ -16,15 +16,15 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.InstallTrigger;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -32,6 +32,7 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -83,17 +84,7 @@ public class ExopackageFilesInstaller extends AbstractBuildRule {
   }
 
   private static ImmutableSortedSet<SourcePath> getExopackageSourcePaths(ExopackageInfo exoInfo) {
-    ImmutableSortedSet.Builder<SourcePath> builder = ImmutableSortedSet.naturalOrder();
-    exoInfo
-        .getDexInfo()
-        .ifPresent(dexInfo -> builder.add(dexInfo.getDirectory(), dexInfo.getMetadata()));
-    exoInfo
-        .getNativeLibsInfo()
-        .ifPresent(libsInfo -> builder.add(libsInfo.getDirectory(), libsInfo.getMetadata()));
-    exoInfo
-        .getResourcesInfo()
-        .ifPresent(resourcesInfo -> builder.addAll(resourcesInfo.getResourcesPaths()));
-    return builder.build();
+    return exoInfo.getRequiredPaths().collect(MoreCollectors.toImmutableSortedSet());
   }
 
   @Override

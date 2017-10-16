@@ -19,23 +19,36 @@ package com.facebook.buck.jvm.scala;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.Javac;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.Optionals;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import javax.annotation.Nullable;
 
 public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   private final ScalaBuckConfig scalaBuckConfig;
+  private final JavaBuckConfig javaBuckConfig;
   private final ExtraClasspathFromContextFunction extraClasspathFromContextFunction;
   private @Nullable Tool scalac;
 
+  public ScalaConfiguredCompilerFactory(ScalaBuckConfig config, JavaBuckConfig javaBuckConfig) {
+    this(config, javaBuckConfig, ExtraClasspathFromContextFunction.EMPTY);
+  }
+
   public ScalaConfiguredCompilerFactory(
-      ScalaBuckConfig config, ExtraClasspathFromContextFunction extraClasspathFromContextFunction) {
+      ScalaBuckConfig config,
+      JavaBuckConfig javaBuckConfig,
+      ExtraClasspathFromContextFunction extraClasspathFromContextFunction) {
     this.scalaBuckConfig = config;
+    this.javaBuckConfig = javaBuckConfig;
     this.extraClasspathFromContextFunction = extraClasspathFromContextFunction;
   }
 
@@ -47,20 +60,17 @@ public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   @Override
-  public boolean trackClassUsage(JavacOptions javacOptions) {
-    return false;
-  }
-
-  @Override
   public ConfiguredCompiler configure(
-      JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
+      @Nullable JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
 
     return new ScalacToJarStepFactory(
         getScalac(resolver),
         resolver.getRule(scalaBuckConfig.getScalaLibraryTarget()),
         scalaBuckConfig.getCompilerFlags(),
-        arg.getExtraArguments(),
+        Preconditions.checkNotNull(arg.getExtraArguments()),
         resolver.getAllRules(scalaBuckConfig.getCompilerPlugins()),
+        getJavac(resolver, arg),
+        javacOptions,
         extraClasspathFromContextFunction);
   }
 
@@ -73,5 +83,9 @@ public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
         .add(scalaBuckConfig.getScalaLibraryTarget())
         .addAll(scalaBuckConfig.getCompilerPlugins());
     Optionals.addIfPresent(scalaBuckConfig.getScalacTarget(), extraDepsBuilder);
+  }
+
+  private Javac getJavac(BuildRuleResolver resolver, @Nullable JvmLibraryArg arg) {
+    return JavacFactory.create(new SourcePathRuleFinder(resolver), javaBuckConfig, arg);
   }
 }

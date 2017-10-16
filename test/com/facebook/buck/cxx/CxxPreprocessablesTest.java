@@ -20,22 +20,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
@@ -114,14 +114,14 @@ public class CxxPreprocessablesTest {
     BuildTarget target = BuildTargetFactory.newInstance("//hello/world:test");
     ImmutableMap<String, SourcePath> headerMap =
         ImmutableMap.of(
-            "foo/bar.h", new FakeSourcePath("header1.h"),
-            "foo/hello.h", new FakeSourcePath("header2.h"));
+            "foo/bar.h", FakeSourcePath.of("header1.h"),
+            "foo/hello.h", FakeSourcePath.of("header2.h"));
 
     // Verify that the resolveHeaderMap returns sane results.
     ImmutableMap<Path, SourcePath> expected =
         ImmutableMap.of(
-            target.getBasePath().resolve("foo/bar.h"), new FakeSourcePath("header1.h"),
-            target.getBasePath().resolve("foo/hello.h"), new FakeSourcePath("header2.h"));
+            target.getBasePath().resolve("foo/bar.h"), FakeSourcePath.of("header1.h"),
+            target.getBasePath().resolve("foo/hello.h"), FakeSourcePath.of("header2.h"));
     ImmutableMap<Path, SourcePath> actual =
         CxxPreprocessables.resolveHeaderMap(target.getBasePath(), headerMap);
     assertEquals(expected, actual);
@@ -174,7 +174,7 @@ public class CxxPreprocessablesTest {
   @Test
   public void createHeaderSymlinkTreeBuildRuleHasNoDeps() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
@@ -196,7 +196,7 @@ public class CxxPreprocessablesTest {
     ImmutableMap<Path, SourcePath> links =
         ImmutableMap.of(
             Paths.get("link1"),
-            new FakeSourcePath("hello"),
+            FakeSourcePath.of("hello"),
             Paths.get("link2"),
             genrule.getSourcePathToOutput());
 

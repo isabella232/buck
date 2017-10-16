@@ -19,18 +19,18 @@ package com.facebook.buck.rust;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.io.FileScrubber;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.FileScrubber;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -64,7 +64,7 @@ public class RustCompileTest {
   public void crateRootMainInSrcs() {
     RustCompileRule linkable =
         FakeRustCompileRule.from(
-            "//:donotcare", ImmutableSortedSet.of(new FakeSourcePath("main.rs")));
+            "//:donotcare", ImmutableSortedSet.of(FakeSourcePath.of("main.rs")));
     assertThat(linkable.getCrateRoot().toString(), Matchers.endsWith("main.rs"));
   }
 
@@ -72,7 +72,7 @@ public class RustCompileTest {
   public void crateRootTargetNameInSrcs() {
     RustCompileRule linkable =
         FakeRustCompileRule.from(
-            "//:myname", ImmutableSortedSet.of(new FakeSourcePath("myname.rs")));
+            "//:myname", ImmutableSortedSet.of(FakeSourcePath.of("myname.rs")));
     assertThat(linkable.getCrateRoot().toString(), Matchers.endsWith("myname.rs"));
   }
 
@@ -82,7 +82,7 @@ public class RustCompileTest {
     RustCompileRule linkable =
         FakeRustCompileRule.from(
             "//:myname",
-            ImmutableSortedSet.of(new FakeSourcePath("main.rs"), new FakeSourcePath("myname.rs")));
+            ImmutableSortedSet.of(FakeSourcePath.of("main.rs"), FakeSourcePath.of("myname.rs")));
     linkable.getCrateRoot();
   }
 
@@ -238,7 +238,8 @@ public class RustCompileTest {
           ImmutableList.of(),
           srcs,
           rootModule,
-          true);
+          true,
+          RustBuckConfig.RemapSrcPaths.NO);
     }
 
     static FakeRustCompileRule from(String target, ImmutableSortedSet<SourcePath> srcs) {
@@ -246,7 +247,7 @@ public class RustCompileTest {
 
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(
-              new DefaultBuildRuleResolver(
+              new SingleThreadedBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
 
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);

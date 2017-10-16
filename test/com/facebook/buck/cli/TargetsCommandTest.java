@@ -29,10 +29,11 @@ import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -41,9 +42,9 @@ import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -110,7 +111,9 @@ public class TargetsCommandTest {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "target_command", tmp);
     workspace.setUp();
 
-    filesystem = new ProjectFilesystem(workspace.getDestPath().toRealPath().normalize());
+    filesystem =
+        TestProjectFilesystems.createProjectFilesystem(
+            workspace.getDestPath().toRealPath().normalize());
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
@@ -388,7 +391,7 @@ public class TargetsCommandTest {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//foo:lib");
     TargetNode<?, ?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryTarget)
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/foo.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/foo.m"))))
             .build();
 
     ImmutableSet<TargetNode<?, ?>> nodes = ImmutableSet.of(libraryNode);
@@ -423,15 +426,15 @@ public class TargetsCommandTest {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//foo:lib");
     TargetNode<?, ?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryTarget)
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/foo.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/foo.m"))))
             .build();
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//foo:xctest");
     TargetNode<?, ?> testNode =
         AppleTestBuilder.createBuilder(testTarget)
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/testfoo.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/testfoo.m"))))
             .setDeps(ImmutableSortedSet.of(libraryTarget))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .build();
 
     ImmutableSet<TargetNode<?, ?>> nodes = ImmutableSet.of(libraryNode, testNode);
@@ -484,7 +487,7 @@ public class TargetsCommandTest {
     BuildTarget genTarget = BuildTargetFactory.newInstance("//:gen");
     TargetNode<?, ?> genNode =
         GenruleBuilder.newGenruleBuilder(genTarget)
-            .setSrcs(ImmutableList.of(new PathSourcePath(projectFilesystem, genSrc)))
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, genSrc)))
             .setOut("out")
             .build();
 
@@ -542,30 +545,28 @@ public class TargetsCommandTest {
 
     TargetNode<?, ?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryTarget)
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/foo.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/foo.m"))))
             .setTests(ImmutableSortedSet.of(libraryTestTarget1, libraryTestTarget2))
             .build();
 
     TargetNode<?, ?> libraryTestNode1 =
         AppleTestBuilder.createBuilder(libraryTestTarget1)
-            .setSrcs(
-                ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/testfoo1.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/testfoo1.m"))))
             .setDeps(ImmutableSortedSet.of(libraryTarget))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .build();
 
     TargetNode<?, ?> libraryTestNode2 =
         AppleTestBuilder.createBuilder(libraryTestTarget2)
-            .setSrcs(
-                ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("foo/testfoo2.m"))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo/testfoo2.m"))))
             .setDeps(ImmutableSortedSet.of(testLibraryTarget))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .build();
 
     TargetNode<?, ?> testLibraryNode =
         AppleLibraryBuilder.createBuilder(testLibraryTarget)
             .setSrcs(
-                ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("testlib/testlib.m"))))
+                ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("testlib/testlib.m"))))
             .setTests(ImmutableSortedSet.of(testLibraryTestTarget))
             .build();
 
@@ -573,9 +574,9 @@ public class TargetsCommandTest {
         AppleTestBuilder.createBuilder(testLibraryTestTarget)
             .setSrcs(
                 ImmutableSortedSet.of(
-                    SourceWithFlags.of(new FakeSourcePath("testlib/testlib-test.m"))))
+                    SourceWithFlags.of(FakeSourcePath.of("testlib/testlib-test.m"))))
             .setDeps(ImmutableSortedSet.of(testLibraryTarget))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .build();
 
     ImmutableSet<TargetNode<?, ?>> nodes =

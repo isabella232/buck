@@ -19,17 +19,17 @@ package com.facebook.buck.python;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -89,9 +89,9 @@ public class PythonPackagedBinaryTest {
             "main",
             PythonPackageComponents.of(
                 ImmutableMap.of(
-                    Paths.get(main), new PathSourcePath(projectFilesystem, mainSrc),
-                    Paths.get(mod1), new PathSourcePath(projectFilesystem, src1),
-                    Paths.get(mod2), new PathSourcePath(projectFilesystem, src2)),
+                    Paths.get(main), PathSourcePath.of(projectFilesystem, mainSrc),
+                    Paths.get(mod1), PathSourcePath.of(projectFilesystem, src1),
+                    Paths.get(mod2), PathSourcePath.of(projectFilesystem, src2)),
                 ImmutableMap.of(),
                 ImmutableMap.of(),
                 ImmutableSet.of(),
@@ -108,7 +108,7 @@ public class PythonPackagedBinaryTest {
   public void testRuleKeysFromModuleLayouts() throws IOException {
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new DefaultBuildRuleResolver(
+            new SingleThreadedBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 

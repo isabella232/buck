@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.dd.plist.NSArray;
 import com.dd.plist.NSObject;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.RuleKeyAppendable;
@@ -32,6 +33,7 @@ import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -255,6 +257,8 @@ public class ProvisioningProfileStore implements RuleKeyAppendable {
                         return FileVisitResult.CONTINUE;
                       }
                     });
+              } catch (NoSuchFileException e) {
+                LOG.debug(e, "The folder containing provisioning profile was not found.");
               } catch (IOException e) {
                 if (e.getCause() instanceof InterruptedException) {
                   LOG.error(e, "Interrupted while searching for mobileprovision files");

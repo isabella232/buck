@@ -21,12 +21,12 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.MacroException;
+import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -275,7 +275,7 @@ public class CxxTestDescription
                   testEnv,
                   testArgs,
                   FluentIterable.from(args.getResources())
-                      .transform(p -> new PathSourcePath(projectFilesystem, p))
+                      .transform(p -> PathSourcePath.of(projectFilesystem, p))
                       .toSortedSet(Ordering.natural()),
                   args.getAdditionalCoverageTargets(),
                   additionalDeps,
@@ -298,7 +298,7 @@ public class CxxTestDescription
                   testEnv,
                   testArgs,
                   FluentIterable.from(args.getResources())
-                      .transform(p -> new PathSourcePath(projectFilesystem, p))
+                      .transform(p -> PathSourcePath.of(projectFilesystem, p))
                       .toSortedSet(Ordering.natural()),
                   args.getAdditionalCoverageTargets(),
                   additionalDeps,
@@ -407,11 +407,6 @@ public class CxxTestDescription
     return CxxDescriptionEnhancer.createCompilationDatabaseDependencies(
             buildTarget, cxxPlatforms, resolver, args)
         .map(metadataClass::cast);
-  }
-
-  @Override
-  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
-    return true;
   }
 
   @BuckStyleImmutable

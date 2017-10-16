@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.DexProducedFromJavaLibrary.BuildOutput;
 import com.facebook.buck.dalvik.EstimateDexWeightStep;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -166,16 +166,19 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
 
               @Nullable Collection<String> referencedResources = dx.getResourcesReferencedInCode();
               if (referencedResources != null) {
-                buildableContext.addMetadata(
+                writeMetadataValues(
+                    buildableContext,
                     REFERENCED_RESOURCES,
                     Ordering.natural().immutableSortedCopy(referencedResources));
               }
             }
 
-            buildableContext.addMetadata(WEIGHT_ESTIMATE, String.valueOf(weightEstimate.get()));
+            writeMetadataValue(
+                buildableContext, WEIGHT_ESTIMATE, String.valueOf(weightEstimate.get()));
 
             // Record the classnames to hashes map.
-            buildableContext.addMetadata(
+            writeMetadataValue(
+                buildableContext,
                 CLASSNAMES_TO_HASHES,
                 ObjectMappers.WRITER.writeValueAsString(
                     Maps.transformValues(classNamesToHashes, Object::toString)));
@@ -190,16 +193,52 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
 
   @Override
   public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
-    int weightEstimate = Integer.parseInt(onDiskBuildInfo.getValue(WEIGHT_ESTIMATE).get());
+    int weightEstimate =
+        Integer.parseInt(
+            readMetadataValue(getProjectFilesystem(), getBuildTarget(), WEIGHT_ESTIMATE).get());
     Map<String, String> map =
         ObjectMappers.readValue(
-            onDiskBuildInfo.getValue(CLASSNAMES_TO_HASHES).get(),
+            readMetadataValue(getProjectFilesystem(), getBuildTarget(), CLASSNAMES_TO_HASHES).get(),
             new TypeReference<Map<String, String>>() {});
     Map<String, HashCode> classnamesToHashes = Maps.transformValues(map, HashCode::fromString);
-    Optional<ImmutableList<String>> referencedResources =
-        onDiskBuildInfo.getValues(REFERENCED_RESOURCES);
+    Optional<ImmutableList<String>> referencedResources = readMetadataValues(REFERENCED_RESOURCES);
     return new BuildOutput(
         weightEstimate, ImmutableSortedMap.copyOf(classnamesToHashes), referencedResources);
+  }
+
+  private static Path getMetadataPath(
+      ProjectFilesystem projectFilesystem, BuildTarget buildTarget, String key) {
+    return BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/metadata/" + key);
+  }
+
+  private void writeMetadataValues(
+      BuildableContext buildableContext, String key, ImmutableList<String> values)
+      throws IOException {
+    writeMetadataValue(buildableContext, key, ObjectMappers.WRITER.writeValueAsString(values));
+  }
+
+  private void writeMetadataValue(BuildableContext buildableContext, String key, String value)
+      throws IOException {
+    Path path = getMetadataPath(getProjectFilesystem(), getBuildTarget(), key);
+    getProjectFilesystem().mkdirs(path.getParent());
+    getProjectFilesystem().writeContentsToPath(value, path);
+    buildableContext.recordArtifact(path);
+  }
+
+  @VisibleForTesting
+  static Optional<String> readMetadataValue(
+      ProjectFilesystem projectFilesystem, BuildTarget buildTarget, String key) {
+    Path path = getMetadataPath(projectFilesystem, buildTarget, key);
+    return projectFilesystem.readFileIfItExists(path);
+  }
+
+  private Optional<ImmutableList<String>> readMetadataValues(String key) throws IOException {
+    Optional<String> value = readMetadataValue(getProjectFilesystem(), getBuildTarget(), key);
+    if (value.isPresent()) {
+      return Optional.of(
+          ObjectMappers.readValue(value.get(), new TypeReference<ImmutableList<String>>() {}));
+    }
+    return Optional.empty();
   }
 
   @Override
@@ -208,7 +247,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   }
 
   static class BuildOutput {
-    private final int weightEstimate;
+    @VisibleForTesting final int weightEstimate;
     private final ImmutableSortedMap<String, HashCode> classnamesToHashes;
     private final Optional<ImmutableList<String>> referencedResources;
 

@@ -18,14 +18,16 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
@@ -67,7 +69,7 @@ import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -78,16 +80,26 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
+import org.kohsuke.args4j.OptionDef;
+import org.kohsuke.args4j.spi.Messages;
+import org.kohsuke.args4j.spi.OptionHandler;
+import org.kohsuke.args4j.spi.Parameters;
+import org.kohsuke.args4j.spi.Setter;
 
 public class TestCommand extends BuildCommand {
 
@@ -102,8 +114,13 @@ public class TestCommand extends BuildCommand {
   @Option(name = "--code-coverage", usage = "Whether code coverage information will be generated.")
   private boolean isCodeCoverageEnabled = false;
 
-  @Option(name = "--code-coverage-format", usage = "Format to be used for coverage")
-  private CoverageReportFormat coverageReportFormat = CoverageReportFormat.HTML;
+  @Option(
+    name = "--code-coverage-format",
+    usage = "Comma separated Formats to be used for coverage",
+    handler = CoverageReportFormatsHandler.class
+  )
+  private CoverageReportFormat[] coverageReportFormats =
+      new CoverageReportFormat[] {CoverageReportFormat.HTML};
 
   @Option(name = "--code-coverage-title", usage = "Title used for coverage")
   private String coverageReportTitle = "Code-Coverage Analysis";
@@ -236,14 +253,19 @@ public class TestCommand extends BuildCommand {
     return buckConfig.getNumThreads();
   }
 
-  public int getNumTestManagedThreads(BuckConfig buckConfig) {
+  public int getNumTestManagedThreads(ResourcesConfig resourcesConfig) {
     if (isDebugEnabled()) {
       return 1;
     }
-    return buckConfig.getManagedThreadCount();
+    return resourcesConfig.getManagedThreadCount();
   }
 
   private TestRunningOptions getTestRunningOptions(CommandRunnerParams params) {
+    // this.coverageReportFormats should never be empty, but doing this to avoid problems with
+    // EnumSet.copyOf throwing Exception on empty parameter.
+    EnumSet<CoverageReportFormat> coverageFormats = EnumSet.noneOf(CoverageReportFormat.class);
+    coverageFormats.addAll(Arrays.asList(this.coverageReportFormats));
+
     TestRunningOptions.Builder builder =
         TestRunningOptions.builder()
             .setCodeCoverageEnabled(isCodeCoverageEnabled)
@@ -253,7 +275,7 @@ public class TestCommand extends BuildCommand {
             .setShufflingTests(isShufflingTests)
             .setPathToXmlTestOutput(Optional.ofNullable(pathToXmlTestOutput))
             .setPathToJavaAgent(Optional.ofNullable(pathToJavaAgent))
-            .setCoverageReportFormat(coverageReportFormat)
+            .setCoverageReportFormats(coverageFormats)
             .setCoverageReportTitle(coverageReportTitle)
             .setEnvironmentOverrides(environmentOverrides);
 
@@ -286,13 +308,14 @@ public class TestCommand extends BuildCommand {
       return 1;
     }
 
+    ResourcesConfig resourcesConfig = params.getBuckConfig().getView(ResourcesConfig.class);
     ConcurrencyLimit concurrencyLimit =
         new ConcurrencyLimit(
             getNumTestThreads(params.getBuckConfig()),
-            params.getBuckConfig().getResourceAllocationFairness(),
-            getNumTestManagedThreads(params.getBuckConfig()),
-            params.getBuckConfig().getDefaultResourceAmounts(),
-            params.getBuckConfig().getMaximumResourceAmounts());
+            resourcesConfig.getResourceAllocationFairness(),
+            getNumTestManagedThreads(resourcesConfig),
+            resourcesConfig.getDefaultResourceAmounts(),
+            resourcesConfig.getMaximumResourceAmounts());
     try (CommandThreadManager testPool = new CommandThreadManager("Test-Run", concurrencyLimit)) {
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(build.getRuleResolver());
       return TestRunning.runTests(
@@ -300,7 +323,7 @@ public class TestCommand extends BuildCommand {
           testRules,
           build.getExecutionContext(),
           getTestRunningOptions(params),
-          testPool.getListeningExecutorService(),
+          testPool.getWeightedListeningExecutorService(),
           buildEngine,
           new DefaultStepRunner(),
           buildContext,
@@ -351,6 +374,19 @@ public class TestCommand extends BuildCommand {
                   }
                 })
             .collect(MoreCollectors.toImmutableList());
+
+    StreamSupport.stream(
+            testRules.spliterator(),
+            params.getBuckConfig().isParallelExternalTestSpecComputationEnabled())
+        .map(ExternalTestRunnerRule.class::cast)
+        .forEach(
+            rule -> {
+              try {
+                rule.onPreTest(buildContext);
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            });
 
     // Serialize the specs to a file to pass into the test runner.
     Path infoFile =
@@ -504,15 +540,12 @@ public class TestCommand extends BuildCommand {
       }
 
       ActionGraphAndResolver actionGraphAndResolver =
-          Preconditions.checkNotNull(
-              params
-                  .getActionGraphCache()
-                  .getActionGraph(
-                      params.getBuckEventBus(),
-                      params.getBuckConfig().isActionGraphCheckingEnabled(),
-                      params.getBuckConfig().isSkipActionGraphCache(),
-                      targetGraphAndBuildTargets.getTargetGraph(),
-                      params.getBuckConfig().getKeySeed()));
+          params
+              .getActionGraphCache()
+              .getActionGraph(
+                  params.getBuckEventBus(),
+                  targetGraphAndBuildTargets.getTargetGraph(),
+                  params.getBuckConfig());
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules =
           Iterables.filter(actionGraphAndResolver.getActionGraph().getNodes(), TestRule.class);
@@ -694,5 +727,61 @@ public class TestCommand extends BuildCommand {
   @Override
   public String getShortDescription() {
     return "builds and runs the tests for the specified target";
+  }
+
+  /**
+   * args4j does not support parsing repeated (or delimiter separated) Enums by default. {@link
+   * CoverageReportFormatsHandler} implements args4j behavior for CoverageReportFormat.
+   */
+  public static class CoverageReportFormatsHandler extends OptionHandler<CoverageReportFormat> {
+
+    public CoverageReportFormatsHandler(
+        CmdLineParser parser, OptionDef option, Setter<CoverageReportFormat> setter) {
+      super(parser, option, setter);
+    }
+
+    @Override
+    public int parseArguments(Parameters params) throws CmdLineException {
+      Set<String> parsed =
+          Splitter.on(",")
+              .splitToList(params.getParameter(0))
+              .stream()
+              .map(s -> s.replaceAll("-", "_").toLowerCase())
+              .collect(Collectors.toSet());
+      List<CoverageReportFormat> formats = new ArrayList<>();
+      for (CoverageReportFormat format : CoverageReportFormat.values()) {
+        if (parsed.remove(format.name().toLowerCase())) {
+          formats.add(format);
+        }
+      }
+
+      if (parsed.size() != 0) {
+        String invalidFormats = parsed.stream().collect(Collectors.joining(","));
+        if (option.isArgument()) {
+          throw new CmdLineException(
+              owner, Messages.ILLEGAL_OPERAND, option.toString(), invalidFormats);
+        } else {
+          throw new CmdLineException(
+              owner, Messages.ILLEGAL_OPERAND, params.getParameter(-1), invalidFormats);
+        }
+      }
+
+      for (CoverageReportFormat format : formats) {
+        setter.addValue(format);
+      }
+      return 1;
+    }
+
+    @Override
+    public String getDefaultMetaVariable() {
+      return Arrays.stream(CoverageReportFormat.values())
+          .map(Enum::name)
+          .collect(Collectors.joining(" | ", "[", "]"));
+    }
+
+    @Override
+    public String getMetaVariable(ResourceBundle rb) {
+      return getDefaultMetaVariable();
+    }
   }
 }

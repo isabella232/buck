@@ -25,7 +25,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointRequest;
@@ -33,7 +33,8 @@ import com.facebook.buck.doctor.config.DoctorEndpointResponse;
 import com.facebook.buck.doctor.config.DoctorJsonResponse;
 import com.facebook.buck.doctor.config.DoctorProtocolVersion;
 import com.facebook.buck.doctor.config.DoctorSuggestion;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TestBuildEnvironmentDescription;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.HttpdForTests;
@@ -76,6 +77,7 @@ public class DoctorCommandIntegrationTest {
 
   @Rule public TemporaryPaths tempFolder = new TemporaryPaths();
   private ProjectWorkspace workspace;
+  private ProjectFilesystem filesystem;
   private HttpdForTests httpd;
 
   private UserInputFixture userInputFixture;
@@ -99,6 +101,7 @@ public class DoctorCommandIntegrationTest {
   public void setUp() throws Exception {
     userInputFixture = new UserInputFixture("0");
 
+    filesystem = TestProjectFilesystems.createProjectFilesystem(tempFolder.getRoot());
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "report", tempFolder);
     workspace.setUp();
 
@@ -141,7 +144,7 @@ public class DoctorCommandIntegrationTest {
             workspace,
             userInputFixture.getUserInput(),
             DoctorConfig.of(FakeBuckConfig.builder().build()));
-    BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
     Optional<BuildLogEntry> entry =
         helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
 
@@ -163,7 +166,7 @@ public class DoctorCommandIntegrationTest {
             userInputFixture.getUserInput(),
             createDoctorConfig(httpd.getRootUri().getPort(), "", DoctorProtocolVersion.JSON));
 
-    BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
     Optional<BuildLogEntry> entry =
         helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
 
@@ -179,10 +182,6 @@ public class DoctorCommandIntegrationTest {
 
   @Test
   public void testReportSuccessfulUpload() throws Exception {
-    ProjectFilesystem filesystem = new ProjectFilesystem(tempFolder.getRoot());
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "report", tempFolder);
-    workspace.setUp();
     // Set the last-modified time of the build command first so our user input will select it
     Path buildCommandLogDir = filesystem.resolve(LOG_PATH).getParent();
     filesystem.setLastModifiedTime(buildCommandLogDir, FileTime.from(Instant.now()));
@@ -225,7 +224,7 @@ public class DoctorCommandIntegrationTest {
           createDoctorConfig(httpd.getRootUri().getPort(), "", DoctorProtocolVersion.SIMPLE);
       DoctorReportHelper helper =
           createDoctorHelper(workspace, userInputFixture.getUserInput(), doctorConfig);
-      BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+      BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
       Optional<BuildLogEntry> entry =
           helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
       DefectSubmitResult report =
@@ -259,10 +258,6 @@ public class DoctorCommandIntegrationTest {
 
   @Test
   public void testJsonUpload() throws Exception {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "report", tempFolder);
-    workspace.setUp();
-
     try (HttpdForTests httpd = new HttpdForTests()) {
       httpd.addHandler(
           new AbstractHandler() {
@@ -297,7 +292,7 @@ public class DoctorCommandIntegrationTest {
           createDoctorConfig(httpd.getRootUri().getPort(), "", DoctorProtocolVersion.SIMPLE);
       DoctorReportHelper helper =
           createDoctorHelper(workspace, userInputFixture.getUserInput(), doctorConfig);
-      BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+      BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
       Optional<BuildLogEntry> entry =
           helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
       DefectSubmitResult report =
@@ -316,16 +311,11 @@ public class DoctorCommandIntegrationTest {
 
   @Test
   public void testExtraInfo() throws Exception {
-    ProjectFilesystem filesystem = new ProjectFilesystem(tempFolder.getRoot());
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "report", tempFolder);
-    workspace.setUp();
-
     DoctorConfig doctorConfig =
         createDoctorConfig(0, "python, extra.py", DoctorProtocolVersion.SIMPLE);
     DoctorReportHelper helper =
         createDoctorHelper(workspace, userInputFixture.getUserInput(), doctorConfig);
-    BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
     Optional<BuildLogEntry> entry =
         helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
 
@@ -361,11 +351,6 @@ public class DoctorCommandIntegrationTest {
 
   @Test
   public void testReportUploadFailure() throws Exception {
-    ProjectFilesystem filesystem = new ProjectFilesystem(tempFolder.getRoot());
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "report", tempFolder);
-    workspace.setUp();
-
     try (HttpdForTests httpd = new HttpdForTests()) {
       httpd.addHandler(
           new AbstractHandler() {
@@ -386,7 +371,7 @@ public class DoctorCommandIntegrationTest {
           createDoctorConfig(httpd.getRootUri().getPort(), "", DoctorProtocolVersion.SIMPLE);
       DoctorReportHelper helper =
           createDoctorHelper(workspace, userInputFixture.getUserInput(), doctorConfig);
-      BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
+      BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
       Optional<BuildLogEntry> entry =
           helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
       DefectSubmitResult report =

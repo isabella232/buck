@@ -21,12 +21,12 @@ import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -78,11 +78,11 @@ public class PreprocessorFlagsTest {
             {
               "frameworkPaths",
               defaultFlags.withFrameworkPaths(
-                  FrameworkPath.ofSourcePath(new FakeSourcePath("different"))),
+                  FrameworkPath.ofSourcePath(FakeSourcePath.of("different"))),
               true,
             },
             {
-              "prefixHeader", defaultFlags.withPrefixHeader(new FakeSourcePath("different")), true,
+              "prefixHeader", defaultFlags.withPrefixHeader(FakeSourcePath.of("different")), true,
             }
           });
     }
@@ -100,7 +100,7 @@ public class PreprocessorFlagsTest {
     public void shouldAffectRuleKey() {
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(
-              new DefaultBuildRuleResolver(
+              new SingleThreadedBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -113,13 +113,13 @@ public class PreprocessorFlagsTest {
       builder =
           new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
               .newBuilderForTesting(fakeBuildRule);
-      defaultFlags.appendToRuleKey(builder);
+      builder.setReflectively("flags", defaultFlags);
       RuleKey defaultRuleKey = builder.build(RuleKey::new);
 
       builder =
           new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
               .newBuilderForTesting(fakeBuildRule);
-      alteredFlags.appendToRuleKey(builder);
+      builder.setReflectively("flags", alteredFlags);
       RuleKey alteredRuleKey = builder.build(RuleKey::new);
 
       if (shouldDiffer) {
@@ -135,7 +135,7 @@ public class PreprocessorFlagsTest {
     public void flagsAreSanitized() {
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(
-              new DefaultBuildRuleResolver(
+              new SingleThreadedBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
       final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -166,7 +166,8 @@ public class PreprocessorFlagsTest {
           DefaultRuleKeyFactory.Builder<HashCode> builder =
               new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
                   .newBuilderForTesting(fakeBuildRule);
-          PreprocessorFlags.builder().setOtherFlags(flags).build().appendToRuleKey(builder);
+          builder.setReflectively(
+              "flags", PreprocessorFlags.builder().setOtherFlags(flags).build());
           return builder.build(RuleKey::new);
         }
       }

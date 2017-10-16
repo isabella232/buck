@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.io.MorePathsForTests;
+import com.facebook.buck.io.file.MorePathsForTests;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -99,8 +99,8 @@ public class StringifyAlterRuleKeyTest {
     Path path2 = Paths.get("some/thing");
     List<SourcePath> input =
         ImmutableList.of(
-            new PathSourcePath(projectFilesystem, path2),
-            new PathSourcePath(projectFilesystem, path1));
+            PathSourcePath.of(projectFilesystem, path2),
+            PathSourcePath.of(projectFilesystem, path1));
     Assert.assertEquals(
         ImmutableSet.of(path1),
         ImmutableSet.copyOf(StringifyAlterRuleKey.findAbsolutePaths(input)));
@@ -117,7 +117,7 @@ public class StringifyAlterRuleKeyTest {
             ImmutableMap.of(Optional.empty(), path1),
             ImmutableSet.of(Optional.of(path2)),
             Optional.empty(),
-            Optional.of(new PathSourcePath(projectFilesystem, path3)));
+            Optional.of(PathSourcePath.of(projectFilesystem, path3)));
     Assert.assertEquals(
         ImmutableSet.of(path1, path2, path3),
         ImmutableSet.copyOf(StringifyAlterRuleKey.findAbsolutePaths(input)));

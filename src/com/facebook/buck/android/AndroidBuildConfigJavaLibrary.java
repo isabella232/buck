@@ -16,7 +16,10 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.AbiGenerationMode;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
 import com.facebook.buck.jvm.java.HasJavaAbi;
@@ -34,6 +37,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.util.Optional;
 
 /**
@@ -44,7 +48,6 @@ import java.util.Optional;
  */
 class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements AndroidPackageable {
 
-  private static final boolean REQUIRED_FOR_SOURCE_ABI = false;
   private final AndroidBuildConfig androidBuildConfig;
 
   AndroidBuildConfigJavaLibrary(
@@ -60,7 +63,9 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
     super(
         buildTarget,
         projectFilesystem,
-        params.copyAppendingExtraDeps(ruleFinder.filterBuildRuleInputs(abiClasspath.get())),
+        ImmutableSortedSet.copyOf(
+            Iterables.concat(
+                params.getBuildDeps(), ruleFinder.filterBuildRuleInputs(abiClasspath.get()))),
         resolver,
         new JarBuildStepsFactory(
             projectFilesystem,
@@ -76,15 +81,16 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
             /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
                 androidBuildConfig.getSourcePathToOutput()),
             /* classesToRemoveFromJar */ RemoveClassesPatternsMatcher.EMPTY,
-            /* ruleRequiredForSourceAbi */ REQUIRED_FOR_SOURCE_ABI),
+            AbiGenerationMode.CLASS,
+            /* sourceOnlyAbiRuleInfo */ null),
         /* proguardConfig */ Optional.empty(),
-        /* declaredDeps */ params.getDeclaredDeps().get(),
+        /* firstOrderPackageableDeps */ params.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
         HasJavaAbi.getClassAbiJar(buildTarget),
         /* mavenCoords */ Optional.empty(),
         /* tests */ ImmutableSortedSet.of(),
-        /* requiredForSourceAbi */ REQUIRED_FOR_SOURCE_ABI);
+        /* requiredForSourceOnlyAbi */ false);
     this.androidBuildConfig = androidBuildConfig;
     Preconditions.checkState(
         params.getBuildDeps().contains(androidBuildConfig),

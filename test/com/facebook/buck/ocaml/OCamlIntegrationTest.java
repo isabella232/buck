@@ -24,10 +24,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.Configs;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxSourceRuleFactoryHelper;
@@ -37,7 +35,8 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -46,6 +45,8 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
@@ -62,14 +63,14 @@ import org.junit.Test;
 public class OCamlIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  private ProjectWorkspace workspace;
 
   @Before
   public void checkOcamlIsConfigured() throws InterruptedException, IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
     workspace.setUp();
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     Config rawConfig = Configs.createDefaultConfig(filesystem.getRootPath());
 
@@ -80,7 +81,7 @@ public class OCamlIntegrationTest {
             Architecture.detect(),
             Platform.detect(),
             ImmutableMap.copyOf(System.getenv()),
-            new DefaultCellPathResolver(filesystem.getRootPath(), rawConfig));
+            DefaultCellPathResolver.of(filesystem.getRootPath(), rawConfig));
 
     OcamlBuckConfig ocamlBuckConfig =
         new OcamlBuckConfig(
@@ -96,10 +97,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testHelloOcamlBuild() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//hello_ocaml:hello_ocaml");
     BuildTarget binary = createOcamlLinkTarget(target);
@@ -183,10 +180,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testNativePlugin() throws IOException, Exception {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     // Build the plugin
     BuildTarget pluginTarget =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocaml_native_plugin:plugin");
@@ -217,10 +210,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testLexAndYaccBuild() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//calc:calc");
     BuildTarget binary = createOcamlLinkTarget(target);
 
@@ -261,10 +250,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testCInteropBuild() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//ctest:ctest");
     BuildTarget binary = createOcamlLinkTarget(target);
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(target, binary);
@@ -320,20 +305,12 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testSimpleBuildWithLib() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//:plus");
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
   }
 
   @Test
   public void testRootBuildTarget() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//:main");
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
   }
@@ -341,10 +318,6 @@ public class OCamlIntegrationTest {
   @Test
   @Ignore("Redesign test so it does not depend on compiler/platform-specific binary artifacts.")
   public void testPrebuiltLibraryBytecodeOnly() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocaml_ext_bc:ocaml_ext");
     BuildTarget binary = createOcamlLinkTarget(target);
@@ -365,10 +338,6 @@ public class OCamlIntegrationTest {
   @Ignore("Redesign test so it does not depend on compiler/platform-specific binary artifacts.")
   public void testPrebuiltLibraryMac() throws IOException {
     if (Platform.detect() == Platform.MACOS) {
-      ProjectWorkspace workspace =
-          TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-      workspace.setUp();
-
       BuildTarget target =
           BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocaml_ext_mac:ocaml_ext");
       BuildTarget binary = createOcamlLinkTarget(target);
@@ -409,10 +378,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testCppLibraryDependency() throws InterruptedException, IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//clib:clib");
     BuildTarget binary = createOcamlLinkTarget(target);
     BuildTarget libplus = BuildTargetFactory.newInstance(workspace.getDestPath(), "//clib:plus");
@@ -465,7 +430,8 @@ public class OCamlIntegrationTest {
   @Test
   public void testConfigWarningsFlags() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "config_warnings_flags", tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "config_warnings_flags", tmp.newFolder());
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//:unused_var");
@@ -490,7 +456,8 @@ public class OCamlIntegrationTest {
   @Test
   public void testConfigInteropIncludes() throws IOException, InterruptedException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "config_interop_includes", tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "config_interop_includes", tmp.newFolder());
     workspace.setUp();
 
     Path ocamlc =
@@ -535,10 +502,6 @@ public class OCamlIntegrationTest {
 
   @Test
   public void testGenruleDependency() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
-    workspace.setUp();
-
     BuildTarget binary =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//generated:binary");
     BuildTarget generated =
@@ -557,7 +520,8 @@ public class OCamlIntegrationTest {
   @Test
   public void testCompilerFlagsDependency() throws IOException, InterruptedException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "compiler_flag_macros", tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "compiler_flag_macros", tmp.newFolder());
     workspace.setUp();
 
     String ocamlVersion = this.getOcamlVersion(workspace);

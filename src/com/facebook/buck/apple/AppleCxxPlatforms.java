@@ -21,7 +21,12 @@ import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListFormatException;
 import com.dd.plist.PropertyListParser;
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.AppleSdk;
+import com.facebook.buck.apple.toolchain.AppleSdkPaths;
+import com.facebook.buck.apple.toolchain.AppleToolchain;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.BsdArchiver;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
@@ -38,7 +43,7 @@ import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.UserFlavor;
@@ -46,8 +51,8 @@ import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.swift.SwiftBuckConfig;
-import com.facebook.buck.swift.SwiftPlatform;
-import com.facebook.buck.swift.SwiftPlatforms;
+import com.facebook.buck.swift.toolchain.SwiftPlatform;
+import com.facebook.buck.swift.toolchain.impl.SwiftPlatformFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
@@ -194,8 +199,13 @@ public class AppleCxxPlatforms {
       cflagsBuilder.add("-fembed-bitcode");
     }
 
+    AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
+
     ImmutableList.Builder<String> ldflagsBuilder = ImmutableList.builder();
-    ldflagsBuilder.addAll(Linkers.iXlinker("-sdk_version", targetSdk.getVersion(), "-ObjC"));
+    ldflagsBuilder.addAll(Linkers.iXlinker("-sdk_version", targetSdk.getVersion()));
+    if (appleConfig.linkAllObjC()) {
+      ldflagsBuilder.addAll(Linkers.iXlinker("-ObjC"));
+    }
     if (targetSdk.getApplePlatform().equals(ApplePlatform.WATCHOS)) {
       ldflagsBuilder.addAll(
           Linkers.iXlinker("-bitcode_verify", "-bitcode_hide_symbols", "-bitcode_symbol_map"));
@@ -471,7 +481,6 @@ public class AppleCxxPlatforms {
             swiftOverrideSearchPathBuilder.addAll(toolSearchPaths).build(),
             xcodeToolFinder);
 
-    AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
     platformBuilder
         .setCxxPlatform(cxxPlatform)
         .setSwiftPlatform(swiftPlatform)
@@ -500,7 +509,7 @@ public class AppleCxxPlatforms {
       String platformName,
       String targetArchitectureName,
       String version,
-      AbstractAppleSdkPaths sdkPaths,
+      AppleSdkPaths sdkPaths,
       ImmutableList<Path> toolSearchPaths,
       XcodeToolFinder xcodeToolFinder) {
     ImmutableList<String> swiftParams =
@@ -534,7 +543,7 @@ public class AppleCxxPlatforms {
 
     if (swiftc.isPresent()) {
       return Optional.of(
-          SwiftPlatforms.build(
+          SwiftPlatformFactory.build(
               platformName, sdkPaths.getToolchainPaths(), swiftc.get(), swiftStdLibTool));
     } else {
       return Optional.empty();

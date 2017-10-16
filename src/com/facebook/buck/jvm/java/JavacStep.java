@@ -18,7 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.event.CompilerErrorEvent;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.message_ipc.Connection;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -38,6 +38,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -112,6 +113,7 @@ public class JavacStep implements Step {
               firstOrderContext.getCellPathResolver(),
               firstOrderContext.getJavaPackageFinder(),
               filesystem,
+              context.getProjectFilesystemFactory(),
               usedClassesFileWriter,
               firstOrderContext.getEnvironment(),
               firstOrderContext.getProcessExecutor(),
@@ -139,8 +141,8 @@ public class JavacStep implements Step {
                   compilerParameters.getSourceFilePaths(),
                   compilerParameters.getPathToSourcesList(),
                   compilerParameters.getWorkingDirectory(),
-                  javacOptions.getCompilationMode(),
-                  compilerParameters.ruleIsRequiredForSourceAbi())) {
+                  compilerParameters.getAbiGenerationMode(),
+                  compilerParameters.getSourceOnlyAbiRuleInfo())) {
         if (abiJar != null) {
           declaredDepsBuildResult =
               invocation.buildSourceAbiJar(
@@ -221,7 +223,7 @@ public class JavacStep implements Step {
   public String getShortName() {
     String name;
     if (abiJar != null) {
-      name = "calculate_abi_from_source";
+      name = "source_abi";
     } else if (jarParameters.isPresent()) {
       name = "javac_jar";
     } else {
@@ -269,7 +271,16 @@ public class JavacStep implements Step {
         new OptionsConsumer() {
           @Override
           public void addOptionValue(String option, String value) {
-            builder.add("-" + option).add(value);
+            if (option.equals("bootclasspath")) {
+              builder
+                  .add("-bootclasspath")
+                  .add(
+                      Arrays.stream(value.split(File.pathSeparator))
+                          .map(path -> filesystem.resolve(path).toString())
+                          .collect(Collectors.joining(File.pathSeparator)));
+            } else {
+              builder.add("-" + option).add(value);
+            }
           }
 
           @Override

@@ -296,6 +296,20 @@ public class QueryCommandIntegrationTest {
   }
 
   @Test
+  public void testOwnerOnAbsolutePath() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    Path onePath = workspace.getPath("example/1.txt");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("query", "owner(%s)", onePath.toAbsolutePath().toString());
+
+    result.assertSuccess();
+    assertThat(result.getStdout(), containsString("//example:one"));
+  }
+
+  @Test
   public void testTestsofOwnerOneSevenJSON() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
@@ -507,6 +521,20 @@ public class QueryCommandIntegrationTest {
   }
 
   @Test
+  public void testTestsofDoesNotModifyGraph() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("query", "deps(testsof(deps('%s')))", "//example:one");
+    result.assertSuccess();
+    assertThat(
+        result.getStdout(),
+        is(equalToIgnoringPlatformNewlines(workspace.getFileContents("stdout-deps-testsof-deps"))));
+  }
+
+  @Test
   public void testFilterFour() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
@@ -611,7 +639,7 @@ public class QueryCommandIntegrationTest {
     public Path getProfilerPath() {
       return profilerPath;
     }
-  };
+  }
 
   @Test
   public void testQueryProfileParser() throws IOException {

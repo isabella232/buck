@@ -20,9 +20,9 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.model.BuildTarget;
@@ -31,11 +31,11 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -55,7 +55,7 @@ public class AndroidInstrumentationApkTest {
   @Test
   public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -70,7 +70,7 @@ public class AndroidInstrumentationApkTest {
           @Override
           public ImmutableSet<SourcePath> getTransitiveClasspaths() {
             return ImmutableSet.of(
-                new DefaultBuildTargetSourcePath(javaLibrary1Target), getSourcePathToOutput());
+                DefaultBuildTargetSourcePath.of(javaLibrary1Target), getSourcePathToOutput());
           }
         };
 
@@ -84,7 +84,7 @@ public class AndroidInstrumentationApkTest {
           @Override
           public ImmutableSet<SourcePath> getTransitiveClasspaths() {
             return ImmutableSet.of(
-                new DefaultBuildTargetSourcePath(javaLibrary3Target), getSourcePathToOutput());
+                DefaultBuildTargetSourcePath.of(javaLibrary3Target), getSourcePathToOutput());
           }
         };
 
@@ -95,8 +95,8 @@ public class AndroidInstrumentationApkTest {
 
     BuildRule keystore =
         KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//keystores:debug"))
-            .setProperties(new FakeSourcePath("keystores/debug.properties"))
-            .setStore(new FakeSourcePath("keystores/debug.keystore"))
+            .setProperties(FakeSourcePath.of("keystores/debug.properties"))
+            .setStore(FakeSourcePath.of("keystores/debug.keystore"))
             .build(ruleResolver);
 
     // AndroidBinaryRule transitively depends on :lib1, :lib2, and :lib3.
@@ -105,7 +105,7 @@ public class AndroidInstrumentationApkTest {
     ImmutableSortedSet<BuildTarget> originalDepsTargets =
         ImmutableSortedSet.of(javaLibrary2.getBuildTarget(), javaLibrary3.getBuildTarget());
     androidBinaryBuilder
-        .setManifest(new FakeSourcePath("apps/AndroidManifest.xml"))
+        .setManifest(FakeSourcePath.of("apps/AndroidManifest.xml"))
         .setKeystore(keystore.getBuildTarget())
         .setOriginalDeps(originalDepsTargets);
     AndroidBinary androidBinary = androidBinaryBuilder.build(ruleResolver);
@@ -119,7 +119,7 @@ public class AndroidInstrumentationApkTest {
             .setName(buildTarget.getShortName())
             .setApk(androidBinary.getBuildTarget())
             .setDeps(apkOriginalDepsTargets)
-            .setManifest(new FakeSourcePath("apps/InstrumentationAndroidManifest.xml"))
+            .setManifest(FakeSourcePath.of("apps/InstrumentationAndroidManifest.xml"))
             .build();
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.util.HumanReadableException;
@@ -55,7 +55,12 @@ abstract class AbstractTargetNode<T, U extends Description<T>>
   @Value.Parameter
   public abstract HashCode getRawInputsHashCode();
 
+  // TODO(#22139496): Currently, `Descriptions` don't implement content equality, so we exclude it
+  // from the `equals`/`hashCode` implementation of `TargetNode`.  This should be fine, as we
+  // already rely on restarting the daemon if the descriptions change in any meaningful way to
+  // maintain parser cache integrity.
   @Value.Parameter
+  @Value.Auxiliary
   public abstract U getDescription();
 
   @Value.Parameter

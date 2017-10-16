@@ -16,9 +16,9 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.MacroException;
+import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -109,7 +109,7 @@ public class ShTestDescription
         testArgs,
         testEnv,
         FluentIterable.from(args.getResources())
-            .transform(p -> new PathSourcePath(projectFilesystem, p))
+            .transform(p -> PathSourcePath.of(projectFilesystem, p))
             .toSortedSet(Ordering.natural()),
         args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
         args.getRunTestSeparately(),

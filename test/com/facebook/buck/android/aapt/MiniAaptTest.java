@@ -28,10 +28,10 @@ import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -70,7 +70,7 @@ public class MiniAaptTest {
   private final SourcePathResolver resolver =
       DefaultSourcePathResolver.from(
           new SourcePathRuleFinder(
-              new DefaultBuildRuleResolver(
+              new SingleThreadedBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -84,7 +84,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
 
@@ -149,7 +149,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -210,7 +210,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -271,7 +271,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -299,7 +299,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -331,7 +331,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processDrawables(filesystem, Paths.get("android_drawable.xml"));
@@ -368,7 +368,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processDrawables(filesystem, Paths.get("custom_drawable.xml"));
@@ -396,7 +396,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of(),
             /* resourceUnion */ false,
@@ -435,7 +435,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -458,7 +458,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -484,7 +484,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     try {
@@ -515,7 +515,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     try {
@@ -546,7 +546,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
@@ -570,7 +570,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of(depRTxt));
     ImmutableSet.Builder<RDotTxtEntry> references = ImmutableSet.builder();
@@ -607,7 +607,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processXmlFile(filesystem, resource, ImmutableSet.builder());
@@ -631,7 +631,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
     aapt.processFileNamesInDirectory(filesystem, Paths.get("res/drawable"));
@@ -670,7 +670,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of());
 
@@ -727,7 +727,7 @@ public class MiniAaptTest {
         new MiniAapt(
             resolver,
             filesystem,
-            new FakeSourcePath(filesystem, "res"),
+            FakeSourcePath.of(filesystem, "res"),
             Paths.get("R.txt"),
             ImmutableSet.of(depRTxt),
             /* resourceUnion */ true,

@@ -15,12 +15,13 @@
  */
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.toolchain.HasSystemFrameworkAndLibraries;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -102,7 +103,6 @@ public class PrebuiltAppleFrameworkDescription
         buildTarget,
         projectFilesystem,
         params,
-        resolver,
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
         args.getFramework(),
         args.getPreferredLinkage(),
@@ -110,7 +110,8 @@ public class PrebuiltAppleFrameworkDescription
         args.getSupportedPlatformsRegex(),
         input ->
             CxxFlags.getFlagsWithPlatformMacroExpansion(
-                args.getExportedLinkerFlags(), args.getExportedPlatformLinkerFlags(), input));
+                args.getExportedLinkerFlags(), args.getExportedPlatformLinkerFlags(), input),
+        appleCxxPlatformsFlavorDomain);
   }
 
   @Override

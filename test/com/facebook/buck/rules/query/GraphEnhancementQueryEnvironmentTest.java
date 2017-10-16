@@ -31,13 +31,14 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.MoreCollectors;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -56,7 +57,7 @@ public class GraphEnhancementQueryEnvironmentTest {
 
   @Before
   public void setUp() throws Exception {
-    cellRoots = new DefaultCellPathResolver(ROOT, ImmutableMap.of());
+    cellRoots = DefaultCellPathResolver.of(ROOT, ImmutableMap.of());
   }
 
   @Test
@@ -136,7 +137,8 @@ public class GraphEnhancementQueryEnvironmentTest {
             .build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode);
     BuildRuleResolver realResolver =
-        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
     FakeJavaLibrary bottomRule =
         realResolver.addToIndex(new FakeJavaLibrary(bottomNode.getBuildTarget()));
@@ -173,6 +175,19 @@ public class GraphEnhancementQueryEnvironmentTest {
     assertThat(
         env.getFwdDeps(ImmutableSet.of(getQueryTarget("//:sublib"))),
         Matchers.contains(getQueryTarget("//:bottom")));
+  }
+
+  @Test
+  public void forEachFwdDeps() {
+    GraphEnhancementQueryEnvironment env = buildQueryEnvironmentWithGraph();
+    // lib -> sublib
+    ImmutableList.Builder<Object> libDeps = ImmutableList.builder();
+    env.forEachFwdDep(ImmutableSet.of(getQueryTarget("//:lib")), libDeps::add);
+    assertThat(libDeps.build(), Matchers.contains(getQueryTarget("//:sublib")));
+    // sublib -> bottom
+    ImmutableList.Builder<Object> subLibDeps = ImmutableList.builder();
+    env.forEachFwdDep(ImmutableSet.of(getQueryTarget("//:sublib")), subLibDeps::add);
+    assertThat(subLibDeps.build(), Matchers.contains(getQueryTarget("//:bottom")));
   }
 
   @Test

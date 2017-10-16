@@ -18,7 +18,7 @@ package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -26,16 +26,17 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -45,10 +46,10 @@ import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
-import com.facebook.buck.util.cache.StackedFileHashCache;
+import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
+import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -71,7 +72,7 @@ public class InputBasedRuleKeyFactoryTest {
   public void ruleKeyDoesNotChangeWhenOnlyDependencyRuleKeyChanges() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -105,7 +106,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyChangesIfInputContentsFromPathSourceChanges() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -115,7 +116,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule rule =
         new ExportFileBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, output))
+            .setSrc(PathSourcePath.of(filesystem, output))
             .build(resolver, filesystem);
 
     // Build a rule key with a particular hash set for the output for the above rule.
@@ -138,7 +139,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathChanges() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -183,7 +184,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyChangesIfInputContentsFromPathSourcePathInRuleKeyAppendableChanges() {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -196,7 +197,7 @@ public class InputBasedRuleKeyFactoryTest {
         new NoopBuildRuleWithDeclaredAndExtraDeps(target, filesystem, params) {
           @AddToRuleKey
           RuleKeyAppendableWithInput input =
-              new RuleKeyAppendableWithInput(new PathSourcePath(filesystem, output));
+              new RuleKeyAppendableWithInput(PathSourcePath.of(filesystem, output));
         };
 
     // Build a rule key with a particular hash set for the output for the above rule.
@@ -220,7 +221,7 @@ public class InputBasedRuleKeyFactoryTest {
   public void ruleKeyChangesIfInputContentsFromBuildTargetSourcePathInRuleKeyAppendableChanges()
       throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -270,7 +271,7 @@ public class InputBasedRuleKeyFactoryTest {
   public void ruleKeyDoesNotChangeIfNonHashingSourcePathContentChanges()
       throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -281,7 +282,7 @@ public class InputBasedRuleKeyFactoryTest {
     FakeFileHashCache hashCache = new FakeFileHashCache(new HashMap<>());
 
     hashCache.set(filePath.toAbsolutePath(), HashCode.fromInt(0));
-    PathSourcePath sourcePath = new PathSourcePath(fileSystem, filePath);
+    PathSourcePath sourcePath = FakeSourcePath.of(fileSystem, filePath.toString());
     NonHashableSourcePathContainer nonHashablePath = new NonHashableSourcePathContainer(sourcePath);
     RuleKey inputKey1 = computeRuleKey(hashCache, pathResolver, ruleFinder, nonHashablePath);
 
@@ -294,7 +295,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void nestedSizeLimitExceptionHandled() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -315,7 +316,7 @@ public class InputBasedRuleKeyFactoryTest {
         new NoopBuildRuleWithDeclaredAndExtraDeps(target, filesystem, params) {
           @AddToRuleKey
           NestedRuleKeyAppendableWithInput input =
-              new NestedRuleKeyAppendableWithInput(new PathSourcePath(filesystem, inputFile));
+              new NestedRuleKeyAppendableWithInput(PathSourcePath.of(filesystem, inputFile));
         };
 
     // Verify rule key isn't calculated.
@@ -326,7 +327,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyNotCalculatedIfSizeLimitHit() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -346,7 +347,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule rule =
         new ExportFileBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, input))
+            .setSrc(PathSourcePath.of(filesystem, input))
             .build(resolver, filesystem);
 
     // Verify rule key isn't calculated.
@@ -357,7 +358,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyNotCalculatedIfSizeLimitHitWithMultipleInputs() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -381,7 +382,7 @@ public class InputBasedRuleKeyFactoryTest {
             .setOut("out")
             .setSrcs(
                 ImmutableList.of(
-                    new PathSourcePath(filesystem, input1), new PathSourcePath(filesystem, input2)))
+                    PathSourcePath.of(filesystem, input1), PathSourcePath.of(filesystem, input2)))
             .build(resolver, filesystem);
 
     // Verify rule key isn't calculated.
@@ -392,7 +393,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeyNotCalculatedIfSizeLimitHitWithDirectory() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -414,7 +415,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule rule =
         new ExportFileBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, input))
+            .setSrc(PathSourcePath.of(filesystem, input))
             .build(resolver, filesystem);
 
     // Verify rule key isn't calculated.
@@ -425,7 +426,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeysForOversizedRules() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -448,7 +449,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule tooLargeRule =
         new ExportFileBuilder(BuildTargetFactory.newInstance("//:large_rule"))
             .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, tooLargeInput))
+            .setSrc(PathSourcePath.of(filesystem, tooLargeInput))
             .build(resolver, filesystem);
     expectedException.expect(SizeLimiter.SizeLimitException.class);
     factory.build(tooLargeRule);
@@ -457,7 +458,7 @@ public class InputBasedRuleKeyFactoryTest {
   @Test
   public void ruleKeysForUndersizedRules() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -479,7 +480,7 @@ public class InputBasedRuleKeyFactoryTest {
     BuildRule smallEnoughRule =
         new ExportFileBuilder(BuildTargetFactory.newInstance("//:small_rule"))
             .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, input))
+            .setSrc(PathSourcePath.of(filesystem, input))
             .build(resolver, filesystem);
     factory.build(smallEnoughRule);
   }

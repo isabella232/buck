@@ -16,16 +16,15 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.file.Downloader;
 import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.file.StackedDownloader;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildEvent;
@@ -44,8 +43,6 @@ import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Optional;
 
 public class FetchCommand extends BuildCommand {
 
@@ -91,7 +88,10 @@ public class FetchCommand extends BuildCommand {
         actionGraphAndResolver =
             Preconditions.checkNotNull(
                 ActionGraphCache.getFreshActionGraph(
-                    params.getBuckEventBus(), ruleGenerator, result.getTargetGraph()));
+                    params.getBuckEventBus(),
+                    ruleGenerator,
+                    result.getTargetGraph(),
+                    params.getBuckConfig().getActionGraphParallelizationMode()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildTargetException | BuildFileParseException | VersionException e) {
         params
@@ -163,16 +163,8 @@ public class FetchCommand extends BuildCommand {
   }
 
   private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
-    DefaultAndroidDirectoryResolver resolver =
-        new DefaultAndroidDirectoryResolver(
-            params.getCell().getRoot().getFileSystem(),
-            params.getEnvironment(),
-            Optional.empty(),
-            Optional.empty());
-
-    Optional<Path> sdkDir = resolver.getSdkOrAbsent();
-
-    Downloader downloader = StackedDownloader.createFromConfig(params.getBuckConfig(), sdkDir);
+    Downloader downloader =
+        StackedDownloader.createFromConfig(params.getBuckConfig(), params.getToolchainProvider());
     Description<?> description = new RemoteFileDescription(downloader);
     return new FetchTargetNodeToBuildRuleTransformer(ImmutableSet.of(description));
   }

@@ -23,12 +23,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.FakeTargetNodeBuilder;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -63,7 +63,8 @@ public class ApkGenruleDescriptionTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(installableApkNode, transitiveDepNode, depNode, genruleNode);
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRule transitiveDep = resolver.requireRule(transitiveDepNode.getBuildTarget());
     BuildRule dep = resolver.requireRule(depNode.getBuildTarget());
@@ -75,7 +76,7 @@ public class ApkGenruleDescriptionTest {
   private static class FakeInstallable extends FakeBuildRule implements HasInstallableApk {
 
     SourcePath apkPath =
-        new ExplicitBuildTargetSourcePath(getBuildTarget(), Paths.get("buck-out", "app.apk"));
+        ExplicitBuildTargetSourcePath.of(getBuildTarget(), Paths.get("buck-out", "app.apk"));
 
     public FakeInstallable(BuildTarget buildTarget) {
       super(buildTarget);
@@ -85,7 +86,7 @@ public class ApkGenruleDescriptionTest {
     public ApkInfo getApkInfo() {
       return ApkInfo.builder()
           .setApkPath(apkPath)
-          .setManifestPath(new FakeSourcePath("nothing"))
+          .setManifestPath(FakeSourcePath.of("nothing"))
           .build();
     }
 

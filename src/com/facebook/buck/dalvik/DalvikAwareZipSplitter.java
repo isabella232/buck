@@ -16,8 +16,8 @@
 
 package com.facebook.buck.dalvik;
 
-import com.facebook.buck.android.APKModule;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.AbstractFileLike;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.ClasspathTraverser;
@@ -308,7 +308,8 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
   }
 
   private DalvikAwareOutputStreamHelper newZipOutput(Path file) throws IOException {
-    return new DalvikAwareOutputStreamHelper(file, linearAllocLimit, reportDir, dalvikStatsCache);
+    return new DalvikAwareOutputStreamHelper(
+        filesystem.resolve(file), linearAllocLimit, reportDir, dalvikStatsCache);
   }
 
   private class MySecondaryDexHelper extends SecondaryDexHelper<DalvikAwareOutputStreamHelper> {

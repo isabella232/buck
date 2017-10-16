@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AbstractNodeBuilder;
@@ -56,7 +56,7 @@ public class AndroidResourceBuilder
   }
 
   public AndroidResourceBuilder setRes(Path res) {
-    return setRes(new PathSourcePath(new FakeProjectFilesystem(), res));
+    return setRes(PathSourcePath.of(new FakeProjectFilesystem(), res));
   }
 
   public AndroidResourceBuilder setAssets(SourcePath assets) {

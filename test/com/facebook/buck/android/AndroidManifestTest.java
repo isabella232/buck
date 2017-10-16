@@ -20,20 +20,19 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
@@ -58,7 +57,7 @@ public class AndroidManifestTest {
     AndroidManifest androidManifest = createSimpleAndroidManifestRule();
 
     assertEquals(
-        new ExplicitBuildTargetSourcePath(
+        ExplicitBuildTargetSourcePath.of(
             androidManifest.getBuildTarget(),
             BuildTargets.getGenPath(
                 new FakeProjectFilesystem(), MANIFEST_TARGET, "AndroidManifest__%s__.xml")),
@@ -77,7 +76,7 @@ public class AndroidManifestTest {
     BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
 
     SourcePathResolver pathResolver = buildContext.getSourcePathResolver();
-    expect(pathResolver.getAbsolutePath(new PathSourcePath(filesystem, skeletonPath)))
+    expect(pathResolver.getAbsolutePath(FakeSourcePath.of(filesystem, skeletonPath)))
         .andStubReturn(filesystem.resolve(skeletonPath));
 
     expect(pathResolver.getAllAbsolutePaths(ImmutableSortedSet.of()))
@@ -116,14 +115,14 @@ public class AndroidManifestTest {
     AndroidManifestDescriptionArg arg =
         AndroidManifestDescriptionArg.builder()
             .setName("some_manifest")
-            .setSkeleton(new FakeSourcePath("java/com/example/AndroidManifestSkeleton.xml"))
+            .setSkeleton(FakeSourcePath.of("java/com/example/AndroidManifestSkeleton.xml"))
             .build();
     return description.createBuildRule(
         TargetGraph.EMPTY,
         MANIFEST_TARGET,
         projectFilesystem,
         buildRuleParams,
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
         TestCellBuilder.createCellRoots(projectFilesystem),
         arg);

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.lua;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BinaryBuildRule;
@@ -44,7 +44,7 @@ public class LuaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final String mainModule;
   private final LuaPackageComponents components;
   private final Tool lua;
-  private final LuaConfig.PackageStyle packageStyle;
+  private final LuaPlatform.PackageStyle packageStyle;
 
   public LuaBinary(
       BuildTarget buildTarget,
@@ -55,7 +55,7 @@ public class LuaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       String mainModule,
       LuaPackageComponents components,
       Tool lua,
-      LuaConfig.PackageStyle packageStyle) {
+      LuaPlatform.PackageStyle packageStyle) {
     super(buildTarget, projectFilesystem, buildRuleParams);
     Preconditions.checkArgument(!output.isAbsolute());
     this.output = output;
@@ -73,7 +73,7 @@ public class LuaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public boolean outputFileCanBeCopied() {
-    return packageStyle != LuaConfig.PackageStyle.INPLACE;
+    return packageStyle != LuaPlatform.PackageStyle.INPLACE;
   }
 
   @Override
@@ -84,7 +84,7 @@ public class LuaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
   }
 
   @VisibleForTesting

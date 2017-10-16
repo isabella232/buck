@@ -17,18 +17,23 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidBinary.RelinkerMode;
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.relinker.NativeRelinker;
+import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.PathSourcePath;
@@ -42,6 +47,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -67,32 +73,34 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private final BuildRuleResolver ruleResolver;
   private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
-  private final ImmutableSet<NdkCxxPlatforms.TargetCpuType> cpuFilters;
+  private final ImmutableSet<TargetCpuType> cpuFilters;
   private final CxxBuckConfig cxxBuckConfig;
   private final Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap;
   private final Optional<BuildTarget> nativeLibraryMergeGlue;
   private final Optional<ImmutableSortedSet<String>> nativeLibraryMergeLocalizedSymbols;
+  private final ImmutableList<Pattern> relinkerWhitelist;
   private final RelinkerMode relinkerMode;
   private final APKModuleGraph apkModuleGraph;
 
   /**
-   * Maps a {@link NdkCxxPlatforms.TargetCpuType} to the {@link CxxPlatform} we need to use to build
-   * C/C++ libraries for it.
+   * Maps a {@link TargetCpuType} to the {@link CxxPlatform} we need to use to build C/C++ libraries
+   * for it.
    */
-  private final ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms;
+  private final ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
 
   public AndroidNativeLibsPackageableGraphEnhancer(
       BuildRuleResolver ruleResolver,
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams originalParams,
-      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
-      ImmutableSet<NdkCxxPlatforms.TargetCpuType> cpuFilters,
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      ImmutableSet<TargetCpuType> cpuFilters,
       CxxBuckConfig cxxBuckConfig,
       Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap,
       Optional<BuildTarget> nativeLibraryMergeGlue,
       Optional<ImmutableSortedSet<String>> nativeLibraryMergeLocalizedSymbols,
       RelinkerMode relinkerMode,
+      ImmutableList<Pattern> relinkerWhitelist,
       APKModuleGraph apkModuleGraph) {
     this.projectFilesystem = projectFilesystem;
     this.originalBuildTarget = originalBuildTarget;
@@ -107,6 +115,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     this.nativeLibraryMergeMap = nativeLibraryMergeMap;
     this.nativeLibraryMergeGlue = nativeLibraryMergeGlue;
     this.relinkerMode = relinkerMode;
+    this.relinkerWhitelist = relinkerWhitelist;
     this.apkModuleGraph = apkModuleGraph;
   }
 
@@ -128,7 +137,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMultimap<APKModule, NativeLinkable> linkables,
       ImmutableMap.Builder<AndroidLinkableMetadata, SourcePath> builder,
       Map<AndroidLinkableMetadata, NativeLinkable> nativeLinkableMap,
-      NdkCxxPlatforms.TargetCpuType targetCpuType,
+      TargetCpuType targetCpuType,
       NdkCxxPlatform platform)
       throws HumanReadableException {
 
@@ -224,8 +233,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
     Map<AndroidLinkableMetadata, NativeLinkable> nativeLinkableLibsMap = new HashMap<>();
     Map<AndroidLinkableMetadata, NativeLinkable> nativeLinkableLibsAssetsMap = new HashMap<>();
-    for (NdkCxxPlatforms.TargetCpuType targetCpuType :
-        getFilteredPlatforms(nativePlatforms, cpuFilters)) {
+    for (TargetCpuType targetCpuType : getFilteredPlatforms(nativePlatforms, cpuFilters)) {
       NdkCxxPlatform platform = nativePlatforms.get(targetCpuType);
       // Populate nativeLinkableLibs and nativeLinkableLibsAssets with the appropriate entries.
       populateMapWithLinkables(
@@ -265,7 +273,8 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               cxxBuckConfig,
               nativePlatforms,
               nativeLinkableLibs,
-              nativeLinkableLibsAssets);
+              nativeLinkableLibsAssets,
+              relinkerWhitelist);
 
       nativeLinkableLibs = relinker.getRelinkedLibs();
       nativeLinkableLibsAssets = relinker.getRelinkedLibsAssets();
@@ -295,20 +304,19 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               FluentIterable.from(strippedLibsAssetsMap.entrySet())
                   .filter(entry -> module.equals(entry.getValue().getApkModule())));
 
-      ImmutableCollection<BuildTarget> nativeLibsTargets =
-          packageableCollection.getNativeLibsTargets().get(module);
-
       ImmutableCollection<SourcePath> nativeLibsDirectories =
           packageableCollection.getNativeLibsDirectories().get(module);
 
+      ImmutableCollection<SourcePath> nativeLibsAssetsDirectories =
+          packageableCollection.getNativeLibAssetsDirectories().get(module);
+
       if (filteredStrippedLibsMap.isEmpty()
           && filteredStrippedLibsAssetsMap.isEmpty()
-          && nativeLibsDirectories.isEmpty()) {
+          && nativeLibsDirectories.isEmpty()
+          && nativeLibsAssetsDirectories.isEmpty()) {
         continue;
       }
 
-      ImmutableSortedSet<BuildRule> nativeLibsRules =
-          BuildRules.toBuildRulesFor(originalBuildTarget, ruleResolver, nativeLibsTargets);
       moduleMappedCopyNativeLibriesBuilder.put(
           module,
           createCopyNativeLibraries(
@@ -316,7 +324,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               filteredStrippedLibsMap,
               filteredStrippedLibsAssetsMap,
               nativeLibsDirectories,
-              nativeLibsRules));
+              nativeLibsAssetsDirectories));
       hasCopyNativeLibraries = true;
     }
     return resultBuilder
@@ -351,7 +359,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                       .build();
               nativeLinkableLibsBuilder.put(
                   runtimeLinkableMetadata,
-                  new PathSourcePath(projectFilesystem, platform.getCxxSharedRuntimePath().get()));
+                  PathSourcePath.of(projectFilesystem, platform.getCxxSharedRuntimePath().get()));
             });
   }
 
@@ -360,31 +368,30 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMap<StripLinkable, StrippedObjectDescription> filteredStrippedLibsMap,
       ImmutableMap<StripLinkable, StrippedObjectDescription> filteredStrippedLibsAssetsMap,
       ImmutableCollection<SourcePath> nativeLibsDirectories,
-      ImmutableSortedSet<BuildRule> nativeLibsRules) {
+      ImmutableCollection<SourcePath> nativeLibAssetsDirectories) {
     return new CopyNativeLibraries(
         originalBuildTarget.withAppendedFlavors(
             InternalFlavor.of(COPY_NATIVE_LIBS + "_" + module.getName())),
         projectFilesystem,
         ruleFinder,
-        nativeLibsRules,
+        ImmutableSet.copyOf(filteredStrippedLibsMap.values()),
+        ImmutableSet.copyOf(filteredStrippedLibsAssetsMap.values()),
         ImmutableSet.copyOf(nativeLibsDirectories),
-        filteredStrippedLibsMap,
-        filteredStrippedLibsAssetsMap,
+        ImmutableSet.copyOf(nativeLibAssetsDirectories),
         cpuFilters,
         module.getName());
   }
 
-  private static Iterable<NdkCxxPlatforms.TargetCpuType> getFilteredPlatforms(
-      ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms,
-      ImmutableSet<NdkCxxPlatforms.TargetCpuType> cpuFilters) {
+  private static Iterable<TargetCpuType> getFilteredPlatforms(
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
+      ImmutableSet<TargetCpuType> cpuFilters) {
     // TODO(agallagher): We currently treat an empty set of filters to mean to allow everything.
     // We should fix this by assigning a default list of CPU filters in the descriptions, but
     // until we do, if the set of filters is empty, just build for all available platforms.
     if (cpuFilters.isEmpty()) {
       return nativePlatforms.keySet();
     }
-    Set<NdkCxxPlatforms.TargetCpuType> missing =
-        Sets.difference(cpuFilters, nativePlatforms.keySet());
+    Set<TargetCpuType> missing = Sets.difference(cpuFilters, nativePlatforms.keySet());
     Preconditions.checkState(
         missing.isEmpty(), "Unknown platform types <" + Joiner.on(",").join(missing) + ">");
     return cpuFilters;
@@ -395,7 +402,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     ImmutableMap.Builder<StripLinkable, StrippedObjectDescription> result = ImmutableMap.builder();
     for (Map.Entry<AndroidLinkableMetadata, SourcePath> entry : libs.entrySet()) {
       SourcePath sourcePath = entry.getValue();
-      NdkCxxPlatforms.TargetCpuType targetCpuType = entry.getKey().getTargetCpuType();
+      TargetCpuType targetCpuType = entry.getKey().getTargetCpuType();
       APKModule apkModule = entry.getKey().getApkModule();
 
       NdkCxxPlatform platform = Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
@@ -441,7 +448,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       SourcePath sourcePath,
-      NdkCxxPlatforms.TargetCpuType targetCpuType,
+      TargetCpuType targetCpuType,
       NdkCxxPlatform platform,
       BuildTarget baseBuildTarget,
       String sharedLibrarySoName) {

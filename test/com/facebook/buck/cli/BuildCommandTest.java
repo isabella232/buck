@@ -24,15 +24,15 @@ import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutionResult;
 import com.facebook.buck.command.BuildReport;
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -58,7 +58,7 @@ public class BuildCommandTest {
   @Before
   public void setUp() {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -106,7 +106,7 @@ public class BuildCommandTest {
             + "\u001B[31mFAIL\u001B[0m //fake:rule4\n"
             + "\n"
             + " ** Summary of failures encountered during the build **\n"
-            + "Rule //fake:rule2 FAILED because some.\n";
+            + "Rule //fake:rule2 FAILED because some.";
     String observedReport =
         new BuildReport(buildExecutionResult, resolver)
             .generateForConsole(
@@ -128,7 +128,7 @@ public class BuildCommandTest {
             + "OK   //fake:rule3 FETCHED_FROM_CACHE\n"
             + "FAIL //fake:rule4\n\n"
             + " ** Summary of failures encountered during the build **\n"
-            + "Rule //fake:rule2 FAILED because some.\n";
+            + "Rule //fake:rule2 FAILED because some.";
     String observedReport =
         new BuildReport(buildExecutionResult, resolver)
             .generateForConsole(new TestConsole(Verbosity.COMMANDS));

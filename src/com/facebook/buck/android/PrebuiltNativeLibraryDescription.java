@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -57,7 +57,7 @@ public class PrebuiltNativeLibraryDescription
     try {
       librarySources =
           FluentIterable.from(projectFilesystem.getFilesUnderPath(args.getNativeLibs()))
-              .transform(p -> new PathSourcePath(projectFilesystem, p))
+              .transform(p -> PathSourcePath.of(projectFilesystem, p))
               .toSortedSet(Ordering.natural());
     } catch (IOException e) {
       throw new HumanReadableException(e, "Error traversing directory %s.", args.getNativeLibs());

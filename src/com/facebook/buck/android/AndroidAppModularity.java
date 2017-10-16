@@ -16,11 +16,13 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -37,7 +39,7 @@ import java.util.Optional;
 
 public class AndroidAppModularity extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
-  protected final AndroidAppModularityGraphEnhancementResult result;
+  @AddToRuleKey private final AndroidAppModularityGraphEnhancementResult result;
 
   AndroidAppModularity(
       BuildTarget buildTarget,
@@ -100,7 +102,7 @@ public class AndroidAppModularity extends AbstractBuildRuleWithDeclaredAndExtraD
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(),
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/modulemetadata.txt"));
   }

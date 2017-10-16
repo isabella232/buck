@@ -23,7 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -301,5 +301,21 @@ public class ParserIntegrationTest {
     byte[] modifiedContents = "yyy".getBytes();
     bigFileTree.visit(path -> Files.write(path, modifiedContents));
     workspace.runBuckdCommand("build", "//foo/bar:bar").assertSuccess();
+  }
+
+  @Test
+  public void testSkylarkParsingOfJavaTargets() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "skylark", temporaryFolder);
+    workspace.setUp();
+    workspace
+        .runBuckBuild("//java/bar:bar", "-c", "parser.polyglot_parsing_enabled=true")
+        .assertSuccess();
+    workspace
+        .runBuckBuild("//java/bar:main", "-c", "parser.polyglot_parsing_enabled=true")
+        .assertSuccess();
+    workspace
+        .runBuckBuild("//java/bar:bar_test", "-c", "parser.polyglot_parsing_enabled=true")
+        .assertSuccess();
   }
 }

@@ -26,6 +26,10 @@ android_library(
 
 android_library(
   name = 'lib_depending_on_main_lib',
+  srcs = [
+    'Depending.kt',
+  ],
+  language = 'KOTLIN',
   deps = [
     ':lib',
   ],
@@ -43,7 +47,8 @@ android_library(
     '-Xplugin=',
   ],
   deps = [
-    # deps are intentionally left out to fail the test since -Xplugin is not available yet.
+    '//res/com/sample/title:title',
+    '//res/com/sample/top:top',
   ],
   visibility = [
     'PUBLIC',

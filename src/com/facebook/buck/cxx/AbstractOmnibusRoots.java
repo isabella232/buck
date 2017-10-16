@@ -81,7 +81,9 @@ abstract class AbstractOmnibusRoots {
      */
     public void addPotentialRoot(NativeLinkable node) {
       Optional<NativeLinkTarget> target = NativeLinkables.getNativeLinkTarget(node, cxxPlatform);
-      if (target.isPresent() && !excludes.contains(node.getBuildTarget())) {
+      if (target.isPresent()
+          && !excludes.contains(node.getBuildTarget())
+          && node.supportsOmnibusLinking(cxxPlatform)) {
         addIncludedRoot(target.get());
       } else {
         addExcludedRoot(node);
@@ -102,7 +104,7 @@ abstract class AbstractOmnibusRoots {
       new AbstractBreadthFirstTraversal<NativeLinkable>(includedRootDeps.values()) {
         @Override
         public Iterable<NativeLinkable> visit(NativeLinkable linkable) throws RuntimeException {
-          if (linkable.getPreferredLinkage(cxxPlatform) == NativeLinkable.Linkage.SHARED) {
+          if (!linkable.supportsOmnibusLinking(cxxPlatform)) {
             excluded.put(linkable.getBuildTarget(), linkable);
             return ImmutableSet.of();
           }

@@ -40,6 +40,7 @@ public class BuckCommand extends AbstractContainerCommand {
     @SubCommand(name = "fetch", impl = FetchCommand.class),
     @SubCommand(name = "help", impl = HelpCommand.class),
     @SubCommand(name = "install", impl = InstallCommand.class),
+    @SubCommand(name = "kill", impl = KillCommand.class),
     @SubCommand(name = "machoutils", impl = MachOUtilsCommand.class),
     @SubCommand(name = "project", impl = ProjectCommand.class),
     @SubCommand(name = "publish", impl = PublishCommand.class),
@@ -57,6 +58,8 @@ public class BuckCommand extends AbstractContainerCommand {
   @Nullable
   Command subcommand;
 
+  // --version is handled in python, but leave it here for --help
+  @SuppressWarnings("unused")
   @Option(
     name = "--version",
     aliases = {"-V"},
@@ -74,12 +77,7 @@ public class BuckCommand extends AbstractContainerCommand {
 
   @Override
   public int run(CommandRunnerParams params) throws IOException, InterruptedException {
-    if (subcommand == null && version) {
-      // The --version flag behaves like a subcommand.
-      return new VersionCommand().run(params);
-    } else {
-      return super.run(params);
-    }
+    return super.run(params);
   }
 
   @Override

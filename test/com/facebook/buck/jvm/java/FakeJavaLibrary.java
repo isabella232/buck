@@ -16,9 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.android.AndroidPackageable;
-import com.facebook.buck.android.AndroidPackageableCollector;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
@@ -83,13 +83,18 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(),
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar"));
   }
 
   @Override
   public ImmutableSortedSet<SourcePath> getJarContents() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean jarContains(String path) {
     throw new UnsupportedOperationException();
   }
 
@@ -112,7 +117,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
     Preconditions.checkNotNull(srcs);
     this.srcs =
         FluentIterable.from(srcs)
-            .transform(p -> (SourcePath) new PathSourcePath(new FakeProjectFilesystem(), p))
+            .transform(p -> (SourcePath) PathSourcePath.of(new FakeProjectFilesystem(), p))
             .toSortedSet(Ordering.natural());
     return this;
   }

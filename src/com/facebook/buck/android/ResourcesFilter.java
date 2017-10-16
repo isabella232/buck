@@ -16,7 +16,7 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
@@ -78,9 +78,6 @@ import org.apache.commons.compress.utils.IOUtils;
  */
 public class ResourcesFilter extends AbstractBuildRule
     implements FilteredResourcesProvider, InitializableFromDisk<ResourcesFilter.BuildOutput> {
-
-  private static final String STRING_FILES_KEY = "string_files";
-
   enum ResourceCompressionMode {
     DISABLED(/* isCompressResources */ false, /* isStoreStringsAsAssets */ false),
     ENABLED(/* isCompressResources */ true, /* isStoreStringsAsAssets */ false),
@@ -115,7 +112,7 @@ public class ResourcesFilter extends AbstractBuildRule
   private final ImmutableSet<SourcePath> whitelistedStringDirs;
   @AddToRuleKey private final ImmutableSet<String> locales;
   @AddToRuleKey private final ResourceCompressionMode resourceCompressionMode;
-  @AddToRuleKey private final FilterResourcesStep.ResourceFilter resourceFilter;
+  @AddToRuleKey private final FilterResourcesSteps.ResourceFilter resourceFilter;
   @AddToRuleKey private final Optional<Arg> postFilterResourcesCmd;
 
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
@@ -130,7 +127,7 @@ public class ResourcesFilter extends AbstractBuildRule
       ImmutableSet<SourcePath> whitelistedStringDirs,
       ImmutableSet<String> locales,
       ResourceCompressionMode resourceCompressionMode,
-      FilterResourcesStep.ResourceFilter resourceFilter,
+      FilterResourcesSteps.ResourceFilter resourceFilter,
       Optional<Arg> postFilterResourcesCmd) {
     super(buildTarget, projectFilesystem);
     this.resourceRules = resourceRules;
@@ -148,7 +145,7 @@ public class ResourcesFilter extends AbstractBuildRule
   @Override
   public ImmutableList<SourcePath> getResDirectories() {
     return RichStream.from(getRawResDirectories())
-        .map(p -> (SourcePath) new ExplicitBuildTargetSourcePath(getBuildTarget(), p))
+        .map(p -> (SourcePath) ExplicitBuildTargetSourcePath.of(getBuildTarget(), p))
         .toImmutableList();
   }
 
@@ -212,9 +209,11 @@ public class ResourcesFilter extends AbstractBuildRule
             .collect(MoreCollectors.toImmutableList());
     ImmutableBiMap<Path, Path> inResDirToOutResDirMap =
         createInResDirToOutResDirMap(resPaths, filteredResDirectoriesBuilder);
-    final FilterResourcesStep filterResourcesStep =
-        createFilterResourcesStep(whitelistedStringPaths, locales, inResDirToOutResDirMap);
-    steps.add(filterResourcesStep);
+    final FilterResourcesSteps filterResourcesSteps =
+        createFilterResourcesSteps(whitelistedStringPaths, locales, inResDirToOutResDirMap);
+    steps.add(filterResourcesSteps.getCopyStep());
+    maybeAddPostFilterCmdStep(context, buildableContext, steps, inResDirToOutResDirMap);
+    steps.add(filterResourcesSteps.getScaleStep());
 
     final ImmutableList.Builder<Path> stringFilesBuilder = ImmutableList.builder();
     // The list of strings.xml files is only needed to build string assets
@@ -229,6 +228,37 @@ public class ResourcesFilter extends AbstractBuildRule
       buildableContext.recordArtifact(outputResourceDir);
     }
 
+    steps.add(
+        new AbstractExecutionStep("record_build_output") {
+          @Override
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
+            if (postFilterResourcesCmd.isPresent()) {
+              buildableContext.recordArtifact(getRDotJsonPath());
+            }
+            Path stringFiles = getStringFilesPath();
+            getProjectFilesystem().mkdirs(stringFiles.getParent());
+            getProjectFilesystem()
+                .writeLinesToPath(
+                    stringFilesBuilder.build().stream().map(Object::toString)::iterator,
+                    stringFiles);
+            buildableContext.recordArtifact(stringFiles);
+            return StepExecutionResult.SUCCESS;
+          }
+        });
+
+    return steps.build();
+  }
+
+  private Path getStringFilesPath() {
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/string_files");
+  }
+
+  private void maybeAddPostFilterCmdStep(
+      BuildContext context,
+      BuildableContext buildableContext,
+      ImmutableList.Builder<Step> steps,
+      ImmutableBiMap<Path, Path> inResDirToOutResDirMap) {
     postFilterResourcesCmd.ifPresent(
         cmd -> {
           OutputStream filterResourcesDataOutputStream = null;
@@ -246,27 +276,6 @@ public class ResourcesFilter extends AbstractBuildRule
             IOUtils.closeQuietly(filterResourcesDataOutputStream);
           }
         });
-
-    steps.add(
-        new AbstractExecutionStep("record_build_output") {
-          @Override
-          public StepExecutionResult execute(ExecutionContext context)
-              throws IOException, InterruptedException {
-            if (postFilterResourcesCmd.isPresent()) {
-              buildableContext.recordArtifact(getRDotJsonPath());
-            }
-            buildableContext.addMetadata(
-                STRING_FILES_KEY,
-                stringFilesBuilder
-                    .build()
-                    .stream()
-                    .map(Object::toString)
-                    .collect(MoreCollectors.toImmutableList()));
-            return StepExecutionResult.SUCCESS;
-          }
-        });
-
-    return steps.build();
   }
 
   @VisibleForTesting
@@ -288,7 +297,7 @@ public class ResourcesFilter extends AbstractBuildRule
   @Override
   public Optional<SourcePath> getOverrideSymbolsPath() {
     if (postFilterResourcesCmd.isPresent()) {
-      return Optional.of(new ExplicitBuildTargetSourcePath(getBuildTarget(), getRDotJsonPath()));
+      return Optional.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), getRDotJsonPath()));
     }
     return Optional.empty();
   }
@@ -309,9 +318,9 @@ public class ResourcesFilter extends AbstractBuildRule
    * Sets up filtering of resources, images/drawables and strings in particular, based on build rule
    * parameters {@link #resourceFilter} and {@link #resourceCompressionMode}.
    *
-   * <p>{@link com.facebook.buck.android.FilterResourcesStep.ResourceFilter} {@code resourceFilter}
-   * determines which drawables end up in the APK (based on density - mdpi, hdpi etc), and also
-   * whether higher density drawables get scaled down to the specified density (if not present).
+   * <p>{@link FilterResourcesSteps.ResourceFilter} {@code resourceFilter} determines which
+   * drawables end up in the APK (based on density - mdpi, hdpi etc), and also whether higher
+   * density drawables get scaled down to the specified density (if not present).
    *
    * <p>{@link #resourceCompressionMode} determines whether non-english string resources are
    * packaged separately as assets (and not bundled together into the {@code resources.arsc} file).
@@ -320,12 +329,12 @@ public class ResourcesFilter extends AbstractBuildRule
    *     inside these directories.
    */
   @VisibleForTesting
-  FilterResourcesStep createFilterResourcesStep(
+  FilterResourcesSteps createFilterResourcesSteps(
       ImmutableSet<Path> whitelistedStringDirs,
       ImmutableSet<String> locales,
       ImmutableBiMap<Path, Path> resSourceToDestDirMap) {
-    FilterResourcesStep.Builder filterResourcesStepBuilder =
-        FilterResourcesStep.builder()
+    FilterResourcesSteps.Builder filterResourcesStepBuilder =
+        FilterResourcesSteps.builder()
             .setProjectFilesystem(getProjectFilesystem())
             .setInResToOutResDirMap(resSourceToDestDirMap)
             .setResourceFilter(resourceFilter);
@@ -359,15 +368,13 @@ public class ResourcesFilter extends AbstractBuildRule
   }
 
   @Override
-  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
     ImmutableList<Path> stringFiles =
         onDiskBuildInfo
-            .getValues(STRING_FILES_KEY)
-            .get()
+            .getOutputFileContentsByLine(getStringFilesPath())
             .stream()
             .map(Paths::get)
             .collect(MoreCollectors.toImmutableList());
-
     return new BuildOutput(stringFiles);
   }
 

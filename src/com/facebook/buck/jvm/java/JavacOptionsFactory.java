@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.util.HumanReadableException;
@@ -45,13 +45,6 @@ public final class JavacOptionsFactory {
 
     if (jvmLibraryArg.getTarget().isPresent()) {
       builder.setTargetLevel(jvmLibraryArg.getTarget().get());
-    }
-
-    if (jvmLibraryArg.getGenerateAbiFromSource().isPresent()
-        && !jvmLibraryArg.getGenerateAbiFromSource().get()) {
-      // This parameter can only be used to turn off ABI generation from source where it would
-      // otherwise be employed.
-      builder.setCompilationMode(JavacCompilationMode.FULL);
     }
 
     builder.addAllExtraArguments(jvmLibraryArg.getExtraArguments());

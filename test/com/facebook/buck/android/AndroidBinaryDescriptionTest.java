@@ -27,9 +27,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestBuildRuleParams;
@@ -58,31 +58,37 @@ public class AndroidBinaryDescriptionTest {
             .build();
     TargetNode<?, ?> keystoreNode =
         KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//:keystore"))
-            .setStore(new FakeSourcePath("store"))
-            .setProperties(new FakeSourcePath("properties"))
+            .setStore(FakeSourcePath.of("store"))
+            .setProperties(FakeSourcePath.of("properties"))
             .build();
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     TargetNode<?, ?> androidBinaryNode =
         AndroidBinaryBuilder.createBuilder(target)
-            .setManifest(new FakeSourcePath("manifest.xml"))
+            .setManifest(FakeSourcePath.of("manifest.xml"))
             .setKeystore(BuildTargetFactory.newInstance("//:keystore"))
+            // Force no predexing.
+            .setPreprocessJavaClassesBash("cp")
             .setNoDx(ImmutableSet.of(transitiveDepNode.getBuildTarget()))
             .setOriginalDeps(ImmutableSortedSet.of(depNode.getBuildTarget()))
             .build();
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(transitiveDepNode, depNode, keystoreNode, androidBinaryNode);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRule transitiveDep = ruleResolver.requireRule(transitiveDepNode.getBuildTarget());
-    AndroidBinary androidBinary = (AndroidBinary) ruleResolver.requireRule(target);
-    assertThat(androidBinary.getBuildDeps(), Matchers.hasItem(transitiveDep));
+    ruleResolver.requireRule(target);
+    BuildRule nonPredexedRule =
+        ruleResolver.requireRule(
+            target.withFlavors(AndroidBinaryGraphEnhancer.NON_PREDEXED_DEX_BUILDABLE_FLAVOR));
+    assertThat(nonPredexedRule.getBuildDeps(), Matchers.hasItem(transitiveDep));
   }
 
   @Test
   public void turkishCaseRulesDoNotCrashConstructor() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:keystore");
     Keystore keystore =
@@ -91,15 +97,15 @@ public class AndroidBinaryDescriptionTest {
                 buildTarget,
                 new FakeProjectFilesystem(),
                 TestBuildRuleParams.create(),
-                new FakeSourcePath("store"),
-                new FakeSourcePath("properties")));
+                FakeSourcePath.of("store"),
+                FakeSourcePath.of("properties")));
     Locale originalLocale = Locale.getDefault();
     try {
       Locale.setDefault(new Locale("tr"));
       // Make sure this doesn't crash in Enum.valueOf() when default Turkish locale rules
       // upper-case "instrumented" to "\u0130NSTRUMENTED".
       AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"))
-          .setManifest(new FakeSourcePath("manifest.xml"))
+          .setManifest(FakeSourcePath.of("manifest.xml"))
           .setKeystore(keystore.getBuildTarget())
           .setPackageType("instrumented")
           .build(ruleResolver, new FakeProjectFilesystem(), TargetGraph.EMPTY);
@@ -113,7 +119,7 @@ public class AndroidBinaryDescriptionTest {
     AndroidBinaryDescriptionArg arg =
         AndroidBinaryDescriptionArg.builder()
             .setName("res")
-            .setManifest(new FakeSourcePath("manifest"))
+            .setManifest(FakeSourcePath.of("manifest"))
             .setKeystore(BuildTargetFactory.newInstance("//:keystore"))
             .setBannedDuplicateResourceTypes(EnumSet.of(RDotTxtEntry.RType.STRING))
             .build();
@@ -127,7 +133,7 @@ public class AndroidBinaryDescriptionTest {
     AndroidBinaryDescriptionArg arg =
         AndroidBinaryDescriptionArg.builder()
             .setName("res")
-            .setManifest(new FakeSourcePath("manifest"))
+            .setManifest(FakeSourcePath.of("manifest"))
             .setKeystore(BuildTargetFactory.newInstance("//:keystore"))
             .setDuplicateResourceBehavior(
                 AndroidBinaryDescriptionArg.DuplicateResourceBehaviour.BAN_BY_DEFAULT)
@@ -143,7 +149,7 @@ public class AndroidBinaryDescriptionTest {
   public void duplicateResourceBanningBadCombinationBan() throws Exception {
     AndroidBinaryDescriptionArg.builder()
         .setName("res")
-        .setManifest(new FakeSourcePath("manifest"))
+        .setManifest(FakeSourcePath.of("manifest"))
         .setKeystore(BuildTargetFactory.newInstance("//:keystore"))
         .setDuplicateResourceBehavior(
             AndroidBinaryDescriptionArg.DuplicateResourceBehaviour.BAN_BY_DEFAULT)
@@ -156,7 +162,7 @@ public class AndroidBinaryDescriptionTest {
   public void duplicateResourceBanningBadCombinationAllow() throws Exception {
     AndroidBinaryDescriptionArg.builder()
         .setName("res")
-        .setManifest(new FakeSourcePath("manifest"))
+        .setManifest(FakeSourcePath.of("manifest"))
         .setKeystore(BuildTargetFactory.newInstance("//:keystore"))
         .setDuplicateResourceBehavior(
             AndroidBinaryDescriptionArg.DuplicateResourceBehaviour.ALLOW_BY_DEFAULT)

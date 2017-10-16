@@ -16,7 +16,8 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -24,13 +25,12 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeOnDiskBuildInfo;
-import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -42,6 +42,7 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedMap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -83,9 +84,10 @@ public class TrimUberRDotJavaTest {
   private void doTrimingTest(
       Optional<String> keepResourcePattern, String rDotJavaContentsAfterFiltering)
       throws InterruptedException, IOException {
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmpFolder.getRoot());
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(tmpFolder.getRoot());
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -118,14 +120,12 @@ public class TrimUberRDotJavaTest {
             new FakeJavaLibrary(BuildTargetFactory.newInstance("//:lib"), null));
     dexProducedFromJavaLibrary
         .getBuildOutputInitializer()
-        .setBuildOutput(
-            dexProducedFromJavaLibrary.initializeFromDisk(
-                new FakeOnDiskBuildInfo()
-                    .putMetadata(DexProducedFromJavaLibrary.WEIGHT_ESTIMATE, "1")
-                    .putMetadata(DexProducedFromJavaLibrary.CLASSNAMES_TO_HASHES, "{}")
-                    .putMetadata(
-                        DexProducedFromJavaLibrary.REFERENCED_RESOURCES,
-                        ImmutableList.of("com.test.my_first_resource"))));
+        .setBuildOutputForTests(
+            new DexProducedFromJavaLibrary.BuildOutput(
+                1,
+                ImmutableSortedMap.of(),
+                Optional.of(ImmutableList.of("com.test.my_first_resource"))));
+
     resolver.addToIndex(dexProducedFromJavaLibrary);
 
     BuildTarget trimTarget = BuildTargetFactory.newInstance("//:trim");
@@ -134,7 +134,7 @@ public class TrimUberRDotJavaTest {
             trimTarget,
             filesystem,
             TestBuildRuleParams.create(),
-            Optional.of(new PathSourcePath(filesystem, rDotJavaDir)),
+            Optional.of(FakeSourcePath.of(filesystem, rDotJavaDir)),
             ImmutableList.of(dexProducedFromJavaLibrary),
             keepResourcePattern);
     resolver.addToIndex(trimUberRDotJava);

@@ -18,10 +18,10 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.model.MacroFinder;
+import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -116,7 +116,7 @@ abstract class AbstractDeprecatedPrebuiltCxxLibraryPaths implements PrebuiltCxxL
         Path path = filesystem.resolve(subPath);
         path = suffix.map(path::resolve).orElse(path);
         path = filesystem.relativize(path);
-        return new ExplicitBuildTargetSourcePath(dep.get().getBuildTarget(), path);
+        return ExplicitBuildTargetSourcePath.of(dep.get().getBuildTarget(), path);
       }
     }
 
@@ -126,7 +126,7 @@ abstract class AbstractDeprecatedPrebuiltCxxLibraryPaths implements PrebuiltCxxL
     path = getVersionSubdir().map(path::resolve).orElse(path);
     path = path.resolve(subPath);
     path = suffix.map(path::resolve).orElse(path);
-    return new PathSourcePath(filesystem, path);
+    return PathSourcePath.of(filesystem, path);
   }
 
   private Optional<SourcePath> getLibrary(

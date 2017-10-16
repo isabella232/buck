@@ -20,7 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasMavenCoordinates;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -31,11 +31,11 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -77,7 +77,7 @@ public class PomIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private final BuildRuleResolver ruleResolver =
-      new DefaultBuildRuleResolver(
+      new SingleThreadedBuildRuleResolver(
           TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
   private final SourcePathResolver pathResolver =
       DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -135,7 +135,7 @@ public class PomIntegrationTest {
         createMavenPublishable(
             "//example:template",
             "example.com:project:1.0.0",
-            new FakeSourcePath(
+            FakeSourcePath.of(
                 TestDataHelper.getTestDataDirectory(getClass())
                     .resolve("poms/template-pom.xml")
                     .toString()));
@@ -234,7 +234,7 @@ public class PomIntegrationTest {
 
     @Override
     public SourcePath getSourcePathToOutput() {
-      return new ExplicitBuildTargetSourcePath(
+      return ExplicitBuildTargetSourcePath.of(
           getBuildTarget(),
           BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar"));
     }

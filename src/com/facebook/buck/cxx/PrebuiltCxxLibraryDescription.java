@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.android.AndroidPackageable;
-import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
@@ -28,15 +28,15 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.model.MacroFinder;
+import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -127,7 +127,7 @@ public class PrebuiltCxxLibraryDescription
     return PrebuiltCxxLibraryDescriptionArg.class;
   }
 
-  private static PrebuiltCxxLibraryPaths getPaths(
+  private PrebuiltCxxLibraryPaths getPaths(
       BuildTarget target,
       AbstractPrebuiltCxxLibraryDescriptionArg args,
       Optional<String> versionSubDir) {
@@ -135,6 +135,13 @@ public class PrebuiltCxxLibraryDescription
       throw new HumanReadableException("%s: cannot use both old and new APIs", target);
     }
     if (args.isOldApiUsed()) {
+      if (!cxxBuckConfig.isDeprecatedPrebuiltCxxLibraryApiEnabled()) {
+        throw new HumanReadableException(
+            "%s(%s) uses the deprecated API, but `cxx.enable_deprecated_prebuilt_cxx_library_api` "
+                + "isn't set.  Please see the `prebuilt_cxx_library` documentation for details and "
+                + "examples on how to port to the new API.",
+            Description.getBuildRuleType(this).toString(), target);
+      }
       return DeprecatedPrebuiltCxxLibraryPaths.builder()
           .setTarget(target)
           .setVersionSubdir(versionSubDir)
@@ -646,8 +653,7 @@ public class PrebuiltCxxLibraryDescription
 
         // Build the library path and linker arguments that we pass through the
         // {@link NativeLinkable} interface for linking.
-        ImmutableList.Builder<com.facebook.buck.rules.args.Arg> linkerArgsBuilder =
-            ImmutableList.builder();
+        ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
         linkerArgsBuilder.addAll(
             StringArg.from(Preconditions.checkNotNull(getExportedLinkerFlags(cxxPlatform))));
 
@@ -684,8 +690,7 @@ public class PrebuiltCxxLibraryDescription
             }
           }
         }
-        final ImmutableList<com.facebook.buck.rules.args.Arg> linkerArgs =
-            linkerArgsBuilder.build();
+        final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
 
         return NativeLinkableInput.of(linkerArgs, args.getFrameworks(), args.getLibraries());
       }
@@ -726,6 +731,12 @@ public class PrebuiltCxxLibraryDescription
           return inferredLinkage.get();
         }
         return Linkage.ANY;
+      }
+
+      @Override
+      public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+        return args.getSupportsMergedLinking()
+            .orElse(getPreferredLinkage(cxxPlatform) != Linkage.SHARED);
       }
 
       @Override
@@ -929,6 +940,8 @@ public class PrebuiltCxxLibraryDescription
     default boolean isSupportsSharedLibraryInterface() {
       return false;
     }
+
+    Optional<Boolean> getSupportsMergedLinking();
 
     default boolean isNewApiUsed() {
       return getHeaderDirs().isPresent()

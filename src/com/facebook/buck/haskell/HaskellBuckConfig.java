@@ -16,12 +16,13 @@
 
 package com.facebook.buck.haskell;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.SystemToolProvider;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -55,6 +56,7 @@ public class HaskellBuckConfig {
 
   private ToolProvider getTool(String section, String configName, String systemName) {
     return delegate
+        .getView(ToolConfig.class)
         .getToolProvider(section, configName)
         .orElseGet(
             () ->
@@ -78,6 +80,7 @@ public class HaskellBuckConfig {
         .setLinker(getTool(section, "linker", "ghc"))
         .setLinkerFlags(getFlags(section, "linker_flags").orElse(ImmutableList.of()))
         .setPackager(getTool(section, "packager", "ghc-pkg"))
+        .setHaddock(getTool(section, "haddock", "haddock"))
         .setShouldCacheLinks(delegate.getBooleanValue(section, "cache_links", true))
         .setShouldUsedOldBinaryOutputLocation(
             delegate.getBoolean(section, "old_binary_output_location"))

@@ -19,7 +19,7 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
@@ -131,11 +131,11 @@ public class JavaLibraryBuilder
   }
 
   public JavaLibraryBuilder addSrc(Path path) {
-    return addSrc(new PathSourcePath(projectFilesystem, path));
+    return addSrc(PathSourcePath.of(projectFilesystem, path));
   }
 
   public JavaLibraryBuilder addSrcTarget(BuildTarget target) {
-    return addSrc(new DefaultBuildTargetSourcePath(target));
+    return addSrc(DefaultBuildTargetSourcePath.of(target));
   }
 
   public JavaLibraryBuilder setProguardConfig(SourcePath proguardConfig) {

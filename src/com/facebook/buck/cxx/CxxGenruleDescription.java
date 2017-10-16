@@ -25,20 +25,22 @@ import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.model.MacroFinder;
-import com.facebook.buck.model.MacroMatchResult;
-import com.facebook.buck.model.MacroReplacer;
+import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.model.macros.MacroFinder;
+import com.facebook.buck.model.macros.MacroMatchResult;
+import com.facebook.buck.model.macros.MacroReplacer;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -46,7 +48,6 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -86,6 +87,7 @@ import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -539,7 +541,7 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
       return input
           .targets
           .stream()
-          .map(DefaultBuildTargetSourcePath::new)
+          .map(DefaultBuildTargetSourcePath::of)
           .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
     }
   }
@@ -647,15 +649,16 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
       final Iterable<CxxPreprocessorInput> transitivePreprocessorInput =
           getCxxPreprocessorInput(resolve(resolver, input.targets));
       final PreprocessorFlags ppFlags = getPreprocessorFlags(transitivePreprocessorInput);
-      return (RuleKeyAppendable)
-          sink -> {
-            ppFlags.appendToRuleKey(sink);
-            sink.setReflectively(
-                "headers",
-                FluentIterable.from(transitivePreprocessorInput)
-                    .transformAndConcat(CxxPreprocessorInput::getIncludes)
-                    .toList());
-          };
+
+      return new AddsToRuleKey() {
+        @AddToRuleKey private final PreprocessorFlags preprocessorFlags = ppFlags;
+
+        @AddToRuleKey
+        private List<CxxHeaders> headers =
+            FluentIterable.from(transitivePreprocessorInput)
+                .transformAndConcat(CxxPreprocessorInput::getIncludes)
+                .toList();
+      };
     }
   }
 
@@ -697,18 +700,8 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
      */
     private SymlinkTree requireSymlinkTree(
         BuildRuleResolver resolver, ImmutableList<BuildRule> rules) {
-      BuildTarget symlinkTreeTarget =
-          CxxDescriptionEnhancer.createSharedLibrarySymlinkTreeTarget(
-              buildTarget, cxxPlatform.getFlavor());
-      SymlinkTree symlinkTree =
-          resolver.getRuleOptionalWithType(symlinkTreeTarget, SymlinkTree.class).orElse(null);
-      if (symlinkTree == null) {
-        symlinkTree =
-            resolver.addToIndex(
-                CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, rules, NativeLinkable.class::isInstance));
-      }
-      return symlinkTree;
+      return CxxDescriptionEnhancer.requireSharedLibrarySymlinkTree(
+          buildTarget, filesystem, resolver, cxxPlatform, rules, NativeLinkable.class::isInstance);
     }
 
     /**

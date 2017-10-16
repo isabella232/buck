@@ -27,8 +27,8 @@ import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceBuilder;
 import com.facebook.buck.android.AndroidResourceDescriptionArg;
-import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.aggregation.DefaultAggregationModuleFactory;
 import com.facebook.buck.ide.intellij.model.DependencyType;
@@ -40,17 +40,20 @@ import com.facebook.buck.ide.intellij.model.IjModuleFactory;
 import com.facebook.buck.ide.intellij.model.IjModuleFactoryResolver;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.IjProjectElement;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -68,6 +71,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -393,8 +397,8 @@ public class IjModuleGraphTest {
     TargetNode<?, ?> productKeystoreTarget =
         KeystoreBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/src/com/facebook/library:keystore"))
-            .setStore(new FakeSourcePath("store"))
-            .setProperties(new FakeSourcePath("properties"))
+            .setStore(FakeSourcePath.of("store"))
+            .setProperties(FakeSourcePath.of("properties"))
             .build();
 
     TargetNode<?, ?> libraryJavaTarget =
@@ -445,7 +449,7 @@ public class IjModuleGraphTest {
     IjModuleGraph moduleGraph =
         createModuleGraph(
             ImmutableSet.of(productGenruleTarget, libraryJavaTarget, productTarget),
-            ImmutableMap.of(productTarget, new FakeSourcePath("buck-out/product.jar")),
+            ImmutableMap.of(productTarget, FakeSourcePath.of("buck-out/product.jar")),
             Functions.constant(Optional.empty()));
 
     IjModule libraryModule = getModuleForTarget(moduleGraph, libraryJavaTarget);
@@ -471,7 +475,7 @@ public class IjModuleGraphTest {
     IjModuleGraph moduleGraph =
         createModuleGraph(
             ImmutableSet.of(productTarget),
-            ImmutableMap.of(productTarget, new FakeSourcePath("buck-out/product.jar")),
+            ImmutableMap.of(productTarget, FakeSourcePath.of("buck-out/product.jar")),
             input -> {
               if (input == productTarget) {
                 return Optional.of(rDotJavaClassPath);
@@ -633,7 +637,7 @@ public class IjModuleGraphTest {
     final SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     IjLibraryFactoryResolver sourceOnlyResolver =
         new IjLibraryFactoryResolver() {
@@ -652,6 +656,10 @@ public class IjModuleGraphTest {
         IjProjectBuckConfig.create(
             buckConfig, aggregationMode, null, "", "", false, false, false, false, true);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
+    JavaPackageFinder packageFinder =
+        (buckConfig == null)
+            ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())
+            : buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(
             filesystem,
@@ -703,7 +711,8 @@ public class IjModuleGraphTest {
                 return Optional.empty();
               }
             },
-            projectConfig);
+            projectConfig,
+            packageFinder);
     IjModuleFactory moduleFactory = new DefaultIjModuleFactory(filesystem, typeRegistry);
     IjLibraryFactory libraryFactory = new DefaultIjLibraryFactory(sourceOnlyResolver);
     return IjModuleGraphFactory.from(

@@ -32,23 +32,24 @@ import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.android.AndroidNdkHelper;
 import com.facebook.buck.android.AssumeAndroidPlatform;
-import com.facebook.buck.android.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.NdkCxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -73,6 +74,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.MoreExecutors;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -145,11 +147,8 @@ public class InterCellIntegrationTest {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     ProjectWorkspace primary = createWorkspace("inter-cell/multi-cell/primary");
-    primary.setUp();
     ProjectWorkspace secondary = createWorkspace("inter-cell/multi-cell/secondary");
-    secondary.setUp();
     ProjectWorkspace ternary = createWorkspace("inter-cell/multi-cell/ternary");
-    ternary.setUp();
     registerCell(secondary, "ternary", ternary);
     registerCell(primary, "secondary", secondary);
     registerCell(primary, "ternary", ternary);
@@ -241,7 +240,8 @@ public class InterCellIntegrationTest {
 
   private ImmutableMap<String, HashCode> findObjectFiles(final ProjectWorkspace workspace)
       throws InterruptedException, IOException {
-    ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath());
     final Path buckOut = workspace.getPath(filesystem.getBuckPaths().getBuckOut());
 
     final ImmutableMap.Builder<String, HashCode> objectHashCodes = ImmutableMap.builder();
@@ -270,8 +270,56 @@ public class InterCellIntegrationTest {
         prepare("inter-cell/java/primary", "inter-cell/java/secondary");
     ProjectWorkspace primary = cells.getFirst();
 
-    primary.runBuckBuild("//:lib").assertSuccess();
+    primary.runBuckBuild("//:primary_lib").assertSuccess();
     primary.runBuckBuild("//:java-binary", "-v", "5").assertSuccess();
+  }
+
+  @Test
+  public void shouldBeAbleToCompileWithBootclasspathXCell() throws IOException {
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/java/primary", "inter-cell/java/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+
+    String systemBootclasspath = System.getProperty("sun.boot.class.path");
+    ProjectWorkspace.ProcessResult result =
+        primary.runBuckBuild(
+            "//:java-binary",
+            "--config",
+            "java.source_level=7",
+            "--config",
+            "java.target_level=7",
+            "--config",
+            String.format(
+                "//java.bootclasspath-7=primary.jar%s%s", File.pathSeparator, systemBootclasspath),
+            "--config",
+            String.format(
+                "secondary//java.bootclasspath-7=secondary.jar%s%s",
+                File.pathSeparator, systemBootclasspath),
+            "-v",
+            "5");
+    result.assertSuccess();
+
+    List<String> verboseLogs =
+        Splitter.on('\n').trimResults().omitEmptyStrings().splitToList(result.getStderr());
+    // Check the javac invocations for properly a resolved bootclasspath and that we aren't
+    // accidentally mixing bootclasspaths
+    assertThat(
+        verboseLogs,
+        Matchers.hasItem(
+            Matchers.allOf(
+                containsString("javac"),
+                containsString("-bootclasspath"),
+                containsString(String.format("%sprimary.jar", File.separator)),
+                containsString("primary_lib"))));
+    assertThat(
+        verboseLogs,
+        Matchers.hasItem(
+            Matchers.allOf(
+                containsString("javac"),
+                containsString("-bootclasspath"),
+                containsString(String.format("%ssecondary.jar", File.separator)),
+                containsString("secondary_lib"),
+                not(containsString("primary_lib")))));
   }
 
   @Test
@@ -583,7 +631,7 @@ public class InterCellIntegrationTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
@@ -632,7 +680,7 @@ public class InterCellIntegrationTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =

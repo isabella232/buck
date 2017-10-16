@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.android.AndroidPackageable;
-import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -25,7 +25,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
@@ -78,6 +78,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSortedSet<BuildTarget> tests;
   private final boolean canBeAsset;
   private final boolean reexportAllHeaderDependencies;
+  private final Optional<CxxLibraryDescriptionDelegate> delegate;
   /**
    * Whether Native Linkable dependencies should be propagated for the purpose of computing objects
    * to link at link time. Setting this to false makes this library invisible to linking, so it and
@@ -111,7 +112,8 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       ImmutableSortedSet<BuildTarget> tests,
       boolean canBeAsset,
       boolean propagateLinkables,
-      boolean reexportAllHeaderDependencies) {
+      boolean reexportAllHeaderDependencies,
+      Optional<CxxLibraryDescriptionDelegate> delegate) {
     super(buildTarget, projectFilesystem, params);
     this.ruleResolver = ruleResolver;
     this.deps = deps;
@@ -129,6 +131,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     this.canBeAsset = canBeAsset;
     this.propagateLinkables = propagateLinkables;
     this.reexportAllHeaderDependencies = reexportAllHeaderDependencies;
+    this.delegate = delegate;
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
@@ -160,12 +163,34 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+    CxxPreprocessorInput publicHeaders = getPublicCxxPreprocessorInput(cxxPlatform);
+    Optional<CxxPreprocessorInput> pluginHeaders =
+        delegate.flatMap(p -> p.getPreprocessorInput(getBuildTarget(), ruleResolver, cxxPlatform));
+
+    if (pluginHeaders.isPresent()) {
+      return CxxPreprocessorInput.concat(ImmutableList.of(publicHeaders, pluginHeaders.get()));
+    }
+
+    return publicHeaders;
+  }
+
+  public CxxPreprocessorInput getPublicCxxPreprocessorInput(CxxPlatform cxxPlatform) {
     return getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC);
   }
 
   @Override
   public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
-    return getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
+    CxxPreprocessorInput privateInput =
+        getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
+    Optional<CxxPreprocessorInput> delegateInput =
+        delegate.flatMap(
+            p -> p.getPrivatePreprocessorInput(getBuildTarget(), ruleResolver, cxxPlatform));
+
+    if (delegateInput.isPresent()) {
+      return CxxPreprocessorInput.concat(ImmutableList.of(privateInput, delegateInput.get()));
+    }
+
+    return privateInput;
   }
 
   @Override
@@ -216,8 +241,16 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
+
+    ImmutableList<NativeLinkable> delegateLinkables =
+        delegate
+            .flatMap(
+                d -> d.getNativeLinkableExportedDeps(getBuildTarget(), ruleResolver, cxxPlatform))
+            .orElse(ImmutableList.of());
+
     return RichStream.from(exportedDeps.get(ruleResolver, cxxPlatform))
         .filter(NativeLinkable.class)
+        .concat(RichStream.from(delegateLinkables))
         .toImmutableList();
   }
 
@@ -233,7 +266,22 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
     linkerArgsBuilder.addAll(Preconditions.checkNotNull(exportedLinkerFlags.apply(cxxPlatform)));
 
-    if (!headerOnly.apply(cxxPlatform) && propagateLinkables) {
+    final boolean delegateWantsArtifact =
+        delegate
+            .map(
+                d ->
+                    d.getShouldProduceLibraryArtifact(
+                        getBuildTarget(), ruleResolver, cxxPlatform, type, forceLinkWhole))
+            .orElse(false);
+    final boolean headersOnly = headerOnly.apply(cxxPlatform);
+    final boolean shouldProduceArtifact =
+        (!headersOnly || delegateWantsArtifact) && propagateLinkables;
+
+    Preconditions.checkState(
+        shouldProduceArtifact || !delegateWantsArtifact,
+        "Delegate wants artifact but will not produce one");
+
+    if (shouldProduceArtifact) {
       boolean isStatic;
       switch (linkage) {
         case STATIC:

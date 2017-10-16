@@ -24,17 +24,18 @@ import com.android.ddmlib.DdmPreferences;
 import com.android.ddmlib.IDevice;
 import com.facebook.buck.android.exopackage.AndroidDevice;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
+import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.annotations.SuppressForbidden;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
+import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
 import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
@@ -167,7 +168,18 @@ public class AdbHelper implements AndroidDevicesHelper {
                 new CommandThreadFactory(getClass().getSimpleName()), adbThreadCount));
 
     for (final AndroidDevice device : devices) {
-      futures.add(executorService.submit(() -> func.apply(device)));
+      futures.add(
+          executorService.submit(
+              () -> {
+                try (SimplePerfEvent.Scope ignored =
+                    SimplePerfEvent.scope(
+                        getBuckEventBus(),
+                        PerfEventId.of("adbCall " + description),
+                        "device_serial",
+                        device.getSerialNumber())) {
+                  return func.apply(device);
+                }
+              }));
     }
 
     // Wait for all executions to complete or fail.

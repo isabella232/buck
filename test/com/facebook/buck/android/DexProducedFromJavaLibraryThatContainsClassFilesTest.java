@@ -21,12 +21,11 @@ import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.expect;
 import static org.hamcrest.Matchers.startsWith;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.dalvik.EstimateDexWeightStep;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -38,14 +37,12 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeOnDiskBuildInfo;
-import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -55,11 +52,8 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
@@ -79,7 +73,7 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
@@ -146,13 +140,15 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
     Step recordArtifactAndMetadataStep = steps.get(5);
     int exitCode = recordArtifactAndMetadataStep.execute(executionContext).getExitCode();
     assertEquals(0, exitCode);
-    assertEquals(
+    MoreAsserts.assertContainsOne(
         "The generated .dex.jar file should be in the set of recorded artifacts.",
-        ImmutableSet.of(BuildTargets.getGenPath(filesystem, buildTarget, "%s.dex.jar")),
-        buildableContext.getRecordedArtifacts());
+        buildableContext.getRecordedArtifacts(),
+        BuildTargets.getGenPath(filesystem, buildTarget, "%s.dex.jar"));
 
-    buildableContext.assertContainsMetadataMapping(
-        DexProducedFromJavaLibrary.WEIGHT_ESTIMATE, "250");
+    BuildOutputInitializer<DexProducedFromJavaLibrary.BuildOutput> outputInitializer =
+        preDex.getBuildOutputInitializer();
+    outputInitializer.initializeFromDisk(new FakeOnDiskBuildInfo());
+    assertEquals(250, outputInitializer.getBuildOutput().weightEstimate);
   }
 
   private void createFiles(ProjectFilesystem filesystem, String... paths) throws IOException {
@@ -167,12 +163,12 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
   @Test
   public void testGetBuildStepsWhenThereAreNoClassesToDex() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     DefaultJavaLibrary javaLibrary = JavaLibraryBuilder.createBuilder("//foo:bar").build(resolver);
     javaLibrary
         .getBuildOutputInitializer()
-        .setBuildOutput(new JavaLibrary.Data(ImmutableSortedMap.of()));
+        .setBuildOutputForTests(new JavaLibrary.Data(ImmutableSortedMap.of()));
 
     BuildContext context = FakeBuildContext.NOOP_CONTEXT;
     FakeBuildableContext buildableContext = new FakeBuildableContext();
@@ -206,13 +202,13 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
   @Test
   public void testObserverMethods() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     DefaultJavaLibrary accumulateClassNames =
         JavaLibraryBuilder.createBuilder("//foo:bar").build(resolver);
     accumulateClassNames
         .getBuildOutputInitializer()
-        .setBuildOutput(
+        .setBuildOutputForTests(
             new JavaLibrary.Data(
                 ImmutableSortedMap.of("com/example/Foo", HashCode.fromString("cafebabe"))));
 
@@ -226,42 +222,6 @@ public class DexProducedFromJavaLibraryThatContainsClassFilesTest {
     assertEquals(
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s.dex.jar"),
         preDexWithClasses.getPathToDex());
-  }
-
-  private static <T> void initialize(
-      InitializableFromDisk<T> initializableFromDisk, OnDiskBuildInfo onDiskBuildInfo)
-      throws IOException {
-    BuildOutputInitializer<T> buildOutputInitializer =
-        initializableFromDisk.getBuildOutputInitializer();
-    buildOutputInitializer.setBuildOutput(
-        initializableFromDisk.initializeFromDisk(onDiskBuildInfo));
-  }
-
-  @Test
-  public void getOutputDoesNotAccessWrappedJavaLibrary() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-
-    JavaLibrary javaLibrary =
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
-            .build(ruleResolver);
-
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuildTarget buildTarget = BuildTargetFactory.newInstance("//:target");
-    BuildRuleParams params = TestBuildRuleParams.create();
-    DexProducedFromJavaLibrary dexProducedFromJavaLibrary =
-        new DexProducedFromJavaLibrary(buildTarget, projectFilesystem, params, javaLibrary);
-
-    FakeOnDiskBuildInfo onDiskBuildInfo =
-        new FakeOnDiskBuildInfo()
-            .putMetadata(DexProducedFromJavaLibrary.WEIGHT_ESTIMATE, "0")
-            .putMetadata(
-                DexProducedFromJavaLibrary.CLASSNAMES_TO_HASHES,
-                ObjectMappers.WRITER.writeValueAsString(ImmutableMap.<String, String>of()));
-    initialize(dexProducedFromJavaLibrary, onDiskBuildInfo);
-
-    assertFalse(dexProducedFromJavaLibrary.hasOutput());
   }
 
   @Test

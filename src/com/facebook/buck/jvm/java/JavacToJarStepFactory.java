@@ -19,7 +19,7 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.jvm.java.AbstractJavacOptions.SpoolMode;
 
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -136,9 +136,10 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
     // (2) The target must have 0 postprocessing steps.
     // (3) Tha compile API must be JSR 199.
     boolean isSpoolingToJarEnabled =
-        postprocessClassesCommands.isEmpty()
-            && javacOptions.getSpoolMode() == AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR
-            && javac instanceof Jsr199Javac;
+        compilerParameters.getAbiGenerationMode().isSourceAbi()
+            || (postprocessClassesCommands.isEmpty()
+                && javacOptions.getSpoolMode() == AbstractJavacOptions.SpoolMode.DIRECT_TO_JAR
+                && javac instanceof Jsr199Javac);
 
     LOG.info(
         "Target: %s SpoolMode: %s Expected SpoolMode: %s Postprocessing steps: %s",

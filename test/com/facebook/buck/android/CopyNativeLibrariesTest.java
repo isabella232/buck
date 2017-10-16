@@ -19,17 +19,17 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -40,9 +40,7 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.io.File;
 import java.nio.file.Path;
@@ -79,7 +77,7 @@ public class CopyNativeLibrariesTest {
     Path destination = filesystem.getPath("path", "to", "destination");
     createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
         FakeBuildContext.NOOP_CONTEXT,
-        ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
+        ImmutableSet.of(TargetCpuType.ARMV7),
         source,
         destination,
         ImmutableList.of(
@@ -99,7 +97,7 @@ public class CopyNativeLibrariesTest {
     Path destination = filesystem.getPath("path", "to", "destination");
     createAndroidBinaryRuleAndTestCopyNativeLibraryCommand(
         FakeBuildContext.NOOP_CONTEXT,
-        ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARM, NdkCxxPlatforms.TargetCpuType.X86),
+        ImmutableSet.of(TargetCpuType.ARM, TargetCpuType.X86),
         source,
         destination,
         ImmutableList.of(
@@ -125,7 +123,7 @@ public class CopyNativeLibrariesTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new DefaultBuildRuleResolver(
+            new SingleThreadedBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     CopyNativeLibraries copyNativeLibraries =
@@ -133,10 +131,10 @@ public class CopyNativeLibrariesTest {
             target,
             new FakeProjectFilesystem(),
             ruleFinder,
-            ImmutableSortedSet.of(),
-            ImmutableSet.of(new FakeSourcePath("lib1"), new FakeSourcePath("lib2")),
-            ImmutableMap.of(),
-            ImmutableMap.of(),
+            ImmutableSet.of(),
+            ImmutableSet.of(),
+            ImmutableSet.of(FakeSourcePath.of("lib1"), FakeSourcePath.of("lib2")),
+            ImmutableSet.of(),
             ImmutableSet.of(),
             "dex");
 

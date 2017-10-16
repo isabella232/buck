@@ -18,7 +18,7 @@ package com.facebook.buck.rules;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -35,7 +35,7 @@ public class CommandToolTest {
   @Test
   public void buildTargetSourcePath() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -60,14 +60,14 @@ public class CommandToolTest {
   @Test
   public void pathSourcePath() {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Build a source path which wraps a build rule.
-    SourcePath path = new PathSourcePath(filesystem, Paths.get("output"));
+    SourcePath path = PathSourcePath.of(filesystem, Paths.get("output"));
 
     // Test command and inputs for just passing the source path.
     CommandTool tool = new CommandTool.Builder().addArg(SourcePathArg.of(path)).build();
@@ -79,7 +79,7 @@ public class CommandToolTest {
   @Test
   public void extraInputs() {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     FakeBuildRule rule = new FakeBuildRule("//some:target");
@@ -96,11 +96,11 @@ public class CommandToolTest {
   @Test
   public void environment() {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    SourcePath path = new FakeSourcePath("input");
+    SourcePath path = FakeSourcePath.of("input");
     CommandTool tool =
         new CommandTool.Builder().addArg("runit").addEnv("PATH", SourcePathArg.of(path)).build();
 
@@ -112,7 +112,7 @@ public class CommandToolTest {
   @Test
   public void environmentBuildTargetSourcePath() throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);

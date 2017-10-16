@@ -16,7 +16,8 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
@@ -226,6 +227,10 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return delegate.getBooleanValue(APPLE_SECTION, "cache_bundles_and_packages", true);
   }
 
+  public boolean linkAllObjC() {
+    return delegate.getBooleanValue(APPLE_SECTION, "always_link_with_objc_flag", true);
+  }
+
   public Optional<Path> getAppleDeviceHelperAbsolutePath() {
     return getOptionalPath(APPLE_SECTION, "device_helper_path");
   }
@@ -263,8 +268,15 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     return delegate.getBooleanValue(APPLE_SECTION, "generate_header_symlink_tree_only", false);
   }
 
-  public boolean shouldCheckForAssetCatalogDuplicateImages() {
-    return delegate.getBooleanValue(APPLE_SECTION, "check_asset_catalog_duplicate_images", false);
+  public boolean shouldUseSwiftDelegate() {
+    // TODO(mgd): Remove Swift delegation from Apple rules
+    return delegate.getBooleanValue(APPLE_SECTION, "use_swift_delegate", true);
+  }
+
+  public AppleAssetCatalog.ValidationType assetCatalogValidation() {
+    return delegate
+        .getEnum(APPLE_SECTION, "asset_catalog_validation", AppleAssetCatalog.ValidationType.class)
+        .orElse(AppleAssetCatalog.ValidationType.XCODE);
   }
 
   public String getTestLogDirectoryEnvironmentVariable() {

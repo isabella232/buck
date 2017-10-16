@@ -17,6 +17,7 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -32,7 +33,7 @@ public class OmnibusRootsTest {
   public void excludedAndIncludedDeps() throws NoSuchBuildTargetException {
     OmnibusRootNode transitiveRoot = new OmnibusRootNode("//:transitive_root");
     NativeLinkable excludedDep =
-        new OmnibusSharedOnlyNode(
+        new OmnibusExcludedNode(
             "//:excluded_dep", ImmutableList.<NativeLinkable>of(transitiveRoot));
     NativeLinkTarget root = new OmnibusRootNode("//:root", ImmutableList.of(excludedDep));
 
@@ -45,5 +46,23 @@ public class OmnibusRootsTest {
     assertThat(roots.getIncludedRoots().keySet(), Matchers.contains(root.getBuildTarget()));
     assertThat(
         roots.getExcludedRoots().keySet(), Matchers.contains(transitiveRoot.getBuildTarget()));
+  }
+
+  @Test
+  public void rootWhichDoesNotSupportOmnibusIsExcluded() throws NoSuchBuildTargetException {
+    OmnibusRootNode root =
+        new OmnibusRootNode("//:transitive_root") {
+          @Override
+          public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+            return false;
+          }
+        };
+
+    OmnibusRoots.Builder builder =
+        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of());
+    builder.addPotentialRoot(root);
+    OmnibusRoots roots = builder.build();
+
+    assertThat(roots.getExcludedRoots().keySet(), Matchers.contains(root.getBuildTarget()));
   }
 }

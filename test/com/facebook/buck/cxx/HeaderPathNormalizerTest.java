@@ -18,11 +18,11 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -41,7 +41,7 @@ public class HeaderPathNormalizerTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path header = filesystem.getPath("foo/bar.h");
     HeaderPathNormalizer normalizer = new HeaderPathNormalizer.Builder(pathResolver).build();
@@ -55,10 +55,10 @@ public class HeaderPathNormalizerTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path header = filesystem.getPath("foo/bar.h");
-    SourcePath headerPath = new PathSourcePath(filesystem, header);
+    SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =
         new HeaderPathNormalizer.Builder(pathResolver).addHeader(headerPath).build();
     assertThat(
@@ -74,10 +74,10 @@ public class HeaderPathNormalizerTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path header = filesystem.getPath("foo/bar.h");
-    SourcePath headerPath = new PathSourcePath(filesystem, header);
+    SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =
         new HeaderPathNormalizer.Builder(pathResolver).addHeader(headerPath).build();
     assertThat(
@@ -96,10 +96,10 @@ public class HeaderPathNormalizerTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path header = filesystem.getPath("foo/bar.h");
-    SourcePath headerDirPath = new PathSourcePath(filesystem, header.getParent());
+    SourcePath headerDirPath = PathSourcePath.of(filesystem, header.getParent());
     HeaderPathNormalizer normalizer =
         new HeaderPathNormalizer.Builder(pathResolver).addHeaderDir(headerDirPath).build();
     assertThat(
@@ -121,10 +121,10 @@ public class HeaderPathNormalizerTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path header = filesystem.getPath("foo/bar.pch");
-    SourcePath headerPath = new PathSourcePath(filesystem, header);
+    SourcePath headerPath = PathSourcePath.of(filesystem, header);
     HeaderPathNormalizer normalizer =
         new HeaderPathNormalizer.Builder(pathResolver).addPrefixHeader(headerPath).build();
     assertThat(

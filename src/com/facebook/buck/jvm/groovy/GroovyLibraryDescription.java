@@ -16,8 +16,10 @@
 
 package com.facebook.buck.jvm.groovy;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
@@ -36,12 +38,16 @@ import org.immutables.value.Value;
 public class GroovyLibraryDescription implements Description<GroovyLibraryDescriptionArg> {
 
   private final GroovyBuckConfig groovyBuckConfig;
+  private final JavaBuckConfig javaBuckConfig;
   // For cross compilation
   private final JavacOptions defaultJavacOptions;
 
   public GroovyLibraryDescription(
-      GroovyBuckConfig groovyBuckConfig, JavacOptions defaultJavacOptions) {
+      GroovyBuckConfig groovyBuckConfig,
+      JavaBuckConfig javaBuckConfig,
+      JavacOptions defaultJavacOptions) {
     this.groovyBuckConfig = groovyBuckConfig;
+    this.javaBuckConfig = javaBuckConfig;
     this.defaultJavacOptions = defaultJavacOptions;
   }
 
@@ -62,27 +68,27 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
             defaultJavacOptions, buildTarget, projectFilesystem, resolver, args);
-    DefaultGroovyLibraryBuilder defaultGroovyLibraryBuilder =
-        new DefaultGroovyLibraryBuilder(
-                targetGraph,
+    DefaultJavaLibraryRules defaultJavaLibraryRules =
+        new DefaultJavaLibraryRules.Builder(
                 buildTarget,
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
-                javacOptions,
-                groovyBuckConfig)
-            .setArgs(args);
+                new GroovyConfiguredCompilerFactory(groovyBuckConfig),
+                javaBuckConfig,
+                args)
+            .setJavacOptions(javacOptions)
+            .build();
 
     return HasJavaAbi.isAbiTarget(buildTarget)
-        ? defaultGroovyLibraryBuilder.buildAbi()
-        : defaultGroovyLibraryBuilder.build();
+        ? defaultJavaLibraryRules.buildAbi()
+        : resolver.addToIndex(defaultJavaLibraryRules.buildLibrary());
   }
 
   public interface CoreArg extends JavaLibraryDescription.CoreArg {
     // Groovyc may not play nice with this, so turning it off
     @Override
-    default Optional<Boolean> getGenerateAbiFromSource() {
+    default Optional<Boolean> getGenerateSourceOnlyAbi() {
       return Optional.of(false);
     }
 

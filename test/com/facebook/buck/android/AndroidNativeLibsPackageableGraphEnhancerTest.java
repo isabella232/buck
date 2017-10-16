@@ -20,6 +20,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.packageable.AndroidPackageableCollection;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.TargetCpuType;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
@@ -30,10 +37,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
@@ -63,7 +70,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   @Test
   public void testNdkLibrary() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -90,6 +97,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
+            ImmutableList.of(),
             apkModuleGraph);
 
     AndroidPackageableCollector collector =
@@ -125,20 +133,21 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             .setObjdump(new CommandTool.Builder().addArg("objdump").build())
             .build();
 
-    ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms =
-        ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>builder()
-            .put(NdkCxxPlatforms.TargetCpuType.ARMV7, ndkCxxPlatform)
-            .put(NdkCxxPlatforms.TargetCpuType.X86, ndkCxxPlatform)
+    ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms =
+        ImmutableMap.<TargetCpuType, NdkCxxPlatform>builder()
+            .put(TargetCpuType.ARMV7, ndkCxxPlatform)
+            .put(TargetCpuType.X86, ndkCxxPlatform)
             .build();
 
     CxxLibraryBuilder cxxLibraryBuilder =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib"))
             .setSoname("somelib.so")
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test/bar.cpp"))));
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar.cpp"))));
     TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription = cxxLibraryBuilder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(cxxLibraryDescription);
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     CxxLibrary cxxLibrary =
         (CxxLibrary)
@@ -158,12 +167,13 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             new FakeProjectFilesystem(),
             originalParams,
             nativePlatforms,
-            ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
+            ImmutableSet.of(TargetCpuType.ARMV7),
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
+            ImmutableList.of(),
             apkModuleGraph);
 
     AndroidPackageableCollector collector =
@@ -182,12 +192,10 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         copyNativeLibraries.getStrippedObjectDescriptions(),
         Matchers.containsInAnyOrder(
             Matchers.allOf(
-                Matchers.hasProperty(
-                    "targetCpuType", Matchers.equalTo(NdkCxxPlatforms.TargetCpuType.ARMV7)),
+                Matchers.hasProperty("targetCpuType", Matchers.equalTo(TargetCpuType.ARMV7)),
                 Matchers.hasProperty("strippedObjectName", Matchers.equalTo("somelib.so"))),
             Matchers.allOf(
-                Matchers.hasProperty(
-                    "targetCpuType", Matchers.equalTo(NdkCxxPlatforms.TargetCpuType.ARMV7)),
+                Matchers.hasProperty("targetCpuType", Matchers.equalTo(TargetCpuType.ARMV7)),
                 Matchers.hasProperty(
                     "strippedObjectName", Matchers.equalTo("libgnustl_shared.so")))));
     assertThat(copyNativeLibraries.getNativeLibDirectories(), Matchers.empty());
@@ -207,7 +215,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   @Test(expected = HumanReadableException.class)
   public void testEmptyNativePlatformsWithNativeLinkables() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     CxxLibrary cxxLibrary =
@@ -235,6 +243,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
+            ImmutableList.of(),
             apkModuleGraph);
 
     AndroidPackageableCollector collector =
@@ -249,7 +258,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   @Test
   public void testEmptyNativePlatformsWithNativeLinkableAssets() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     CxxLibrary cxxLibrary =
@@ -277,6 +286,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
+            ImmutableList.of(),
             apkModuleGraph);
 
     AndroidPackageableCollector collector =
@@ -306,28 +316,28 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             .setObjdump(new CommandTool.Builder().addArg("objdump").build())
             .build();
 
-    ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms =
-        ImmutableMap.<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform>builder()
-            .put(NdkCxxPlatforms.TargetCpuType.ARMV7, ndkCxxPlatform)
-            .put(NdkCxxPlatforms.TargetCpuType.X86, ndkCxxPlatform)
+    ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms =
+        ImmutableMap.<TargetCpuType, NdkCxxPlatform>builder()
+            .put(TargetCpuType.ARMV7, ndkCxxPlatform)
+            .put(TargetCpuType.X86, ndkCxxPlatform)
             .build();
 
     CxxLibraryBuilder cxxLibraryBuilder1 =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib1"))
             .setSoname("somelib.so")
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test/bar.cpp"))));
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar.cpp"))));
     TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription1 = cxxLibraryBuilder1.build();
     CxxLibraryBuilder cxxLibraryBuilder2 =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib2"))
             .setSoname("somelib.so")
-            .setSrcs(
-                ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test/bar2.cpp"))));
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar2.cpp"))));
     TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription2 = cxxLibraryBuilder2.build();
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             ImmutableList.of(cxxLibraryDescription1, cxxLibraryDescription2));
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     CxxLibrary cxxLibrary1 =
         (CxxLibrary)
             cxxLibraryBuilder1.build(ruleResolver, new FakeProjectFilesystem(), targetGraph);
@@ -351,12 +361,13 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
             new FakeProjectFilesystem(),
             originalParams,
             nativePlatforms,
-            ImmutableSet.of(NdkCxxPlatforms.TargetCpuType.ARMV7),
+            ImmutableSet.of(TargetCpuType.ARMV7),
             CxxPlatformUtils.DEFAULT_CONFIG,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
             AndroidBinary.RelinkerMode.DISABLED,
+            ImmutableList.of(),
             apkModuleGraph);
 
     AndroidPackageableCollector collector =

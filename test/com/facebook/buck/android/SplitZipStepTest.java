@@ -20,8 +20,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.dalvik.ZipSplitter;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.google.common.base.Predicate;
 import com.google.common.base.Suppliers;
@@ -170,7 +171,7 @@ public class SplitZipStepTest {
                 DexStore.JAR,
                 /* linearAllocHardLimit */ 4 * 1024 * 1024,
                 /* primaryDexPatterns */ ImmutableSet.of("List"),
-                Optional.of(new FakeSourcePath("the/manifest.txt")),
+                Optional.of(FakeSourcePath.of("the/manifest.txt")),
                 /* primaryDexScenarioFile */ Optional.empty(),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
@@ -264,7 +265,7 @@ public class SplitZipStepTest {
                 DexStore.JAR,
                 /* linearAllocHardLimit */ 4 * 1024 * 1024,
                 /* primaryDexPatterns */ ImmutableSet.of("/primary/", "x/"),
-                Optional.of(new FakeSourcePath("the/manifest.txt")),
+                Optional.of(FakeSourcePath.of("the/manifest.txt")),
                 /* primaryDexScenarioFile */ Optional.empty(),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),

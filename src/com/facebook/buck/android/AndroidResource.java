@@ -17,8 +17,10 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.MiniAapt;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -42,7 +44,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -76,9 +77,6 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
         HasAndroidResourceDeps,
         InitializableFromDisk<String>,
         SupportsInputBasedRuleKey {
-
-  @VisibleForTesting
-  static final String METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE = "METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE";
 
   @AddToRuleKey @Nullable private final SourcePath res;
 
@@ -315,8 +313,6 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
           new ExtractFromAndroidManifestStep(
               context.getSourcePathResolver().getAbsolutePath(manifestFile),
               getProjectFilesystem(),
-              buildableContext,
-              METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE,
               Preconditions.checkNotNull(pathToRDotJavaPackageFile)));
     } else {
       steps.add(
@@ -349,17 +345,17 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   @Nullable
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToTextSymbolsDir);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), pathToTextSymbolsDir);
   }
 
   @Override
   public SourcePath getPathToTextSymbolsFile() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToTextSymbolsFile);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), pathToTextSymbolsFile);
   }
 
   @Override
   public SourcePath getPathToRDotJavaPackageFile() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToRDotJavaPackageFile);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), pathToRDotJavaPackageFile);
   }
 
   @Override

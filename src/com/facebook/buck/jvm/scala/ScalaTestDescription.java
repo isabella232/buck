@@ -17,15 +17,19 @@
 package com.facebook.buck.jvm.scala;
 
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
+import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.MacroException;
+import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -58,16 +62,22 @@ public class ScalaTestDescription
       new MacroHandler(ImmutableMap.of("location", new LocationMacroExpander()));
 
   private final ScalaBuckConfig config;
+  private final JavaBuckConfig javaBuckConfig;
+  private final JavacOptions templateJavacOptions;
   private final JavaOptions javaOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
   private final CxxPlatform cxxPlatform;
 
   public ScalaTestDescription(
       ScalaBuckConfig config,
+      JavaBuckConfig javaBuckConfig,
+      JavacOptions templateOptions,
       JavaOptions javaOptions,
       Optional<Long> defaultTestRuleTimeoutMs,
       CxxPlatform cxxPlatform) {
     this.config = config;
+    this.javaBuckConfig = javaBuckConfig;
+    this.templateJavacOptions = templateOptions;
     this.javaOptions = javaOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatform = cxxPlatform;
@@ -102,16 +112,21 @@ public class ScalaTestDescription
     BuildTarget javaLibraryBuildTarget =
         buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
-    ScalaLibraryBuilder scalaLibraryBuilder =
-        new ScalaLibraryBuilder(
-                targetGraph,
+    JavacOptions javacOptions =
+        JavacOptionsFactory.create(
+            templateJavacOptions, buildTarget, projectFilesystem, resolver, args);
+
+    DefaultJavaLibraryRules scalaLibraryBuilder =
+        ScalaLibraryBuilder.newInstance(
                 javaLibraryBuildTarget,
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
-                config)
-            .setArgs(args);
+                config,
+                javaBuckConfig,
+                args)
+            .setJavacOptions(javacOptions)
+            .build();
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return scalaLibraryBuilder.buildAbi();
@@ -119,7 +134,7 @@ public class ScalaTestDescription
 
     Function<String, Arg> toMacroArgFunction =
         MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
-    JavaLibrary testsLibrary = resolver.addToIndex(scalaLibraryBuilder.build());
+    JavaLibrary testsLibrary = resolver.addToIndex(scalaLibraryBuilder.buildLibrary());
 
     return new JavaTest(
         buildTarget,

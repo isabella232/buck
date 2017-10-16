@@ -25,7 +25,9 @@ import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.AttrFilterFunction;
 import com.facebook.buck.query.DepsFunction;
 import com.facebook.buck.query.FilterFunction;
+import com.facebook.buck.query.InputsFunction;
 import com.facebook.buck.query.KindFunction;
+import com.facebook.buck.query.LabelsFunction;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryEnvironment;
 import com.facebook.buck.query.QueryException;
@@ -35,18 +37,18 @@ import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -60,6 +62,7 @@ import java.util.stream.Stream;
  *  deps
  *  inputs
  *  except
+ *  inputs
  *  intersect
  *  filter
  *  kind
@@ -93,36 +96,20 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
     return targetEvaluator;
   }
 
-  @Override
-  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets) throws QueryException {
-    ImmutableSet.Builder<QueryTarget> builder = ImmutableSet.builder();
-    for (QueryTarget target : targets) {
-      List<QueryBuildTarget> deps =
-          getNode(target)
-              .getParseDeps()
-              .stream()
-              .map(QueryBuildTarget::of)
-              .collect(Collectors.toList());
-      builder.addAll(deps);
-    }
-    return builder.build();
+  private Stream<QueryTarget> getFwdDepsStream(Iterable<QueryTarget> targets) {
+    return RichStream.from(targets)
+        .flatMap(target -> this.getNode(target).getParseDeps().stream())
+        .map(QueryBuildTarget::of);
   }
 
   @Override
-  public void forEachFwdDep(Iterable<QueryTarget> targets, Consumer<? super QueryTarget> action)
-      throws QueryException {
-    for (QueryTarget target : targets) {
-      TargetNode<?, ?> node = getNode(target);
-      for (BuildTarget dep : node.getDeclaredDeps()) {
-        action.accept(QueryBuildTarget.of(dep));
-      }
-      for (BuildTarget dep : node.getExtraDeps()) {
-        action.accept(QueryBuildTarget.of(dep));
-      }
-      for (BuildTarget dep : node.getTargetGraphOnlyDeps()) {
-        action.accept(QueryBuildTarget.of(dep));
-      }
-    }
+  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets) {
+    return getFwdDepsStream(targets).collect(MoreCollectors.toImmutableSet());
+  }
+
+  @Override
+  public void forEachFwdDep(Iterable<QueryTarget> targets, Consumer<? super QueryTarget> action) {
+    getFwdDepsStream(targets).forEach(action);
   }
 
   @Override
@@ -135,6 +122,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
     TargetNode<?, ?> node = getNode(target);
     return node.getInputs()
         .stream()
+        .map(path -> PathSourcePath.of(node.getFilesystem(), path))
         .map(QueryFileTarget::of)
         .collect(MoreCollectors.toImmutableSet());
   }
@@ -171,7 +159,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<QueryTarget> getTargetsInAttribute(QueryTarget target, String attribute) {
-    throw new UnsupportedOperationException();
+    return QueryTargetAccessor.getTargetsInAttribute(getNode(target), attribute);
   }
 
   @Override
@@ -209,7 +197,9 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
           new DepsFunction(),
           new DepsFunction.FirstOrderDepsFunction(),
           new KindFunction(),
-          new FilterFunction());
+          new FilterFunction(),
+          new LabelsFunction(),
+          new InputsFunction());
 
   @Override
   public Iterable<QueryFunction> getFunctions() {

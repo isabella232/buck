@@ -16,7 +16,7 @@
 
 package com.facebook.buck.js;
 
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -65,7 +65,7 @@ public class JsFlavors {
           ImmutableMap.of(
               RAM_BUNDLE_FILES, "--files-rambundle",
               RAM_BUNDLE_INDEXED, "--indexed-rambundle"));
-  public static final FlavorDomain<Object> SOURCE_MAP_DOMAIN =
+  public static final FlavorDomain<Object> OUTPUT_OPTIONS_DOMAIN =
       new FlavorDomain<>(
           "Output options",
           ImmutableMap.of(SOURCE_MAP, SOURCE_MAP, DEPENDENCY_FILE, DEPENDENCY_FILE));

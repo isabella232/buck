@@ -22,14 +22,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cxx.FrameworkDependencies;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -66,7 +66,7 @@ public class AppleBundleDescriptionTest {
         AppleBundleDescriptionArg.builder()
             .setName("bundle")
             .setExtension(Either.ofLeft(AppleBundleExtension.BUNDLE))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .setBinary(binary)
             .setDeps(
                 ImmutableSortedSet.of(
@@ -124,7 +124,7 @@ public class AppleBundleDescriptionTest {
         AppleBundleDescriptionArg.builder()
             .setName("bundle")
             .setExtension(Either.ofLeft(AppleBundleExtension.BUNDLE))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .setBinary(binary)
             .setDeps(
                 ImmutableSortedSet.<BuildTarget>naturalOrder()
@@ -166,12 +166,12 @@ public class AppleBundleDescriptionTest {
     TargetNode<?, ?> bundleNode =
         new AppleBundleBuilder(bundleTarget)
             .setExtension(Either.ofLeft(AppleBundleExtension.BUNDLE))
-            .setInfoPlist(new FakeSourcePath("Info.plist"))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
             .setBinary(binaryTarget)
             .build();
 
     BuildRuleResolver buildRuleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraphFactory.newInstance(bundleNode, binaryNode),
             new DefaultTargetNodeToBuildRuleTransformer());
     assertTrue(

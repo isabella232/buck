@@ -20,7 +20,7 @@ from timing import monotonic_time_nanos
 from tracing import Tracing
 from subprocutils import check_output, which, CalledProcessError
 
-BUCKD_CLIENT_TIMEOUT_MILLIS = 60000
+BUCKD_CLIENT_TIMEOUT_MILLIS = 120000
 GC_MAX_PAUSE_TARGET = 15000
 
 JAVA_MAX_HEAP_SIZE_MB = 1000
@@ -89,7 +89,7 @@ class CommandLineArgs:
         return self.command is None or "--help" in self.command_options
 
     def is_version(self):
-        return self.command is None and "--version" in self.buck_options
+        return self.command is None and any(v in self.buck_options for v in ['--version', '-V'])
 
 
 class BuckToolException(Exception):
@@ -212,8 +212,10 @@ class BuckTool(object):
             try:
                 # Get the number of columns in the terminal.
                 with open(os.devnull, 'w') as devnull:
-                    columns = check_output(["tput", "cols"], stderr=devnull).strip()
-                    env['COLUMNS'] = columns
+                    stty_size_str = check_output(["stty", "size"], stderr=devnull).strip()
+                    stty_size = stty_size_str.split(' ')
+                    if len(stty_size) >= 2:
+                        env['BUCK_TERM_COLUMNS'] = stty_size[1]
             except CalledProcessError:
                 # If the call to tput fails, we use the default.
                 pass

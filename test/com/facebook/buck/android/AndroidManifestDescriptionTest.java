@@ -18,16 +18,16 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
@@ -42,14 +42,14 @@ public class AndroidManifestDescriptionTest {
   @Test
   public void testGeneratedSkeletonAppearsInDeps() {
     BuildRuleResolver buildRuleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRule ruleWithOutput =
         new FakeBuildRule(BuildTargetFactory.newInstance("//foo:bar")) {
           @Override
           public SourcePath getSourcePathToOutput() {
-            return new ExplicitBuildTargetSourcePath(
+            return ExplicitBuildTargetSourcePath.of(
                 getBuildTarget(), Paths.get("buck-out/gen/foo/bar/AndroidManifest.xml"));
           }
         };

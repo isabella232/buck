@@ -22,16 +22,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.MacroException;
-import com.facebook.buck.model.MacroMatchResult;
+import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
@@ -56,11 +57,11 @@ public class MacroHandlerTest {
 
   @Before
   public void before() throws Exception {
-    filesystem = new ProjectFilesystem(tmp.newFolder().toPath());
+    filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.newFolder().toPath());
     target = BuildTargetFactory.newInstance("//:test");
     JavaLibraryBuilder builder = JavaLibraryBuilder.createBuilder(target);
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
     builder.build(resolver, filesystem);

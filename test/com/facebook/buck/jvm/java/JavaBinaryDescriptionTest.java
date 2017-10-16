@@ -18,14 +18,24 @@ package com.facebook.buck.jvm.java;
 
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
+import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -34,7 +44,7 @@ public class JavaBinaryDescriptionTest {
   @Test
   public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     FakeJavaLibrary transitiveLibrary =
@@ -55,5 +65,36 @@ public class JavaBinaryDescriptionTest {
     assertThat(
         javaBinary.getBuildDeps(),
         Matchers.containsInAnyOrder(firstOrderLibrary, transitiveLibrary));
+  }
+
+  @Test
+  public void defaultCxxPlatform() throws Exception {
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("newplatform"));
+    SourcePath lib = FakeSourcePath.of("lib");
+
+    PrebuiltCxxLibraryBuilder cxxLibBuilder =
+        new PrebuiltCxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxx_lib"))
+            .setPlatformSharedLib(
+                PatternMatchedCollection.<SourcePath>builder()
+                    .add(Pattern.compile(cxxPlatform.getFlavor().toString(), Pattern.LITERAL), lib)
+                    .build());
+    JavaBinaryRuleBuilder javaBinBuilder =
+        new JavaBinaryRuleBuilder(
+                BuildTargetFactory.newInstance("//:bin"),
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                FlavorDomain.of("C/C++ Platform", cxxPlatform))
+            .setDefaultCxxPlatform(cxxPlatform.getFlavor())
+            .setDeps(ImmutableSortedSet.of(cxxLibBuilder.getTarget()));
+
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(cxxLibBuilder.build(), javaBinBuilder.build());
+    BuildRuleResolver resolver =
+        new SingleThreadedBuildRuleResolver(
+            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+
+    JarFattener javaBinary = (JarFattener) resolver.requireRule(javaBinBuilder.getTarget());
+
+    assertThat(javaBinary.getNativeLibraries().values(), Matchers.contains(lib));
   }
 }

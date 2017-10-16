@@ -134,6 +134,7 @@ The following sections are recognized by Buck:
     'lua',
     'maven_repositories',
     'ndk',
+    'ocaml',
     'parser',
     'project',
     'python',
@@ -455,13 +456,12 @@ $ buck targets --resolve-alias app#src_jar
 
 {call buckconfig.entry}
   {param section: 'apple' /}
-  {param name: 'check_asset_catalog_duplicate_images' /}
-  {param example_value: 'false' /}
+  {param name: 'asset_catalog_validation' /}
+  {param example_value: 'XCODE' /}
   {param description}
-    All asset catalogs (.xcassets directories) get merged into a single directory per apple bundle.
-    This option prevents duplicate filenames across all the asset catalogs. Imagesets
-    containing images with identical names can overwrite one another, this is especially
-    problematic if two images share a name but are different.
+    Buck can check errors in .xcassets' contents that can later cause silent failures, like having
+    multiple images with the same name or missing <code>Contents.json</code> files. To add extra
+    validation above what Xcode does, set this option to <code>STRICT</code>.
   {/param}
 {/call}
 
@@ -1936,16 +1936,6 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'intellij' /}
-  {param name: 'java_library_sdk_names' /}
-  {param example_value: '1.6 => Java SDK 1.6, 1.8 => Java SDK 1.8' /}
-  {param description}
-    SDK names which should be used in IntelliJ modules generated
-    from <code>java_library</code> rules with non-default <code>source</code> option.
-  {/param}
-{/call}
-
-{call buckconfig.entry}
-  {param section: 'intellij' /}
   {param name: 'jdk_name' /}
   {param example_value: 'Java SDK 1.6' /}
   {param description}
@@ -2583,6 +2573,80 @@ your <code>.buckjavaargs</code> file</a>:
 {/call}
 
 {call buckconfig.section}
+  {param name: 'ocaml' /}
+  {param description}
+    <p>
+      This section configures the paths to the OCaml toolchain's binaries.
+    </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'ocaml.bytecode.compiler' /}
+  {param example_value: '/usr/local/bin/ocamlc.opt' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/native.html">OCaml bytecode compiler (ocamlc)<a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'ocaml.compiler' /}
+  {param example_value: '/usr/local/bin/ocamlopt.opt' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/comp.html">OCaml native-code compiler (ocamlopt)</a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'dep.tool' /}
+  {param example_value: '/usr/local/bin/ocamldep.opt' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/depend.html">OCaml dependency generator (ocamldep)</a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'lex.compiler' /}
+  {param example_value: '/usr/local/bin/ocamllex.opt' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/lexyacc.html#sec296">OCaml lexer generator (ocamllex)</a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'yacc.compiler' /}
+  {param example_value: '/usr/local/bin/ocamlyacc' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/lexyacc.html#sec307">OCaml parser generator (ocamlyacc)</a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'debug' /}
+  {param example_value: '/usr/local/bin/ocamldebug' /}
+  {param description}
+    The path to the <a href="https://caml.inria.fr/pub/docs/manual-ocaml/debugger.html">OCaml debugger (ocamldebug)</a>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ocaml' /}
+  {param name: 'interop.includes' /}
+  {param example_value: '/usr/local/lib/ocaml' /}
+  {param description}
+    The path to the OCaml standard library directory
+    (see <a href="https://caml.inria.fr/pub/docs/manual-ocaml/intfc.html">Interfacing C with OCaml</a>).
+  {/param}
+{/call}
+
+
+{call buckconfig.section}
   {param name: 'parser' /}
   {param description}
     This section defines settings for the BUCK parser.
@@ -2620,6 +2684,30 @@ your <code>.buckjavaargs</code> file</a>:
     their read-only counterparts. This can be used to detect
     accidental attempts to modify global variables causing non-determinism and hard to debug bugs.
     By default, this is not enabled (<code>false</code>).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'polyglot_parsing_enabled' /}
+  {param example_value: 'true' /}
+  {param description}
+    Indicates whether support for experimental polyglot parsing should be enabled. When enabled,
+    build file can have a <code># BUILD FILE SYNTAX: </code> marker followed by one of supported
+    syntax names that include <code>PYTHON_DSL</code> and an experimental <code>SKYLARK</code>.
+    This flag is disabled by default.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'default_build_file_syntax' /}
+  {param example_value: 'SKYLARK' /}
+  {param description}
+    Specifies the default syntax assumed when parsing build files without explicit build syntax
+    marker (<code># BUILD FILE SYNTAX: </code>). This flag is only applicable when
+    <code>parser.polyglot_parsing_enabled</code> configuration is set to <code>true</code>.
+    By default it's value is set to <code>PYTHON_DSL</code>.
   {/param}
 {/call}
 
@@ -3090,6 +3178,20 @@ your <code>.buckjavaargs</code> file</a>:
     Controls whether the output from <code>rust_binary</code> or <code>rust_test</code> rules
     include a flavor from the platform in the path or not. Even unflavored, the path includes{sp}
     <code>#binary</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'rust' /}
+  {param name: 'remap_src_paths' /}
+  {param example_value: 'no' /}
+  {param description}
+    Controls whether <code>rustc</code> remaps the source paths in its output. Buck will always
+    construct a link tree with the sources required for a given rule, which means the paths passed
+    to <code>rustc</code> are not the original source paths. This option will remap those paths
+    in compiler output, debug info, <code>file!()</code> and elsewhere to match the original
+    source names. The options are "no" (don't remap), "unstable" (remap using the experimental
+    version of these options) and "yes" (remap using the stable versions, probably 1.22 onwards).
   {/param}
 {/call}
 

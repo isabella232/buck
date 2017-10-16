@@ -25,17 +25,17 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -65,7 +65,7 @@ public class ExternallyBuiltApplePackageTest {
   private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
   private BuildRuleParams params = TestBuildRuleParams.create();
   private BuildRuleResolver resolver =
-      new DefaultBuildRuleResolver(
+      new SingleThreadedBuildRuleResolver(
           TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
   private ApplePackageConfigAndPlatformInfo config =
       ApplePackageConfigAndPlatformInfo.of(
@@ -88,7 +88,7 @@ public class ExternallyBuiltApplePackageTest {
             projectFilesystem,
             params,
             config,
-            new FakeSourcePath(bundleLocation),
+            FakeSourcePath.of(bundleLocation),
             true);
     resolver.addToIndex(rule);
     ShellStep step =
@@ -114,7 +114,7 @@ public class ExternallyBuiltApplePackageTest {
             projectFilesystem,
             params,
             config,
-            new FakeSourcePath("Fake/Bundle/Location"),
+            FakeSourcePath.of("Fake/Bundle/Location"),
             true);
     resolver.addToIndex(rule);
     assertThat(
@@ -134,7 +134,7 @@ public class ExternallyBuiltApplePackageTest {
             projectFilesystem,
             params,
             config,
-            new FakeSourcePath("Fake/Bundle/Location"),
+            FakeSourcePath.of("Fake/Bundle/Location"),
             true);
     resolver.addToIndex(rule);
     AbstractGenruleStep step =
@@ -158,7 +158,7 @@ public class ExternallyBuiltApplePackageTest {
                 projectFilesystem,
                 params,
                 config.withPlatform(config.getPlatform().withBuildVersion(input)),
-                new FakeSourcePath("Fake/Bundle/Location"),
+                FakeSourcePath.of("Fake/Bundle/Location"),
                 true);
     assertNotEquals(
         newRuleKeyFactory().build(packageWithVersion.apply("real")),
@@ -177,7 +177,7 @@ public class ExternallyBuiltApplePackageTest {
                     config
                         .getPlatform()
                         .withAppleSdk(config.getPlatform().getAppleSdk().withVersion(input))),
-                new FakeSourcePath("Fake/Bundle/Location"),
+                FakeSourcePath.of("Fake/Bundle/Location"),
                 true);
     assertNotEquals(
         newRuleKeyFactory().build(packageWithSdkVersion.apply("real")),

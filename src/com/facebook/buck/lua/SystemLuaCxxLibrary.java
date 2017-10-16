@@ -16,8 +16,8 @@
 
 package com.facebook.buck.lua;
 
-import com.facebook.buck.android.AndroidPackageable;
-import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.android.packageable.AndroidPackageable;
+import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.cxx.AbstractCxxLibrary;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -91,6 +91,11 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
   @Override
   public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.SHARED;
+  }
+
+  @Override
+  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+    return false;
   }
 
   @Override

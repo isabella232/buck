@@ -15,12 +15,13 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.WatchmanWatcher;
+import com.facebook.buck.parser.api.Syntax;
 import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.WatchmanWatcher;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -242,5 +243,26 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean getFreezeGlobals() {
     return getDelegate().getBooleanValue("parser", "freeze_globals", false);
+  }
+
+  /**
+   * @return boolean flag indicating whether support for parsing build files using non default
+   *     syntax (currently Python DSL).
+   *     <p>For a list of supported syntax see {@link Syntax}.
+   */
+  @Value.Lazy
+  public boolean isPolyglotParsingEnabled() {
+    return getDelegate().getBooleanValue("parser", "polyglot_parsing_enabled", false);
+  }
+
+  /**
+   * @return a syntax to assume for build files without explicit build file syntax marker. *
+   *     <p>For a list of supported syntax see {@link Syntax}.
+   */
+  @Value.Lazy
+  public Syntax getDefaultBuildFileSyntax() {
+    return getDelegate()
+        .getEnum("parser", "default_build_file_syntax", Syntax.class)
+        .orElse(Syntax.PYTHON_DSL);
   }
 }

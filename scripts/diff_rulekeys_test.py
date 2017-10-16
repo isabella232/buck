@@ -1,6 +1,7 @@
-import os
 import unittest
 import tempfile
+import gzip
+import os
 
 from diff_rulekeys import *
 
@@ -11,6 +12,9 @@ class MockFile(object):
 
     def readlines(self):
         return self._lines
+
+    def __iter__(self):
+        return self._lines.__iter__()
 
 
 class TestRuleKeyDiff(unittest.TestCase):
@@ -78,18 +82,18 @@ class TestRuleKeyDiff(unittest.TestCase):
                 set(['a.java', 'c.java', 'C.java']))
 
     def test_structure_info(self):
-        line = ("[v] RuleKey 00aa=string(\"//:rule\"):key(.name):" +
-                "number(1):key(version):string(\"Rule\"):key(.type):")
+        line = ("[v] RuleKey 00aa=string(\"//:rule\"):key(.target_name):" +
+                "number(1):key(version):string(\"Rule\"):key(.build_rule_type):")
         info = RuleKeyStructureInfo(MockFile([line]))
         self.assertEqual(info.getNameForKey("00aa"), "//:rule")
 
     def test_structure_info_list(self):
-        line = ("[v] RuleKey 00aa=string(\"//:rule\"):key(.name):" +
-                "number(1):key(version):string(\"Rule\"):key(.type):" +
+        line = ("[v] RuleKey 00aa=string(\"//:rule\"):key(.target_name):" +
+                "number(1):key(version):string(\"Rule\"):key(.build_rule_type):" +
                 "number(1):key(num):number(2):key(num):")
         info = RuleKeyStructureInfo(MockFile([line]))
         self.assertEqual(
-                info.getByKey("00aa")['num'],
+                info.getByKey("00aa").get('num'),
                 ["number(2)", "number(1)"])
 
     def test_simple_diff(self):
@@ -259,9 +263,9 @@ class TestRuleKeyDiff(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_simple_diff_with_custom_names(self):
-        line = ("[v] RuleKey {key}=string(\"//:lib\"):key(.name):" +
+        line = ("[v] RuleKey {key}=string(\"//:lib\"):key(.target_name):" +
                 "path(JavaLib1.java:{hash}):key(srcs):" +
-                "string(\"t\"):key(.type):")
+                "string(\"t\"):key(.build_rule_type):")
         left_line = line.format(key="aabb", hash="ll")
         right_line = line.format(key="aabb", hash="rr")
         result = diff("//:lib",
@@ -280,9 +284,9 @@ class TestRuleKeyDiff(unittest.TestCase):
         self.assertEqual(result, expected)
 
     def test_length_diff(self):
-        line = ("[v] RuleKey {key}=string(\"//:lib\"):key(.name):" +
+        line = ("[v] RuleKey {key}=string(\"//:lib\"):key(.target_name):" +
                 "{srcs}:" +
-                "string(\"t\"):key(.type):")
+                "string(\"t\"):key(.build_rule_type):")
         left_srcs = ["path(%s):key(srcs)" % p for p in ['a:1', 'b:2', 'c:3']]
         left_line = line.format(key="aabb", srcs=":".join(left_srcs))
         right_srcs = left_srcs[:-1]
@@ -404,6 +408,29 @@ class TestRuleKeyDiff(unittest.TestCase):
         ]
         self.assertEqual(result, expected)
 
+    @unittest.skipUnless(os.name == 'posix', 'This test fails on windows')
+    def testParseGzippedFile(self):
+        lines = [
+            makeRuleKeyLine(
+                name="//:top",
+                key="aabb",
+                srcs={'JavaLib1.java': 'aabb'}
+            )]
+        with tempfile.NamedTemporaryFile(suffix=".gz") as file_path:
+            with gzip.open(file_path.name, 'wb') as f:
+                f.write('\n'.join(lines))
+
+            result = compute_rulekey_mismatches(RuleKeyStructureInfo(file_path.name),
+                                                RuleKeyStructureInfo(MockFile([
+                                                    makeRuleKeyLine(
+                                                        name="//:top",
+                                                        key="cabb",
+                                                        srcs={'JavaLib1.java': 'cabb'}
+                                                    ),
+                                                ])))
+            expected = ['//:top left:aabb != right:cabb']
+            self.assertEqual(result, expected)
+
 
 def makeRuleKeyLine(key="aabb", name="//:name", srcs=None,
                     ruleType="java_library", deps=None):
@@ -413,9 +440,9 @@ def makeRuleKeyLine(key="aabb", name="//:name", srcs=None,
                        for p, h in srcs.iteritems()])
     deps_t = ":".join(['ruleKey(sha1={h}):key(deps)'.format(h=h)
                        for h in deps])
-    template = ("[v] RuleKey {key}=string(\"{name}\"):key(.name):" +
+    template = ("[v] RuleKey {key}=string(\"{name}\"):key(.target_name):" +
                 "{srcs_t}:"
-                "string(\"{ruleType}\"):key(.type):" +
+                "string(\"{ruleType}\"):key(.build_rule_type):" +
                 "{deps_t}:")
     return template.format(key=key, name=name, srcs_t=srcs_t,
                            ruleType=ruleType, deps_t=deps_t)

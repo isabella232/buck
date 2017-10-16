@@ -18,16 +18,16 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -50,7 +50,7 @@ public class CopyResourcesStepTest {
       throws InterruptedException {
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new DefaultBuildRuleResolver(
+            new SingleThreadedBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     // Files:
@@ -76,9 +76,9 @@ public class CopyResourcesStepTest {
             ResourcesParameters.builder()
                 .setResources(
                     ImmutableSortedSet.of(
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/base/data.json"),
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/common/util/data.json")))
                 .setResourcesRoot(Optional.empty())
                 .build(),
@@ -132,7 +132,7 @@ public class CopyResourcesStepTest {
 
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new DefaultBuildRuleResolver(
+            new SingleThreadedBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
@@ -147,9 +147,9 @@ public class CopyResourcesStepTest {
             ResourcesParameters.builder()
                 .setResources(
                     ImmutableSortedSet.<SourcePath>of(
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/base/data.json"),
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/common/util/data.json")))
                 .setResourcesRoot(Optional.empty())
                 .build(),
@@ -203,7 +203,7 @@ public class CopyResourcesStepTest {
 
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new DefaultBuildRuleResolver(
+            new SingleThreadedBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
@@ -219,9 +219,9 @@ public class CopyResourcesStepTest {
             ResourcesParameters.builder()
                 .setResources(
                     ImmutableSortedSet.of(
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/base/data.json"),
-                        new FakeSourcePath(
+                        FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/common/util/data.json")))
                 .setResourcesRoot(Optional.empty())
                 .build(),

@@ -20,14 +20,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
@@ -125,6 +126,7 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getCellPathResolver(),
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
+            executionContext.getProjectFilesystemFactory(),
             NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
@@ -141,8 +143,8 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
-                JavacCompilationMode.FULL,
-                false)
+                AbiGenerationMode.CLASS,
+                null)
             .buildClasses();
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -161,7 +163,7 @@ public class Jsr199JavacIntegrationTest {
   public void shouldWriteResolvedBuildTargetSourcePathsToClassesFile()
       throws IOException, InterruptedException {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule rule = new FakeBuildRule("//:fake");
     resolver.addToIndex(rule);
@@ -177,6 +179,7 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getCellPathResolver(),
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
+            executionContext.getProjectFilesystemFactory(),
             NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
@@ -193,8 +196,8 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
-                JavacCompilationMode.FULL,
-                false)
+                AbiGenerationMode.CLASS,
+                null)
             .buildClasses();
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -247,7 +250,7 @@ public class Jsr199JavacIntegrationTest {
   @Test
   public void shouldUseSpecifiedJavacJar() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule rule = new FakeBuildRule("//:fake");
     resolver.addToIndex(rule);
@@ -276,6 +279,7 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getCellPathResolver(),
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
+            executionContext.getProjectFilesystemFactory(),
             NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
@@ -294,8 +298,8 @@ public class Jsr199JavacIntegrationTest {
               SOURCE_PATHS,
               pathToSrcsList,
               Paths.get("working"),
-              JavacCompilationMode.FULL,
-              false)
+              AbiGenerationMode.CLASS,
+              null)
           .buildClasses();
       fail("Did not expect compilation to succeed");
     } catch (OutOfMemoryError ex) {
@@ -321,8 +325,7 @@ public class Jsr199JavacIntegrationTest {
     Path pathToOutputDirectory = Paths.get("out");
     tmp.newFolder(pathToOutputDirectory.toString());
 
-    Optional<SourcePath> jar =
-        javacJar.map(p -> new PathSourcePath(new FakeProjectFilesystem(), p));
+    Optional<SourcePath> jar = javacJar.map(p -> PathSourcePath.of(new FakeProjectFilesystem(), p));
     if (jar.isPresent()) {
       return new JarBackedJavac(
           JavacSpec.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, ImmutableSet.of(jar.get()));
@@ -336,6 +339,6 @@ public class Jsr199JavacIntegrationTest {
   }
 
   private ProjectFilesystem createProjectFilesystem() throws InterruptedException {
-    return new ProjectFilesystem(tmp.getRoot());
+    return TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
 }

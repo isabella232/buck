@@ -32,14 +32,14 @@ public class DefaultBuildTargetSourcePathTest {
   @Test
   public void shouldThrowAnExceptionIfRuleDoesNotHaveAnOutput() {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     FakeBuildRule rule = new FakeBuildRule(target);
     rule.setOutputFile(null);
     resolver.addToIndex(rule);
-    SourcePath path = new DefaultBuildTargetSourcePath(target);
+    SourcePath path = DefaultBuildTargetSourcePath.of(target);
 
     try {
       pathResolver.getRelativePath(path);
@@ -52,7 +52,7 @@ public class DefaultBuildTargetSourcePathTest {
   @Test
   public void mustUseProjectFilesystemToResolvePathToFile() {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
@@ -70,7 +70,7 @@ public class DefaultBuildTargetSourcePathTest {
   @Test
   public void shouldReturnTheBuildTarget() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo/bar:baz");
-    DefaultBuildTargetSourcePath path = new DefaultBuildTargetSourcePath(target);
+    DefaultBuildTargetSourcePath path = DefaultBuildTargetSourcePath.of(target);
 
     assertEquals(target, path.getTarget());
   }

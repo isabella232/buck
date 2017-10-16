@@ -1,0 +1,12 @@
+standard_java_test(
+    name = "impl",
+    deps = [
+        "//src/com/facebook/buck/skylark/function:function",
+        "//src/com/facebook/buck/skylark/io:io",
+        "//src/com/facebook/buck/skylark/io/impl:impl",
+        "//third-party/java/bazel:skylark-lang",
+        "//third-party/java/guava:guava",
+        "//third-party/java/hamcrest:java-hamcrest",
+        "//third-party/java/junit:junit",
+    ],
+)

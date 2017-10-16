@@ -24,7 +24,7 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -33,7 +33,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
@@ -58,7 +57,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
-class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -82,10 +81,13 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final boolean enableObjcInterop;
   private final Optional<SourcePath> bridgingHeader;
+
+  @SuppressWarnings("unused")
   private final SwiftBuckConfig swiftBuckConfig;
+
   @AddToRuleKey private final Preprocessor cPreprocessor;
 
-  private final PreprocessorFlags cxxDeps;
+  @AddToRuleKey private final PreprocessorFlags cxxDeps;
 
   SwiftCompile(
       CxxPlatform cxxPlatform,
@@ -119,18 +121,16 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     this.srcs = ImmutableSortedSet.copyOf(srcs);
     this.version = version;
-    this.compilerFlags = compilerFlags;
+    this.compilerFlags =
+        new ImmutableList.Builder<Arg>()
+            .addAll(StringArg.from(swiftBuckConfig.getCompilerFlags().orElse(ImmutableSet.of())))
+            .addAll(compilerFlags)
+            .build();
     this.enableObjcInterop = enableObjcInterop.orElse(true);
     this.bridgingHeader = bridgingHeader;
     this.cPreprocessor = preprocessor;
     this.cxxDeps = cxxDeps;
     performChecks(buildTarget);
-  }
-
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    super.appendToRuleKey(sink);
-    cxxDeps.appendToRuleKey(sink);
   }
 
   private void performChecks(BuildTarget buildTarget) {
@@ -158,6 +158,7 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     compilerCommand.addAll(
         frameworks
             .stream()
+            .filter(x -> !x.isSDKROOTFrameworkPath())
             .map(frameworkPathToSearchPath::apply)
             .flatMap(searchPath -> ImmutableSet.of("-F", searchPath.toString()).stream())
             .iterator());
@@ -174,10 +175,6 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                 .map(input -> resolver.getAbsolutePath(input).toString())
                 .collect(MoreCollectors.toImmutableSet())));
 
-    Optional<Iterable<String>> configFlags = swiftBuckConfig.getFlags();
-    if (configFlags.isPresent()) {
-      compilerCommand.addAll(configFlags.get());
-    }
     boolean hasMainEntry =
         srcs.stream()
             .map(input -> resolver.getAbsolutePath(input).getFileName().toString())
@@ -228,7 +225,7 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputPath);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
   }
 
   /**
@@ -273,12 +270,41 @@ class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   ImmutableList<Arg> getAstLinkArgs() {
     return ImmutableList.<Arg>builder()
         .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
-        .add(SourcePathArg.of(new ExplicitBuildTargetSourcePath(getBuildTarget(), modulePath)))
+        .add(SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), modulePath)))
         .build();
   }
 
   Arg getFileListLinkArg() {
     return FileListableLinkerInputArg.withSourcePathArg(
-        SourcePathArg.of(new ExplicitBuildTargetSourcePath(getBuildTarget(), objectPath)));
+        SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), objectPath)));
+  }
+
+  /** @return The name of the Swift module. */
+  public String getModuleName() {
+    return moduleName;
+  }
+
+  /** @return {@link SourcePath} to the output object file (i.e., .o file) */
+  public SourcePath getObjectPath() {
+    // Ensures that users of the object path can depend on this build target
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), objectPath);
+  }
+
+  /** @return File name of the Objective-C Generated Interface Header. */
+  public String getObjCGeneratedHeaderFileName() {
+    return headerPath.getFileName().toString();
+  }
+
+  /** @return {@link SourcePath} of the Objective-C Generated Interface Header. */
+  public SourcePath getObjCGeneratedHeaderPath() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), headerPath);
+  }
+
+  /**
+   * @return {@link SourcePath} to the directory containing outputs from the compilation process
+   *     (object files, Swift module metadata, etc).
+   */
+  public SourcePath getOutputPath() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
   }
 }

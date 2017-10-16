@@ -21,9 +21,10 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -244,27 +245,24 @@ public class CxxBinaryDescription
     target = CxxStrip.restoreStripStyleFlavorInTarget(target, flavoredStripStyle);
     target = LinkerMapMode.restoreLinkerMapModeFlavorInTarget(target, flavoredLinkerMapMode);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    CxxBinary cxxBinary =
-        new CxxBinary(
-            target,
-            projectFilesystem,
-            new BuildRuleParams(
-                () -> cxxLinkAndCompileRules.deps,
-                () ->
-                    ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(extraDepsFromOriginalParams.get())
-                        .addAll(cxxLinkAndCompileRules.executable.getDeps(ruleFinder))
-                        .build(),
-                ImmutableSortedSet.of()),
-            resolver,
-            cxxPlatform,
-            cxxLinkAndCompileRules.getBinaryRule(),
-            cxxLinkAndCompileRules.executable,
-            args.getFrameworks(),
-            args.getTests(),
-            target.withoutFlavors(cxxPlatforms.getFlavors()));
-    resolver.addToIndex(cxxBinary);
-    return cxxBinary;
+    return new CxxBinary(
+        target,
+        projectFilesystem,
+        new BuildRuleParams(
+            () -> cxxLinkAndCompileRules.deps,
+            () ->
+                ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(extraDepsFromOriginalParams.get())
+                    .addAll(cxxLinkAndCompileRules.executable.getDeps(ruleFinder))
+                    .build(),
+            ImmutableSortedSet.of()),
+        resolver,
+        cxxPlatform,
+        cxxLinkAndCompileRules.getBinaryRule(),
+        cxxLinkAndCompileRules.executable,
+        args.getFrameworks(),
+        args.getTests(),
+        target.withoutFlavors(cxxPlatforms.getFlavors()));
   }
 
   @Override
@@ -385,11 +383,6 @@ public class CxxBinaryDescription
       // we'll default to no flavor, which implicitly builds the default platform.
       return ImmutableSortedSet.of();
     }
-  }
-
-  @Override
-  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
-    return true;
   }
 
   public interface CommonArg extends LinkableCxxConstructorArg, HasVersionUniverse, HasDepsQuery {

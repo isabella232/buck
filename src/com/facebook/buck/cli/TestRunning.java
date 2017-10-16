@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompilerParameters;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
@@ -417,7 +417,7 @@ public class TestRunning {
                 buildContext.getSourcePathResolver(),
                 ruleFinder,
                 JacocoConstants.getJacocoOutputDir(params.getCell().getFilesystem()),
-                options.getCoverageReportFormat(),
+                options.getCoverageReportFormats(),
                 options.getCoverageReportTitle(),
                 javaBuckConfig.getDefaultJavacOptions().getSpoolMode()
                     == JavacOptions.SpoolMode.INTERMEDIATE_TO_DISK,
@@ -675,7 +675,7 @@ public class TestRunning {
       SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       Path outputDirectory,
-      CoverageReportFormat format,
+      Set<CoverageReportFormat> formats,
       String title,
       boolean useIntermediateClassesDir,
       Optional<String> coverageIncludes,
@@ -712,7 +712,7 @@ public class TestRunning {
         srcDirectories.build(),
         pathsToJars.build(),
         outputDirectory,
-        format,
+        formats,
         title,
         coverageIncludes,
         coverageExcludes);

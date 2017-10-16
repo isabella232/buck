@@ -16,12 +16,14 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.dalvik.DalvikAwareZipSplitterFactory;
 import com.facebook.buck.dalvik.ZipSplitter;
 import com.facebook.buck.dalvik.ZipSplitterFactory;
 import com.facebook.buck.dalvik.firstorder.FirstOrderHelper;
-import com.facebook.buck.io.MorePaths;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -52,6 +54,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import javax.annotation.Nullable;
@@ -212,12 +215,16 @@ public class SplitZipStep implements Step {
     for (APKModule dexStore : outputFiles.keySet()) {
       if (dexStore.getName().equals(SECONDARY_DEX_ID)) {
         try (BufferedWriter secondaryMetaInfoWriter =
-            Files.newWriter(secondaryJarMetaPath.toFile(), Charsets.UTF_8)) {
+            Files.newWriter(filesystem.resolve(secondaryJarMetaPath).toFile(), Charsets.UTF_8)) {
           writeMetaList(
               secondaryMetaInfoWriter,
               SECONDARY_DEX_ID,
               ImmutableSet.of(),
-              outputFiles.get(dexStore).asList(),
+              outputFiles
+                  .get(dexStore)
+                  .stream()
+                  .map(filesystem::resolve)
+                  .collect(Collectors.toList()),
               dexSplitMode.getDexStore());
         }
       } else {
@@ -233,7 +240,11 @@ public class SplitZipStep implements Step {
               secondaryMetaInfoWriter,
               dexStore.getName(),
               Preconditions.checkNotNull(apkModuleMap.get(dexStore)),
-              outputFiles.get(dexStore).asList(),
+              outputFiles
+                  .get(dexStore)
+                  .stream()
+                  .map(filesystem::resolve)
+                  .collect(Collectors.toList()),
               dexSplitMode.getDexStore());
         }
       }
@@ -457,6 +468,7 @@ public class SplitZipStep implements Step {
   }
 
   private static String hexSha1(Path file) throws IOException {
+    Preconditions.checkState(file.isAbsolute());
     return MorePaths.asByteSource(file).hash(Hashing.sha1()).toString();
   }
 

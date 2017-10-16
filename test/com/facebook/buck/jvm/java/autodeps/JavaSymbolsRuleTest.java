@@ -19,19 +19,20 @@ package com.facebook.buck.jvm.java.autodeps;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -64,16 +65,17 @@ public class JavaSymbolsRuleTest {
   public void ensureJsonFilesGetWritten() throws IOException, InterruptedException {
     TestDataHelper.createProjectWorkspaceForScenario(this, "java_library_symbols_finder", tmp)
         .setUp();
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     ImmutableSortedSet<SourcePath> srcs =
         ImmutableSortedSet.<SourcePath>naturalOrder()
             .addAll(
                 Stream.of("Example1.java", "Example2.java")
                     .map(Paths::get)
-                    .map(p -> new PathSourcePath(projectFilesystem, p))
+                    .map(p -> PathSourcePath.of(projectFilesystem, p))
                     .iterator())
-            .add(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
+            .add(DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//foo:bar")))
             .build();
     JavaFileParser javaFileParser =
         JavaFileParser.createJavaFileParser(
@@ -85,7 +87,7 @@ public class JavaSymbolsRuleTest {
     JavaSymbolsRule javaSymbolsRule =
         new JavaSymbolsRule(buildTarget, symbolsFinder, projectFilesystem);
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     resolver.addToIndex(javaSymbolsRule);
     SourcePathResolver pathResolver =

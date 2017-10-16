@@ -21,9 +21,9 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
 import org.hamcrest.Matchers;
@@ -34,11 +34,11 @@ public class AndroidTransitiveDependencyGraphTest {
   @Test
   public void findManifestFilesWithTransitiveDeps() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule dep3 =
         AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep3"))
-            .setManifestFile(new FakeSourcePath("manifest3.xml"))
+            .setManifestFile(FakeSourcePath.of("manifest3.xml"))
             .build(resolver);
     BuildRule dep2 =
         AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep2"))
@@ -46,12 +46,12 @@ public class AndroidTransitiveDependencyGraphTest {
             .build(resolver);
     BuildRule dep1 =
         AndroidLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep1"))
-            .setManifestFile(new FakeSourcePath("manifest1.xml"))
+            .setManifestFile(FakeSourcePath.of("manifest1.xml"))
             .addDep(dep2.getBuildTarget())
             .build(resolver);
     assertThat(
         new AndroidTransitiveDependencyGraph(ImmutableSortedSet.of(dep1)).findManifestFiles(),
         Matchers.containsInAnyOrder(
-            new FakeSourcePath("manifest1.xml"), new FakeSourcePath("manifest3.xml")));
+            FakeSourcePath.of("manifest1.xml"), FakeSourcePath.of("manifest3.xml")));
   }
 }

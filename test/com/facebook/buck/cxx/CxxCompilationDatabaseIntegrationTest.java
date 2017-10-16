@@ -27,7 +27,7 @@ import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
@@ -185,9 +185,6 @@ public class CxxCompilationDatabaseIntegrationTest {
 
   @Test
   public void libraryCompilationDatabase() throws InterruptedException, IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "compilation_database", tmp);
-    workspace.setUp();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target =
         BuildTargetFactory.newInstance("//:library_with_header#default,compilation-database");
@@ -269,9 +266,6 @@ public class CxxCompilationDatabaseIntegrationTest {
 
   @Test
   public void testCompilationDatabase() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "compilation_database", tmp);
-    workspace.setUp();
     BuildTarget target = BuildTargetFactory.newInstance("//:test#default,compilation-database");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
@@ -325,9 +319,6 @@ public class CxxCompilationDatabaseIntegrationTest {
 
   @Test
   public void testUberCompilationDatabase() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "compilation_database", tmp);
-    workspace.setUp();
     BuildTarget target =
         BuildTargetFactory.newInstance("//:test#default,uber-compilation-database");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();

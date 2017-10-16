@@ -16,10 +16,11 @@
 
 package com.facebook.buck.apple.xcode;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
-import com.facebook.buck.apple.ApplePlatform;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -28,6 +29,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -370,5 +372,65 @@ public class ProjectIntegrationTest {
             "//Tests:",
             "//Apps:TestApp");
     result.assertSuccess();
+  }
+
+  @Test
+  public void testGeneratingProjectMetadataWithGenrule() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "target_using_genrule_source", temporaryFolder);
+    workspace.setUp();
+
+    workspace.runBuckCommand("project", "//lib:lib");
+    workspace.verify();
+  }
+
+  @Test
+  public void testBuckProjectWithUniqueLibraryNames() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "project_with_unique_library_names", temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "project", "-c", "cxx.unique_library_name_enabled=true", "//Apps:workspace");
+    result.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testBuckProjectShowsFullOutput() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "target_using_genrule_source", temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("project", "--show-full-output", "//lib:lib");
+    workspace.verify();
+
+    assertEquals(
+        "//lib:lib#default,static "
+            + workspace.getDestPath().resolve("lib").resolve("lib.xcworkspace")
+            + System.lineSeparator(),
+        result.getStdout());
+  }
+
+  @Test
+  public void testBuckProjectShowsOutput() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "target_using_genrule_source", temporaryFolder);
+    workspace.setUp();
+
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("project", "--show-output", "//lib:lib");
+    workspace.verify();
+
+    assertEquals(
+        "//lib:lib#default,static " + Paths.get("lib", "lib.xcworkspace") + System.lineSeparator(),
+        result.getStdout());
   }
 }

@@ -173,7 +173,7 @@ public class IjProjectDataPreparerTest {
                 baseInlineTestsTargetNode,
                 baseTestsTargetNode),
             ImmutableMap.of(
-                baseInlineTestsTargetNode, new FakeSourcePath("buck-out/baseInlineTests.jar")),
+                baseInlineTestsTargetNode, FakeSourcePath.of("buck-out/baseInlineTests.jar")),
             Functions.constant(Optional.empty()));
     IjLibrary hamcrestLibrary =
         IjModuleGraphTest.getLibraryForTarget(moduleGraph, hamcrestTargetNode);
@@ -202,6 +202,17 @@ public class IjProjectDataPreparerTest {
                     "data",
                     equalTo(
                         Optional.of(
+                            DependencyEntryData.builder()
+                                .setExported(true)
+                                .setName("//java/com/example/base:tests")
+                                .setScope(IjDependencyListBuilder.Scope.PROVIDED)
+                                .build())))),
+            allOf(
+                hasProperty("type", equalTo(IjDependencyListBuilder.Type.LIBRARY)),
+                hasProperty(
+                    "data",
+                    equalTo(
+                        Optional.of(
                             dependencyEntryBuilder
                                 .setName(guavaLibrary.getName())
                                 .setScope(IjDependencyListBuilder.Scope.COMPILE)
@@ -215,17 +226,6 @@ public class IjProjectDataPreparerTest {
                             dependencyEntryBuilder
                                 .setName(hamcrestLibrary.getName())
                                 .setScope(IjDependencyListBuilder.Scope.COMPILE)
-                                .build())))),
-            allOf(
-                hasProperty("type", equalTo(IjDependencyListBuilder.Type.LIBRARY)),
-                hasProperty(
-                    "data",
-                    equalTo(
-                        Optional.of(
-                            DependencyEntryData.builder()
-                                .setExported(true)
-                                .setName("//java/com/example/base:tests")
-                                .setScope(IjDependencyListBuilder.Scope.PROVIDED)
                                 .build()))))));
 
     assertThat(

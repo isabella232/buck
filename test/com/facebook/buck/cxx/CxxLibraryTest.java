@@ -19,23 +19,23 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -101,8 +101,8 @@ public class CxxLibraryTest {
                     .setBuildTarget(publicHeaderSymlinkTreeTarget)
                     .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
                     .putNameToPathMap(
-                        Paths.get("header.h"), new DefaultBuildTargetSourcePath(publicHeaderTarget))
-                    .setRoot(new DefaultBuildTargetSourcePath(publicHeaderSymlinkTreeTarget))
+                        Paths.get("header.h"), DefaultBuildTargetSourcePath.of(publicHeaderTarget))
+                    .setRoot(DefaultBuildTargetSourcePath.of(publicHeaderSymlinkTreeTarget))
                     .build())
             .build();
     assertEquals(
@@ -114,10 +114,9 @@ public class CxxLibraryTest {
                 CxxSymlinkTreeHeaders.builder()
                     .setBuildTarget(privateHeaderSymlinkTreeTarget)
                     .setIncludeType(CxxPreprocessables.IncludeType.LOCAL)
-                    .setRoot(new DefaultBuildTargetSourcePath(privateHeaderSymlinkTreeTarget))
+                    .setRoot(DefaultBuildTargetSourcePath.of(privateHeaderSymlinkTreeTarget))
                     .putNameToPathMap(
-                        Paths.get("header.h"),
-                        new DefaultBuildTargetSourcePath(privateHeaderTarget))
+                        Paths.get("header.h"), DefaultBuildTargetSourcePath.of(privateHeaderTarget))
                     .build())
             .build();
     assertEquals(
@@ -154,7 +153,7 @@ public class CxxLibraryTest {
   @Test
   public void headerOnlyExports() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -170,7 +169,7 @@ public class CxxLibraryTest {
 
     FrameworkPath frameworkPath =
         FrameworkPath.ofSourcePath(
-            new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:baz")));
+            DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//foo:baz")));
 
     // Construct a CxxLibrary object to test.
     CxxLibrary cxxLibrary =
@@ -193,7 +192,8 @@ public class CxxLibraryTest {
             ImmutableSortedSet.of(),
             /* isAsset */ false,
             true,
-            true);
+            true,
+            Optional.empty());
 
     NativeLinkableInput expectedSharedNativeLinkableInput =
         NativeLinkableInput.of(

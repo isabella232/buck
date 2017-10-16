@@ -20,7 +20,7 @@ import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -246,7 +246,9 @@ class CxxPreprocessAndCompileStep implements Step {
               .stream()
               .map(CxxPreprocessAndCompileStep::parseShowIncludeLine)
               .collect(Collectors.toList());
-      filesystem.writeLinesToPath(includeLines, depFile.get());
+      Iterable<String> srcAndIncludes =
+          Iterables.concat(ImmutableList.of(filesystem.resolve(input).toString()), includeLines);
+      filesystem.writeLinesToPath(srcAndIncludes, depFile.get());
       List<String> errorLines = includesAndErrors.getOrDefault(false, Collections.emptyList());
       err =
           errorLines

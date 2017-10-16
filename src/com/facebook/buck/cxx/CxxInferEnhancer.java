@@ -20,8 +20,9 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
@@ -167,18 +168,15 @@ public final class CxxInferEnhancer {
 
     BuildTarget cleanTarget = InferFlavors.targetWithoutAnyInferFlavor(target);
 
-    BuildTarget targetWithInferFlavor =
-        cleanTarget.withAppendedFlavors(InferFlavors.INFER.getFlavor());
-
-    Optional<CxxInferComputeReport> existingRule =
-        ruleResolver.getRuleOptionalWithType(targetWithInferFlavor, CxxInferComputeReport.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
-
-    CxxInferAnalyze analysisRule =
-        requireInferAnalyzeBuildRuleForCxxDescriptionArg(cleanTarget, cellRoots, filesystem, args);
-    return createInferReportRule(targetWithInferFlavor, filesystem, analysisRule);
+    return (CxxInferComputeReport)
+        ruleResolver.computeIfAbsent(
+            cleanTarget.withAppendedFlavors(InferFlavors.INFER.getFlavor()),
+            targetWithInferFlavor ->
+                new CxxInferComputeReport(
+                    targetWithInferFlavor,
+                    filesystem,
+                    requireInferAnalyzeBuildRuleForCxxDescriptionArg(
+                        cleanTarget, cellRoots, filesystem, args)));
   }
 
   private CxxInferAnalyze requireInferAnalyzeBuildRuleForCxxDescriptionArg(
@@ -191,25 +189,22 @@ public final class CxxInferEnhancer {
 
     BuildTarget cleanTarget = InferFlavors.targetWithoutAnyInferFlavor(target);
 
-    BuildTarget targetWithInferAnalyzeFlavor = cleanTarget.withAppendedFlavors(inferAnalyze);
-
-    Optional<CxxInferAnalyze> existingRule =
-        ruleResolver.getRuleOptionalWithType(targetWithInferAnalyzeFlavor, CxxInferAnalyze.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
-
-    ImmutableSet<BuildRule> deps = args.getCxxDeps().get(ruleResolver, cxxPlatform);
-
-    ImmutableSet<CxxInferAnalyze> transitiveDepsLibraryRules =
-        requireTransitiveDependentLibraries(cxxPlatform, deps, inferAnalyze, CxxInferAnalyze.class);
-
-    return createInferAnalyzeRule(
-        targetWithInferAnalyzeFlavor,
-        filesystem,
-        requireInferCaptureBuildRules(
-            cleanTarget, cellRoots, filesystem, collectSources(cleanTarget, args), args),
-        transitiveDepsLibraryRules);
+    return (CxxInferAnalyze)
+        ruleResolver.computeIfAbsent(
+            cleanTarget.withAppendedFlavors(inferAnalyze),
+            targetWithInferAnalyzeFlavor -> {
+              ImmutableSet<BuildRule> deps = args.getCxxDeps().get(ruleResolver, cxxPlatform);
+              ImmutableSet<CxxInferAnalyze> transitiveDepsLibraryRules =
+                  requireTransitiveDependentLibraries(
+                      cxxPlatform, deps, inferAnalyze, CxxInferAnalyze.class);
+              return new CxxInferAnalyze(
+                  targetWithInferAnalyzeFlavor,
+                  filesystem,
+                  inferBuckConfig,
+                  requireInferCaptureBuildRules(
+                      cleanTarget, cellRoots, filesystem, collectSources(cleanTarget, args), args),
+                  transitiveDepsLibraryRules);
+            });
   }
 
   private CxxInferCaptureRulesAggregator requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
@@ -220,28 +215,26 @@ public final class CxxInferEnhancer {
 
     Flavor inferCaptureOnly = InferFlavors.INFER_CAPTURE_ONLY.getFlavor();
 
-    BuildTarget targetWithInferCaptureOnlyFlavor =
-        InferFlavors.targetWithoutAnyInferFlavor(target).withAppendedFlavors(inferCaptureOnly);
+    return (CxxInferCaptureRulesAggregator)
+        ruleResolver.computeIfAbsent(
+            InferFlavors.targetWithoutAnyInferFlavor(target).withAppendedFlavors(inferCaptureOnly),
+            targetWithInferCaptureOnlyFlavor -> {
+              BuildTarget cleanTarget = InferFlavors.targetWithoutAnyInferFlavor(target);
 
-    Optional<CxxInferCaptureRulesAggregator> existingRule =
-        ruleResolver.getRuleOptionalWithType(
-            targetWithInferCaptureOnlyFlavor, CxxInferCaptureRulesAggregator.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
+              ImmutableMap<String, CxxSource> sources = collectSources(cleanTarget, args);
 
-    BuildTarget cleanTarget = InferFlavors.targetWithoutAnyInferFlavor(target);
+              ImmutableSet<CxxInferCapture> captureRules =
+                  requireInferCaptureBuildRules(cleanTarget, cellRoots, filesystem, sources, args);
 
-    ImmutableMap<String, CxxSource> sources = collectSources(cleanTarget, args);
+              ImmutableSet<CxxInferCaptureRulesAggregator> transitiveAggregatorRules =
+                  requireTransitiveCaptureAndAggregatingRules(args, inferCaptureOnly);
 
-    ImmutableSet<CxxInferCapture> captureRules =
-        requireInferCaptureBuildRules(cleanTarget, cellRoots, filesystem, sources, args);
-
-    ImmutableSet<CxxInferCaptureRulesAggregator> transitiveAggregatorRules =
-        requireTransitiveCaptureAndAggregatingRules(args, inferCaptureOnly);
-
-    return createInferCaptureAggregatorRule(
-        targetWithInferCaptureOnlyFlavor, filesystem, captureRules, transitiveAggregatorRules);
+              return new CxxInferCaptureRulesAggregator(
+                  targetWithInferCaptureOnlyFlavor,
+                  filesystem,
+                  captureRules,
+                  transitiveAggregatorRules);
+            });
   }
 
   private ImmutableSet<CxxInferCaptureRulesAggregator> requireTransitiveCaptureAndAggregatingRules(
@@ -310,7 +303,8 @@ public final class CxxInferEnhancer {
             cxxPlatform,
             RichStream.from(deps).filter(CxxPreprocessorDep.class::isInstance).toImmutableList()),
         args.getIncludeDirs(),
-        sandboxTree);
+        sandboxTree,
+        args.getRawHeaders());
   }
 
   private ImmutableSet<CxxInferCapture> requireInferCaptureBuildRules(
@@ -374,7 +368,7 @@ public final class CxxInferEnhancer {
               cxxPlatform,
               args.getCxxDeps().get(ruleResolver, cxxPlatform),
               CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction.fromLibraryRule(),
-              headerSymlinkTree,
+              ImmutableList.of(headerSymlinkTree),
               sandboxTree);
     } else {
       throw new IllegalStateException("Only Binary and Library args supported.");
@@ -404,29 +398,5 @@ public final class CxxInferEnhancer {
             CxxSourceRuleFactory.PicType.PDC,
             sandboxTree);
     return factory.requireInferCaptureBuildRules(sources, inferBuckConfig);
-  }
-
-  private CxxInferAnalyze createInferAnalyzeRule(
-      BuildTarget target,
-      ProjectFilesystem filesystem,
-      ImmutableSet<CxxInferCapture> captureRules,
-      ImmutableSet<CxxInferAnalyze> analyzeRules) {
-    return ruleResolver.addToIndex(
-        new CxxInferAnalyze(target, filesystem, inferBuckConfig, captureRules, analyzeRules));
-  }
-
-  private CxxInferCaptureRulesAggregator createInferCaptureAggregatorRule(
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
-      ImmutableSet<CxxInferCapture> captureRules,
-      ImmutableSet<CxxInferCaptureRulesAggregator> transitiveAggregatorRules) {
-    return ruleResolver.addToIndex(
-        new CxxInferCaptureRulesAggregator(
-            buildTarget, projectFilesystem, captureRules, transitiveAggregatorRules));
-  }
-
-  private CxxInferComputeReport createInferReportRule(
-      BuildTarget target, ProjectFilesystem filesystem, CxxInferAnalyze analysisToReport) {
-    return ruleResolver.addToIndex(new CxxInferComputeReport(target, filesystem, analysisToReport));
   }
 }

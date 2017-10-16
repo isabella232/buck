@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -26,10 +26,13 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.TargetNodeSpec;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
@@ -127,11 +130,12 @@ public class TargetPatternEvaluator {
     ImmutableSet<Path> filePaths =
         PathArguments.getCanonicalFilesUnderProjectRoot(projectRoot, ImmutableList.of(pattern))
             .relativePathsUnderProjectRoot;
-    ImmutableSet.Builder<QueryTarget> builder = ImmutableSortedSet.naturalOrder();
-    for (Path filePath : filePaths) {
-      builder.add(QueryFileTarget.of(filePath));
-    }
-    return builder.build();
+
+    return filePaths
+        .stream()
+        .map(path -> PathSourcePath.of(rootCell.getFilesystem(), path))
+        .map(QueryFileTarget::of)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   ImmutableMap<String, ImmutableSet<QueryTarget>> resolveBuildTargetPatterns(

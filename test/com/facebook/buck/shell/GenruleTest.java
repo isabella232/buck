@@ -24,7 +24,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -35,7 +35,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
@@ -44,6 +43,7 @@ import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -63,7 +63,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.FileHashCacheMode;
-import com.facebook.buck.util.cache.StackedFileHashCache;
+import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -106,7 +106,7 @@ public class GenruleTest {
      */
 
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -130,10 +130,10 @@ public class GenruleTest {
             .setOut("AndroidManifest.xml")
             .setSrcs(
                 ImmutableList.of(
-                    new PathSourcePath(
+                    PathSourcePath.of(
                         filesystem,
                         filesystem.getPath("src/com/facebook/katana/convert_to_katana.py")),
-                    new PathSourcePath(
+                    PathSourcePath.of(
                         filesystem,
                         filesystem.getPath("src/com/facebook/katana/AndroidManifest.xml"))))
             .build(ruleResolver, filesystem);
@@ -281,7 +281,7 @@ public class GenruleTest {
   @Test
   public void testGenruleType() throws NoSuchBuildTargetException {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildTarget buildTarget =
         BuildTargetFactory.newInstance(
@@ -319,7 +319,7 @@ public class GenruleTest {
      */
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
-            .setMain(new FakeSourcePath("bin/exe"))
+            .setMain(FakeSourcePath.of("bin/exe"))
             .build(resolver);
 
     DefaultWorkerTool workerTool =
@@ -328,7 +328,7 @@ public class GenruleTest {
             .build(resolver);
     workerTool
         .getBuildOutputInitializer()
-        .setBuildOutput(
+        .setBuildOutputForTests(
             workerTool.initializeFromDisk(
                 new FakeOnDiskBuildInfo()
                     .putMetadata(
@@ -343,7 +343,7 @@ public class GenruleTest {
   @Test
   public void testGenruleWithWorkerMacroUsesSpecialShellStep() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
@@ -376,7 +376,7 @@ public class GenruleTest {
   @Test
   public void testIsWorkerGenruleReturnsTrue() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     Genrule genrule = createGenruleBuilderThatUsesWorkerMacro(ruleResolver).build(ruleResolver);
     assertTrue(genrule.isWorkerGenrule());
@@ -385,7 +385,7 @@ public class GenruleTest {
   @Test
   public void testIsWorkerGenruleReturnsFalse() throws NoSuchBuildTargetException {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(
@@ -399,7 +399,7 @@ public class GenruleTest {
   @Test
   public void testConstructingGenruleWithBadWorkerMacroThrows() throws Exception {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     GenruleBuilder genruleBuilder = createGenruleBuilderThatUsesWorkerMacro(ruleResolver);
     try {
@@ -417,12 +417,12 @@ public class GenruleTest {
   public void testGenruleWithWorkerMacroIncludesWorkerToolInDeps()
       throws NoSuchBuildTargetException {
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
-            .setMain(new FakeSourcePath("bin/exe"))
+            .setMain(FakeSourcePath.of("bin/exe"))
             .build(ruleResolver);
 
     BuildRule workerToolRule =
@@ -453,7 +453,7 @@ public class GenruleTest {
   @Test
   public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
@@ -466,9 +466,9 @@ public class GenruleTest {
             .setBash("ignored")
             .setSrcs(
                 ImmutableList.of(
-                    new PathSourcePath(filesystem, filesystem.getPath("in-dir.txt")),
-                    new PathSourcePath(filesystem, filesystem.getPath("foo/bar.html")),
-                    new PathSourcePath(filesystem, filesystem.getPath("other/place.txt"))))
+                    PathSourcePath.of(filesystem, filesystem.getPath("in-dir.txt")),
+                    PathSourcePath.of(filesystem, filesystem.getPath("foo/bar.html")),
+                    PathSourcePath.of(filesystem, filesystem.getPath("other/place.txt"))))
             .setOut("example-file")
             .build(resolver);
 
@@ -515,7 +515,7 @@ public class GenruleTest {
   @Test
   public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
@@ -555,7 +555,7 @@ public class GenruleTest {
   @Test
   public void shouldPreventTheParentBuckdBeingUsedIfARecursiveBuckCallIsMade() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
@@ -575,7 +575,7 @@ public class GenruleTest {
   @Test
   public void testGetShellCommand() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(
@@ -671,7 +671,7 @@ public class GenruleTest {
           GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:test"))
               .setOut(name)
               .build(
-                  new DefaultBuildRuleResolver(
+                  new SingleThreadedBuildRuleResolver(
                       TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
       assertEquals(name, genrule.getOutputName());
     }
@@ -681,7 +681,7 @@ public class GenruleTest {
           GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:test"))
               .setOut(name)
               .build(
-                  new DefaultBuildRuleResolver(
+                  new SingleThreadedBuildRuleResolver(
                       TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
       assertEquals(name, genrule.getOutputName());
     }
@@ -690,7 +690,7 @@ public class GenruleTest {
   @Test
   public void thatChangingOutChangesRuleKey() throws Exception {
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -726,7 +726,7 @@ public class GenruleTest {
 
     // Create an initial input-based rule key
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -758,7 +758,7 @@ public class GenruleTest {
     // This is because the input-based rule key for the consuming rule only cares about the contents
     // of the output this rule produces.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
         .setOut("dep.out")
@@ -786,7 +786,7 @@ public class GenruleTest {
 
     // Make a change to the dep's output, which *should* affect the input-based rule key.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -818,13 +818,13 @@ public class GenruleTest {
 
     // Create an initial input-based rule key
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildRule dep =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:dep"))
-            .setMain(new PathSourcePath(filesystem, Paths.get("dep.exe")))
+            .setMain(PathSourcePath.of(filesystem, Paths.get("dep.exe")))
             .build(resolver, filesystem);
     filesystem.writeContentsToPath("something", Paths.get("dep.exe"));
     filesystem.writeContentsToPath(
@@ -850,14 +850,14 @@ public class GenruleTest {
     // same.  This is because the input-based rule key for the consuming rule only cares about the
     // contents of the output this rule produces.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     Genrule extra =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:extra"))
             .setOut("something")
             .build(resolver);
     new ShBinaryBuilder(BuildTargetFactory.newInstance("//:dep"))
-        .setMain(new PathSourcePath(filesystem, Paths.get("dep.exe")))
+        .setMain(PathSourcePath.of(filesystem, Paths.get("dep.exe")))
         .setDeps(ImmutableSortedSet.of(extra.getBuildTarget()))
         .build(resolver, filesystem);
     rule = ruleBuilder.build(resolver);
@@ -882,11 +882,11 @@ public class GenruleTest {
 
     // Make a change to the dep's output, which *should* affect the input-based rule key.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     dep =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:dep"))
-            .setMain(new PathSourcePath(filesystem, Paths.get("dep.exe")))
+            .setMain(PathSourcePath.of(filesystem, Paths.get("dep.exe")))
             .build(resolver, filesystem);
     filesystem.writeContentsToPath(
         "something else", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
@@ -913,7 +913,7 @@ public class GenruleTest {
 
     // Create an initial input-based rule key
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -945,7 +945,7 @@ public class GenruleTest {
     // the same.  This is because the input-based rule key for the consuming rule only cares about
     // the contents of the output this rule produces.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"))
         .addSrc(Paths.get("source.java"))
@@ -973,7 +973,7 @@ public class GenruleTest {
 
     // Make a change to the dep's output, which *should* affect the input-based rule key.
     resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     dep =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"))

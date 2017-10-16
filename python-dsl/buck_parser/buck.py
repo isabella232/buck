@@ -9,6 +9,7 @@ import __future__
 import contextlib
 from pathlib import Path, PurePath
 from pywatchman import WatchmanError
+from .deterministic_set import DeterministicSet
 from .json_encoder import BuckJSONEncoder
 from .glob_internal import glob_internal
 from .glob_mercurial import glob_mercurial_manifest, load_mercurial_repo_info
@@ -17,22 +18,18 @@ from .util import Diagnostic, cygwin_adjusted_path, get_caller_frame, is_special
 from .module_whitelist import ImportWhitelistManager
 from .profiler import Profiler
 
-import StringIO
 import abc
 import functools
-import hashlib
 import imp
 import inspect
 import json
 import optparse
 import os
 import os.path
-import pstats
 import pywatchman
 import re
 import select
 import sys
-import tempfile
 import time
 import traceback
 import types
@@ -476,6 +473,15 @@ def flatten_dicts(*args, **_):
     return flatten_list_of_dicts(args)
 
 
+@provide_for_build
+def depset(elements, build_env=None):
+    """Creates an instance of sets with deterministic iteration order.
+    :param elements: the list of elements constituting the returned depset.
+    :rtype: DeterministicSet
+    """
+    return DeterministicSet(elements)
+
+
 GENDEPS_SIGNATURE = re.compile(r'^#@# GENERATED FILE: DO NOT MODIFY ([a-f0-9]{40}) #@#\n$')
 
 
@@ -713,15 +719,22 @@ class BuildFileProcessor(object):
     def _get_load_path(self, label):
         # type: (str) -> str
         """Resolve the given load function label to a full path."""
-        match = re.match(r'^([A-Za-z0-9_]*)//(.*):(.*)$', label)
+        match = re.match(r'^(@?[A-Za-z0-9_]+)?//(.*):(.*)$', label)
         if match is None:
             raise ValueError(
                 'load label {} should be in the form of '
                 '//path:file or cellname//path:file'.format(label))
-        cell_name = match.group(1)
+        cell_name = match.group(1) or ''
         relative_path = match.group(2)
         file_name = match.group(3)
         if len(cell_name) > 0:
+            if not cell_name.startswith('@'):
+                self._emit_warning('load label {} uses a deprecated style cell references. Instead'
+                                   ' of {} it should be {}.'.format(label, cell_name,
+                                                                    '@' + cell_name),
+                                   'load function')
+            else:
+                cell_name = cell_name[1:]
             cell_root = self._cell_roots.get(cell_name)
             if cell_root is None:
                 raise KeyError(

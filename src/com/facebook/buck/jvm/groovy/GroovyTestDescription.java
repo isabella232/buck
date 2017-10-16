@@ -16,9 +16,10 @@
 
 package com.facebook.buck.jvm.groovy;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
@@ -27,7 +28,7 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.MacroException;
+import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -58,16 +59,19 @@ public class GroovyTestDescription
       new MacroHandler(ImmutableMap.of("location", new LocationMacroExpander()));
 
   private final GroovyBuckConfig groovyBuckConfig;
+  private final JavaBuckConfig javaBuckConfig;
   private final JavaOptions javaOptions;
   private final JavacOptions defaultJavacOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public GroovyTestDescription(
       GroovyBuckConfig groovyBuckConfig,
+      JavaBuckConfig javaBuckConfig,
       JavaOptions javaOptions,
       JavacOptions defaultJavacOptions,
       Optional<Long> defaultTestRuleTimeoutMs) {
     this.groovyBuckConfig = groovyBuckConfig;
+    this.javaBuckConfig = javaBuckConfig;
     this.javaOptions = javaOptions;
     this.defaultJavacOptions = defaultJavacOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
@@ -87,27 +91,30 @@ public class GroovyTestDescription
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GroovyTestDescriptionArg args) {
+    BuildTarget testsLibraryBuildTarget =
+        buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
             defaultJavacOptions, buildTarget, projectFilesystem, resolver, args);
 
-    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder =
-        new DefaultGroovyLibraryBuilder(
-                targetGraph,
-                buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
+    DefaultJavaLibraryRules defaultJavaLibraryRules =
+        new DefaultJavaLibraryRules.Builder(
+                testsLibraryBuildTarget,
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
-                javacOptions,
-                groovyBuckConfig)
-            .setArgs(args);
+                new GroovyConfiguredCompilerFactory(groovyBuckConfig),
+                javaBuckConfig,
+                args)
+            .setJavacOptions(javacOptions)
+            .build();
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
-      return defaultJavaLibraryBuilder.buildAbi();
+      return defaultJavaLibraryRules.buildAbi();
     }
 
-    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryBuilder.build());
+    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryRules.buildLibrary());
 
     Function<String, Arg> toMacroArgFunction =
         MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);

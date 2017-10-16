@@ -29,8 +29,8 @@ import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarBuilder;
 import com.facebook.buck.android.AndroidResourceDescriptionArg;
-import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.DependencyType;
@@ -44,8 +44,11 @@ import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.folders.IjFolder;
 import com.facebook.buck.ide.intellij.model.folders.SourceFolder;
 import com.facebook.buck.ide.intellij.model.folders.TestFolder;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.groovy.GroovyLibraryBuilder;
+import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
@@ -53,10 +56,11 @@ import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -257,7 +261,7 @@ public class DefaultIjModuleFactoryTest {
     TargetNode<?, ?> androidBinary =
         AndroidBinaryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/example/test:test"))
-            .setManifest(new FakeSourcePath("java/com/example/test/AndroidManifest.xml"))
+            .setManifest(FakeSourcePath.of("java/com/example/test/AndroidManifest.xml"))
             .setOriginalDeps(ImmutableSortedSet.of(javaLibBase.getBuildTarget()))
             .setKeystore(keystoreTarget)
             .build();
@@ -547,7 +551,7 @@ public class DefaultIjModuleFactoryTest {
     IjModuleFactory factory = createIjModuleFactory();
 
     String manifestName = "Manifest.xml";
-    SourcePath manifestPath = new FakeSourcePath(manifestName);
+    SourcePath manifestPath = FakeSourcePath.of(manifestName);
     TargetNode<?, ?> androidBinary =
         AndroidBinaryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/example:droid"))
@@ -596,11 +600,7 @@ public class DefaultIjModuleFactoryTest {
 
   @Test
   public void testOverrideSdkFromBuckConfig() throws Exception {
-    IjModuleFactory factory =
-        createIjModuleFactory(
-            FakeBuckConfig.builder()
-                .setSections("[intellij]", "java_library_sdk_names = 1.8 => TestSDK")
-                .build());
+    IjModuleFactory factory = createIjModuleFactory();
 
     Path moduleBasePath = Paths.get("java/com/example");
     TargetNode<?, ?> defaultJavaNode =
@@ -630,7 +630,7 @@ public class DefaultIjModuleFactoryTest {
   @Test
   public void testAndroidPrebuiltAar() {
     final SourcePath androidSupportBinaryPath =
-        new FakeSourcePath("third_party/java/support/support.aar");
+        FakeSourcePath.of("third_party/java/support/support.aar");
     final Path androidSupportSourcesPath =
         Paths.get("third_party/java/support/support-sources.jar");
     final String androidSupportJavadocUrl = "file:///support/docs";
@@ -643,7 +643,7 @@ public class DefaultIjModuleFactoryTest {
             .build();
 
     final BuildRuleResolver buildRuleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     final SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
@@ -694,6 +694,10 @@ public class DefaultIjModuleFactoryTest {
                 true)
             : IjProjectBuckConfig.create(
                 buckConfig, AggregationMode.AUTO, null, "", "", false, false, false, false, true);
+    JavaPackageFinder packageFinder =
+        (buckConfig == null)
+            ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())
+            : buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(
             projectFilesystem,
@@ -706,7 +710,7 @@ public class DefaultIjModuleFactoryTest {
               @Override
               public Path getAndroidManifestPath(
                   TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
-                return ((FakeSourcePath) targetNode.getConstructorArg().getManifest())
+                return ((PathSourcePath) targetNode.getConstructorArg().getManifest())
                     .getRelativePath();
               }
 
@@ -746,7 +750,8 @@ public class DefaultIjModuleFactoryTest {
                 return Optional.empty();
               }
             },
-            projectConfig);
+            projectConfig,
+            packageFinder);
     return new DefaultIjModuleFactory(projectFilesystem, typeRegistry);
   }
 
@@ -757,7 +762,7 @@ public class DefaultIjModuleFactoryTest {
     String sourceName = "cpp/lib/foo.cpp";
     TargetNode<?, ?> cxxLibrary =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//cpp/lib:foo"))
-            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath(sourceName))))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of(sourceName))))
             .build();
 
     Path moduleBasePath = Paths.get("cpp/lib");

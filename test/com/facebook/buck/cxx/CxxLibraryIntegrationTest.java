@@ -26,22 +26,23 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
-import com.facebook.buck.apple.ApplePlatform;
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.objectfile.ObjectFileScrubbers;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.InferHelper;
@@ -81,7 +82,7 @@ public class CxxLibraryIntegrationTest {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "apple_cxx_library", tmp);
     workspace.setUp();
-    workspace.runBuckBuild("//:main#iphonesimulator-i386").assertSuccess();
+    workspace.runBuckBuild("//:main#iphonesimulator-x86_64").assertSuccess();
   }
 
   @Test
@@ -92,7 +93,7 @@ public class CxxLibraryIntegrationTest {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "apple_cxx_library", tmp);
     workspace.setUp();
-    workspace.runBuckBuild("//:lib#iphonesimulator-i386,static").assertSuccess();
+    workspace.runBuckBuild("//:lib#iphonesimulator-x86_64,static").assertSuccess();
   }
 
   @Test
@@ -126,7 +127,7 @@ public class CxxLibraryIntegrationTest {
         Files.isRegularFile(
             workspace.getPath(
                 BuildTargets.getGenPath(
-                    new ProjectFilesystem(workspace.getDestPath()),
+                    TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath()),
                     BuildTargetFactory.newInstance("//subdir:library")
                         .withFlavors(
                             DefaultCxxPlatforms.FLAVOR, CxxDescriptionEnhancer.SHARED_FLAVOR),
@@ -183,7 +184,7 @@ public class CxxLibraryIntegrationTest {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildRuleResolver ruleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     assumeTrue(cxxPlatform.getAr().resolve(ruleResolver).supportsThinArchives());
     ProjectWorkspace workspace =
@@ -427,5 +428,37 @@ public class CxxLibraryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "exported_preprocessor_flags", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:lib_with_location_macro#default,static").assertSuccess();
+  }
+
+  @Test
+  public void buildWithUniqueLibraryNames() throws InterruptedException, IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library", tmp);
+    workspace.setUp();
+    workspace
+        .runBuckBuild("-c", "cxx.unique_library_name_enabled=true", "//:foo#default,static")
+        .assertSuccess();
+    Path rootPath = tmp.getRoot();
+    assertTrue(
+        Files.exists(rootPath.resolve("buck-out/gen/foo#default,static/libfoo-Z2_rLdsOWS.a")));
+  }
+
+  @Test
+  public void testShouldRemapHostPlatform() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand(
+            "targets", "--config", "cxx.should_remap_host_platform=false", "//:foo");
+    result.assertSuccess();
+    assertThat(result.getStdout(), containsString("//:foo#default"));
+
+    String hostFlavor = CxxPlatforms.getHostFlavor().getName();
+    result =
+        workspace.runBuckCommand(
+            "targets", "--config", "cxx.should_remap_host_platform=true", "//:foo");
+    result.assertSuccess();
+    assertThat(result.getStdout(), containsString("//:foo#" + hostFlavor));
   }
 }
