@@ -222,9 +222,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private BashStep makeRunscriptStep() {
     return new BashStep(
-        getProjectFilesystem().getRootPath(),
-        "ios/script/transform_buck_swift_header.py",
-        headerPath.toString());
+        getProjectFilesystem().getRootPath());
   }
 
   @Override

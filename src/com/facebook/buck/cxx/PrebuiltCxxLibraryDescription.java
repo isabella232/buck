@@ -20,6 +20,7 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.HasSystemFrameworkAndLibraries;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.SharedLibraryInterfaceParams;
@@ -827,7 +828,7 @@ public class PrebuiltCxxLibraryDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractPrebuiltCxxLibraryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+  interface AbstractPrebuiltCxxLibraryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSystemFrameworkAndLibraries {
 
     // New API.
     Optional<ImmutableList<SourcePath>> getHeaderDirs();
@@ -924,9 +925,11 @@ public class PrebuiltCxxLibraryDescription
     }
 
     @Value.NaturalOrder
+    @Override
     ImmutableSortedSet<FrameworkPath> getFrameworks();
 
     @Value.NaturalOrder
+    @Override
     ImmutableSortedSet<FrameworkPath> getLibraries();
 
     @Value.NaturalOrder
