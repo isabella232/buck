@@ -43,8 +43,8 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -130,10 +130,10 @@ public class AndroidInstrumentationApkTest {
     AndroidInstrumentationApk androidInstrumentationApk =
         (AndroidInstrumentationApk)
             new AndroidInstrumentationApkDescription(
+                    new TestToolchainProvider(),
                     DEFAULT_JAVA_CONFIG,
                     new ProGuardConfig(FakeBuckConfig.builder().build()),
                     DEFAULT_JAVAC_OPTIONS,
-                    ImmutableMap.of(),
                     MoreExecutors.newDirectExecutorService(),
                     CxxPlatformUtils.DEFAULT_CONFIG,
                     new DxConfig(FakeBuckConfig.builder().build()))

@@ -38,12 +38,14 @@ import com.facebook.buck.apple.toolchain.AppleSdkPaths;
 import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -67,6 +69,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -764,8 +767,7 @@ public class AppleCxxPlatformsTest {
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             new FakeFileHashCache(
                 ImmutableMap.<Path, HashCode>builder()
                     .put(projectFilesystem.resolve("source.cpp"), HashCode.fromInt(0))
@@ -785,7 +787,7 @@ public class AppleCxxPlatformsTest {
               .setRuleFinder(ruleFinder)
               .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
               .setCxxPlatform(entry.getValue().getCxxPlatform())
-              .setPicType(CxxSourceRuleFactory.PicType.PIC)
+              .setPicType(PicType.PIC)
               .build();
       CxxPreprocessAndCompile rule;
       switch (operation) {
@@ -824,8 +826,7 @@ public class AppleCxxPlatformsTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
                     .put("input.o", Strings.repeat("a", 40))
@@ -847,8 +848,9 @@ public class AppleCxxPlatformsTest {
               Linker.LinkType.EXECUTABLE,
               Optional.empty(),
               projectFilesystem.getPath("output"),
+              ImmutableList.of(),
               Linker.LinkableDepType.SHARED,
-              /* thinLto */ false,
+              CxxLinkOptions.of(),
               ImmutableList.of(),
               Optional.empty(),
               Optional.empty(),
@@ -913,7 +915,8 @@ public class AppleCxxPlatformsTest {
   public void byDefaultCodesignToolIsConstant() {
     AppleCxxPlatform appleCxxPlatform = buildAppleCxxPlatform();
     BuildRuleResolver buildRuleResolver = EasyMock.createMock(BuildRuleResolver.class);
-    SourcePathResolver sourcePathResolver = EasyMock.createMock(SourcePathResolver.class);
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()
@@ -951,7 +954,8 @@ public class AppleCxxPlatformsTest {
                 .setSections("[apple]", "codesign = " + codesignPath)
                 .build());
     BuildRuleResolver buildRuleResolver = EasyMock.createMock(BuildRuleResolver.class);
-    SourcePathResolver sourcePathResolver = EasyMock.createMock(SourcePathResolver.class);
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()

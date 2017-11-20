@@ -16,15 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -32,23 +28,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
-/** Fake implementation of {@link Javac} for tests. */
+/** Fake implementation of {@link com.facebook.buck.jvm.java.Javac} for tests. */
 public class FakeJavac implements Javac {
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public ImmutableCollection<SourcePath> getInputs() {
-    return ImmutableList.of();
-  }
-
   @Override
   public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
     throw new UnsupportedOperationException();
@@ -60,12 +41,7 @@ public class FakeJavac implements Javac {
   }
 
   @Override
-  public JavacVersion getVersion() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public Invocation newBuildInvocation(
+  public Javac.Invocation newBuildInvocation(
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
@@ -73,11 +49,14 @@ public class FakeJavac implements Javac {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
+      boolean trackClassUsage,
+      @Nullable JarParameters abiJarParameters,
+      @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     return new Invocation() {
       @Override
-      public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {
+      public int buildSourceAbiJar() throws InterruptedException {
         throw new UnsupportedOperationException();
       }
 

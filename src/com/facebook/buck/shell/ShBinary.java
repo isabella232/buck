@@ -39,14 +39,12 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MakeExecutableStep;
 import com.facebook.buck.step.fs.StringTemplateStep;
 import com.facebook.buck.util.Escaper;
-import com.google.common.base.Joiner;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.stream.Stream;
 
 public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
@@ -59,6 +57,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final SourcePath main;
   @AddToRuleKey private final ImmutableSet<SourcePath> resources;
+  private ProjectFilesystem projectFilesystem;
 
   /** The path where the output will be written. */
   private final Path output;
@@ -72,6 +71,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     super(buildTarget, projectFilesystem, params);
     this.main = main;
     this.resources = resources;
+    this.projectFilesystem = projectFilesystem;
 
     this.output =
         BuildTargets.getGenPath(
@@ -90,15 +90,19 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     // This script can be cached and used on machines other than the one where it was
     // created. That means it can't contain any absolute filepaths. Expose the absolute
     // filepath of the root of the project as $BUCK_REAL_ROOT, determined at runtime.
-    int levelsBelowRoot = output.getNameCount() - 1;
-    String pathBackToRoot = Joiner.on("/").join(Collections.nCopies(levelsBelowRoot, ".."));
+    String pathBackToRoot =
+        projectFilesystem
+            .resolve(output.getParent())
+            .relativize(projectFilesystem.getRootPath())
+            .toString();
 
     ImmutableList<String> resourceStrings =
-        FluentIterable.from(resources)
-            .transform(context.getSourcePathResolver()::getRelativePath)
-            .transform(Object::toString)
-            .transform(Escaper.BASH_ESCAPER)
-            .toList();
+        resources
+            .stream()
+            .map(context.getSourcePathResolver()::getRelativePath)
+            .map(Object::toString)
+            .map(Escaper.BASH_ESCAPER)
+            .collect(MoreCollectors.toImmutableList());
 
     return new ImmutableList.Builder<Step>()
         .addAll(

@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AdbHelper;
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
@@ -110,7 +111,10 @@ public class UninstallCommand extends AbstractCommand {
           params
               .getActionGraphCache()
               .getActionGraph(
-                  params.getBuckEventBus(), result.getTargetGraph(), params.getBuckConfig())
+                  params.getBuckEventBus(),
+                  result.getTargetGraph(),
+                  params.getBuckConfig(),
+                  params.getRuleKeyConfiguration())
               .getResolver();
     } catch (BuildTargetException | BuildFileParseException e) {
       params
@@ -157,6 +161,9 @@ public class UninstallCommand extends AbstractCommand {
     return super.getExecutionContextBuilder(params)
         .setAndroidDevicesHelper(
             AndroidDevicesHelperFactory.get(
+                params
+                    .getToolchainProvider()
+                    .getByName(AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class),
                 this::getExecutionContext,
                 params.getBuckConfig(),
                 adbOptions(params.getBuckConfig()),

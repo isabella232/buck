@@ -4,12 +4,14 @@ java_library(
     exported_deps = [
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/android/toolchain:toolchain",
+        "//src/com/facebook/buck/android/toolchain/ndk:ndk",
     ],
     visibility = [
         "PUBLIC",
     ],
     deps = [
         "//src/com/facebook/buck/android:config",
+        "//src/com/facebook/buck/android:helpers",
         "//src/com/facebook/buck/android:steps",
         "//src/com/facebook/buck/android/toolchain:toolchain",
         "//src/com/facebook/buck/config:config",

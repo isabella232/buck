@@ -20,6 +20,7 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_OPTIONS;
 
+import com.facebook.buck.android.AndroidBinaryDescription.AbstractAndroidBinaryDescriptionArg;
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
@@ -28,8 +29,9 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.List;
@@ -44,16 +46,25 @@ public class AndroidBinaryBuilder
   private AndroidBinaryBuilder(BuildTarget target) {
     super(
         new AndroidBinaryDescription(
+            createToolchainProvider(),
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
             new ProGuardConfig(FakeBuckConfig.builder().build()),
-            ImmutableMap.of(),
             MoreExecutors.newDirectExecutorService(),
             FakeBuckConfig.builder().build(),
             CxxPlatformUtils.DEFAULT_CONFIG,
             new DxConfig(FakeBuckConfig.builder().build())),
         target);
+  }
+
+  private static ToolchainProvider createToolchainProvider() {
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+
+    testToolchainProvider.addToolchain(
+        AndroidLegacyToolchain.DEFAULT_NAME, TestAndroidLegacyToolchainFactory.create());
+
+    return testToolchainProvider;
   }
 
   public static AndroidBinaryBuilder createBuilder(BuildTarget buildTarget) {
@@ -133,7 +144,7 @@ public class AndroidBinaryBuilder
   }
 
   public AndroidBinaryBuilder setDuplicateResourceBehavior(
-      AndroidBinaryDescriptionArg.DuplicateResourceBehaviour value) {
+      AbstractAndroidBinaryDescriptionArg.DuplicateResourceBehaviour value) {
     getArgForPopulating().setDuplicateResourceBehavior(value);
     return this;
   }

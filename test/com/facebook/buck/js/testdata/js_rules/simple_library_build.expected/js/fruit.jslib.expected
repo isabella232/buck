@@ -1,0 +1,8 @@
+{"command":"library-dependencies","release":false,"rootPath":"@","outputPath":"@/buck-out/gen/js/fruit.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/fruit#_files_.jslib"}
+library-files --root @
+transform --filename js/apple.js
+var apple;
+transform --filename js/banana.js
+var banana;
+transform --filename js/pear.js
+var pear;

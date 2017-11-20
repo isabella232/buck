@@ -176,7 +176,9 @@ public class AppleBundleDescription
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
         appleConfig.assetCatalogValidation(),
-        args.getCodesignFlags());
+        args.getCodesignFlags(),
+        args.getCodesignIdentity(),
+        args.getIbtoolModuleFlag());
   }
 
   /**
@@ -226,20 +228,20 @@ public class AppleBundleDescription
     // BuildTargets.propagateFlavorsInDomainIfNotPresent()
     {
       FluentIterable<BuildTarget> targetsWithPlatformFlavors =
-          depsExcludingBinary.filter(BuildTargets.containsFlavors(cxxPlatformFlavorDomain));
+          depsExcludingBinary.filter(BuildTargets.containsFlavors(cxxPlatformFlavorDomain)::test);
 
       FluentIterable<BuildTarget> targetsWithoutPlatformFlavors =
           depsExcludingBinary.filter(
-              Predicates.not(BuildTargets.containsFlavors(cxxPlatformFlavorDomain)));
+              BuildTargets.containsFlavors(cxxPlatformFlavorDomain).negate()::test);
 
       FluentIterable<BuildTarget> watchTargets =
           targetsWithoutPlatformFlavors
-              .filter(BuildTargets.containsFlavor(WATCH))
+              .filter(BuildTargets.containsFlavor(WATCH)::test)
               .transform(
                   input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavor));
 
       targetsWithoutPlatformFlavors =
-          targetsWithoutPlatformFlavors.filter(Predicates.not(BuildTargets.containsFlavor(WATCH)));
+          targetsWithoutPlatformFlavors.filter(BuildTargets.containsFlavor(WATCH).negate()::test);
 
       // Gather all the deps now that we've added platform flavors to everything.
       depsExcludingBinary =
@@ -308,6 +310,12 @@ public class AppleBundleDescription
           HasDeclaredDeps,
           HasTests {
     BuildTarget getBinary();
+
+    // ibtool take --module <PRODUCT_MODULE_NAME> arguments to override
+    // customModule field set on its elements. (only when customModuleProvider="target")
+    // Module (so far, it seems to only represent swift module) contains the
+    // implementation of the declared element in nib file.
+    Optional<Boolean> getIbtoolModuleFlag();
 
     @Override
     @Hint(isDep = false)

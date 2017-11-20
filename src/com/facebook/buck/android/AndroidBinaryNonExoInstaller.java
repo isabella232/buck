@@ -31,13 +31,13 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.util.SortedSet;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
@@ -54,7 +54,7 @@ public class AndroidBinaryNonExoInstaller extends AbstractBuildRule implements H
     Preconditions.checkState(!apk.getApkInfo().getExopackageInfo().isPresent());
     this.trigger = new InstallTrigger(projectFilesystem);
     this.apk = apk;
-    this.depsSupplier = Suppliers.memoize(() -> ImmutableSortedSet.of((BuildRule) apk));
+    this.depsSupplier = MoreSuppliers.memoize(() -> ImmutableSortedSet.of((BuildRule) apk));
   }
 
   @Override

@@ -27,7 +27,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -282,11 +281,11 @@ public class ResourcesFilter extends AbstractBuildRule
   void addPostFilterCommandSteps(
       Arg command, SourcePathResolver sourcePathResolver, ImmutableList.Builder<Step> steps) {
     ImmutableList.Builder<String> commandLineBuilder = new ImmutableList.Builder<>();
-    command.appendToCommandLine(commandLineBuilder, sourcePathResolver);
+    command.appendToCommandLine(commandLineBuilder::add, sourcePathResolver);
     commandLineBuilder.add(Escaper.escapeAsBashString(getFilterResourcesDataPath()));
     commandLineBuilder.add(Escaper.escapeAsBashString(getRDotJsonPath()));
     String commandLine = Joiner.on(' ').join(commandLineBuilder.build());
-    steps.add(new BashStep(getProjectFilesystem().getRootPath(), commandLine));
+    steps.add(new BashStep(getBuildTarget(), getProjectFilesystem().getRootPath(), commandLine));
   }
 
   private Path getFilterResourcesDataPath() {
@@ -335,6 +334,7 @@ public class ResourcesFilter extends AbstractBuildRule
       ImmutableBiMap<Path, Path> resSourceToDestDirMap) {
     FilterResourcesSteps.Builder filterResourcesStepBuilder =
         FilterResourcesSteps.builder()
+            .setTarget(getBuildTarget())
             .setProjectFilesystem(getProjectFilesystem())
             .setInResToOutResDirMap(resSourceToDestDirMap)
             .setResourceFilter(resourceFilter);
@@ -368,10 +368,10 @@ public class ResourcesFilter extends AbstractBuildRule
   }
 
   @Override
-  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
+  public BuildOutput initializeFromDisk() throws IOException {
     ImmutableList<Path> stringFiles =
-        onDiskBuildInfo
-            .getOutputFileContentsByLine(getStringFilesPath())
+        getProjectFilesystem()
+            .readLines(getStringFilesPath())
             .stream()
             .map(Paths::get)
             .collect(MoreCollectors.toImmutableList());

@@ -17,6 +17,7 @@
 package com.facebook.buck.d;
 
 import com.facebook.buck.cxx.CxxLink;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -143,8 +144,9 @@ abstract class DDescriptionUtils {
         Linker.LinkType.EXECUTABLE,
         Optional.empty(),
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/" + buildTarget.getShortName()),
+        ImmutableList.of(),
         Linker.LinkableDepType.STATIC,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         FluentIterable.from(params.getBuildDeps()).filter(NativeLinkable.class),
         /* cxxRuntimeType */ Optional.empty(),
         /* bundleLoader */ Optional.empty(),

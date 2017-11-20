@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -34,10 +35,11 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
@@ -48,6 +50,7 @@ import com.google.common.collect.MultimapBuilder;
 import com.google.common.collect.Sets;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.immutables.value.Value;
 
 public class ApplePackageDescription
@@ -56,14 +59,20 @@ public class ApplePackageDescription
         ImplicitDepsInferringDescription<
             ApplePackageDescription.AbstractApplePackageDescriptionArg> {
 
+  private final ToolchainProvider toolchainProvider;
+  private final SandboxExecutionStrategy sandboxExecutionStrategy;
   private final Flavor defaultCxxFlavor;
   private final AppleConfig config;
   private final FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain;
 
   public ApplePackageDescription(
+      ToolchainProvider toolchainProvider,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
       AppleConfig config,
       Flavor defaultCxxFlavor,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain) {
+    this.toolchainProvider = toolchainProvider;
+    this.sandboxExecutionStrategy = sandboxExecutionStrategy;
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.config = config;
     this.appleCxxPlatformFlavorDomain = appleCxxPlatformFlavorDomain;
@@ -90,10 +99,18 @@ public class ApplePackageDescription
                 buildTarget,
                 cellRoots,
                 resolver));
+
+    AndroidLegacyToolchain androidLegacyToolchain =
+        toolchainProvider.getByName(
+            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+
     if (applePackageConfigAndPlatformInfo.isPresent()) {
       return new ExternallyBuiltApplePackage(
           buildTarget,
           projectFilesystem,
+          androidLegacyToolchain,
+          sandboxExecutionStrategy,
+          resolver,
           params.withExtraDeps(
               () ->
                   ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -106,7 +123,8 @@ public class ApplePackageDescription
                       .build()),
           applePackageConfigAndPlatformInfo.get(),
           Preconditions.checkNotNull(bundle.getSourcePathToOutput()),
-          bundle.isCacheable());
+          bundle.isCacheable(),
+          Optional.empty());
     } else {
       return new BuiltinApplePackage(buildTarget, projectFilesystem, params, bundle);
     }

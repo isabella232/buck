@@ -1,0 +1,6 @@
+{"command":"library-dependencies","release":false,"rootPath":"@","outputPath":"@/buck-out/gen/external/replace-file-prefix.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/external/replace-file-prefix#_files_.jslib"}
+library-files --root @
+transform --filename js/node_modules/tropical-fruit/mango.js
+var mango;
+transform --filename js/node_modules/tropical-fruit/papaya.js
+var papaya;

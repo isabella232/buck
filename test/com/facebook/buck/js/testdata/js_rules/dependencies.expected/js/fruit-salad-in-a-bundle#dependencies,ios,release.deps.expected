@@ -1,12 +1,14 @@
-dependencies --platform ios --release --lib @/buck-out/gen/js/extras#ios,release.json --lib @/buck-out/gen/js/fruit#ios,release.json --lib @/buck-out/gen/js/fruit-salad#ios,release.json --root @ fruit-salad
-library --release --platform ios --root @
+dependencies --platform ios --release --lib @/buck-out/gen/js/extras#ios,release.jslib --lib @/buck-out/gen/js/fruit#ios,release.jslib --lib @/buck-out/gen/js/fruit-salad#ios,release.jslib --root @ fruit-salad
+{"command":"library-dependencies","release":true,"rootPath":"@","platform":"ios","outputPath":"@/buck-out/gen/js/extras#ios,release.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/extras#_files_,ios,release.jslib"}
+library-files --release --platform ios --root @
 optimize --arbitrary extra --flags --platform ios
 transform --arbitrary extra --flags --filename js/extras/choclate-chips.js
 var choclateChips;
 optimize --arbitrary extra --flags --platform ios
 transform --arbitrary extra --flags --filename js/extras/yoghurt.js
 var yoghurt;
-library --release --platform ios --root @
+{"command":"library-dependencies","release":true,"rootPath":"@","platform":"ios","outputPath":"@/buck-out/gen/js/fruit#ios,release.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/fruit#_files_,ios,release.jslib"}
+library-files --release --platform ios --root @
 optimize --platform ios
 transform --filename js/apple.js
 var apple;
@@ -16,15 +18,17 @@ var banana;
 optimize --platform ios
 transform --filename js/pear.js
 var pear;
-library --release --platform ios --lib @/buck-out/gen/js/extras#ios,release.json --lib @/buck-out/gen/js/fruit#ios,release.json --root @
-library --release --platform ios --root @
+{"command":"library-dependencies","release":true,"rootPath":"@","platform":"ios","outputPath":"@/buck-out/gen/js/fruit-salad#ios,release.jslib","dependencyLibraryFilePaths":["@/buck-out/gen/js/extras#ios,release.jslib","@/buck-out/gen/js/fruit#ios,release.jslib"],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/fruit-salad#_files_,ios,release.jslib"}
+{"command":"library-dependencies","release":true,"rootPath":"@","platform":"ios","outputPath":"@/buck-out/gen/js/extras#ios,release.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/extras#_files_,ios,release.jslib"}
+library-files --release --platform ios --root @
 optimize --arbitrary extra --flags --platform ios
 transform --arbitrary extra --flags --filename js/extras/choclate-chips.js
 var choclateChips;
 optimize --arbitrary extra --flags --platform ios
 transform --arbitrary extra --flags --filename js/extras/yoghurt.js
 var yoghurt;
-library --release --platform ios --root @
+{"command":"library-dependencies","release":true,"rootPath":"@","platform":"ios","outputPath":"@/buck-out/gen/js/fruit#ios,release.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/fruit#_files_,ios,release.jslib"}
+library-files --release --platform ios --root @
 optimize --platform ios
 transform --filename js/apple.js
 var apple;
@@ -34,6 +38,7 @@ var banana;
 optimize --platform ios
 transform --filename js/pear.js
 var pear;
+library-files --release --platform ios --root @
 optimize --platform ios
 transform --filename js/fruit-salad.js
 var fruitSalad;

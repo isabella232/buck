@@ -19,10 +19,11 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.EnumSet;
 import java.util.Optional;
@@ -47,6 +48,7 @@ public class AndroidInstrumentationApk extends AndroidBinary {
   AndroidInstrumentationApk(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       AndroidBinary apkUnderTest,
@@ -59,6 +61,7 @@ public class AndroidInstrumentationApk extends AndroidBinary {
     super(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
         buildRuleParams,
         ruleFinder,
         apkUnderTest.getProguardJvmArgs(),
@@ -99,5 +102,10 @@ public class AndroidInstrumentationApk extends AndroidBinary {
 
   public AndroidBinary getApkUnderTest() {
     return apkUnderTest;
+  }
+
+  @Override
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+    return RichStream.of(apkUnderTest.getBuildTarget()).concat(super.getRuntimeDeps(ruleFinder));
   }
 }

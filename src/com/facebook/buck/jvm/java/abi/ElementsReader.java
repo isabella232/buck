@@ -16,9 +16,8 @@
 
 package com.facebook.buck.jvm.java.abi;
 
+import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,6 +27,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import javax.annotation.processing.Messager;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
@@ -43,22 +43,25 @@ class ElementsReader implements LibraryReader {
   private final Elements elements;
   private final Messager messager;
   private final Supplier<Map<Path, Element>> allElements;
+  private final boolean includeParameterMetadata;
 
   ElementsReader(
       SourceVersion targetVersion,
       Elements elements,
       Messager messager,
-      Iterable<Element> topLevelElements) {
+      Iterable<Element> topLevelElements,
+      boolean includeParameterMetadata) {
     this.targetVersion = targetVersion;
     this.elements = elements;
     this.messager = messager;
     this.allElements =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               Map<Path, Element> allElements = new LinkedHashMap<>();
               topLevelElements.forEach(element -> addAllElements(element, allElements));
               return allElements;
             });
+    this.includeParameterMetadata = includeParameterMetadata;
   }
 
   @Override
@@ -74,7 +77,8 @@ class ElementsReader implements LibraryReader {
   @Override
   public void visitClass(Path relativePath, ClassVisitor cv) throws IOException {
     Element element = Preconditions.checkNotNull(allElements.get().get(relativePath));
-    new ClassVisitorDriverFromElement(targetVersion, elements, messager).driveVisitor(element, cv);
+    new ClassVisitorDriverFromElement(targetVersion, elements, messager, includeParameterMetadata)
+        .driveVisitor(element, cv);
   }
 
   @Override

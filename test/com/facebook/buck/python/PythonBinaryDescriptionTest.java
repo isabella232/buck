@@ -46,6 +46,7 @@ import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
@@ -59,7 +60,9 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
+import com.facebook.buck.rules.keys.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.ShBinary;
@@ -332,12 +335,13 @@ public class PythonBinaryDescriptionTest {
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    final Path executor = Paths.get("executor");
+    final Path executor = Paths.get("/root/executor");
+    ProjectFilesystem filesystem = new FakeProjectFilesystem();
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build(), new AlwaysFoundExecutableFinder()) {
           @Override
           public Optional<Tool> getPexExecutor(BuildRuleResolver resolver) {
-            return Optional.of(new HashedFileTool(executor));
+            return Optional.of(new HashedFileTool(PathSourcePath.of(filesystem, executor)));
           }
         };
     PythonBinaryBuilder builder =
@@ -392,7 +396,8 @@ public class PythonBinaryDescriptionTest {
           }
 
           @Override
-          public Tool getPexTool(BuildRuleResolver resolver) {
+          public Tool getPexTool(
+              BuildRuleResolver resolver, RuleKeyConfiguration ruleKeyConfiguration) {
             return new CommandTool.Builder()
                 .addArg(SourcePathArg.of(pexTool.getSourcePathToOutput()))
                 .build();
@@ -1044,7 +1049,7 @@ public class PythonBinaryDescriptionTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     DefaultRuleKeyFactory ruleKeyFactory =
         new DefaultRuleKeyFactory(
-            new RuleKeyFieldLoader(0),
+            new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create()),
             StackedFileHashCache.createDefaultHashCaches(
                 rule.getProjectFilesystem(), FileHashCacheMode.DEFAULT),
             DefaultSourcePathResolver.from(ruleFinder),

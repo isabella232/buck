@@ -33,6 +33,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.InputStreamConsumer;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
@@ -44,8 +45,6 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -67,6 +66,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -101,7 +101,6 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   @Nullable private FutureTask<Void> stderrConsumerTerminationFuture;
   @Nullable private Thread stderrConsumerThread;
-  @Nullable private ProjectBuildFileParseEvents.Started projectBuildFileParseEventStarted;
 
   private AtomicReference<Path> currentBuildFile = new AtomicReference<Path>();
 
@@ -120,7 +119,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     this.assertSingleThreadedParsing = new AssertScopeExclusiveAccess();
 
     this.rawConfigJson =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               try {
                 Path rawConfigJson1 = Files.createTempFile("raw_config", ".json");
@@ -135,7 +134,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
               }
             });
     this.ignorePathsJson =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               try {
                 Path ignorePathsJson1 = Files.createTempFile("ignore_paths", ".json");
@@ -182,8 +181,6 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   /** Initialize the parser, starting buck.py. */
   private void init() throws IOException {
-    projectBuildFileParseEventStarted = new ProjectBuildFileParseEvents.Started();
-    buckEventBus.post(projectBuildFileParseEventStarted);
     try (SimplePerfEvent.Scope scope =
         SimplePerfEvent.scope(buckEventBus, PerfEventId.of("ParserInit"))) {
 
@@ -751,11 +748,6 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
         }
       }
     } finally {
-      if (isInitialized) {
-        buckEventBus.post(
-            new ProjectBuildFileParseEvents.Finished(
-                Preconditions.checkNotNull(projectBuildFileParseEventStarted)));
-      }
       isClosed = true;
     }
   }

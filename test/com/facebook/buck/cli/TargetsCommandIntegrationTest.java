@@ -25,25 +25,35 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
+import com.facebook.buck.testutil.integration.PropertySaver;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.ThriftRuleKeyDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.apache.thrift.TException;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
@@ -51,7 +61,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class TargetsCommandIntegrationTest {
-
   private static final String ABSOLUTE_PATH_TO_FILE_OUTSIDE_THE_PROJECT_THAT_EXISTS_ON_THE_FS =
       "/bin/sh";
 
@@ -62,6 +71,30 @@ public class TargetsCommandIntegrationTest {
       "option \"--show-target-hash\" cannot be used with the option(s) [--show-rulekey]";
   private static final String INCOMPATIBLE_OPTIONS_MSG2 =
       "option \"--show-rulekey (--show_rulekey)\" cannot be used with the option(s) [--show-target-hash]";
+
+  private static final Path CODE_COVERAGE_SUBPATH =
+      Paths.get("buck-out", "gen", "jacoco", "code-coverage");
+
+  private static Map<String, String> getCodeCoverageProperties() {
+    Path genDir = Paths.get("buck-out", "gen").toAbsolutePath();
+    Path jacocoJar =
+        genDir.resolve(Paths.get("third-party", "java", "jacoco", "__agent__", "jacocoagent.jar"));
+    Path reportGenJar =
+        genDir.resolve(
+            Paths.get(
+                "src",
+                "com",
+                "facebook",
+                "buck",
+                "jvm",
+                "java",
+                "coverage",
+                "report-generator.jar"));
+
+    return ImmutableMap.of(
+        "buck.jacoco_agent_jar", genDir.resolve(jacocoJar).toString(),
+        "buck.report_generator_jar", genDir.resolve(reportGenJar).toString());
+  }
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -669,6 +702,23 @@ public class TargetsCommandIntegrationTest {
   }
 
   @Test
+  public void canSerializeSkylarkBuildFileToJson() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "skylark", tmp);
+    workspace.setUp();
+
+    workspace.addBuckConfigLocalOption("parser", "polyglot_parsing_enabled", "true");
+    workspace.addBuckConfigLocalOption("parser", "default_build_file_syntax", "skylark");
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets", "--json", "--show-output", "--output-attributes", "srcs");
+    result.assertSuccess();
+
+    assertThat(result.getStdout(), equalTo("[\n{\n  \"srcs\" : [ \"Foo.java\" ]\n}\n]\n"));
+  }
+
+  @Test
   public void testRuleKeyDotOutput() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command_dot", tmp);
@@ -700,5 +750,98 @@ public class TargetsCommandIntegrationTest {
     // edge test1 -> test2
     Pattern edgePattern = Pattern.compile("test1.+->.+test2");
     assertEquals(1, lines.stream().filter(p -> edgePattern.matcher(p).find()).count());
+  }
+
+  @Test
+  public void writesBinaryRuleKeysToDisk() throws IOException, TException {
+    Path logFile = tmp.newFile("out.bin");
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild(
+            "--show-rulekey", "--rulekeys-log-path", logFile.toAbsolutePath().toString(), "//:bar");
+    runBuckResult.assertSuccess();
+
+    List<FullRuleKey> ruleKeys = ThriftRuleKeyDeserializer.readRuleKeys(logFile);
+    // Three rules, they could have any number of sub-rule keys and contributors
+    assertTrue(ruleKeys.size() >= 3);
+    assertTrue(ruleKeys.stream().anyMatch(ruleKey -> ruleKey.name.equals("//:bar")));
+  }
+
+  @Test
+  public void targetsTransitiveRulekeys() throws Exception {
+    assumeTrue(
+        AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.IPHONESIMULATOR));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "targets_app_bundle_with_embedded_framework", tmp);
+    workspace.setUp();
+
+    workspace
+        .runBuckCommand(
+            "targets",
+            "//:DemoApp#iphonesimulator-x86_64",
+            "--show-rulekey",
+            "--show-transitive-rulekeys")
+        .assertSuccess();
+  }
+
+  /*
+   * We spoof system properties in the --code-coverage integration tests so that buck will look for
+   * jacoco and the report generator in the correct locations in the buck repo rather than in the
+   * temporary workspace. Output should still be written to the workspace's buck-out.
+   */
+
+  @Test
+  public void testCsvCodeCoverage() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
+    workspace.setUp();
+
+    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
+      ProcessResult result =
+          workspace.runBuckCommand(
+              "test", "--code-coverage", "--code-coverage-format", "CSV", "//test:simple_test");
+      result.assertSuccess();
+    }
+
+    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("coverage.csv")));
+  }
+
+  @Test
+  public void testHtmlCodeCoverage() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
+    workspace.setUp();
+
+    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
+      ProcessResult result =
+          workspace.runBuckCommand(
+              "test", "--code-coverage", "--code-coverage-format", "HTML", "//test:simple_test");
+
+      result.assertSuccess();
+    }
+
+    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("index.html")));
+    assertTrue(
+        Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("jacoco-sessions.html")));
+  }
+
+  @Test
+  public void testXmlCodeCoverage() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
+    workspace.setUp();
+
+    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
+      ProcessResult result =
+          workspace.runBuckCommand(
+              "test", "--code-coverage", "--code-coverage-format", "XML", "//test:simple_test");
+
+      result.assertSuccess();
+    }
+
+    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("coverage.xml")));
   }
 }

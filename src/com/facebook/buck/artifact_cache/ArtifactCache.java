@@ -16,10 +16,12 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.rules.RuleKey;
 import com.google.common.util.concurrent.ListenableFuture;
+import java.util.List;
 
 public interface ArtifactCache extends AutoCloseable {
   /**
@@ -47,6 +49,8 @@ public interface ArtifactCache extends AutoCloseable {
    * @return {@link ListenableFuture} that completes once the store has finished.
    */
   ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output);
+
+  ListenableFuture<CacheDeleteResult> deleteAsync(List<RuleKey> ruleKeys);
 
   /**
    * This method must return the same value over the lifetime of this object.

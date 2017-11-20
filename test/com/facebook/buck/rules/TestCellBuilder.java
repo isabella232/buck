@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules;
 
-import static com.facebook.buck.io.Watchman.NULL_WATCHMAN;
+import static com.facebook.buck.io.WatchmanFactory.NULL_WATCHMAN;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
@@ -24,10 +24,8 @@ import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.TestToolchainProvider;
-import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.ProcessExecutor;
 import java.io.IOException;
 import javax.annotation.Nullable;
 
@@ -37,8 +35,8 @@ public class TestCellBuilder {
   private BuckConfig buckConfig;
   private Watchman watchman = NULL_WATCHMAN;
   private CellConfig cellConfig;
-  private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory;
   private SdkEnvironment sdkEnvironment;
+  private ToolchainProvider toolchainProvider;
 
   public TestCellBuilder() throws InterruptedException, IOException {
     filesystem = new FakeProjectFilesystem();
@@ -65,43 +63,35 @@ public class TestCellBuilder {
     return this;
   }
 
-  public TestCellBuilder setKnownBuildRuleTypesFactory(
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory) {
-    this.knownBuildRuleTypesFactory = knownBuildRuleTypesFactory;
-    return this;
-  }
-
   public TestCellBuilder setSdkEnvironment(SdkEnvironment sdkEnvironment) {
     this.sdkEnvironment = sdkEnvironment;
     return this;
   }
 
-  public Cell build() throws IOException, InterruptedException {
-    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
+  public TestCellBuilder setToolchainProvider(ToolchainProvider toolchainProvider) {
+    this.toolchainProvider = toolchainProvider;
+    return this;
+  }
 
+  public Cell build() throws IOException, InterruptedException {
     BuckConfig config =
         buckConfig == null
             ? FakeBuckConfig.builder().setFilesystem(filesystem).build()
             : buckConfig;
 
-    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
+    ToolchainProvider toolchainProvider =
+        this.toolchainProvider == null ? new TestToolchainProvider() : this.toolchainProvider;
 
     SdkEnvironment sdkEnvironment =
         this.sdkEnvironment == null
-            ? SdkEnvironment.create(config, executor, toolchainProvider)
+            ? SdkEnvironment.create(toolchainProvider)
             : this.sdkEnvironment;
-
-    KnownBuildRuleTypesFactory typesFactory =
-        knownBuildRuleTypesFactory == null
-            ? new KnownBuildRuleTypesFactory(executor, sdkEnvironment, toolchainProvider)
-            : knownBuildRuleTypesFactory;
 
     return CellProvider.createForLocalBuild(
             filesystem,
             watchman,
             config,
             cellConfig,
-            typesFactory,
             sdkEnvironment,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());

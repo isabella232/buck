@@ -1,8 +1,10 @@
+load("//tools/build_rules:java_rules.bzl", "standard_java_test")
+
 java_library(
     name = "testutil",
     srcs = glob(
         ["*.java"],
-        excludes = glob(["*Test.java"]),
+        exclude = glob(["*Test.java"]),
     ),
     visibility = [
         "PUBLIC",
@@ -33,6 +35,7 @@ standard_java_test(
     visibility = [
         "PUBLIC",
     ],
+    with_test_data = True,
     deps = [
         ":testutil",
         "//src/com/facebook/buck/config:config",

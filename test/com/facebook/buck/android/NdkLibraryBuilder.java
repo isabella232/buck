@@ -16,9 +16,10 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.NdkCxxRuntime;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.TestAndroidToolchain;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -61,7 +62,7 @@ public class NdkLibraryBuilder
 
   public NdkLibraryBuilder(BuildTarget target, ProjectFilesystem filesystem) {
     super(
-        new NdkLibraryDescription(createToolchainProvider(), NDK_PLATFORMS) {
+        new NdkLibraryDescription(createToolchainProvider()) {
           @Override
           protected ImmutableSortedSet<SourcePath> findSources(
               ProjectFilesystem filesystem, Path buildRulePath) {
@@ -73,9 +74,25 @@ public class NdkLibraryBuilder
         filesystem);
   }
 
+  public NdkLibraryBuilder(BuildTarget target, ToolchainProvider toolchainProvider) {
+    super(
+        new NdkLibraryDescription(toolchainProvider) {
+          @Override
+          protected ImmutableSortedSet<SourcePath> findSources(
+              ProjectFilesystem filesystem, Path buildRulePath) {
+            return ImmutableSortedSet.of(
+                PathSourcePath.of(filesystem, buildRulePath.resolve("Android.mk")));
+          }
+        },
+        target,
+        new FakeProjectFilesystem());
+  }
+
   private static ToolchainProvider createToolchainProvider() {
     TestToolchainProvider toolchainProvider = new TestToolchainProvider();
     toolchainProvider.addAndroidToolchain(new TestAndroidToolchain());
+    toolchainProvider.addToolchain(
+        NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.of(NDK_PLATFORMS));
     return toolchainProvider;
   }
 

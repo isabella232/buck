@@ -41,6 +41,8 @@ import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonPackagable;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.python.PythonPlatform;
+import com.facebook.buck.rules.AbstractTool;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -51,7 +53,6 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -564,7 +565,6 @@ public class LuaBinaryDescription
   private Tool getInPlaceBinary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       final SourcePath starter,
@@ -584,8 +584,7 @@ public class LuaBinaryDescription
     if (!components.getPythonModules().isEmpty()) {
       // Add in any missing init modules into the python components.
       SourcePath emptyInit =
-          PythonBinaryDescription.createEmptyInitModule(
-              buildTarget, projectFilesystem, params, resolver);
+          PythonBinaryDescription.createEmptyInitModule(buildTarget, projectFilesystem, resolver);
       extraInputs.add(emptyInit);
       ImmutableMap<String, SourcePath> pythonModules =
           MoreMaps.transformKeys(
@@ -619,19 +618,16 @@ public class LuaBinaryDescription
       nativeLibsLinktree.add(symlinkTree);
     }
 
-    return new Tool() {
+    return new AbstractTool() {
+      @AddToRuleKey private final LuaPackageComponents toolComponents = components;
+      @AddToRuleKey private final SourcePath toolStarter = starter;
+      @AddToRuleKey private final SymlinkTree toolModulesLinkTree = modulesLinkTree;
+      @AddToRuleKey private final List<SymlinkTree> toolNativeLibsLinkTree = nativeLibsLinktree;
 
-      @Override
-      public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-        return ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(ruleFinder.filterBuildRuleInputs(starter))
-            .addAll(components.getDeps(ruleFinder))
-            .add(modulesLinkTree)
-            .addAll(nativeLibsLinktree)
-            .addAll(pythonModulesLinktree)
-            .addAll(ruleFinder.filterBuildRuleInputs(extraInputs))
-            .build();
-      }
+      @AddToRuleKey
+      private final List<SymlinkTree> toolPythonModulesLinktree = pythonModulesLinktree;
+
+      @AddToRuleKey private final List<SourcePath> toolExtraInputs = extraInputs;
 
       @Override
       public ImmutableCollection<SourcePath> getInputs() {
@@ -650,11 +646,6 @@ public class LuaBinaryDescription
       @Override
       public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
-      }
-
-      @Override
-      public void appendToRuleKey(RuleKeyObjectSink sink) {
-        sink.setReflectively("starter", starter).setReflectively("components", components);
       }
     };
   }
@@ -729,7 +720,6 @@ public class LuaBinaryDescription
         return getInPlaceBinary(
             buildTarget,
             projectFilesystem,
-            params,
             resolver,
             luaPlatform.getCxxPlatform(),
             starter,

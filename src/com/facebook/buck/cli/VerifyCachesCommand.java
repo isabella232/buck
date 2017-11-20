@@ -28,6 +28,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -36,9 +37,12 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Map;
+import org.kohsuke.args4j.Option;
 
 /** Verify the contents of our FileHashCache. */
 public class VerifyCachesCommand extends AbstractCommand {
+  @Option(name = "--dump", usage = "Also dump (some) cache contents.")
+  private boolean shouldDump = false;
 
   private boolean verifyFileHashCache(PrintStream stdOut, FileHashCache cache) throws IOException {
     FileHashCacheVerificationResult result = cache.verify();
@@ -59,11 +63,11 @@ public class VerifyCachesCommand extends AbstractCommand {
   private boolean verifyRuleKeyCache(
       BuckEventBus eventBus,
       PrintStream stdOut,
-      int ruleKeySeed,
+      RuleKeyConfiguration ruleKeyConfiguration,
       FileHashCache fileHashCache,
       RuleKeyCacheRecycler<RuleKey> recycler) {
     ImmutableList<Map.Entry<BuildRule, RuleKey>> contents = recycler.getCachedBuildRules();
-    RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeySeed);
+    RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeyConfiguration);
     BuildRuleResolver resolver =
         new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), eventBus);
@@ -93,6 +97,18 @@ public class VerifyCachesCommand extends AbstractCommand {
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     boolean success = true;
 
+    PrintStream stdOut = params.getConsole().getStdOut();
+
+    if (shouldDump) {
+      params
+          .getFileHashCache()
+          .debugDump()
+          .forEach(
+              entry -> {
+                stdOut.println(entry.getKey() + " " + entry.getValue());
+              });
+    }
+
     // Verify file hash caches.
     params.getConsole().getStdOut().println("Verifying file hash caches...");
     success &= verifyFileHashCache(params.getConsole().getStdOut(), params.getFileHashCache());
@@ -107,7 +123,7 @@ public class VerifyCachesCommand extends AbstractCommand {
                     verifyRuleKeyCache(
                         params.getBuckEventBus(),
                         params.getConsole().getStdOut(),
-                        params.getBuckConfig().getKeySeed(),
+                        params.getRuleKeyConfiguration(),
                         params.getFileHashCache(),
                         recycler))
             .orElse(true);

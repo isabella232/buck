@@ -17,10 +17,10 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.DexProducedFromJavaLibrary.BuildOutput;
-import com.facebook.buck.dalvik.EstimateDexWeightStep;
+import com.facebook.buck.android.dalvik.EstimateDexWeightStep;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -31,7 +31,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -45,7 +44,6 @@ import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
@@ -61,6 +59,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -82,16 +81,32 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   @VisibleForTesting static final String REFERENCED_RESOURCES = "referenced_resources";
 
   @AddToRuleKey private final SourcePath javaLibrarySourcePath;
+  @AddToRuleKey private final String dexTool;
+
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   DexProducedFromJavaLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams params,
       JavaLibrary javaLibrary) {
+    this(buildTarget, projectFilesystem, androidLegacyToolchain, params, javaLibrary, DxStep.DX);
+  }
+
+  DexProducedFromJavaLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
+      BuildRuleParams params,
+      JavaLibrary javaLibrary,
+      String dexTool) {
     super(buildTarget, projectFilesystem, params);
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.javaLibrary = javaLibrary;
+    this.dexTool = dexTool;
     this.javaLibrarySourcePath = javaLibrary.getSourcePathToOutput();
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
@@ -134,14 +149,19 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
       // merged into a final classes.dex that uses jumbo instructions.
       dx =
           new DxStep(
+              getBuildTarget(),
               getProjectFilesystem(),
+              androidLegacyToolchain,
               getPathToDex(),
               Collections.singleton(pathToOutputFile),
               EnumSet.of(
                   DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
                   DxStep.Option.RUN_IN_PROCESS,
                   DxStep.Option.NO_OPTIMIZE,
-                  DxStep.Option.FORCE_JUMBO));
+                  DxStep.Option.FORCE_JUMBO),
+              Optional.empty(),
+              dexTool,
+              dexTool.equals(DxStep.D8));
       steps.add(dx);
 
       // The `DxStep` delegates to android tools to build a ZIP with timestamps in it, making
@@ -192,7 +212,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   }
 
   @Override
-  public BuildOutput initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
+  public BuildOutput initializeFromDisk() throws IOException {
     int weightEstimate =
         Integer.parseInt(
             readMetadataValue(getProjectFilesystem(), getBuildTarget(), WEIGHT_ESTIMATE).get());

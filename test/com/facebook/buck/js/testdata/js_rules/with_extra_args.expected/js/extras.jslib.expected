@@ -1,0 +1,6 @@
+{"command":"library-dependencies","release":false,"rootPath":"@","outputPath":"@/buck-out/gen/js/extras.jslib","dependencyLibraryFilePaths":[],"aggregatedSourceFilesFilePath":"@/buck-out/gen/js/extras#_files_.jslib"}
+library-files --root @
+transform --arbitrary extra --flags --filename js/extras/choclate-chips.js
+var choclateChips;
+transform --arbitrary extra --flags --filename js/extras/yoghurt.js
+var yoghurt;

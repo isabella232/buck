@@ -16,14 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -35,8 +33,8 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
 
   private static final Logger LOG = Logger.get(OutOfProcessJarBackedJavac.class);
 
-  private final String compilerClassName;
-  private final ImmutableSortedSet<SourcePath> classpath;
+  @AddToRuleKey private final String compilerClassName;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> classpath;
 
   public OutOfProcessJarBackedJavac(String compilerClassName, Iterable<SourcePath> classpath) {
     this.compilerClassName = compilerClassName;
@@ -52,6 +50,9 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
+      boolean trackClassUsage,
+      @Nullable JarParameters abiJarParameters,
+      @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
 
@@ -71,28 +72,15 @@ public class OutOfProcessJarBackedJavac extends OutOfProcessJsr199Javac {
             javaSourceFilePaths.stream().map(Path::toString).collect(Collectors.toList()),
             pathToSrcsList.toString(),
             workingDirectory.toString(),
+            trackClassUsage,
+            abiJarParameters != null ? JarParametersSerializer.serialize(abiJarParameters) : null,
+            libraryJarParameters != null
+                ? JarParametersSerializer.serialize(libraryJarParameters)
+                : null,
             pluginFields
                 .stream()
                 .map(JavacPluginJsr199FieldsSerializer::serialize)
                 .collect(Collectors.toList()),
             abiGenerationMode.toString()));
-  }
-
-  @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    return ruleFinder.filterBuildRuleInputs(getInputs());
-  }
-
-  @Override
-  public ImmutableCollection<SourcePath> getInputs() {
-    return classpath;
-  }
-
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink.setReflectively("javac", "oop-jar-backed-jsr199")
-        .setReflectively("javac.type", "oop-in-memory")
-        .setReflectively("javac.classname", compilerClassName)
-        .setReflectively("javac.classpath", classpath);
   }
 }

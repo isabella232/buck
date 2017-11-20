@@ -48,7 +48,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
@@ -60,6 +59,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtraDeps
@@ -111,6 +111,16 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
     return !supportedPlatformsRegex.isPresent()
         || supportedPlatformsRegex.get().matcher(cxxPlatform.getFlavor().toString()).find();
+  }
+
+  @Override
+  public boolean isCacheable() {
+    // Frameworks on macOS include symbolic links which are not preserved when cached.
+    // When the prebuilt framework target gets fetched from the cache, it includes
+    // duplicate resources which means that the bundle cannot be signed anymore due
+    // failing internal checks in Apple's `codesign` tool. Since prebuilt frameworks
+    // are already built, not caching them is okay.
+    return false;
   }
 
   @Override

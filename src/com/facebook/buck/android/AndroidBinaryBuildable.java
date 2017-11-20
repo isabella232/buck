@@ -40,13 +40,12 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.XzStep;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.zip.RepackZipEntriesStep;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -59,6 +58,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 class AndroidBinaryBuildable implements AddsToRuleKey {
   /**
@@ -87,7 +87,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey private final Optional<RedexOptions> redexOptions;
 
-  @SuppressWarnings("unused")
   @AddToRuleKey
   // Redex accesses some files that are indirectly referenced through the proguard command-line.txt.
   // TODO(cjhopman): Redex shouldn't do that, or this list should be constructed more carefully.
@@ -109,10 +108,12 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
   private final BuildTarget buildTarget;
+  private final AndroidLegacyToolchain androidLegacyToolchain;
 
   AndroidBinaryBuildable(
       BuildTarget buildTarget,
       ProjectFilesystem filesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       SourcePath keystorePath,
       SourcePath keystorePropertiesPath,
       Optional<RedexOptions> redexOptions,
@@ -130,6 +131,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ImmutableSortedSet<APKModule> apkModules) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.keystorePath = keystorePath;
     this.keystorePropertiesPath = keystorePropertiesPath;
     this.redexOptions = redexOptions;
@@ -193,7 +195,9 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       }
 
       if (shouldPackageAssetLibraries) {
-        Preconditions.checkState(!ExopackageMode.enabledForResources(exopackageModes));
+        Preconditions.checkState(
+            ExopackageMode.enabledForModules(exopackageModes)
+                || !ExopackageMode.enabledForResources(exopackageModes));
         Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
 
         final Path libSubdirectory =
@@ -296,7 +300,13 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
               redexedApk));
     }
 
-    steps.add(new ZipalignStep(getProjectFilesystem().getRootPath(), apkToAlign, apkPath));
+    steps.add(
+        new ZipalignStep(
+            androidLegacyToolchain,
+            getBuildTarget(),
+            getProjectFilesystem().getRootPath(),
+            apkToAlign,
+            apkPath));
 
     buildableContext.recordArtifact(apkPath);
     return steps.build();
@@ -440,7 +450,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   private Supplier<KeystoreProperties> getKeystorePropertiesSupplier(
       SourcePathResolver resolver, Path pathToKeystore) {
-    return Suppliers.memoize(
+    return MoreSuppliers.memoize(
         () -> {
           try {
             return KeystoreProperties.createFromPropertiesFile(
@@ -477,7 +487,9 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
                 context.getBuildCellRootPath(), getProjectFilesystem(), redexedApk.getParent())));
     ImmutableList<Step> redexSteps =
         ReDexStep.createSteps(
+            buildTarget,
             getProjectFilesystem(),
+            androidLegacyToolchain,
             resolver,
             redexOptions.get(),
             apkToRedexAndAlign,

@@ -1,8 +1,10 @@
+load("//tools/build_rules:java_rules.bzl", "standard_java_test")
+
 java_library(
     name = "testutil",
     srcs = glob(
         ["*.java"],
-        excludes = [
+        exclude = [
             "*Benchmark.java",
             "*Test.java",
         ],
@@ -21,7 +23,7 @@ java_library(
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io:transport",
         "//src/com/facebook/buck/io/filesystem/impl:impl",
-        "//src/com/facebook/buck/jvm/core:packagefinder",
+        "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/model:build_id",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/model:simple_types",
@@ -82,7 +84,7 @@ standard_java_test(
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io:transport",
-        "//src/com/facebook/buck/jvm/core:packagefinder",
+        "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/model:build_id",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/model:simple_types",

@@ -19,6 +19,7 @@ package com.facebook.buck.lua;
 import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxFlags;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -31,6 +32,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -191,7 +193,7 @@ public class CxxLuaExtensionDescription
                 compilerFlags,
                 args.getPrefixHeader(),
                 args.getPrecompiledHeader(),
-                CxxSourceRuleFactory.PicType.PIC,
+                PicType.PIC,
                 sandboxTree)
             .requirePreprocessAndCompileRules(srcs);
 
@@ -238,8 +240,9 @@ public class CxxLuaExtensionDescription
         Linker.LinkType.SHARED,
         Optional.of(extensionName),
         extensionPath,
+        args.getLinkerExtraOutputs(),
         Linker.LinkableDepType.SHARED,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         RichStream.from(args.getCxxDeps().get(ruleResolver, cxxPlatform))
             .filter(NativeLinkable.class)
             .concat(Stream.of(luaPlatform.getLuaCxxLibrary(ruleResolver)))

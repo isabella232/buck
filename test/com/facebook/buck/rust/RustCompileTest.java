@@ -23,13 +23,12 @@ import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -42,7 +41,6 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -87,17 +85,7 @@ public class RustCompileTest {
   }
 
   private static Tool fakeTool() {
-    return new Tool() {
-      @Override
-      public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-        return ImmutableSortedSet.of();
-      }
-
-      @Override
-      public ImmutableCollection<SourcePath> getInputs() {
-        return ImmutableSortedSet.of();
-      }
-
+    return new AbstractTool() {
       @Override
       public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
         return ImmutableList.of();
@@ -106,11 +94,6 @@ public class RustCompileTest {
       @Override
       public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
-      }
-
-      @Override
-      public void appendToRuleKey(RuleKeyObjectSink sink) {
-        // Do nothing.
       }
     };
   }
@@ -194,13 +177,8 @@ public class RustCompileTest {
       }
 
       @Override
-      public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-        return ImmutableSortedSet.of();
-      }
-
-      @Override
-      public ImmutableCollection<SourcePath> getInputs() {
-        return ImmutableSortedSet.of();
+      public SharedLibraryLoadingType getSharedLibraryLoadingType() {
+        return SharedLibraryLoadingType.RPATH;
       }
 
       @Override
@@ -211,11 +189,6 @@ public class RustCompileTest {
       @Override
       public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
-      }
-
-      @Override
-      public void appendToRuleKey(RuleKeyObjectSink sink) {
-        // Do nothing.
       }
     };
   }

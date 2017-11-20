@@ -16,7 +16,6 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
@@ -25,20 +24,23 @@ import java.nio.file.Path;
 
 public class RuleKeyFieldLoader {
 
-  private final int seed;
+  private final RuleKeyConfiguration ruleKeyConfiguration;
 
-  public RuleKeyFieldLoader(int seed) {
-    this.seed = seed;
+  public RuleKeyFieldLoader(RuleKeyConfiguration ruleKeyConfiguration) {
+    this.ruleKeyConfiguration = ruleKeyConfiguration;
   }
 
   void setFields(RuleKeyObjectSink builder, BuildRule buildRule, RuleKeyType ruleKeyType) {
     // "." is not a valid first character for a field name, nor a valid character for rule attribute
     // name and so the following fields will never collide with other stuff.
-    builder.setReflectively(".cache_key_seed", seed);
+    builder.setReflectively(".cache_key_seed", ruleKeyConfiguration.getSeed());
     builder.setReflectively(".target_name", buildRule.getBuildTarget().getFullyQualifiedName());
     builder.setReflectively(".build_rule_type", buildRule.getType());
-    builder.setReflectively(".buckversion", BuckVersion.getVersion());
+    builder.setReflectively(".buck_core_key", ruleKeyConfiguration.getCoreKey());
     builder.setReflectively(".rule_key_type", ruleKeyType);
+    builder.setReflectively(
+        ".input_rule_key_file_size_limit",
+        ruleKeyConfiguration.getBuildInputRuleKeyFileSizeLimit());
 
     // We currently cache items using their full buck-out path, so make sure this is reflected in
     // the rule key.

@@ -16,14 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -37,21 +33,6 @@ public class OutOfProcessJdkProvidedInMemoryJavac extends OutOfProcessJsr199Java
   OutOfProcessJdkProvidedInMemoryJavac() {}
 
   @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink.setReflectively("javac", "oop-jsr199").setReflectively("javac.type", "oop-in-memory");
-  }
-
-  @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    return ImmutableSortedSet.of();
-  }
-
-  @Override
-  public ImmutableCollection<SourcePath> getInputs() {
-    return ImmutableSortedSet.of();
-  }
-
-  @Override
   public Javac.Invocation newBuildInvocation(
       JavacExecutionContext context,
       BuildTarget invokingRule,
@@ -60,6 +41,9 @@ public class OutOfProcessJdkProvidedInMemoryJavac extends OutOfProcessJsr199Java
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
+      boolean trackClassUsage,
+      @Nullable JarParameters abiJarParameters,
+      @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     Map<String, Object> serializedContext = JavacExecutionContextSerializer.serialize(context);
@@ -78,6 +62,11 @@ public class OutOfProcessJdkProvidedInMemoryJavac extends OutOfProcessJsr199Java
             javaSourceFilePaths.stream().map(Path::toString).collect(Collectors.toList()),
             pathToSrcsList.toString(),
             workingDirectory.toString(),
+            trackClassUsage,
+            abiJarParameters != null ? JarParametersSerializer.serialize(abiJarParameters) : null,
+            libraryJarParameters != null
+                ? JarParametersSerializer.serialize(libraryJarParameters)
+                : null,
             pluginFields
                 .stream()
                 .map(JavacPluginJsr199FieldsSerializer::serialize)

@@ -48,7 +48,6 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +56,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
@@ -141,6 +141,7 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                     getPathToTestOutputDirectory())))
         .add(
             new PythonRunTestsStep(
+                getBuildTarget(),
                 getProjectFilesystem().getRootPath(),
                 getBuildTarget().getFullyQualifiedName(),
                 binary
@@ -205,7 +206,8 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return false;
   }
 
-  // A python test rule is actually just a {@link NoopBuildRuleWithDeclaredAndExtraDeps} which contains a references to
+  // A python test rule is actually just a {@link NoopBuildRuleWithDeclaredAndExtraDeps} which
+  // contains a references to
   // a {@link PythonBinary} rule, which is the actual test binary.  Therefore, we *need* this
   // rule around to run this test, so model this via the {@link HasRuntimeDeps} interface.
   @Override

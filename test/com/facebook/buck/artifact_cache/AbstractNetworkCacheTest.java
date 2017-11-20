@@ -16,6 +16,8 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
@@ -27,6 +29,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -99,6 +102,11 @@ public class AbstractNetworkCacheTest {
           protected MultiFetchResult multiFetchImpl(
               Iterable<AbstractAsynchronousCache.FetchRequest> requests) throws IOException {
             return null;
+          }
+
+          @Override
+          protected CacheDeleteResult deleteImpl(List<RuleKey> ruleKeys) throws IOException {
+            throw new RuntimeException("Delete operation is not supported");
           }
         };
 

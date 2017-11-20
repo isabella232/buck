@@ -17,12 +17,14 @@
 package com.facebook.buck.apple.project_generator;
 
 import com.facebook.buck.apple.AppleBuildRules;
+import com.facebook.buck.apple.AppleBuildRules.RecursiveDependenciesMode;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleBundleDescriptionArg;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleTestDescriptionArg;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
+import com.facebook.buck.apple.project_generator.ProjectGenerator.Option;
 import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -40,13 +42,13 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.Optionals;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
@@ -72,6 +74,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 public class WorkspaceAndProjectGenerator {
@@ -88,12 +91,14 @@ public class WorkspaceAndProjectGenerator {
   private final boolean combinedProject;
   private final boolean parallelizeBuild;
   private final CxxPlatform defaultCxxPlatform;
+  private final ImmutableSet<String> appleCxxFlavors;
 
   private Optional<ProjectGenerator> combinedProjectGenerator;
   private final Map<String, SchemeGenerator> schemeGenerators = new HashMap<>();
   private final String buildFileName;
   private final Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode;
   private final BuckEventBus buckEventBus;
+  private final RuleKeyConfiguration ruleKeyConfiguration;
 
   private final ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder =
       ImmutableSet.builder();
@@ -110,20 +115,23 @@ public class WorkspaceAndProjectGenerator {
       TargetGraph projectGraph,
       XcodeWorkspaceConfigDescriptionArg workspaceArguments,
       BuildTarget workspaceBuildTarget,
-      Set<ProjectGenerator.Option> projectGeneratorOptions,
+      Set<Option> projectGeneratorOptions,
       boolean combinedProject,
       FocusedModuleTargetMatcher focusModules,
       boolean parallelizeBuild,
       CxxPlatform defaultCxxPlatform,
+      ImmutableSet<String> appleCxxFlavors,
       String buildFileName,
       Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
       BuckEventBus buckEventBus,
+      RuleKeyConfiguration ruleKeyConfiguration,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
       SwiftBuckConfig swiftBuckConfig) {
     this.rootCell = cell;
     this.projectGraph = projectGraph;
     this.dependenciesCache = new AppleDependenciesCache(projectGraph);
+    this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.projGenerationStateCache = new ProjectGenerationStateCache();
     this.workspaceArguments = workspaceArguments;
     this.workspaceBuildTarget = workspaceBuildTarget;
@@ -131,6 +139,7 @@ public class WorkspaceAndProjectGenerator {
     this.combinedProject = combinedProject;
     this.parallelizeBuild = parallelizeBuild;
     this.defaultCxxPlatform = defaultCxxPlatform;
+    this.appleCxxFlavors = appleCxxFlavors;
     this.buildFileName = buildFileName;
     this.buildRuleResolverForNode = buildRuleResolverForNode;
     this.buckEventBus = buckEventBus;
@@ -460,11 +469,13 @@ public class WorkspaceAndProjectGenerator {
                 projectName,
                 buildFileName,
                 projectGeneratorOptions,
+                ruleKeyConfiguration,
                 isMainProject,
                 workspaceArguments.getSrcTarget(),
                 targetsInRequiredProjects,
                 focusModules,
                 defaultCxxPlatform,
+                appleCxxFlavors,
                 buildRuleResolverForNode,
                 buckEventBus,
                 halideBuckConfig,
@@ -514,11 +525,13 @@ public class WorkspaceAndProjectGenerator {
             workspaceName,
             buildFileName,
             projectGeneratorOptions,
+            ruleKeyConfiguration,
             true,
             workspaceArguments.getSrcTarget(),
             targetsInRequiredProjects,
             focusModules,
             defaultCxxPlatform,
+            appleCxxFlavors,
             buildRuleResolverForNode,
             buckEventBus,
             halideBuckConfig,
@@ -781,17 +794,13 @@ public class WorkspaceAndProjectGenerator {
       final ImmutableSet<TargetNode<?, ?>> excludes) {
     return FluentIterable.from(nodes)
         .transformAndConcat(
-            new Function<TargetNode<?, ?>, Iterable<TargetNode<?, ?>>>() {
-              @Override
-              public Iterable<TargetNode<?, ?>> apply(TargetNode<?, ?> input) {
-                return AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
+            input ->
+                AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
                     projectGraph,
                     Optional.of(dependenciesCache),
-                    AppleBuildRules.RecursiveDependenciesMode.BUILDING,
+                    RecursiveDependenciesMode.BUILDING,
                     input,
-                    Optional.empty());
-              }
-            })
+                    Optional.empty()))
         .append(nodes)
         .filter(
             input ->

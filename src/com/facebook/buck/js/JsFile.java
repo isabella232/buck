@@ -58,7 +58,7 @@ public abstract class JsFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   public SourcePath getSourcePathToOutput() {
     return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(),
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.json"));
+        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jsfile"));
   }
 
   ImmutableList<Step> getBuildSteps(BuildContext context, String jobArgsFormat, Path outputPath) {
@@ -118,6 +118,11 @@ public abstract class JsFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
               subPath.map(srcPath::resolve).orElse(srcPath));
 
       return getBuildSteps(context, jobArgs, outputPath);
+    }
+
+    @VisibleForTesting
+    SourcePath getSource() {
+      return src;
     }
 
     @VisibleForTesting

@@ -32,7 +32,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -45,7 +44,6 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -54,6 +52,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -148,7 +147,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
         buildTarget,
         projectFilesystem,
         buildRuleParams.copyAppendingExtraDeps(
-            Suppliers.compose(ruleFinder::filterBuildRuleInputs, symbolFilesFromDeps)));
+            Suppliers.compose(ruleFinder::filterBuildRuleInputs, symbolFilesFromDeps::get)));
     if (res != null && rDotJavaPackageArgument == null && manifestFile == null) {
       throw new HumanReadableException(
           "When the 'res' is specified for android_resource() %s, at least one of 'package' or "
@@ -368,7 +367,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public String initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+  public String initializeFromDisk() {
     String rDotJavaPackageFromFile =
         getProjectFilesystem().readFirstLine(pathToRDotJavaPackageFile).get();
     if (rDotJavaPackageArgument != null
@@ -403,6 +402,9 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
     if (assets != null) {
       collector.addAssetsDirectory(getBuildTarget(), assets);
+    }
+    if (manifestFile != null) {
+      collector.addManifestPiece(manifestFile);
     }
   }
 }

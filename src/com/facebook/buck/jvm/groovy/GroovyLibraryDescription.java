@@ -17,12 +17,13 @@
 package com.facebook.buck.jvm.groovy;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
-import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -86,10 +87,10 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
   }
 
   public interface CoreArg extends JavaLibraryDescription.CoreArg {
-    // Groovyc may not play nice with this, so turning it off
+    // Groovyc may not play nice with source ABIs, so turning it off
     @Override
-    default Optional<Boolean> getGenerateSourceOnlyAbi() {
-      return Optional.of(false);
+    default Optional<AbiGenerationMode> getAbiGenerationMode() {
+      return Optional.of(AbiGenerationMode.CLASS);
     }
 
     ImmutableList<String> getExtraGroovycArguments();

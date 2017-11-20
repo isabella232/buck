@@ -51,7 +51,6 @@ import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -61,6 +60,7 @@ import com.google.common.collect.Maps;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class PythonTestDescription
@@ -141,7 +141,6 @@ public class PythonTestDescription
   private static BuildRule createTestModulesSourceBuildRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
       Path outputPath,
       ImmutableSet<String> testModules) {
 
@@ -152,12 +151,7 @@ public class PythonTestDescription
     String contents = getTestModulesListContents(testModules);
 
     return new WriteFile(
-        newBuildTarget,
-        projectFilesystem,
-        params.withoutDeclaredDeps().withoutExtraDeps(),
-        contents,
-        outputPath, /* executable */
-        false);
+        newBuildTarget, projectFilesystem, contents, outputPath, /* executable */ false);
   }
 
   private CxxPlatform getCxxPlatform(BuildTarget target, AbstractPythonTestDescriptionArg args) {
@@ -234,7 +228,6 @@ public class PythonTestDescription
         createTestModulesSourceBuildRule(
             buildTarget,
             projectFilesystem,
-            params,
             getTestModulesListPath(buildTarget, projectFilesystem),
             testModules);
     resolver.addToIndex(testModulesBuildRule);
@@ -281,8 +274,7 @@ public class PythonTestDescription
                 .stream()
                 .map(
                     MacroArg.toMacroArgFunction(
-                            PythonUtil.MACRO_HANDLER, buildTarget, cellRoots, resolver)
-                        ::apply)
+                        PythonUtil.MACRO_HANDLER, buildTarget, cellRoots, resolver))
                 .collect(MoreCollectors.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
             args.getPreloadDeps());
@@ -295,6 +287,7 @@ public class PythonTestDescription
             projectFilesystem,
             params,
             resolver,
+            pathResolver,
             ruleFinder,
             pythonPlatform,
             cxxPlatform,
@@ -347,7 +340,8 @@ public class PythonTestDescription
         () ->
             ImmutableMap.copyOf(
                 Maps.transformValues(
-                    args.getEnv(), MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver)));
+                    args.getEnv(),
+                    MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver)::apply));
 
     // Generate and return the python test rule, which depends on the python binary rule above.
     return PythonTest.from(

@@ -60,13 +60,13 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.keys.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.timing.IncrementingFakeClock;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -80,6 +80,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import org.hamcrest.FeatureMatcher;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
@@ -110,9 +111,9 @@ public class WorkspaceAndProjectGeneratorTest {
   public void setUp() throws InterruptedException, IOException {
     rootCell = (new TestCellBuilder()).build();
     ProjectFilesystem projectFilesystem = rootCell.getFilesystem();
-    halideBuckConfig = HalideLibraryBuilder.createDefaultHalideConfig(projectFilesystem);
-    cxxBuckConfig = new CxxBuckConfig(FakeBuckConfig.builder().build());
     BuckConfig fakeBuckConfig = FakeBuckConfig.builder().build();
+    halideBuckConfig = HalideLibraryBuilder.createDefaultHalideConfig(projectFilesystem);
+    cxxBuckConfig = new CxxBuckConfig(fakeBuckConfig);
     swiftBuckConfig = new SwiftBuckConfig(fakeBuckConfig);
     setUpWorkspaceAndProjects();
   }
@@ -241,9 +242,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -294,9 +297,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -340,9 +345,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -385,9 +392,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -450,9 +459,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -496,9 +507,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -645,9 +658,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -762,9 +777,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -834,9 +851,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             true /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);
@@ -886,9 +905,11 @@ public class WorkspaceAndProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             true /* parallelizeBuild */,
             DEFAULT_PLATFORM,
+            ImmutableSet.of(),
             "BUCK",
             getBuildRuleResolverForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
             cxxBuckConfig,
             swiftBuckConfig);

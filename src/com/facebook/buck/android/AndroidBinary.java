@@ -23,10 +23,10 @@ import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.redex.RedexOptions;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.HasClasspathEntries;
-import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
@@ -133,6 +133,7 @@ public class AndroidBinary extends AbstractBuildRule
 
   private final Optional<BuildRule> moduleVerification;
   private final Optional<ExopackageInfo> exopackageInfo;
+  private final SourcePath manifestPath;
 
   private final BuildRuleParams buildRuleParams;
 
@@ -142,6 +143,7 @@ public class AndroidBinary extends AbstractBuildRule
   AndroidBinary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       Optional<List<String>> proguardJvmArgs,
@@ -191,6 +193,7 @@ public class AndroidBinary extends AbstractBuildRule
     this.manifestEntries = manifestEntries;
     this.isCacheable = isCacheable;
     this.moduleVerification = moduleVerification;
+    this.manifestPath = enhancementResult.getAndroidManifestPath();
 
     if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
       Preconditions.checkArgument(
@@ -220,6 +223,7 @@ public class AndroidBinary extends AbstractBuildRule
         new AndroidBinaryBuildable(
             getBuildTarget(),
             getProjectFilesystem(),
+            androidLegacyToolchain,
             keystore.getPathToStore(),
             keystore.getPathToPropertiesFile(),
             redexOptions,
@@ -325,7 +329,7 @@ public class AndroidBinary extends AbstractBuildRule
   public ApkInfo getApkInfo() {
     return ApkInfo.builder()
         .setApkPath(getSourcePathToOutput())
-        .setManifestPath(getManifestPath())
+        .setManifestPath(manifestPath)
         .setExopackageInfo(exopackageInfo)
         .build();
   }
@@ -365,10 +369,6 @@ public class AndroidBinary extends AbstractBuildRule
     return keystore;
   }
 
-  private SourcePath getManifestPath() {
-    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), buildable.getManifestPath());
-  }
-
   public SortedSet<BuildRule> getClasspathDeps() {
     return getDeclaredDeps();
   }
@@ -402,15 +402,8 @@ public class AndroidBinary extends AbstractBuildRule
 
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    Stream.Builder<BuildTarget> deps = Stream.builder();
-    RichStream.from(moduleVerification).map(BuildRule::getBuildTarget).forEach(deps);
-    exopackageInfo.ifPresent(
-        info ->
-            ruleFinder
-                .filterBuildRuleInputs(info.getRequiredPaths()::iterator)
-                .stream()
-                .map(BuildRule::getBuildTarget)
-                .forEach(deps));
-    return deps.build();
+    return RichStream.from(moduleVerification)
+        .map(BuildRule::getBuildTarget)
+        .concat(HasInstallableApkSupport.getRuntimeDepsForInstallableApk(this, ruleFinder));
   }
 }

@@ -19,6 +19,7 @@ package com.facebook.buck.swift;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -231,7 +232,8 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
                   input -> {
                     BuildTarget companionTarget =
                         input.getBuildTarget().withAppendedFlavors(SWIFT_COMPANION_FLAVOR);
-                    // Note, this is liable to race conditions. The presence or absence of the companion
+                    // Note, this is liable to race conditions. The presence or absence of the
+                    // companion
                     // rule should be determined by metadata query, not by assumptions.
                     return RichStream.from(
                         resolver
@@ -273,7 +275,8 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
                       .addAll(swiftCompileRules)
                       .addAll(implicitSwiftCompileRules)
                       .addAll(cxxDeps.getDeps(ruleFinder))
-                      // This is only used for generating include args and may not be actually needed.
+                      // This is only used for generating include args and may not be actually
+                      // needed.
                       .addAll(preprocessor.getDeps(ruleFinder))
                       .build()),
           swiftPlatform.get().getSwiftc(),
@@ -344,7 +347,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
                 swiftRuntimeLinkable.getNativeLinkableInput(
                     cxxPlatform, Linker.LinkableDepType.SHARED))
             .addAllArgs(rule.getAstLinkArgs())
-            .addArgs(rule.getFileListLinkArg());
+            .addAllArgs(rule.getFileListLinkArg());
     return resolver.addToIndex(
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
             cxxBuckConfig,
@@ -357,8 +360,9 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
             Linker.LinkType.SHARED,
             Optional.of(sharedLibrarySoname),
             sharedLibOutput,
+            ImmutableList.of(),
             Linker.LinkableDepType.SHARED,
-            /* thinLto */ false,
+            CxxLinkOptions.of(),
             RichStream.from(params.getBuildDeps())
                 .filter(NativeLinkable.class)
                 .concat(RichStream.of(swiftRuntimeLinkable))

@@ -34,10 +34,13 @@ public class BuckCommand extends AbstractContainerCommand {
     @SubCommand(name = "audit", impl = AuditCommand.class),
     @SubCommand(name = "build", impl = BuildCommand.class),
     @SubCommand(name = "cache", impl = CacheCommand.class),
+    // TODO(nga): rename to `cache delete`
+    @SubCommand(name = "cachedelete", impl = CacheDeleteCommand.class),
     @SubCommand(name = "clean", impl = CleanCommand.class),
     @SubCommand(name = "distbuild", impl = DistBuildCommand.class),
     @SubCommand(name = "doctor", impl = DoctorCommand.class),
     @SubCommand(name = "fetch", impl = FetchCommand.class),
+    @SubCommand(name = "fix", impl = FixCommand.class),
     @SubCommand(name = "help", impl = HelpCommand.class),
     @SubCommand(name = "install", impl = InstallCommand.class),
     @SubCommand(name = "kill", impl = KillCommand.class),
@@ -59,7 +62,6 @@ public class BuckCommand extends AbstractContainerCommand {
   Command subcommand;
 
   // --version is handled in python, but leave it here for --help
-  @SuppressWarnings("unused")
   @Option(
     name = "--version",
     aliases = {"-V"},

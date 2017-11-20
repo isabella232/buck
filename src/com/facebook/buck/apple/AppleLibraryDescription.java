@@ -63,6 +63,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCompile;
 import com.facebook.buck.swift.SwiftLibraryDescription;
@@ -404,7 +405,9 @@ public class AppleLibraryDescription
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
         appleConfig.assetCatalogValidation(),
-        ImmutableList.of());
+        ImmutableList.of(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   /**
@@ -429,14 +432,15 @@ public class AppleLibraryDescription
     // We explicitly remove flavors from params to make sure rule
     // has the same output regardless if we will strip or not.
     Optional<StripStyle> flavoredStripStyle = StripStyle.FLAVOR_DOMAIN.getValue(buildTarget);
-    buildTarget = CxxStrip.removeStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
+    BuildTarget unstrippedBuildTarget =
+        CxxStrip.removeStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     BuildRule unstrippedBinaryRule =
         requireUnstrippedBuildRule(
-            buildTarget,
+            unstrippedBuildTarget,
             projectFilesystem,
             params,
             resolver,
@@ -450,7 +454,7 @@ public class AppleLibraryDescription
             extraCxxDeps,
             transitiveCxxPreprocessorInput);
 
-    if (!shouldWrapIntoDebuggableBinary(buildTarget, unstrippedBinaryRule)) {
+    if (!shouldWrapIntoDebuggableBinary(unstrippedBuildTarget, unstrippedBinaryRule)) {
       return unstrippedBinaryRule;
     }
 
@@ -463,14 +467,16 @@ public class AppleLibraryDescription
             .getValue(
                 Iterables.getFirst(
                     Sets.intersection(
-                        delegate.getCxxPlatforms().getFlavors(), buildTarget.getFlavors()),
+                        delegate.getCxxPlatforms().getFlavors(),
+                        unstrippedBuildTarget.getFlavors()),
                     defaultCxxFlavor));
 
-    buildTarget = CxxStrip.restoreStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
+    BuildTarget strippedBuildTarget =
+        CxxStrip.restoreStripStyleFlavorInTarget(unstrippedBuildTarget, flavoredStripStyle);
 
     BuildRule strippedBinaryRule =
         CxxDescriptionEnhancer.createCxxStripRule(
-            buildTarget,
+            strippedBuildTarget,
             projectFilesystem,
             resolver,
             flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
@@ -478,7 +484,7 @@ public class AppleLibraryDescription
             representativePlatform);
 
     return AppleDescriptions.createAppleDebuggableBinary(
-        buildTarget,
+        unstrippedBuildTarget,
         projectFilesystem,
         resolver,
         strippedBinaryRule,
@@ -931,7 +937,7 @@ public class AppleLibraryDescription
     BuildTarget swiftTarget =
         AppleLibraryDescriptionSwiftEnhancer.createBuildTargetForSwiftCompile(target, cxxPlatform);
     SwiftCompile compile = (SwiftCompile) resolver.requireRule(swiftTarget);
-    return Optional.of(ImmutableList.of(compile.getObjectPath()));
+    return Optional.of(compile.getObjectPaths());
   }
 
   @Override
@@ -948,6 +954,20 @@ public class AppleLibraryDescription
     }
 
     return Optional.empty();
+  }
+
+  @Override
+  public ImmutableList<Arg> getAdditionalExportedLinkerFlags(
+      BuildTarget target, BuildRuleResolver resolver, CxxPlatform cxxPlatform) {
+    if (!targetContainsSwift(target, resolver)) {
+      return ImmutableList.of();
+    }
+
+    BuildTarget swiftTarget =
+        AppleLibraryDescriptionSwiftEnhancer.createBuildTargetForSwiftCompile(target, cxxPlatform);
+    SwiftCompile compile = (SwiftCompile) resolver.requireRule(swiftTarget);
+
+    return compile.getAstLinkArgs();
   }
 
   @Override

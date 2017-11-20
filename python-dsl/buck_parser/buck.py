@@ -60,7 +60,7 @@ BUILD_FUNCTIONS = []
 
 # Wait this many seconds on recv() or send() in the pywatchman client
 # if not otherwise specified in .buckconfig
-DEFAULT_WATCHMAN_QUERY_TIMEOUT = 5.0
+DEFAULT_WATCHMAN_QUERY_TIMEOUT = 60.0
 
 ORIGINAL_IMPORT = __builtin__.__import__
 
@@ -516,7 +516,7 @@ class BuildFileProcessor(object):
             env_vars = {}
         if ignore_paths is None:
             ignore_paths = []
-        self._cache = {}
+        self._include_cache = {}
         self._current_build_env = None
         self._sync_cookie_state = SyncCookieState()
 
@@ -766,7 +766,12 @@ class BuildFileProcessor(object):
 
         return value
 
-    def _glob(self, includes, excludes=None, include_dotfiles=False, search_base=None):
+    def _glob(self, includes, excludes=None, include_dotfiles=False, search_base=None,
+              exclude=None):
+        assert exclude is None or excludes is None, \
+            "Mixing 'exclude' and 'excludes' attributes is not allowed. Please replace your " \
+            "exclude and excludes arguments with a single 'excludes = %r'." % (exclude + excludes)
+        excludes = excludes or exclude
         build_env = self._current_build_env
         return glob(
             includes, excludes=excludes, include_dotfiles=include_dotfiles,
@@ -836,7 +841,7 @@ class BuildFileProcessor(object):
         build_env.includes.add(path)
         build_env.merge(inner_env)
 
-    def _load(self, name, *symbols, **symbol_kwargs):
+    def _load(self, is_implicit_include, name, *symbols, **symbol_kwargs):
         # type: (str, *str, **str) -> None
         """Pull the symbols from the named include into the current caller's context.
 
@@ -849,7 +854,7 @@ class BuildFileProcessor(object):
         # Resolve the named include to its path and process it to get its
         # build context and module.
         path = self._get_load_path(name)
-        inner_env, module = self._process_include(path, False)
+        inner_env, module = self._process_include(path, is_implicit_include)
 
         # Look up the caller's stack frame and merge the include's globals
         # into it's symbol table.
@@ -995,10 +1000,6 @@ class BuildFileProcessor(object):
             included from an implicit include.
         :returns: build context (potentially different if retrieved from cache) and loaded module.
         """
-        # First check the cache.
-        cached = self._cache.get(path)
-        if cached is not None:
-            return cached
 
         # Install the build context for this input as the current context.
         with self._set_build_env(build_env):
@@ -1010,7 +1011,7 @@ class BuildFileProcessor(object):
                 'allow_unsafe_import': self._import_whitelist_manager.allow_unsafe_import,
                 'glob': self._glob,
                 'subdir_glob': self._subdir_glob,
-                'load': self._load,
+                'load': functools.partial(self._load, is_implicit_include),
             }
 
             # Don't include implicit includes if the current file being
@@ -1045,7 +1046,6 @@ class BuildFileProcessor(object):
             with self._build_file_sandboxing():
                 exec(code, module.__dict__)
 
-        self._cache[path] = build_env, module
         return build_env, module
 
     def _process_include(self, path, is_implicit_include):
@@ -1056,8 +1056,17 @@ class BuildFileProcessor(object):
         :param is_implicit_include: whether the file being processed is an implicit include, or was
             included from an implicit include.
         """
+
+        # First check the cache.
+        cached = self._include_cache.get(path)
+        if cached is not None:
+            return cached
+
         build_env = IncludeContext()
-        return self._process(build_env, path, is_implicit_include=is_implicit_include)
+        build_env, mod = self._process(build_env, path, is_implicit_include=is_implicit_include)
+
+        self._include_cache[path] = build_env, mod
+        return build_env, mod
 
     def _process_build_file(self, watch_root, project_prefix, path):
         """Process the build file at the given path."""

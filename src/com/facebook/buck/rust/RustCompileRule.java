@@ -41,13 +41,14 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Verbosity;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /** Generate a rustc command line with all appropriate dependencies in place. */
@@ -137,7 +138,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         buildTarget,
         projectFilesystem,
         params.withExtraDeps(
-            Suppliers.memoize(
+            MoreSuppliers.memoize(
                 () ->
                     ImmutableSortedSet.<BuildRule>naturalOrder()
                         .addAll(compiler.getDeps(ruleFinder))
@@ -226,7 +227,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 getBuildTarget().getCellPath(),
                 resolver))
         .add(
-            new ShellStep(getProjectFilesystem().getRootPath()) {
+            new ShellStep(Optional.of(getBuildTarget()), getProjectFilesystem().getRootPath()) {
 
               @Override
               protected ImmutableList<String> getShellCommandInternal(
@@ -249,13 +250,21 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                   cmd.add("--color=always");
                 }
 
-                remapSrcPaths.addRemapOption(cmd, scratchDir.toString() + "/");
+                remapSrcPaths.addRemapOption(
+                    cmd, workingDirectory.toString(), scratchDir.toString() + "/");
+
+                // Generate a target-unique string to distinguish distinct crates with the same
+                // name.
+                String metadata =
+                    RustCompileUtils.hashForTarget(RustCompileRule.this.getBuildTarget());
 
                 cmd.add(String.format("-Clinker=%s", linkerCmd.get(0)))
                     .add(String.format("-Clink-arg=@%s", argFilePath))
+                    .add(String.format("-Cmetadata=%s", metadata))
+                    .add(String.format("-Cextra-filename=-%s", metadata))
                     .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
                     .addAll(dedupArgs.build())
-                    .add("-o", output.toString())
+                    .add("--out-dir", output.getParent().toString())
                     .add(src.toString());
 
                 return cmd.build();
@@ -274,7 +283,23 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
               @Override
               public ImmutableMap<String, String> getEnvironmentVariables(
                   ExecutionContext context) {
-                return compiler.getEnvironment(buildContext.getSourcePathResolver());
+                ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
+                env.putAll(compiler.getEnvironment(buildContext.getSourcePathResolver()));
+
+                Path root = getProjectFilesystem().getRootPath();
+                Path basePath = getBuildTarget().get().getBasePath();
+
+                // These need to be set as absolute paths - the intended use
+                // is within an `include!(concat!(env!("..."), "...")`
+                // invocation in Rust source, and if the path isn't absolute
+                // it will be treated as relative to the current file including
+                // it. The trailing '/' is also to assist this use-case.
+                env.put("RUSTC_BUILD_CONTAINER", root.resolve(scratchDir).toString() + "/");
+                env.put(
+                    "RUSTC_BUILD_CONTAINER_BASE_PATH",
+                    root.resolve(scratchDir.resolve(basePath)).toString() + "/");
+
+                return env.build();
               }
 
               @Override

@@ -29,6 +29,7 @@ import com.google.devtools.build.lib.syntax.GlobList;
 import com.google.devtools.build.lib.syntax.SkylarkList;
 import com.google.devtools.build.lib.syntax.SkylarkSignatureProcessor;
 import com.google.devtools.build.lib.syntax.Type;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 /**
@@ -66,13 +67,13 @@ public class Glob {
     doc = "Returns a list of files that match glob search pattern.",
     parameters = {
       @Param(
-        name = "includes",
+        name = "include",
         type = SkylarkList.class,
         generic1 = String.class,
         doc = "a list of strings specifying patterns of files to include."
       ),
       @Param(
-        name = "excludes",
+        name = "exclude",
         type = SkylarkList.class,
         generic1 = String.class,
         defaultValue = "[]",
@@ -83,7 +84,7 @@ public class Glob {
       @Param(
         name = "exclude_directories",
         type = Boolean.class,
-        defaultValue = "False",
+        defaultValue = "True",
         positional = false,
         named = true,
         doc = "True indicates directories should not be matched."
@@ -97,27 +98,31 @@ public class Glob {
       new BuiltinFunction(GLOB_FUNCTION_NAME) {
         @SuppressWarnings("unused")
         public SkylarkList<String> invoke(
-            SkylarkList<String> includes,
-            SkylarkList<String> excludes,
+            SkylarkList<String> include,
+            SkylarkList<String> exclude,
             Boolean excludeDirectories,
             FuncallExpression ast,
             Environment env)
             throws EvalException, IOException {
           PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
-          return SkylarkList.MutableList.copyOf(
-              env,
-              GlobList.captureResults(
-                  includes,
-                  excludes,
-                  packageContext
-                      .getGlobber()
-                      .run(
-                          Type.STRING_LIST.convert(includes, "'glob' includes"),
-                          Type.STRING_LIST.convert(excludes, "'glob' excludes"),
-                          excludeDirectories)
-                      .stream()
-                      .sorted()
-                      .collect(MoreCollectors.toImmutableList())));
+          try {
+            return SkylarkList.MutableList.copyOf(
+                env,
+                GlobList.captureResults(
+                    include,
+                    exclude,
+                    packageContext
+                        .getGlobber()
+                        .run(
+                            Type.STRING_LIST.convert(include, "'glob' include"),
+                            Type.STRING_LIST.convert(exclude, "'glob' exclude"),
+                            excludeDirectories)
+                        .stream()
+                        .sorted()
+                        .collect(MoreCollectors.toImmutableList())));
+          } catch (FileNotFoundException fnfe) {
+            throw new EvalException(ast.getLocation(), "Cannot find " + fnfe.getMessage());
+          }
         }
       };
 

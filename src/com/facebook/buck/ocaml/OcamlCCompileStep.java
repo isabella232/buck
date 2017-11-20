@@ -17,6 +17,7 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.CxxHeaders;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.SourcePath;
@@ -39,8 +40,9 @@ public class OcamlCCompileStep extends ShellStep {
   private final SourcePathResolver resolver;
   private final Args args;
 
-  OcamlCCompileStep(SourcePathResolver resolver, Path workingDirectory, Args args) {
-    super(workingDirectory);
+  OcamlCCompileStep(
+      BuildTarget buildTarget, SourcePathResolver resolver, Path workingDirectory, Args args) {
+    super(Optional.of(buildTarget), workingDirectory);
     this.resolver = resolver;
     this.args = args;
   }
@@ -72,7 +74,7 @@ public class OcamlCCompileStep extends ShellStep {
                 .concat(Arg.stringify(args.cFlags, resolver).stream())
                 // The ocaml compiler invokes the C compiler, along with these flags, using the
                 // shell, so we have to pre-shell-escape them.
-                .map(Escaper.BASH_ESCAPER::apply)
+                .map(Escaper.BASH_ESCAPER)
                 .flatMap(f -> Stream.of("-ccopt", f))
                 .toImmutableList())
         .add(resolver.getAbsolutePath(args.input).toString())

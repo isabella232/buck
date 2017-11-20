@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
 CONFIG_SRCS = [
     "VersionControlBuckConfig.java",
 ]
@@ -86,7 +88,7 @@ java_library(
     name = "versioncontrol",
     srcs = glob(
         ["*.java"],
-        excludes = CONFIG_SRCS + GENERATOR_SRCS + VALUE_TYPES_SRCS,
+        exclude = CONFIG_SRCS + GENERATOR_SRCS + VALUE_TYPES_SRCS,
     ),
     resources = [
         "rawmanifest.py",

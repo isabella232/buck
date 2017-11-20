@@ -18,14 +18,13 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.CloseableHolder;
+import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.Zip;
@@ -37,6 +36,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.SortedSet;
 
@@ -45,8 +45,6 @@ import java.util.SortedSet;
  * store that to the ArtifactCache.
  */
 public class ArtifactUploader {
-  private static final Logger LOG = Logger.get(ArtifactUploader.class);
-
   public static ListenableFuture<Void> performUploadToArtifactCache(
       ImmutableSet<RuleKey> ruleKeys,
       ArtifactCache artifactCache,
@@ -75,18 +73,28 @@ public class ArtifactUploader {
           @Override
           public void onFailure(Throwable t) {
             onCompletion();
-            LOG.info(t, "Failed storing RuleKeys %s to the cache.", ruleKeys);
-            eventBus.post(
-                ConsoleEvent.severe(
-                    "Failed storing an artifact to the cache," + "see log for details."));
+            ErrorLogger.logGeneric(
+                eventBus,
+                t,
+                "When storing RuleKeys %s to the cache for %s.",
+                ruleKeys,
+                buildTarget);
           }
 
           private void onCompletion() {
             try {
-              zip.close();
+              // The zip file may have been borrowed when storing to the cache so only close it if
+              // it still exists.
+              if (Files.exists(zip.get())) {
+                zip.close();
+              }
             } catch (IOException e) {
-              throw new BuckUncheckedExecutionException(
-                  e, "When deleting temporary zip %s.", zip.get());
+              ErrorLogger.logGeneric(
+                  eventBus,
+                  e,
+                  "When deleting temporary zip %s for upload of %s.",
+                  zip.get(),
+                  buildTarget);
             }
           }
         });

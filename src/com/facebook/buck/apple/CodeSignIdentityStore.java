@@ -19,16 +19,20 @@ package com.facebook.buck.apple;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor.Option;
+import com.facebook.buck.util.ProcessExecutor.Result;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -61,14 +65,14 @@ public class CodeSignIdentityStore implements AddsToRuleKey {
   public static CodeSignIdentityStore fromSystem(
       final ProcessExecutor processExecutor, ImmutableList<String> command) {
     return new CodeSignIdentityStore(
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               ProcessExecutorParams processExecutorParams =
                   ProcessExecutorParams.builder().addAllCommand(command).build();
-              // Specify that stdout is expected, or else output may be wrapped in Ansi escape chars.
-              Set<ProcessExecutor.Option> options =
-                  EnumSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
-              ProcessExecutor.Result result;
+              // Specify that stdout is expected, or else output may be wrapped in Ansi escape
+              // chars.
+              Set<Option> options = EnumSet.of(Option.EXPECTING_STD_OUT);
+              Result result;
               try {
                 result =
                     processExecutor.launchAndExecute(
@@ -88,7 +92,7 @@ public class CodeSignIdentityStore implements AddsToRuleKey {
               }
 
               Matcher matcher = CODE_SIGN_IDENTITY_PATTERN.matcher(result.getStdout().get());
-              ImmutableList.Builder<CodeSignIdentity> builder = ImmutableList.builder();
+              Builder<CodeSignIdentity> builder = ImmutableList.builder();
               while (matcher.find()) {
                 Optional<HashCode> fingerprint = CodeSignIdentity.toFingerprint(matcher.group(1));
                 if (!fingerprint.isPresent()) {

@@ -47,7 +47,6 @@ import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -60,6 +59,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class CxxTestDescription
@@ -75,6 +75,7 @@ public class CxxTestDescription
   private final Flavor defaultCxxFlavor;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
   private final Optional<Long> defaultTestRuleTimeoutMs;
+  private final ImmutableSet<Flavor> declaredPlatforms;
 
   public CxxTestDescription(
       CxxBuckConfig cxxBuckConfig,
@@ -84,6 +85,7 @@ public class CxxTestDescription
     this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.cxxPlatforms = cxxPlatforms;
+    this.declaredPlatforms = cxxBuckConfig.getDeclaredPlatforms();
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
@@ -221,8 +223,8 @@ public class CxxTestDescription
         ImmutableMap.copyOf(
             Maps.transformValues(
                 args.getEnv(),
-                CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
-                    buildTarget, cellRoots, resolver)));
+                CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver)
+                    ::apply));
 
     // Supplier which expands macros in the passed in test arguments.
     Supplier<ImmutableList<String>> testArgs =
@@ -231,8 +233,7 @@ public class CxxTestDescription
                 .stream()
                 .map(
                     CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
-                            buildTarget, cellRoots, resolver)
-                        ::apply)
+                        buildTarget, cellRoots, resolver))
                 .collect(MoreCollectors.toImmutableList());
 
     Supplier<ImmutableSortedSet<BuildRule>> additionalDeps =
@@ -383,13 +384,8 @@ public class CxxTestDescription
       return true;
     }
 
-    for (Flavor flavor : cxxPlatforms.getFlavors()) {
-      if (flavors.equals(ImmutableSet.of(flavor))) {
-        return true;
-      }
-    }
-
-    return false;
+    return cxxPlatforms.containsAnyOf(flavors)
+        || !Sets.intersection(declaredPlatforms, flavors).isEmpty();
   }
 
   @Override
@@ -410,7 +406,7 @@ public class CxxTestDescription
   }
 
   @BuckStyleImmutable
-  @Value.Immutable
+  @Value.Immutable(copy = true)
   interface AbstractCxxTestDescriptionArg
       extends CxxBinaryDescription.CommonArg, HasContacts, HasTestTimeout {
     Optional<CxxTestType> getFramework();

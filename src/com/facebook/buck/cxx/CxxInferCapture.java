@@ -96,9 +96,9 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
     ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
     return commandBuilder
         .add(this.inferConfig.getInferTopLevel().toString())
-        .add("-a", "capture")
-        .add("--project_root", getProjectFilesystem().getRootPath().toString())
-        .add("--out", resultsDir.toString())
+        .add("capture")
+        .add("--results-dir", resultsDir.toString())
+        .add("--project-root", getProjectFilesystem().getRootPath().toString())
         .add("--")
         .add("clang")
         .add("@" + getArgfile())
@@ -126,7 +126,10 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
         .add(new WriteArgFileStep(context.getSourcePathResolver(), inputRelativePath))
         .add(
             new DefaultShellStep(
-                getProjectFilesystem().getRootPath(), frontendCommand, ImmutableMap.of()))
+                getBuildTarget(),
+                getProjectFilesystem().getRootPath(),
+                frontendCommand,
+                ImmutableMap.of()))
         .build();
   }
 
@@ -146,7 +149,10 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return preprocessorDelegate.getCoveredByDepFilePredicate();
+    // When sandbox_sources=true, the preprocessorDelegate believes that the input is covered by the
+    // depfile.
+    Predicate<SourcePath> depfilePredicate = preprocessorDelegate.getCoveredByDepfilePredicate();
+    return path -> !path.equals(input) && depfilePredicate.test(path);
   }
 
   @Override
@@ -157,7 +163,6 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) throws IOException {
-
     ImmutableList<Path> dependencies;
     try {
       dependencies =
@@ -174,15 +179,8 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
       throw new HumanReadableException(e);
     }
 
-    ImmutableList.Builder<SourcePath> inputs = ImmutableList.builder();
-
     // include all inputs coming from the preprocessor tool.
-    inputs.addAll(preprocessorDelegate.getInputsAfterBuildingLocally(dependencies));
-
-    // Add the input.
-    inputs.add(input);
-
-    return inputs.build();
+    return preprocessorDelegate.getInputsAfterBuildingLocally(dependencies);
   }
 
   private Path getArgfile() {
@@ -210,7 +208,7 @@ class CxxInferCapture extends AbstractBuildRuleWithDeclaredAndExtraDeps
         throws IOException, InterruptedException {
       getProjectFilesystem()
           .writeLinesToPath(
-              Iterables.transform(getCompilerArgs(), Escaper.ARGFILE_ESCAPER), getArgfile());
+              Iterables.transform(getCompilerArgs(), Escaper.ARGFILE_ESCAPER::apply), getArgfile());
       return StepExecutionResult.SUCCESS;
     }
 

@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.Dot;
-import com.facebook.buck.jvm.java.HasClasspathEntries;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -34,7 +34,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
@@ -152,15 +151,14 @@ public class AuditClasspathCommand extends AbstractCommand {
 
   @VisibleForTesting
   int printDotOutput(CommandRunnerParams params, TargetGraph targetGraph) {
-    Dot<TargetNode<?, ?>> dot =
-        new Dot<>(
-            targetGraph,
-            "target_graph",
-            targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
-            targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName(),
-            params.getConsole().getStdOut());
     try {
-      dot.writeOutput();
+      Dot.builder(targetGraph, "target_graph")
+          .setNodeToName(
+              targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"")
+          .setNodeToTypeName(
+              targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+          .build()
+          .writeOutput(params.getConsole().getStdOut());
     } catch (IOException e) {
       return 1;
     }

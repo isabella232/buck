@@ -16,26 +16,24 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.util.Escaper;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
-public interface Javac extends RuleKeyAppendable, Tool {
-
+/** Interface for a javac tool. */
+public interface Javac extends AbstractTool {
   /** An escaper for arguments written to @argfiles. */
   Function<String, String> ARGFILES_ESCAPER = Escaper.javacEscaper();
 
   String SRC_ZIP = ".src.zip";
   String SRC_JAR = "-sources.jar";
-
-  JavacVersion getVersion();
 
   /** Prepares an invocation of the compiler with the given parameters. */
   Invocation newBuildInvocation(
@@ -46,6 +44,9 @@ public interface Javac extends RuleKeyAppendable, Tool {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
+      boolean trackClassUsage,
+      @Nullable JarParameters abiJarParameters,
+      @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo);
 
@@ -73,8 +74,8 @@ public interface Javac extends RuleKeyAppendable, Tool {
   }
 
   interface Invocation extends AutoCloseable {
-    /** Produces a source ABI jar at the given path. Must be called before {@link #buildClasses} */
-    int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException;
+    /** Produces a source ABI jar. Must be called before {@link #buildClasses} */
+    int buildSourceAbiJar() throws InterruptedException;
 
     int buildClasses() throws InterruptedException;
 

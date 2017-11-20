@@ -16,6 +16,8 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.BorrowablePath;
@@ -96,6 +98,11 @@ public class RetryingCacheDecorator implements ArtifactCache, CacheDecorator {
   @Override
   public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     return delegate.store(info, output);
+  }
+
+  @Override
+  public ListenableFuture<CacheDeleteResult> deleteAsync(List<RuleKey> ruleKeys) {
+    return delegate.deleteAsync(ruleKeys);
   }
 
   @Override

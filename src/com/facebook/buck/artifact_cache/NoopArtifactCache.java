@@ -16,11 +16,15 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.rules.RuleKey;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import java.util.List;
 
 public class NoopArtifactCache implements ArtifactCache {
   @Override
@@ -35,6 +39,12 @@ public class NoopArtifactCache implements ArtifactCache {
   }
 
   @Override
+  public ListenableFuture<CacheDeleteResult> deleteAsync(List<RuleKey> ruleKeys) {
+    ImmutableList<String> cacheNames = ImmutableList.of(NoopArtifactCache.class.getSimpleName());
+    return Futures.immediateFuture(CacheDeleteResult.builder().setCacheNames(cacheNames).build());
+  }
+
+  @Override
   public CacheReadMode getCacheReadMode() {
     return CacheReadMode.READONLY;
   }
@@ -42,5 +52,24 @@ public class NoopArtifactCache implements ArtifactCache {
   @Override
   public void close() {
     // Nothing to complete - do nothing.
+  }
+
+  /** Factory class for NoopArtifactCache. */
+  public static class NoopArtifactCacheFactory implements ArtifactCacheFactory {
+
+    @Override
+    public ArtifactCache newInstance() {
+      return new NoopArtifactCache();
+    }
+
+    @Override
+    public ArtifactCache newInstance(boolean distributedBuildModeEnabled) {
+      return new NoopArtifactCache();
+    }
+
+    @Override
+    public ArtifactCacheFactory cloneWith(BuckConfig newConfig) {
+      return new NoopArtifactCacheFactory();
+    }
   }
 }

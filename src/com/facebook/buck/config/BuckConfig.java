@@ -341,9 +341,12 @@ public class BuckConfig implements ConfigPathGetter {
   }
 
   /** @return a {@link SourcePath} identified by a {@link Path}. */
-  public SourcePath getSourcePath(Path path) {
+  public PathSourcePath getPathSourcePath(@PropagatesNullable Path path) {
     if (path == null) {
       return null;
+    }
+    if (path.isAbsolute()) {
+      return PathSourcePath.of(projectFilesystem, path);
     }
     return PathSourcePath.of(
         projectFilesystem,
@@ -470,6 +473,10 @@ public class BuckConfig implements ConfigPathGetter {
     return Boolean.parseBoolean(getValue("adb", "adb_restart_on_failure").orElse("true"));
   }
 
+  public ImmutableList<String> getAdbRapidInstallTypes() {
+    return getListWithoutComments("adb", "rapid_install_types_beta");
+  }
+
   public boolean getMultiInstallMode() {
     return getBooleanValue("adb", "multi_install_mode", false);
   }
@@ -544,8 +551,25 @@ public class BuckConfig implements ConfigPathGetter {
     return getBooleanValue("cache", "action_graph_cache_check_enabled", false);
   }
 
+  public int getMaxActionGraphCacheEntries() {
+    return getInteger("cache", "max_action_graph_cache_entries").orElse(1);
+  }
+
   public Optional<String> getRepository() {
     return config.get("cache", "repository");
+  }
+
+  /**
+   * Whether Buck should use Buck binary hash or git commit id as the core key in all rule keys.
+   *
+   * <p>The binary hash reflects the code that can affect the content of artifacts.
+   *
+   * <p>By default git commit id is used as the core key.
+   *
+   * @return <code>True</code> if binary hash should be used as the core key
+   */
+  public boolean useBuckBinaryHash() {
+    return getBooleanValue("cache", "use_buck_binary_hash", false);
   }
 
   public Optional<ImmutableSet<PatternAndMessage>> getUnexpectedFlavorsMessages() {
@@ -706,6 +730,11 @@ public class BuckConfig implements ConfigPathGetter {
   /** @return the number of threads to be used for the scheduled executor thread pool. */
   public int getNumThreadsForSchedulerPool() {
     return config.getLong("build", "scheduler_threads").orElse((long) 2).intValue();
+  }
+
+  /** @return the maximum size of files input based rule keys will be willing to hash. */
+  public long getBuildInputRuleKeyFileSizeLimit() {
+    return config.getLong("build", "input_rule_key_file_size_limit").orElse(Long.MAX_VALUE);
   }
 
   public int getDefaultMaximumNumberOfThreads() {
@@ -967,5 +996,9 @@ public class BuckConfig implements ConfigPathGetter {
   /** Whether to create symlinks of build output in buck-out/last. */
   public boolean createBuildOutputSymLinksEnabled() {
     return getBooleanValue("build", "create_build_output_symlinks_enabled", false);
+  }
+
+  public boolean isEmbeddedCellBuckOutEnabled() {
+    return getBooleanValue("project", "embedded_cell_buck_out_enabled", false);
   }
 }

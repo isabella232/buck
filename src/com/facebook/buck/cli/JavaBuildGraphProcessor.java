@@ -32,6 +32,7 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -137,12 +138,12 @@ final class JavaBuildGraphProcessor {
               cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
               cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
               RuleKeyFactories.of(
-                  params.getBuckConfig().getKeySeed(),
+                  params.getRuleKeyConfiguration(),
                   cachingBuildEngineDelegate.getFileHashCache(),
                   buildRuleResolver,
-                  cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
+                  params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
                   new DefaultRuleKeyCache<>()),
-              params.getBuckConfig().getFileHashCacheMode()); ) {
+              new NoOpRemoteBuildRuleCompletionWaiter()); ) {
         // Create a BuildEngine because we store symbol information as build artifacts.
         BuckEventBus eventBus = params.getBuckEventBus();
         ExecutionContext executionContext =

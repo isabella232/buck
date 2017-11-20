@@ -26,28 +26,29 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -56,7 +57,6 @@ import org.junit.Test;
 
 public class CxxLinkTest {
 
-  private static final Linker DEFAULT_LINKER = new GnuLinker(new HashedFileTool(Paths.get("ld")));
   private static final Path DEFAULT_OUTPUT = Paths.get("test.exe");
   private static final ImmutableList<Arg> DEFAULT_ARGS =
       ImmutableList.of(
@@ -70,6 +70,10 @@ public class CxxLinkTest {
           StringArg.of("/System/Libraries/libz.dynlib"),
           StringArg.of("-llibz.dylib"));
 
+  private final ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+  private final Linker DEFAULT_LINKER =
+      new GnuLinker(new HashedFileTool(PathSourcePath.of(projectFilesystem, Paths.get("ld"))));
+
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
     SourcePathRuleFinder ruleFinder =
@@ -79,7 +83,6 @@ public class CxxLinkTest {
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuildRuleParams params = TestBuildRuleParams.create();
     FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.of(
@@ -92,14 +95,15 @@ public class CxxLinkTest {
     // Generate a rule key for the defaults.
 
     RuleKey defaultRuleKey =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet::of,
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
+                    ImmutableMap.of(),
                     DEFAULT_ARGS,
                     Optional.empty(),
                     Optional.empty(),
@@ -109,14 +113,17 @@ public class CxxLinkTest {
     // Verify that changing the archiver causes a rulekey change.
 
     RuleKey linkerChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    params,
-                    new GnuLinker(new HashedFileTool(Paths.get("different"))),
+                    ImmutableSortedSet::of,
+                    new GnuLinker(
+                        new HashedFileTool(
+                            PathSourcePath.of(projectFilesystem, Paths.get("different")))),
                     DEFAULT_OUTPUT,
+                    ImmutableMap.of(),
                     DEFAULT_ARGS,
                     Optional.empty(),
                     Optional.empty(),
@@ -127,14 +134,15 @@ public class CxxLinkTest {
     // Verify that changing the output path causes a rulekey change.
 
     RuleKey outputChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet::of,
                     DEFAULT_LINKER,
                     Paths.get("different"),
+                    ImmutableMap.of(),
                     DEFAULT_ARGS,
                     Optional.empty(),
                     Optional.empty(),
@@ -145,14 +153,15 @@ public class CxxLinkTest {
     // Verify that changing the flags causes a rulekey change.
 
     RuleKey flagsChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet::of,
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
+                    ImmutableMap.of(),
                     ImmutableList.of(SourcePathArg.of(FakeSourcePath.of("different"))),
                     Optional.empty(),
                     Optional.empty(),
@@ -170,10 +179,8 @@ public class CxxLinkTest {
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuildRuleParams params = TestBuildRuleParams.create();
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.of(
                     "ld", Strings.repeat("0", 40),
@@ -209,9 +216,10 @@ public class CxxLinkTest {
             new CxxLink(
                 target,
                 projectFilesystem,
-                params,
+                ImmutableSortedSet::of,
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
+                ImmutableMap.of(),
                 args1,
                 Optional.empty(),
                 Optional.empty(),
@@ -229,9 +237,10 @@ public class CxxLinkTest {
             new CxxLink(
                 target,
                 projectFilesystem,
-                params,
+                ImmutableSortedSet::of,
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
+                ImmutableMap.of(),
                 args2,
                 Optional.empty(),
                 Optional.empty(),

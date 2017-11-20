@@ -20,12 +20,11 @@ import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.model.macros.MacroReplacer;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Optionals;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -42,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -54,13 +54,11 @@ public class Config {
   /** Used in a string representation of a map; separates keys from values */
   public static final String DEFAULT_KEY_VALUE_SEPARATOR = "=>";
 
-  private static final MacroFinder MACRO_FINDER = new MacroFinder();
-
   // rawConfig is the flattened configuration relevant to the current cell
   private final RawConfig rawConfig;
 
   private final Supplier<Integer> hashCodeSupplier =
-      Suppliers.memoize(
+      MoreSuppliers.memoize(
           new Supplier<Integer>() {
             @Override
             public Integer get() {
@@ -104,7 +102,7 @@ public class Config {
           return get(parts.get(0), parts.get(1), expandStack).orElse("");
         };
     try {
-      return MACRO_FINDER.replace(
+      return MacroFinder.replace(
           ImmutableMap.of(
               "config", macroReplacer,
               "exe", getMacroPreserver("exe"),
@@ -350,8 +348,7 @@ public class Config {
           Splitter.on(pairSeparator)
               .omitEmptyStrings()
               .withKeyValueSeparator(Splitter.on(keyValueSeparator).trimResults())
-              .split(value.get())
-              .entrySet());
+              .split(value.get()));
     } else {
       return ImmutableMap.of();
     }

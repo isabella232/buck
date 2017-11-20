@@ -19,6 +19,7 @@ package com.facebook.buck.shell;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -26,14 +27,10 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
@@ -86,22 +83,7 @@ public class FakeWorkerBuilder
     }
   }
 
-  private static class FakeTool implements Tool {
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      // Do nothing
-    }
-
-    @Override
-    public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-      return ImmutableList.of();
-    }
-
-    @Override
-    public ImmutableCollection<SourcePath> getInputs() {
-      return ImmutableList.of();
-    }
-
+  private static class FakeTool implements AbstractTool {
     @Override
     public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
       return ImmutableList.of();

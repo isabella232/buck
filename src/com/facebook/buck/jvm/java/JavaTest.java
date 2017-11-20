@@ -20,6 +20,8 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
@@ -255,6 +257,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .build();
 
     return new JUnitStep(
+        getBuildTarget(),
         getProjectFilesystem(),
         nativeLibsEnvironment,
         testRuleTimeoutMs,
@@ -581,7 +584,8 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 return;
               }
 
-              // Make sure it is a .class file that corresponds to a top-level .class file and not an
+              // Make sure it is a .class file that corresponds to a top-level .class file and not
+              // an
               // inner class.
               if (!name.contains("$")) {
                 String fullyQualifiedNameWithDotClassSuffix = zipEntry.getName().replace('/', '.');

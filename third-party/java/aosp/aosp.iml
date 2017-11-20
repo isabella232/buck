@@ -21,16 +21,7 @@
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="jar://$MODULE_DIR$/../gson/gson-2.2.4.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../guava/guava-20.0.jar!/" />
+          <root url="jar://$MODULE_DIR$/../gson/gson-2.8.2.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -47,5 +38,6 @@
         </SOURCES>
       </library>
     </orderEntry>
+    <orderEntry type="library" name="guava" level="project" />
   </component>
 </module>

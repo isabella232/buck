@@ -34,7 +34,6 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -48,6 +47,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.function.Supplier;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -123,6 +123,7 @@ public class QueryCommand extends AbstractCommand {
                 params.getBuckEventBus(),
                 pool.getListeningExecutorService(),
                 params.getCell(),
+                params.getKnownBuildRuleTypesProvider(),
                 getEnableParserProfiling(),
                 PerBuildState.SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
@@ -233,14 +234,14 @@ public class QueryCommand extends AbstractCommand {
   private void printDotOutput(
       CommandRunnerParams params, BuckQueryEnvironment env, Set<QueryTarget> queryResult)
       throws IOException, QueryException {
-    Dot.writeSubgraphOutput(
-        env.getTargetGraph(),
-        "result_graph",
-        env.getNodesFromQueryTargets(queryResult),
-        targetNode -> targetNode.getBuildTarget().getFullyQualifiedName(),
-        targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName(),
-        params.getConsole().getStdOut(),
-        shouldGenerateBFSOutput());
+    Dot.builder(env.getTargetGraph(), "result_graph")
+        .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
+        .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
+        .setNodeToTypeName(
+            targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+        .setBfsSorted(shouldGenerateBFSOutput())
+        .build()
+        .writeOutput(params.getConsole().getStdOut());
   }
 
   private void collectAndPrintAttributes(

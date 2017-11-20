@@ -47,11 +47,13 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -100,6 +102,9 @@ public class XCodeProjectCommandHelper {
   private final VersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
+  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final ImmutableSet<String> appleCxxFlavors;
+  private final RuleKeyConfiguration ruleKeyConfiguration;
   private final Console console;
   private final Optional<ProcessManager> processManager;
   private final ImmutableMap<String, String> environment;
@@ -125,11 +130,14 @@ public class XCodeProjectCommandHelper {
       VersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
       Cell cell,
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      RuleKeyConfiguration ruleKeyConfiguration,
       Console console,
       Optional<ProcessManager> processManager,
       ImmutableMap<String, String> environment,
       ListeningExecutorService executorService,
       List<String> arguments,
+      ImmutableSet<String> appleCxxFlavors,
       boolean enableParserProfiling,
       boolean withTests,
       boolean withoutTests,
@@ -147,6 +155,9 @@ public class XCodeProjectCommandHelper {
     this.versionedTargetGraphCache = versionedTargetGraphCache;
     this.typeCoercerFactory = typeCoercerFactory;
     this.cell = cell;
+    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.appleCxxFlavors = appleCxxFlavors;
+    this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.console = console;
     this.processManager = processManager;
     this.environment = environment;
@@ -304,7 +315,8 @@ public class XCodeProjectCommandHelper {
             combinedProject,
             appleConfig.shouldUseHeaderMapsInXcodeProject(),
             appleConfig.shouldMergeHeaderMapsInXcodeProject(),
-            appleConfig.shouldGenerateHeaderSymlinkTreesOnly());
+            appleConfig.shouldGenerateHeaderSymlinkTreesOnly(),
+            appleConfig.shouldGenerateMissingUmbrellaHeaders());
 
     LOG.debug("Xcode project generation: Generates workspaces for targets");
 
@@ -312,11 +324,14 @@ public class XCodeProjectCommandHelper {
         generateWorkspacesForTargets(
             buckEventBus,
             cell,
+            knownBuildRuleTypesProvider,
             buckConfig,
+            ruleKeyConfiguration,
             executorService,
             targetGraphAndTargets,
             passedInTargetsSet,
             options,
+            appleCxxFlavors,
             getFocusModules(executor),
             new HashMap<>(),
             combinedProject,
@@ -362,11 +377,14 @@ public class XCodeProjectCommandHelper {
   static ImmutableSet<BuildTarget> generateWorkspacesForTargets(
       BuckEventBus buckEventBus,
       Cell cell,
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       BuckConfig buckConfig,
+      RuleKeyConfiguration ruleKeyConfiguration,
       ListeningExecutorService executorService,
       final TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
+      ImmutableSet<String> appleCxxFlavors,
       FocusedModuleTargetMatcher focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
@@ -409,7 +427,14 @@ public class XCodeProjectCommandHelper {
       CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
       SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(buckConfig);
 
-      CxxPlatform defaultCxxPlatform = cell.getKnownBuildRuleTypes().getDefaultCxxPlatforms();
+      CxxPlatform defaultCxxPlatform =
+          knownBuildRuleTypesProvider
+              .get(cell)
+              .getDefaultCxxPlatform()
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "C/C++ platform not initialized in `KnownBuildRuleTypes"));
       WorkspaceAndProjectGenerator generator =
           new WorkspaceAndProjectGenerator(
               cell,
@@ -421,9 +446,11 @@ public class XCodeProjectCommandHelper {
               focusModules,
               !appleConfig.getXcodeDisableParallelizeBuild(),
               defaultCxxPlatform,
+              appleCxxFlavors,
               buckConfig.getView(ParserConfig.class).getBuildFileName(),
               lazyActionGraph::getBuildRuleResolverWhileRequiringSubgraph,
               buckEventBus,
+              ruleKeyConfiguration,
               halideBuckConfig,
               cxxBuckConfig,
               swiftBuckConfig);
@@ -495,7 +522,8 @@ public class XCodeProjectCommandHelper {
       boolean isProjectsCombined,
       boolean shouldUseHeaderMaps,
       boolean shouldMergeHeaderMaps,
-      boolean shouldGenerateHeaderSymlinkTreesOnly) {
+      boolean shouldGenerateHeaderSymlinkTreesOnly,
+      boolean shouldGenerateMissingUmbrellaHeaders) {
     ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
     if (isReadonly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_READ_ONLY_FILES);
@@ -519,6 +547,9 @@ public class XCodeProjectCommandHelper {
     }
     if (shouldGenerateHeaderSymlinkTreesOnly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
+    }
+    if (shouldGenerateMissingUmbrellaHeaders) {
+      optionsBuilder.add(ProjectGenerator.Option.GENERATE_MISSING_UMBRELLA_HEADER);
     }
     return optionsBuilder.build();
   }

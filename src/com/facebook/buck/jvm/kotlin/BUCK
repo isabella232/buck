@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
 java_immutables_library(
     name = "kotlin",
     srcs = glob(["*.java"]),
@@ -10,7 +12,7 @@ java_immutables_library(
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
-        "//src/com/facebook/buck/jvm/core:classhash",
+        "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/jvm/java:config",
         "//src/com/facebook/buck/jvm/java:rules",
         "//src/com/facebook/buck/jvm/java:steps",

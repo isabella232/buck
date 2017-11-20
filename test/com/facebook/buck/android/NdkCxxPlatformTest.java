@@ -25,10 +25,12 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.NdkCxxRuntime;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxSource;
@@ -37,6 +39,7 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.AlwaysFoundExecutableFinder;
@@ -60,6 +63,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -105,8 +109,7 @@ public class NdkCxxPlatformTest {
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
                     .put("source.cpp", Strings.repeat("a", 40))
@@ -125,7 +128,7 @@ public class NdkCxxPlatformTest {
               .setRuleFinder(ruleFinder)
               .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
               .setCxxPlatform(entry.getValue().getCxxPlatform())
-              .setPicType(CxxSourceRuleFactory.PicType.PIC)
+              .setPicType(PicType.PIC)
               .build();
       CxxPreprocessAndCompile rule;
       switch (operation) {
@@ -161,8 +164,7 @@ public class NdkCxxPlatformTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
                     .put("input.o", Strings.repeat("a", 40))
@@ -184,8 +186,9 @@ public class NdkCxxPlatformTest {
               Linker.LinkType.EXECUTABLE,
               Optional.empty(),
               Paths.get("output"),
+              ImmutableList.of(),
               Linker.LinkableDepType.SHARED,
-              /* thinLto */ false,
+              CxxLinkOptions.of(),
               ImmutableList.of(),
               Optional.empty(),
               Optional.empty(),
@@ -220,7 +223,7 @@ public class NdkCxxPlatformTest {
         NdkCxxPlatforms.getTargetConfiguration(
             TargetCpuType.X86,
             NdkCxxPlatformCompiler.builder()
-                .setType(NdkCxxPlatformCompiler.Type.GCC)
+                .setType(NdkCompilerType.GCC)
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
@@ -253,7 +256,7 @@ public class NdkCxxPlatformTest {
         NdkCxxPlatforms.getTargetConfiguration(
             TargetCpuType.X86,
             NdkCxxPlatformCompiler.builder()
-                .setType(NdkCxxPlatformCompiler.Type.GCC)
+                .setType(NdkCompilerType.GCC)
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
@@ -352,7 +355,7 @@ public class NdkCxxPlatformTest {
         NdkCxxPlatforms.getTargetConfiguration(
             TargetCpuType.X86,
             NdkCxxPlatformCompiler.builder()
-                .setType(NdkCxxPlatformCompiler.Type.GCC)
+                .setType(NdkCompilerType.GCC)
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),
@@ -436,12 +439,12 @@ public class NdkCxxPlatformTest {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     // Test all major compiler and runtime combinations.
-    ImmutableList<Pair<NdkCxxPlatformCompiler.Type, NdkCxxRuntime>> configs =
+    ImmutableList<Pair<NdkCompilerType, NdkCxxRuntime>> configs =
         ImmutableList.of(
-            new Pair<>(NdkCxxPlatformCompiler.Type.GCC, NdkCxxRuntime.GNUSTL),
-            new Pair<>(NdkCxxPlatformCompiler.Type.CLANG, NdkCxxRuntime.GNUSTL),
-            new Pair<>(NdkCxxPlatformCompiler.Type.CLANG, NdkCxxRuntime.LIBCXX));
-    for (Pair<NdkCxxPlatformCompiler.Type, NdkCxxRuntime> config : configs) {
+            new Pair<>(NdkCompilerType.GCC, NdkCxxRuntime.GNUSTL),
+            new Pair<>(NdkCompilerType.CLANG, NdkCxxRuntime.GNUSTL),
+            new Pair<>(NdkCompilerType.CLANG, NdkCxxRuntime.LIBCXX));
+    for (Pair<NdkCompilerType, NdkCxxRuntime> config : configs) {
       Map<String, ImmutableMap<TargetCpuType, RuleKey>> preprocessAndCompileRukeKeys =
           new HashMap<>();
       Map<String, ImmutableMap<TargetCpuType, RuleKey>> compileRukeKeys = new HashMap<>();
@@ -514,7 +517,7 @@ public class NdkCxxPlatformTest {
             filesystem,
             root,
             NdkCxxPlatformCompiler.builder()
-                .setType(NdkCxxPlatformCompiler.Type.GCC)
+                .setType(NdkCompilerType.GCC)
                 .setVersion("gcc-version")
                 .setGccVersion("clang-version")
                 .build(),

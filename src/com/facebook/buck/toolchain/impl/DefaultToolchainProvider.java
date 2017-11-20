@@ -16,14 +16,26 @@
 
 package com.facebook.buck.toolchain.impl;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.android.DefaultAndroidLegacyToolchainFactory;
 import com.facebook.buck.android.toolchain.AndroidToolchain;
+import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.impl.DefaultAndroidToolchainFactory;
+import com.facebook.buck.android.toolchain.impl.NdkCxxPlatformsProviderFactory;
+import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
+import com.facebook.buck.apple.toolchain.AppleSdkLocation;
+import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
+import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
 import com.facebook.buck.toolchain.Toolchain;
+import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainFactory;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
@@ -33,7 +45,15 @@ import java.util.Optional;
 public class DefaultToolchainProvider extends BaseToolchainProvider {
 
   enum ToolchainDescriptor {
-    ANDROID(AndroidToolchain.DEFAULT_NAME, DefaultAndroidToolchainFactory.class);
+    ANDROID(AndroidToolchain.DEFAULT_NAME, DefaultAndroidToolchainFactory.class),
+    ANDROID_LEGACY(AndroidLegacyToolchain.DEFAULT_NAME, DefaultAndroidLegacyToolchainFactory.class),
+    NDK_CXX_PLATFORMS_PROVIDER(
+        NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProviderFactory.class),
+    APPLE_DEVELOPER_DIRECTORY_PROVIDER(
+        AppleDeveloperDirectoryProvider.DEFAULT_NAME, AppleDeveloperDirectoryProviderFactory.class),
+    APPLE_TOOLCHAIN_PROVIDER(
+        AppleToolchainProvider.DEFAULT_NAME, AppleToolchainProviderFactory.class),
+    APPLE_SDK_LOCATION(AppleSdkLocation.DEFAULT_NAME, AppleSdkLocationFactory.class);
 
     @VisibleForTesting final String name;
     private final Class<? extends ToolchainFactory<?>> toolchainFactoryClass;
@@ -44,9 +64,7 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
     }
   }
 
-  private final ImmutableMap<String, String> environment;
-  private final BuckConfig buckConfig;
-  private final ProjectFilesystem projectFilesystem;
+  private final ToolchainCreationContext toolchainCreationContext;
   private final ImmutableMap<String, Class<? extends ToolchainFactory<?>>> toolchainFactories;
 
   private final Map<String, Optional<? extends Toolchain>> toolchains = new HashMap<>();
@@ -54,10 +72,15 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
   public DefaultToolchainProvider(
       ImmutableMap<String, String> environment,
       BuckConfig buckConfig,
-      ProjectFilesystem projectFilesystem) {
-    this.environment = environment;
-    this.buckConfig = buckConfig;
-    this.projectFilesystem = projectFilesystem;
+      ProjectFilesystem projectFilesystem,
+      ProcessExecutor processExecutor) {
+    toolchainCreationContext =
+        ToolchainCreationContext.builder()
+            .setBuckConfig(buckConfig)
+            .setFilesystem(projectFilesystem)
+            .setEnvironment(environment)
+            .setProcessExecutor(processExecutor)
+            .build();
 
     ImmutableMap.Builder<String, Class<? extends ToolchainFactory<?>>> toolchainFactoriesBuilder =
         ImmutableMap.builder();
@@ -107,6 +130,6 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
     } catch (IllegalAccessException | InstantiationException e) {
       throw new RuntimeException(e);
     }
-    return toolchainFactory.createToolchain(environment, buckConfig, projectFilesystem);
+    return toolchainFactory.createToolchain(this, toolchainCreationContext);
   }
 }

@@ -91,8 +91,6 @@ public class PrebuiltCxxLibraryDescription
             PrebuiltCxxLibraryDescription.AbstractPrebuiltCxxLibraryDescriptionArg>,
         VersionPropagator<PrebuiltCxxLibraryDescriptionArg> {
 
-  private static final MacroFinder MACRO_FINDER = new MacroFinder();
-
   enum Type implements FlavorConvertible {
     EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
@@ -173,7 +171,7 @@ public class PrebuiltCxxLibraryDescription
       BuildTarget target, CxxPlatform cxxPlatform) {
     return str -> {
       try {
-        return MACRO_FINDER.replace(
+        return MacroFinder.replace(
             ImmutableMap.of(
                 "platform", new FunctionMacroReplacer(f -> cxxPlatform.getFlavor().toString())),
             str,
@@ -293,8 +291,9 @@ public class PrebuiltCxxLibraryDescription
         Linker.LinkType.SHARED,
         Optional.of(soname),
         builtSharedLibraryPath,
+        ImmutableList.of(),
         Linker.LinkableDepType.SHARED,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         FluentIterable.from(params.getBuildDeps()).filter(NativeLinkable.class),
         Optional.empty(),
         Optional.empty(),
@@ -413,7 +412,11 @@ public class PrebuiltCxxLibraryDescription
     final Optional<String> versionSubdir =
         selectedVersions.isPresent() && args.getVersionedSubDir().isPresent()
             ? Optional.of(
-                args.getVersionedSubDir().get().getOnlyMatchingValue(selectedVersions.get()))
+                args.getVersionedSubDir()
+                    .get()
+                    .getOnlyMatchingValue(
+                        String.format("%s: %s", buildTarget, "versioned_sub_dir"),
+                        selectedVersions.get()))
             : Optional.empty();
 
     // If we *are* building a specific type of this lib, call into the type specific

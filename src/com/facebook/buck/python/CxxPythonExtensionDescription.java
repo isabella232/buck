@@ -19,6 +19,7 @@ package com.facebook.buck.python;
 import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxFlags;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -31,6 +32,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
@@ -227,7 +229,7 @@ public class CxxPythonExtensionDescription
                 compilerFlags,
                 args.getPrefixHeader(),
                 args.getPrecompiledHeader(),
-                CxxSourceRuleFactory.PicType.PIC,
+                PicType.PIC,
                 sandboxTree)
             .requirePreprocessAndCompileRules(srcs);
 
@@ -310,8 +312,9 @@ public class CxxPythonExtensionDescription
         Linker.LinkType.SHARED,
         Optional.of(extensionName),
         extensionPath,
+        args.getLinkerExtraOutputs(),
         Linker.LinkableDepType.SHARED,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         RichStream.from(deps).filter(NativeLinkable.class).toImmutableList(),
         args.getCxxRuntimeType(),
         Optional.empty(),

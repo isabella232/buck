@@ -51,6 +51,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.keys.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.slb.ThriftUtil;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.cache.FileHashCacheMode;
@@ -131,7 +132,7 @@ public class DistBuildFileHashesTest {
               createFileHashCache(),
               new DistBuildCellIndexer(rootCell),
               MoreExecutors.newDirectExecutorService(),
-              /* keySeed */ 0,
+              TestRuleKeyConfigurationFactory.create(),
               rootCell);
     }
 
@@ -273,7 +274,11 @@ public class DistBuildFileHashesTest {
             .putFileContents(f.javaSrcPath.toString().replace('\\', '/'), f.writtenContents)
             .build();
     MaterializerDummyFileHashCache materializer =
-        new MaterializerDummyFileHashCache(mockCache, fileHashes.get(0), fakeFileContentsProvider);
+        new MaterializerDummyFileHashCache(
+            mockCache,
+            fileHashes.get(0),
+            fakeFileContentsProvider,
+            MoreExecutors.newDirectExecutorService());
 
     materializer.get(f.javaSrcPath);
     materializer
@@ -308,7 +313,8 @@ public class DistBuildFileHashesTest {
         new MaterializerDummyFileHashCache(
             mockCache,
             fileHashes.get(0),
-            new InlineContentsProvider(MoreExecutors.newDirectExecutorService()));
+            new InlineContentsProvider(MoreExecutors.newDirectExecutorService()),
+            MoreExecutors.newDirectExecutorService());
 
     try {
       materializer.get(f.javaSrcPath);

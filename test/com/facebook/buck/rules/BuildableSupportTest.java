@@ -56,7 +56,10 @@ public class BuildableSupportTest {
           @AddToRuleKey SourcePath sourcePath = rule2.getSourcePathToOutput();
 
           @AddToRuleKey
-          Object ruleKeyAppendable = (RuleKeyAppendable) sink -> sink.setReflectively("key", rule3);
+          Object ruleKeyAppendable =
+              new AddsToRuleKey() {
+                @AddToRuleKey Object key = rule3;
+              };
 
           @AddToRuleKey ImmutableList<BuildRule> list = ImmutableList.of(rule4);
           @AddToRuleKey Optional<SourcePath> optional = Optional.of(rule5.getSourcePathToOutput());
@@ -65,6 +68,30 @@ public class BuildableSupportTest {
     MoreAsserts.assertSetEquals(
         rules,
         BuildableSupport.deriveDeps(rule, ruleFinder).collect(MoreCollectors.toImmutableSet()));
+  }
+
+  @Test
+  public void testDeriveInputsFromAddsToRuleKeys() throws Exception {
+    PathSourcePath path1 = FakeSourcePath.of("path1");
+    PathSourcePath path2 = FakeSourcePath.of("path2");
+    PathSourcePath path3 = FakeSourcePath.of("path3");
+    AddsToRuleKey rule =
+        new AddsToRuleKey() {
+          @AddToRuleKey int value = 0;
+          @AddToRuleKey SourcePath sourcePath = path1;
+
+          @AddToRuleKey
+          Object ruleKeyAppendable =
+              new AddsToRuleKey() {
+                @AddToRuleKey SourcePath key = path2;
+              };
+
+          @AddToRuleKey Optional<SourcePath> optional = Optional.of(path3);
+        };
+
+    MoreAsserts.assertSetEquals(
+        ImmutableSet.of(path1, path2, path3),
+        BuildableSupport.deriveInputs(rule).collect(MoreCollectors.toImmutableSet()));
   }
 
   private BuildRule makeRule(

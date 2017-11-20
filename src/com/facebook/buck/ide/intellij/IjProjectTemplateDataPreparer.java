@@ -38,7 +38,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -61,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
@@ -208,7 +208,7 @@ public class IjProjectTemplateDataPreparer {
               List<IjSourceFolder> sourceFolders =
                   contentRootFolders
                       .stream()
-                      .map(transformToFolder::apply)
+                      .map(transformToFolder)
                       .filter(folder -> !(folder.getType().equals("excludeFolder")
                           && (folder.getUrl().contains("/res")
                           || folder.getUrl().contains("/assets")
@@ -308,7 +308,7 @@ public class IjProjectTemplateDataPreparer {
     return module
         .getGeneratedSourceCodeFolders()
         .stream()
-        .map(new IjFolderToIjSourceFolderTransform(module)::apply)
+        .map(new IjFolderToIjSourceFolderTransform(module))
         .collect(MoreCollectors.toImmutableSortedSet());
   }
 
