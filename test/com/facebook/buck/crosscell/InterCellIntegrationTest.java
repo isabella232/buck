@@ -65,8 +65,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -391,12 +389,10 @@ public class InterCellIntegrationTest {
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    ToolchainProvider toolchainProvider = new TestToolchainProvider();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor,
-                toolchainProvider,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
@@ -503,6 +499,21 @@ public class InterCellIntegrationTest {
     registerCell(root, "other", other);
     registerCell(root, "root", root);
     registerCell(other, "root", root);
+
+    root.runBuckBuild("//:rule", "other//:rule").assertSuccess();
+  }
+
+  @Test
+  public void buildFilesCanIncludeDefsFromOtherCellsUsingImplicitIncludes() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    ProjectWorkspace root = createWorkspace("inter-cell/includes/root");
+    ProjectWorkspace other = createWorkspace("inter-cell/includes/other");
+    registerCell(root, "other", other);
+    registerCell(root, "root", root);
+    registerCell(other, "root", root);
+    TestDataHelper.overrideBuckconfig(
+        root, ImmutableMap.of("buildfile", ImmutableMap.of("includes", "other//DEFS")));
 
     root.runBuckBuild("//:rule", "other//:rule").assertSuccess();
   }

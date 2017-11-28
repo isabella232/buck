@@ -38,6 +38,7 @@ import com.facebook.buck.apple.AppleAssetCatalogBuilder;
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
 import com.facebook.buck.apple.AppleBundleExtension;
+import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.apple.AppleLibraryDescriptionArg;
@@ -114,11 +115,11 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.timing.IncrementingFakeClock;
-import com.facebook.buck.timing.SettableFakeClock;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.timing.IncrementingFakeClock;
+import com.facebook.buck.util.timing.SettableFakeClock;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -168,6 +169,7 @@ public class ProjectGeneratorTest {
   private FakeProjectFilesystem fakeProjectFilesystem;
   private HalideBuckConfig halideBuckConfig;
   private CxxBuckConfig cxxBuckConfig;
+  private AppleConfig appleConfig;
   private SwiftBuckConfig swiftBuckConfig;
 
   @Rule public ExpectedException thrown = ExpectedException.none();
@@ -199,6 +201,7 @@ public class ProjectGeneratorTest {
             "swift", ImmutableMap.of("version", "1.23"));
     BuckConfig config = FakeBuckConfig.builder().setSections(sections).build();
     cxxBuckConfig = new CxxBuckConfig(config);
+    appleConfig = config.getView(AppleConfig.class);
     swiftBuckConfig = new SwiftBuckConfig(config);
   }
 
@@ -1841,7 +1844,7 @@ public class ProjectGeneratorTest {
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:lib");
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
-    assertEquals("$(inherited) -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
+    assertEquals("$(inherited) -ObjC -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
   }
 
   @Test
@@ -1897,7 +1900,8 @@ public class ProjectGeneratorTest {
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
     assertEquals(
-        String.format("$(inherited) -force_load %s %s", generatedLibraryPath, exportedLibraryPath),
+        String.format(
+            "$(inherited) -ObjC -force_load %s %s", generatedLibraryPath, exportedLibraryPath),
         settings.get("OTHER_LDFLAGS"));
   }
 
@@ -1927,7 +1931,7 @@ public class ProjectGeneratorTest {
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:bin");
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
-    assertEquals("$(inherited) ", settings.get("OTHER_LDFLAGS"));
+    assertEquals("$(inherited) -ObjC", settings.get("OTHER_LDFLAGS"));
   }
 
   @Test
@@ -1951,7 +1955,7 @@ public class ProjectGeneratorTest {
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:lib");
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
-    assertEquals("$(inherited) -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
+    assertEquals("$(inherited) -ObjC -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
   }
 
   @Test
@@ -1983,7 +1987,7 @@ public class ProjectGeneratorTest {
         assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:bin");
 
     ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
-    assertEquals("$(inherited) -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
+    assertEquals("$(inherited) -ObjC -Xlinker -lhello", settings.get("OTHER_LDFLAGS"));
   }
 
   @Test
@@ -2015,7 +2019,7 @@ public class ProjectGeneratorTest {
         "-Wundeclared-selector -Wno-objc-designated-initializers -ffoo -fbar "
             + "-Wundeclared-selector -Wno-objc-designated-initializers -ffoo -fbar",
         settings.get("OTHER_CPLUSPLUSFLAGS"));
-    assertEquals("-lbaz -lbaz", settings.get("OTHER_LDFLAGS"));
+    assertEquals("-ObjC -lbaz -ObjC -lbaz", settings.get("OTHER_LDFLAGS"));
   }
 
   @Test
@@ -2071,7 +2075,7 @@ public class ProjectGeneratorTest {
         "-Wundeclared-selector -Wno-objc-designated-initializers "
             + "-Wundeclared-selector -Wno-objc-designated-initializers",
         settings.get("OTHER_CPLUSPLUSFLAGS"));
-    assertEquals("$(inherited) ", settings.get("OTHER_LDFLAGS"));
+    assertEquals("-ObjC -ObjC", settings.get("OTHER_LDFLAGS"));
 
     assertEquals(
         "-Wno-deprecated -Wno-conversion -ffoo-iphone -fbar-iphone "
@@ -2082,7 +2086,7 @@ public class ProjectGeneratorTest {
             + "-Wundeclared-selector -Wno-objc-designated-initializers -ffoo-iphone -fbar-iphone",
         settings.get("OTHER_CPLUSPLUSFLAGS[sdk=iphonesimulator*][arch=x86_64]"));
     assertEquals(
-        "-lbaz-iphone -lbaz-iphone",
+        "-ObjC -lbaz-iphone -ObjC -lbaz-iphone",
         settings.get("OTHER_LDFLAGS[sdk=iphonesimulator*][arch=x86_64]"));
   }
 
@@ -3895,6 +3899,97 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void uiTestUsesUiTestTargetAsTargetWithBothUiTestTargetAndTestHostPresent()
+      throws IOException {
+    BuildTarget hostAppBinaryTarget =
+        BuildTargetFactory.newInstance(rootPath, "//foo", "HostAppBinary");
+    TargetNode<?, ?> hostAppBinaryNode =
+        AppleBinaryBuilder.createBuilder(hostAppBinaryTarget).build();
+
+    BuildTarget hostAppTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "HostApp");
+    TargetNode<?, ?> hostAppNode =
+        AppleBundleBuilder.createBuilder(hostAppTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setBinary(hostAppBinaryTarget)
+            .build();
+
+    BuildTarget uiTestTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "uiTestTarget");
+    TargetNode<?, ?> uiTargetAppNode =
+        AppleBundleBuilder.createBuilder(uiTestTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setBinary(hostAppBinaryTarget)
+            .build();
+
+    BuildTarget testTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "AppTest");
+    TargetNode<?, ?> testNode =
+        AppleTestBuilder.createBuilder(testTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setTestHostApp(Optional.of(hostAppTarget))
+            .setUiTestTargetApp(Optional.of(uiTestTarget))
+            .isUiTest(true)
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(
+            ImmutableSet.of(hostAppBinaryNode, hostAppNode, uiTargetAppNode, testNode),
+            ImmutableSet.of());
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget testPBXTarget =
+        assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:AppTest");
+    assertEquals(testPBXTarget.getProductType(), ProductType.UI_TEST);
+    assertPBXTargetHasDependency(
+        projectGenerator.getGeneratedProject(), testPBXTarget, "//foo:uiTestTarget");
+    ImmutableMap<String, String> settings = getBuildSettings(testTarget, testPBXTarget, "Debug");
+    // Check starts with as the remainder depends on the bundle style at build time.
+    assertEquals(settings.get("TEST_TARGET_NAME"), "//foo:uiTestTarget");
+  }
+
+  @Test
+  public void uiTestUsesUiTestTargetAsTargetWithOnlyUiTestTarget() throws IOException {
+    BuildTarget hostAppBinaryTarget =
+        BuildTargetFactory.newInstance(rootPath, "//foo", "HostAppBinary");
+    TargetNode<?, ?> hostAppBinaryNode =
+        AppleBinaryBuilder.createBuilder(hostAppBinaryTarget).build();
+
+    BuildTarget uiTestTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "uiTestTarget");
+    TargetNode<?, ?> uiTargetAppNode =
+        AppleBundleBuilder.createBuilder(uiTestTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setBinary(hostAppBinaryTarget)
+            .build();
+
+    BuildTarget testTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "AppTest");
+    TargetNode<?, ?> testNode =
+        AppleTestBuilder.createBuilder(testTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setUiTestTargetApp(Optional.of(uiTestTarget))
+            .isUiTest(true)
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(
+            ImmutableSet.of(hostAppBinaryNode, uiTargetAppNode, testNode), ImmutableSet.of());
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget testPBXTarget =
+        assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:AppTest");
+    assertEquals(testPBXTarget.getProductType(), ProductType.UI_TEST);
+    assertPBXTargetHasDependency(
+        projectGenerator.getGeneratedProject(), testPBXTarget, "//foo:uiTestTarget");
+    ImmutableMap<String, String> settings = getBuildSettings(testTarget, testPBXTarget, "Debug");
+    // Check starts with as the remainder depends on the bundle style at build time.
+    assertEquals(settings.get("TEST_TARGET_NAME"), "//foo:uiTestTarget");
+  }
+
+  @Test
   public void applicationTestDoesNotCopyHostAppBundleIntoTestBundle() throws IOException {
     BuildTarget hostAppBinaryTarget =
         BuildTargetFactory.newInstance(rootPath, "//foo", "HostAppBinary");
@@ -4805,6 +4900,63 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testSwiftAddASTPathsLinkerFlags() throws IOException {
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of(
+            "swift",
+            ImmutableMap.of(
+                "version", "3.0",
+                "project_add_ast_paths", "true"));
+
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    swiftBuckConfig = new SwiftBuckConfig(buckConfig);
+
+    BuildTarget libTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "bin");
+    BuildTarget bundleTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "bundle");
+
+    TargetNode<?, ?> libNode =
+        AppleLibraryBuilder.createBuilder(libTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .setSwiftVersion(Optional.of("3.0"))
+            .build();
+
+    TargetNode<?, ?> binaryNode =
+        AppleBinaryBuilder.createBuilder(binaryTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("foo.h"), ImmutableList.of("public")),
+                    SourceWithFlags.of(FakeSourcePath.of("bar.h"))))
+            .setDeps(ImmutableSortedSet.of(libTarget))
+            .build();
+
+    TargetNode<?, ?> bundleNode =
+        AppleBundleBuilder.createBuilder(bundleTarget)
+            .setBinary(binaryTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(ImmutableSet.of(libNode, binaryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+
+    PBXTarget bundlePBXTarget = assertTargetExistsAndReturnTarget(project, "//foo:bundle");
+    ImmutableMap<String, String> bundleBuildSettings =
+        getBuildSettings(bundleTarget, bundlePBXTarget, "Debug");
+
+    assertThat(
+        bundleBuildSettings.get("OTHER_LDFLAGS"),
+        containsString(
+            "-Xlinker -add_ast_path -Xlinker '${BUILT_PRODUCTS_DIR}/lib.swiftmodule/${CURRENT_ARCH}.swiftmodule'"));
+  }
+
+  @Test
   public void testMergedHeaderMap() throws IOException {
     BuildTarget lib1Target = BuildTargetFactory.newInstance(rootPath, "//foo", "lib1");
     BuildTarget lib2Target = BuildTargetFactory.newInstance(rootPath, "//bar", "lib2");
@@ -4873,6 +5025,7 @@ public class ProjectGeneratorTest {
             getFakeBuckEventBus(),
             halideBuckConfig,
             cxxBuckConfig,
+            appleConfig,
             swiftBuckConfig);
 
     projectGeneratorLib2.createXcodeProjects();
@@ -4918,6 +5071,7 @@ public class ProjectGeneratorTest {
             getFakeBuckEventBus(),
             halideBuckConfig,
             cxxBuckConfig,
+            appleConfig,
             swiftBuckConfig);
 
     projectGeneratorLib1.createXcodeProjects();
@@ -5051,6 +5205,7 @@ public class ProjectGeneratorTest {
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
+        appleConfig,
         swiftBuckConfig);
   }
 

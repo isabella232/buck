@@ -150,6 +150,8 @@ public class MinionModeRunner implements DistBuildModeRunner {
         Thread.sleep(minionPollLoopIntervalMillis);
       }
 
+      LOG.info(String.format("Minion [%s] has exited signal/fetch work loop.", minionId));
+
       completionCheckingThriftCall(() -> client.stop());
     }
 
@@ -213,7 +215,7 @@ public class MinionModeRunner implements DistBuildModeRunner {
         () -> {
           try {
             performBuildOfWorkUnits(minionId);
-          } catch (IOException e) {
+          } catch (Exception e) {
             LOG.error(e, "Failed whilst building targets. Terminating build. ");
             exitCode.set(-1);
             finished.set(true);

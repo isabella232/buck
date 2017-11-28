@@ -19,11 +19,14 @@ package com.facebook.buck.file;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.file.downloader.Downloader;
+import com.facebook.buck.file.downloader.impl.ExplodingDownloader;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
@@ -34,7 +37,10 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import java.net.URI;
@@ -58,7 +64,9 @@ public class RemoteFileDescriptionTest {
   @Before
   public void setUp() {
     downloader = new ExplodingDownloader();
-    description = new RemoteFileDescription(downloader);
+    ToolchainProvider toolchainProvider =
+        new ToolchainProviderBuilder().withToolchain(Downloader.DEFAULT_NAME, downloader).build();
+    description = new RemoteFileDescription(toolchainProvider);
     filesystem = new FakeProjectFilesystem();
     ruleResolver =
         new SingleThreadedBuildRuleResolver(
@@ -121,8 +129,13 @@ public class RemoteFileDescriptionTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Tool executableCommand = ((RemoteFileBinary) buildRule).getExecutableCommand();
-    assertThat(executableCommand.getInputs(), Matchers.hasSize(1));
-    SourcePath input = Iterables.getOnlyElement(executableCommand.getInputs());
+    assertThat(
+        BuildableSupport.deriveInputs(executableCommand).collect(MoreCollectors.toImmutableList()),
+        Matchers.hasSize(1));
+    SourcePath input =
+        Iterables.getOnlyElement(
+            BuildableSupport.deriveInputs(executableCommand)
+                .collect(MoreCollectors.toImmutableList()));
     Path absolutePath = pathResolver.getAbsolutePath(input);
     assertEquals("kale", absolutePath.getFileName().toString());
     assertEquals(

@@ -79,6 +79,7 @@ class BuckModuleAdapterPluginGenerator {
     ST template =
         getStringTemplate(MANIFEST_TEMPLATE)
             .add("fullClassName", fullAdapterPluginClassName)
+            .add("pluginDependencies", String.join(", ", buckModuleDescriptor.dependencies))
             .add("pluginId", buckModuleDescriptor.name);
 
     writeStringTemplateToWriter(writer, template);

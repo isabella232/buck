@@ -53,6 +53,7 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -61,6 +62,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
@@ -97,18 +99,15 @@ public class LuaBinaryDescription
 
   private static final Flavor BINARY_FLAVOR = InternalFlavor.of("binary");
 
-  private final LuaPlatform defaultPlatform;
-  private final FlavorDomain<LuaPlatform> luaPlatforms;
+  private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
   private final FlavorDomain<PythonPlatform> pythonPlatforms;
 
   public LuaBinaryDescription(
-      LuaPlatform defaultPlatform,
-      FlavorDomain<LuaPlatform> luaPlatforms,
+      ToolchainProvider toolchainProvider,
       CxxBuckConfig cxxBuckConfig,
       FlavorDomain<PythonPlatform> pythonPlatforms) {
-    this.defaultPlatform = defaultPlatform;
-    this.luaPlatforms = luaPlatforms;
+    this.toolchainProvider = toolchainProvider;
     this.cxxBuckConfig = cxxBuckConfig;
     this.pythonPlatforms = pythonPlatforms;
   }
@@ -621,22 +620,26 @@ public class LuaBinaryDescription
     return new AbstractTool() {
       @AddToRuleKey private final LuaPackageComponents toolComponents = components;
       @AddToRuleKey private final SourcePath toolStarter = starter;
-      @AddToRuleKey private final SymlinkTree toolModulesLinkTree = modulesLinkTree;
-      @AddToRuleKey private final List<SymlinkTree> toolNativeLibsLinkTree = nativeLibsLinktree;
 
       @AddToRuleKey
-      private final List<SymlinkTree> toolPythonModulesLinktree = pythonModulesLinktree;
+      private final NonHashableSourcePathContainer toolModulesLinkTree =
+          new NonHashableSourcePathContainer(modulesLinkTree.getSourcePathToOutput());
+
+      @AddToRuleKey
+      private final List<NonHashableSourcePathContainer> toolNativeLibsLinkTree =
+          nativeLibsLinktree
+              .stream()
+              .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
+              .collect(MoreCollectors.toImmutableList());
+
+      @AddToRuleKey
+      private final List<NonHashableSourcePathContainer> toolPythonModulesLinktree =
+          pythonModulesLinktree
+              .stream()
+              .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
+              .collect(MoreCollectors.toImmutableList());;
 
       @AddToRuleKey private final List<SourcePath> toolExtraInputs = extraInputs;
-
-      @Override
-      public ImmutableCollection<SourcePath> getInputs() {
-        return ImmutableSortedSet.<SourcePath>naturalOrder()
-            .add(starter)
-            .addAll(components.getInputs())
-            .addAll(extraInputs)
-            .build();
-      }
 
       @Override
       public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
@@ -731,6 +734,10 @@ public class LuaBinaryDescription
 
   // Return the C/C++ platform to build against.
   private LuaPlatform getPlatform(BuildTarget target, AbstractLuaBinaryDescriptionArg arg) {
+    LuaPlatformsProvider luaPlatformsProvider =
+        toolchainProvider.getByName(LuaPlatformsProvider.DEFAULT_NAME, LuaPlatformsProvider.class);
+
+    FlavorDomain<LuaPlatform> luaPlatforms = luaPlatformsProvider.getLuaPlatforms();
 
     Optional<LuaPlatform> flavorPlatform = luaPlatforms.getValue(target);
     if (flavorPlatform.isPresent()) {
@@ -741,7 +748,7 @@ public class LuaBinaryDescription
       return luaPlatforms.getValue(arg.getPlatform().get());
     }
 
-    return defaultPlatform;
+    return luaPlatformsProvider.getDefaultLuaPlatform();
   }
 
   @Override

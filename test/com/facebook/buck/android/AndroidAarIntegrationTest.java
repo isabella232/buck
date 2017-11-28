@@ -18,8 +18,6 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.android.toolchain.TestAndroidToolchain;
-import com.facebook.buck.cli.Main;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
@@ -30,16 +28,13 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.zip.Unzip;
-import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.Optional;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.hamcrest.Matchers;
@@ -232,36 +227,11 @@ public class AndroidAarIntegrationTest {
 
   @Test
   public void testNativeLibraryDependent() throws InterruptedException, IOException {
-    Main.KnownBuildRuleTypesFactoryFactory factoryFactory =
-        (processExecutor, toolchainProvider, pluginManager, sandboxExecutionStrategyFactory) -> {
-          AndroidDirectoryResolver androidDirectoryResolver =
-              new DefaultAndroidDirectoryResolver(
-                  filesystem.getRootPath().getFileSystem(),
-                  ImmutableMap.copyOf(System.getenv()),
-                  AndroidNdkHelper.DEFAULT_CONFIG);
-
-          AndroidPlatformTarget androidPlatformTarget =
-              AndroidPlatformTarget.getDefaultPlatformTarget(
-                  androidDirectoryResolver, Optional.empty(), Optional.empty());
-
-          TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
-          testToolchainProvider.addAndroidToolchain(new TestAndroidToolchain());
-          testToolchainProvider.addToolchain(
-              AndroidLegacyToolchain.DEFAULT_NAME,
-              new DefaultAndroidLegacyToolchain(
-                  () -> androidPlatformTarget, androidDirectoryResolver));
-          return DefaultKnownBuildRuleTypesFactory.of(
-              processExecutor,
-              testToolchainProvider,
-              pluginManager,
-              sandboxExecutionStrategyFactory);
-        };
-
     AssumeAndroidPlatform.assumeNdkIsAvailable();
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "android_aar_native_deps/ndk_deps", tmp);
-    workspace.setKnownBuildRuleTypesFactoryFactory(factoryFactory);
+    workspace.setKnownBuildRuleTypesFactoryFactory(DefaultKnownBuildRuleTypesFactory::of);
     workspace.setUp();
     String target = "//:app";
     workspace.runBuckBuild(target).assertSuccess();

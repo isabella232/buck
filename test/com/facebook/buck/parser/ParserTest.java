@@ -32,10 +32,12 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.AppleSdkLocation;
 import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
+import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatformsProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
@@ -82,7 +84,7 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -257,37 +259,39 @@ public class ParserTest {
             .setBuckConfig(config)
             .build();
 
-    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    ToolchainProviderBuilder toolchainProviderBuilder = new ToolchainProviderBuilder();
     Optional<AppleDeveloperDirectoryProvider> appleDeveloperDirectoryProvider =
         new AppleDeveloperDirectoryProviderFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleDeveloperDirectoryProvider.ifPresent(
         provider ->
-            testToolchainProvider.addToolchain(
+            toolchainProviderBuilder.withToolchain(
                 AppleDeveloperDirectoryProvider.DEFAULT_NAME, provider));
     Optional<AppleToolchainProvider> appleToolchainProvider =
         new AppleToolchainProviderFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleToolchainProvider.ifPresent(
         provider ->
-            testToolchainProvider.addToolchain(AppleToolchainProvider.DEFAULT_NAME, provider));
+            toolchainProviderBuilder.withToolchain(AppleToolchainProvider.DEFAULT_NAME, provider));
     Optional<AppleSdkLocation> appleSdkLocation =
         new AppleSdkLocationFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleSdkLocation.ifPresent(
-        provider -> testToolchainProvider.addToolchain(AppleSdkLocation.DEFAULT_NAME, provider));
+        provider ->
+            toolchainProviderBuilder.withToolchain(AppleSdkLocation.DEFAULT_NAME, provider));
+    Optional<AppleCxxPlatformsProvider> appleCxxPlatformsProvider =
+        new AppleCxxPlatformsProviderFactory()
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
+    appleCxxPlatformsProvider.ifPresent(
+        provider ->
+            toolchainProviderBuilder.withToolchain(
+                AppleCxxPlatformsProvider.DEFAULT_NAME, provider));
 
-    cell =
-        new TestCellBuilder()
-            .setFilesystem(filesystem)
-            .setBuckConfig(config)
-            .setToolchainProvider(testToolchainProvider)
-            .build();
+    cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor,
-                testToolchainProvider,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
@@ -2356,7 +2360,7 @@ public class ParserTest {
   private BuildRuleResolver buildActionGraph(BuckEventBus eventBus, TargetGraph targetGraph) {
     return Preconditions.checkNotNull(
             ActionGraphCache.getFreshActionGraph(
-                eventBus, targetGraph, ActionGraphParallelizationMode.DISABLED))
+                eventBus, targetGraph, ActionGraphParallelizationMode.DISABLED, false))
         .getResolver();
   }
 

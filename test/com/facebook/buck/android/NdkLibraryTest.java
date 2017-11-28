@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.toolchain.TestAndroidToolchain;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -36,7 +36,8 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -84,11 +85,14 @@ public class NdkLibraryTest {
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildContext context = FakeBuildContext.NOOP_CONTEXT;
 
-    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
-    toolchainProvider.addAndroidToolchain(new TestAndroidToolchain());
-    toolchainProvider.addToolchain(
-        AndroidLegacyToolchain.DEFAULT_NAME,
-        TestAndroidLegacyToolchainFactory.create(androidPlatformTarget));
+    ToolchainProvider toolchainProvider =
+        new ToolchainProviderBuilder()
+            .withToolchain(
+                AndroidLegacyToolchain.DEFAULT_NAME,
+                TestAndroidLegacyToolchainFactory.create(androidPlatformTarget))
+            .withToolchain(AndroidNdk.DEFAULT_NAME, AndroidNdk.of("1", Paths.get("/android/ndk")))
+            .withDefaultNdkCxxPlatforms()
+            .build();
 
     String basePath = "java/src/com/facebook/base";
     BuildTarget target = BuildTargetFactory.newInstance(String.format("//%s:base", basePath));

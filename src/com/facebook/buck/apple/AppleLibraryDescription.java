@@ -20,6 +20,7 @@ import static com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage;
 import static com.facebook.buck.swift.SwiftLibraryDescription.isSwiftTarget;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeaders;
@@ -69,6 +70,8 @@ import com.facebook.buck.swift.SwiftCompile;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
+import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -171,36 +174,33 @@ public class AppleLibraryDescription
   public static final FlavorDomain<Type> LIBRARY_TYPE =
       FlavorDomain.from("C/C++ Library Type", Type.class);
 
+  private final ToolchainProvider toolchainProvider;
   private final CxxLibraryDescription delegate;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
-  private final FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain;
   private final Flavor defaultCxxFlavor;
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleConfig appleConfig;
   private final SwiftBuckConfig swiftBuckConfig;
-  private final FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain;
 
   public AppleLibraryDescription(
+      ToolchainProvider toolchainProvider,
       CxxLibraryDescription delegate,
       SwiftLibraryDescription swiftDelegate,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain,
       Flavor defaultCxxFlavor,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
       AppleConfig appleConfig,
-      SwiftBuckConfig swiftBuckConfig,
-      FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain) {
+      SwiftBuckConfig swiftBuckConfig) {
+    this.toolchainProvider = toolchainProvider;
     this.delegate = delegate;
     this.swiftDelegate =
         appleConfig.shouldUseSwiftDelegate() ? Optional.of(swiftDelegate) : Optional.empty();
-    this.appleCxxPlatformFlavorDomain = appleCxxPlatformFlavorDomain;
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
     this.appleConfig = appleConfig;
     this.swiftBuckConfig = swiftBuckConfig;
-    this.swiftPlatformFlavorDomain = swiftPlatformFlavorDomain;
   }
 
   @Override
@@ -285,7 +285,7 @@ public class AppleLibraryDescription
 
             // TODO(mgd): Must handle 'default' platform
             AppleCxxPlatform applePlatform =
-                appleCxxPlatformFlavorDomain
+                getAppleCxxPlatformDomain()
                     .getValue(buildTarget)
                     .orElseThrow(IllegalArgumentException::new);
 
@@ -386,7 +386,7 @@ public class AppleLibraryDescription
     return AppleDescriptions.createAppleBundle(
         delegate.getCxxPlatforms(),
         defaultCxxFlavor,
-        appleCxxPlatformFlavorDomain,
+        getAppleCxxPlatformDomain(),
         targetGraph,
         buildTarget,
         projectFilesystem,
@@ -494,7 +494,7 @@ public class AppleLibraryDescription
             .orElse(appleConfig.getDefaultDebugInfoFormatForLibraries()),
         delegate.getCxxPlatforms(),
         delegate.getDefaultCxxFlavor(),
-        appleCxxPlatformFlavorDomain);
+        getAppleCxxPlatformDomain());
   }
 
   private <A extends AppleNativeTargetDescriptionArg> BuildRule requireUnstrippedBuildRule(
@@ -512,7 +512,7 @@ public class AppleLibraryDescription
       ImmutableSortedSet<BuildTarget> extraCxxDeps,
       CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInput) {
     Optional<MultiarchFileInfo> multiarchFileInfo =
-        MultiarchFileInfos.create(appleCxxPlatformFlavorDomain, buildTarget);
+        MultiarchFileInfos.create(getAppleCxxPlatformDomain(), buildTarget);
     if (multiarchFileInfo.isPresent()) {
       ImmutableSortedSet.Builder<BuildRule> thinRules = ImmutableSortedSet.naturalOrder();
       for (BuildTarget thinTarget : multiarchFileInfo.get().getThinTargets()) {
@@ -947,6 +947,12 @@ public class AppleLibraryDescription
       return Optional.empty();
     }
 
+    SwiftPlatformsProvider swiftPlatformsProvider =
+        toolchainProvider.getByName(
+            SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.class);
+    FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain =
+        swiftPlatformsProvider.getSwiftCxxPlatforms();
+
     BuildTarget targetWithPlatform = target.withAppendedFlavors(platform.getFlavor());
     Optional<SwiftPlatform> swiftPlatform = swiftPlatformFlavorDomain.getValue(targetWithPlatform);
     if (swiftPlatform.isPresent()) {
@@ -978,5 +984,13 @@ public class AppleLibraryDescription
       Linker.LinkableDepType type,
       boolean forceLinkWhole) {
     return targetContainsSwift(target, resolver);
+  }
+
+  private FlavorDomain<AppleCxxPlatform> getAppleCxxPlatformDomain() {
+    AppleCxxPlatformsProvider appleCxxPlatformsProvider =
+        toolchainProvider.getByName(
+            AppleCxxPlatformsProvider.DEFAULT_NAME, AppleCxxPlatformsProvider.class);
+
+    return appleCxxPlatformsProvider.getAppleCxxPlatforms();
   }
 }

@@ -34,7 +34,6 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
@@ -69,7 +68,6 @@ public class SkylarkProjectBuildFileParserTest {
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 new DefaultProcessExecutor(new TestConsole()),
-                new TestToolchainProvider(),
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
     parser =
@@ -191,6 +189,34 @@ public class SkylarkProjectBuildFileParserTest {
             "prebuilt_jar(name=read_config('app', 'name', 'guava'), binary_jar='foo.jar')"));
     Map<String, Object> rule = getSingleRule(buildFile);
     assertThat(rule.get("name"), equalTo("guava"));
+  }
+
+  @Test
+  public void packageNameFunction() throws Exception {
+    Path buildFile = projectFilesystem.resolve("pkg").resolve("BUCK");
+    Files.createDirectories(buildFile.getParent());
+    Files.write(
+        buildFile, Arrays.asList("prebuilt_jar(name=package_name(), binary_jar='foo.jar')"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("name"), equalTo("pkg"));
+  }
+
+  @Test
+  public void packageNameFunctionInExtensionUsesBuildFilePackage() throws Exception {
+    Path buildFileDirectory = projectFilesystem.resolve("test");
+    Files.createDirectories(buildFileDirectory);
+    Path buildFile = buildFileDirectory.resolve("BUCK");
+    Path extensionFileDirectory = buildFileDirectory.resolve("ext");
+    Files.createDirectories(extensionFileDirectory);
+    Path extensionFile = extensionFileDirectory.resolve("build_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//test/ext:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(extensionFile, Arrays.asList("def get_name():", "  return native.package_name()"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("test"));
   }
 
   @Test

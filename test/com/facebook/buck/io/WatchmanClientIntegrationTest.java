@@ -20,11 +20,11 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.SimpleProcessListener;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -114,8 +114,8 @@ public class WatchmanClientIntegrationTest {
     while (System.currentTimeMillis() < deadline) {
       try {
         Optional<WatchmanClient> optClient =
-            WatchmanFactory.localWatchmanConnector(new TestConsole(), new DefaultClock())
-                .apply(watchmanSockFile);
+            WatchmanFactory.tryCreateWatchmanClient(
+                watchmanSockFile, new TestConsole(), new DefaultClock());
         try {
           if (optClient.isPresent()) {
             optClient.get().queryWithTimeout(timeoutMillis, "get-pid");
@@ -152,8 +152,8 @@ public class WatchmanClientIntegrationTest {
   @Test
   public void testWatchmanGlob() throws InterruptedException, IOException {
     Optional<WatchmanClient> clientOpt =
-        WatchmanFactory.localWatchmanConnector(new TestConsole(), new DefaultClock())
-            .apply(watchmanSockFile);
+        WatchmanFactory.tryCreateWatchmanClient(
+            watchmanSockFile, new TestConsole(), new DefaultClock());
     Assert.assertTrue(clientOpt.isPresent());
 
     WatchmanClient client = clientOpt.get();

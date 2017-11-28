@@ -1001,4 +1001,18 @@ public class BuckConfig implements ConfigPathGetter {
   public boolean isEmbeddedCellBuckOutEnabled() {
     return getBooleanValue("project", "embedded_cell_buck_out_enabled", false);
   }
+
+  /** Whether to instrument the action graph and record performance */
+  public boolean getShouldInstrumentActionGraph() {
+    return getBooleanValue("instrumentation", "action_graph", false);
+  }
+
+  public Optional<String> getPathToBuildPrehookScript() {
+    return getValue("build", "prehook_script");
+  }
+
+  /** The timeout to apply to entire test rules. */
+  public Optional<Long> getDefaultTestRuleTimeoutMs() {
+    return config.getLong(TEST_SECTION_HEADER, "rule_timeout");
+  }
 }

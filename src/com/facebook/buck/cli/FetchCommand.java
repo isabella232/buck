@@ -18,9 +18,9 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.file.Downloader;
 import com.facebook.buck.file.RemoteFileDescription;
-import com.facebook.buck.file.StackedDownloader;
+import com.facebook.buck.file.downloader.Downloader;
+import com.facebook.buck.file.downloader.impl.StackedDownloader;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -94,7 +94,8 @@ public class FetchCommand extends BuildCommand {
                     params.getBuckEventBus(),
                     ruleGenerator,
                     result.getTargetGraph(),
-                    params.getBuckConfig().getActionGraphParallelizationMode()));
+                    params.getBuckConfig().getActionGraphParallelizationMode(),
+                    params.getBuckConfig().getShouldInstrumentActionGraph()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildTargetException | BuildFileParseException | VersionException e) {
         params
@@ -169,7 +170,8 @@ public class FetchCommand extends BuildCommand {
 
   private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
     Downloader downloader =
-        StackedDownloader.createFromConfig(params.getBuckConfig(), params.getToolchainProvider());
+        StackedDownloader.createFromConfig(
+            params.getBuckConfig(), params.getCell().getToolchainProvider());
     Description<?> description = new RemoteFileDescription(downloader);
     return new FetchTargetNodeToBuildRuleTransformer(ImmutableSet.of(description));
   }

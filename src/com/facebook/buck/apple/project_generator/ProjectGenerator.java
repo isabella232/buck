@@ -28,6 +28,7 @@ import com.facebook.buck.apple.AppleBundle;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleBundleDescriptionArg;
 import com.facebook.buck.apple.AppleBundleExtension;
+import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
@@ -291,6 +292,7 @@ public class ProjectGenerator {
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
+  private final AppleConfig appleConfig;
   private final FocusedModuleTargetMatcher focusModules;
   private final boolean isMainProject;
   private final Optional<BuildTarget> workspaceTarget;
@@ -320,6 +322,7 @@ public class ProjectGenerator {
       BuckEventBus buckEventBus,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
+      AppleConfig appleConfig,
       SwiftBuckConfig swiftBuckConfig) {
     this.targetGraph = targetGraph;
     this.dependenciesCache = dependenciesCache;
@@ -373,6 +376,7 @@ public class ProjectGenerator {
     targetConfigNamesBuilder = ImmutableSet.builder();
     this.halideBuckConfig = halideBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
+    this.appleConfig = appleConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.focusModules = focusModules;
 
@@ -656,24 +660,30 @@ public class ProjectGenerator {
 
   private PBXTarget generateAppleTestTarget(TargetNode<AppleTestDescriptionArg, ?> testTargetNode)
       throws IOException {
+    AppleTestDescriptionArg args = testTargetNode.getConstructorArg();
+    Optional<BuildTarget> testTargetApp = extractTestTargetForTestDescriptionArg(args);
     Optional<TargetNode<AppleBundleDescriptionArg, ?>> testHostBundle =
-        testTargetNode
-            .getConstructorArg()
-            .getTestHostApp()
-            .map(
-                testHostBundleTarget -> {
-                  TargetNode<?, ?> testHostBundleNode = targetGraph.get(testHostBundleTarget);
-                  return testHostBundleNode
-                      .castArg(AppleBundleDescriptionArg.class)
-                      .orElseGet(
-                          () -> {
-                            throw new HumanReadableException(
-                                "The test host target '%s' has the wrong type (%s), must be apple_bundle",
-                                testHostBundleTarget,
-                                testHostBundleNode.getDescription().getClass());
-                          });
-                });
+        testTargetApp.map(
+            testHostBundleTarget -> {
+              TargetNode<?, ?> testHostBundleNode = targetGraph.get(testHostBundleTarget);
+              return testHostBundleNode
+                  .castArg(AppleBundleDescriptionArg.class)
+                  .orElseGet(
+                      () -> {
+                        throw new HumanReadableException(
+                            "The test host target '%s' has the wrong type (%s), must be apple_bundle",
+                            testHostBundleTarget, testHostBundleNode.getDescription().getClass());
+                      });
+            });
     return generateAppleBundleTarget(project, testTargetNode, testTargetNode, testHostBundle);
+  }
+
+  private Optional<BuildTarget> extractTestTargetForTestDescriptionArg(
+      AppleTestDescriptionArg args) {
+    if (args.getUiTestTargetApp().isPresent()) {
+      return args.getUiTestTargetApp();
+    }
+    return args.getTestHostApp();
   }
 
   private void checkAppleResourceTargetNodeReferencingValidContents(
@@ -1020,6 +1030,7 @@ public class ProjectGenerator {
     mutator.setFrameworkHeadersEnabled(isModularAppleLibrary);
 
     ImmutableMap.Builder<String, String> swiftDepsSettingsBuilder = ImmutableMap.builder();
+    ImmutableList.Builder<String> swiftDebugLinkerFlagsBuilder = ImmutableList.builder();
 
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
@@ -1086,10 +1097,10 @@ public class ProjectGenerator {
       }
 
       if (isFocusedOnTarget) {
-        ImmutableSet<PBXFileReference> swiftDeps =
-            collectRecursiveLibraryDependenciesWithSwiftSources(targetNode);
+        ImmutableSet<TargetNode<?, ?>> swiftDepTargets =
+            collectRecursiveLibraryDepTargetsWithSwiftSources(targetNode);
 
-        if (!includeFrameworks && !swiftDeps.isEmpty()) {
+        if (!includeFrameworks && !swiftDepTargets.isEmpty()) {
           // If the current target, which is non-shared (e.g., static lib), depends on other focused
           // targets which include Swift code, we must ensure those are treated as dependencies so
           // that Xcode builds the targets in the correct order. Unfortunately, those deps can be
@@ -1108,7 +1119,9 @@ public class ProjectGenerator {
           copyFiles.setRunOnlyForDeploymentPostprocessing(Optional.of(Boolean.TRUE));
           copyFiles.setName(Optional.of("Fake Swift Dependencies (Copy Files Phase)"));
 
-          for (PBXFileReference fileRef : swiftDeps) {
+          ImmutableSet<PBXFileReference> swiftDepsFileRefs =
+              FluentIterable.from(swiftDepTargets).transform(this::getLibraryFileReference).toSet();
+          for (PBXFileReference fileRef : swiftDepsFileRefs) {
             PBXBuildFile buildFile = new PBXBuildFile(fileRef);
             copyFiles.getFiles().add(buildFile);
           }
@@ -1119,12 +1132,27 @@ public class ProjectGenerator {
         }
 
         if (includeFrameworks
-            && !swiftDeps.isEmpty()
+            && !swiftDepTargets.isEmpty()
             && shouldEmbedSwiftRuntimeInBundleTarget(bundle)
             && swiftBuckConfig.getProjectEmbedRuntime()) {
           // This is a binary that transitively depends on a library that uses Swift. We must ensure
           // that the Swift runtime is bundled.
           swiftDepsSettingsBuilder.put("ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES", "YES");
+        }
+
+        if (includeFrameworks
+            && !swiftDepTargets.isEmpty()
+            && swiftBuckConfig.getProjectAddASTPaths()) {
+          for (TargetNode<?, ?> swiftNode : swiftDepTargets) {
+            String swiftModulePath =
+                String.format(
+                    "${BUILT_PRODUCTS_DIR}/%s.swiftmodule/${CURRENT_ARCH}.swiftmodule",
+                    getModuleName(swiftNode));
+            swiftDebugLinkerFlagsBuilder.add("-Xlinker");
+            swiftDebugLinkerFlagsBuilder.add("-add_ast_path");
+            swiftDebugLinkerFlagsBuilder.add("-Xlinker");
+            swiftDebugLinkerFlagsBuilder.add(swiftModulePath);
+          }
         }
       }
 
@@ -1419,12 +1447,15 @@ public class ProjectGenerator {
                     targetNode, targetNode.getConstructorArg().getCompilerFlags()),
                 convertStringWithMacros(
                     targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
-        ImmutableList<String> otherLdFlags =
-            convertStringWithMacros(
-                targetNode,
-                Iterables.concat(
-                    targetNode.getConstructorArg().getLinkerFlags(),
-                    collectRecursiveExportedLinkerFlags(targetNode)));
+        Iterable<String> otherLdFlags =
+            Iterables.concat(
+                appleConfig.linkAllObjC() ? ImmutableList.of("-ObjC") : ImmutableList.of(),
+                convertStringWithMacros(
+                    targetNode,
+                    Iterables.concat(
+                        targetNode.getConstructorArg().getLinkerFlags(),
+                        collectRecursiveExportedLinkerFlags(targetNode))),
+                swiftDebugLinkerFlagsBuilder.build());
 
         appendConfigsBuilder
             .put(
@@ -1444,7 +1475,9 @@ public class ProjectGenerator {
                     .collect(Collectors.joining(" ")))
             .put(
                 "OTHER_LDFLAGS",
-                otherLdFlags.stream().map(Escaper.BASH_ESCAPER).collect(Collectors.joining(" ")));
+                Streams.stream(otherLdFlags)
+                    .map(Escaper.BASH_ESCAPER)
+                    .collect(Collectors.joining(" ")));
 
         ImmutableMultimap<String, ImmutableList<String>> platformFlags =
             convertPlatformFlags(
@@ -2931,7 +2964,14 @@ public class ProjectGenerator {
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependenciesWithOptions(
       TargetNode<?, ?> targetNode, boolean containsSwiftSources) {
+    FluentIterable<TargetNode<?, ?>> libsWithSources =
+        collectRecursiveLibraryDepTargetsWithOptions(targetNode, containsSwiftSources);
 
+    return libsWithSources.transform(this::getLibraryFileReference).toSet();
+  }
+
+  private FluentIterable<TargetNode<?, ?>> collectRecursiveLibraryDepTargetsWithOptions(
+      TargetNode<?, ?> targetNode, boolean containsSwiftSources) {
     FluentIterable<TargetNode<?, ?>> libsWithSources =
         FluentIterable.from(
                 AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2941,12 +2981,11 @@ public class ProjectGenerator {
                     targetNode,
                     AppleBuildRules.XCODE_TARGET_DESCRIPTION_CLASSES))
             .filter(this::isLibraryWithSourcesToCompile);
-
     if (containsSwiftSources) {
       libsWithSources = libsWithSources.filter(this::isLibraryWithSwiftSources);
     }
 
-    return libsWithSources.transform(this::getLibraryFileReference).toSet();
+    return libsWithSources;
   }
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependencies(
@@ -2957,6 +2996,11 @@ public class ProjectGenerator {
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependenciesWithSwiftSources(
       TargetNode<?, ?> targetNode) {
     return collectRecursiveLibraryDependenciesWithOptions(targetNode, true);
+  }
+
+  private ImmutableSet<TargetNode<?, ?>> collectRecursiveLibraryDepTargetsWithSwiftSources(
+      TargetNode<?, ?> targetNode) {
+    return collectRecursiveLibraryDepTargetsWithOptions(targetNode, true).toSet();
   }
 
   private SourceTreePath getProductsSourceTreePath(TargetNode<?, ?> targetNode) {

@@ -40,7 +40,6 @@ import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -50,13 +49,13 @@ import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
@@ -97,14 +96,12 @@ public class CommandRunnerParamsForTesting {
       JavaPackageFinder javaPackageFinder,
       Optional<WebServer> webServer)
       throws IOException, InterruptedException {
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
-    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
-    SdkEnvironment sdkEnvironment = SdkEnvironment.create(toolchainProvider);
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                toolchainProvider,
+                processExecutor,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
@@ -145,10 +142,9 @@ public class CommandRunnerParamsForTesting {
         .setInvocationInfo(Optional.empty())
         .setActionGraphCache(new ActionGraphCache(config.getMaxActionGraphCacheEntries()))
         .setKnownBuildRuleTypesProvider(knownBuildRuleTypesProvider)
-        .setSdkEnvironment(sdkEnvironment)
         .setProjectFilesystemFactory(new DefaultProjectFilesystemFactory())
-        .setToolchainProvider(toolchainProvider)
         .setRuleKeyConfiguration(TestRuleKeyConfigurationFactory.create())
+        .setProcessExecutor(processExecutor)
         .build();
   }
 
