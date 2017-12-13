@@ -23,8 +23,6 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.apple.AppleConfig;
-import com.facebook.buck.apple.AppleSdkDiscovery;
-import com.facebook.buck.apple.AppleToolchainDiscovery;
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
 import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.apple.toolchain.AppleSdkLocation;
@@ -33,7 +31,9 @@ import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -78,11 +78,13 @@ public class AppleCxxPlatformsProviderFactoryTest {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(Console.createNullConsole());
 
     ToolchainCreationContext toolchainCreationContext =
-        ToolchainCreationContext.builder()
-            .setBuckConfig(buckConfig)
-            .setFilesystem(projectFilesystem)
-            .setProcessExecutor(processExecutor)
-            .build();
+        ToolchainCreationContext.of(
+            ImmutableMap.of(),
+            buckConfig,
+            projectFilesystem,
+            processExecutor,
+            new ExecutableFinder(),
+            TestRuleKeyConfigurationFactory.create());
 
     Optional<Path> appleDeveloperDir =
         new AppleDeveloperDirectoryProviderFactory()

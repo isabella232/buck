@@ -48,6 +48,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.io.file.MorePaths;
@@ -78,6 +79,7 @@ import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.testutil.TestConsole;
@@ -87,7 +89,6 @@ import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
@@ -253,11 +254,13 @@ public class ParserTest {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
 
     ToolchainCreationContext toolchainCreationContext =
-        ToolchainCreationContext.builder()
-            .setProcessExecutor(processExecutor)
-            .setFilesystem(filesystem)
-            .setBuckConfig(config)
-            .build();
+        ToolchainCreationContext.of(
+            ImmutableMap.of(),
+            config,
+            filesystem,
+            processExecutor,
+            new ExecutableFinder(),
+            TestRuleKeyConfigurationFactory.create());
 
     ToolchainProviderBuilder toolchainProviderBuilder = new ToolchainProviderBuilder();
     Optional<AppleDeveloperDirectoryProvider> appleDeveloperDirectoryProvider =
@@ -1510,7 +1513,7 @@ public class ParserTest {
         targetNodes
             .stream()
             .map(TargetNode::getBuildTarget)
-            .collect(MoreCollectors.toImmutableList()),
+            .collect(ImmutableList.toImmutableList()),
         hasItems(fooLib1Target, fooLib2Target));
   }
 

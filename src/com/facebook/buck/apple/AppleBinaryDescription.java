@@ -19,12 +19,15 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.file.WriteFile;
@@ -52,7 +55,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.Joiner;
@@ -98,23 +100,17 @@ public class AppleBinaryDescription
   private final ToolchainProvider toolchainProvider;
   private final CxxBinaryDescription delegate;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
-  private final CodeSignIdentityStore codeSignIdentityStore;
-  private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleConfig appleConfig;
 
   public AppleBinaryDescription(
       ToolchainProvider toolchainProvider,
       CxxBinaryDescription delegate,
       SwiftLibraryDescription swiftDelegate,
-      CodeSignIdentityStore codeSignIdentityStore,
-      ProvisioningProfileStore provisioningProfileStore,
       AppleConfig appleConfig) {
     this.toolchainProvider = toolchainProvider;
     this.delegate = delegate;
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
-    this.codeSignIdentityStore = codeSignIdentityStore;
-    this.provisioningProfileStore = provisioningProfileStore;
     this.appleConfig = appleConfig;
   }
 
@@ -142,7 +138,7 @@ public class AppleBinaryDescription
         result
             .stream()
             .filter(domain -> !domain.equals(StripStyle.FLAVOR_DOMAIN))
-            .collect(MoreCollectors.toImmutableSet());
+            .collect(ImmutableSet.toImmutableSet());
 
     return Optional.of(result);
   }
@@ -278,6 +274,7 @@ public class AppleBinaryDescription
       AppleBinaryDescriptionArg args,
       BuildTarget unstrippedBinaryBuildTarget,
       HasAppleDebugSymbolDeps unstrippedBinaryRule) {
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
     BuildTarget strippedBinaryBuildTarget =
         unstrippedBinaryBuildTarget.withAppendedFlavors(
             StripStyle.FLAVOR_DOMAIN
@@ -300,8 +297,8 @@ public class AppleBinaryDescription
         strippedBinaryRule,
         unstrippedBinaryRule,
         AppleDebugFormat.FLAVOR_DOMAIN.getRequiredValue(buildTarget),
-        delegate.getCxxPlatforms(),
-        delegate.getDefaultCxxFlavor(),
+        cxxPlatformsProvider.getCxxPlatforms(),
+        cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor(),
         appleCxxPlatformsFlavorDomain);
   }
 
@@ -325,12 +322,12 @@ public class AppleBinaryDescription
     if (!buildTarget.getFlavors().contains(flavoredDebugFormat.getFlavor())) {
       return resolver.requireRule(buildTarget.withAppendedFlavors(flavoredDebugFormat.getFlavor()));
     }
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
+    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
     if (!AppleDescriptions.INCLUDE_FRAMEWORKS.getValue(buildTarget).isPresent()) {
       CxxPlatform cxxPlatform =
-          delegate
-              .getCxxPlatforms()
-              .getValue(buildTarget)
-              .orElse(delegate.getCxxPlatforms().getValue(delegate.getDefaultCxxFlavor()));
+          cxxPlatforms.getValue(buildTarget).orElse(cxxPlatforms.getValue(defaultCxxFlavor));
       ApplePlatform applePlatform =
           appleCxxPlatformsFlavorDomain
               .getValue(cxxPlatform.getFlavor())
@@ -345,16 +342,18 @@ public class AppleBinaryDescription
     }
     BuildTarget binaryTarget = buildTarget.withoutFlavors(APP_FLAVOR);
     return AppleDescriptions.createAppleBundle(
-        delegate.getCxxPlatforms(),
-        delegate.getDefaultCxxFlavor(),
+        cxxPlatforms,
+        defaultCxxFlavor,
         appleCxxPlatformsFlavorDomain,
         targetGraph,
         buildTarget,
         projectFilesystem,
         params,
         resolver,
-        codeSignIdentityStore,
-        provisioningProfileStore,
+        toolchainProvider.getByName(
+            CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
+        toolchainProvider.getByName(
+            ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
         binaryTarget,
         Either.ofLeft(AppleBundleExtension.APP),
         Optional.empty(),
@@ -542,7 +541,8 @@ public class AppleBinaryDescription
           buildTarget, resolver, cellRoots, delegateArg.build(), selectedVersions, metadataClass);
     }
 
-    Optional<Flavor> cxxPlatformFlavor = delegate.getCxxPlatforms().getFlavor(buildTarget);
+    Optional<Flavor> cxxPlatformFlavor =
+        getCxxPlatformsProvider().getCxxPlatforms().getFlavor(buildTarget);
     Preconditions.checkState(
         cxxPlatformFlavor.isPresent(),
         "Could not find cxx platform in:\n%s",
@@ -591,6 +591,11 @@ public class AppleBinaryDescription
       extraDepsBuilder.addAll(
           delegate.findDepsForTargetFromConstructorArgs(buildTarget, Optional.empty()));
     }
+  }
+
+  private CxxPlatformsProvider getCxxPlatformsProvider() {
+    return toolchainProvider.getByName(
+        CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
   }
 
   @BuckStyleImmutable

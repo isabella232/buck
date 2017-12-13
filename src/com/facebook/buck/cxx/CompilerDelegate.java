@@ -29,11 +29,11 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
 /** Helper class for generating compiler invocations for a cxx compilation rule. */
 class CompilerDelegate implements AddsToRuleKey {
@@ -89,13 +89,23 @@ class CompilerDelegate implements AddsToRuleKey {
   }
 
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
-    return BuildableSupport.deriveInputs(compiler)
-        .sorted()
+    Stream.Builder<SourcePath> inputs = Stream.builder();
+
+    // Add inputs from the compiler object.
+    BuildableSupport.deriveInputs(compiler).sorted().forEach(inputs);
+
+    // Args can contain things like location macros, so extract any inputs we find.
+    for (Arg arg : compilerFlags.getAllFlags()) {
+      BuildableSupport.deriveInputs(arg).forEach(inputs);
+    }
+
+    return inputs
+        .build()
         .filter(
             (SourcePath path) ->
                 !(path instanceof PathSourcePath)
                     || !((PathSourcePath) path).getRelativePath().isAbsolute())
-        .collect(MoreCollectors.toImmutableList());
+        .collect(ImmutableList.toImmutableList());
   }
 
   public boolean isArgFileSupported() {

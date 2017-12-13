@@ -35,13 +35,15 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.python.CxxPythonExtensionDescription.Type;
+import com.facebook.buck.python.toolchain.PythonEnvironment;
+import com.facebook.buck.python.toolchain.PythonPlatform;
+import com.facebook.buck.python.toolchain.PythonVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -57,7 +59,6 @@ import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -429,8 +430,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void platformDepsSeparateLinkage() throws Exception {
-    PythonBuckConfig pythonBuckConfig =
-        new PythonBuckConfig(FakeBuckConfig.builder().build(), new ExecutableFinder());
+    PythonBuckConfig pythonBuckConfig = new PythonBuckConfig(FakeBuckConfig.builder().build());
     FlavorDomain<PythonPlatform> pythonPlatforms = FlavorDomain.of("Python Platform", PY2, PY3);
 
     CxxLibraryBuilder depBuilder =
@@ -449,22 +449,14 @@ public class CxxPythonExtensionDescriptionTest {
                         ImmutableSortedSet.of(depBuilder.getTarget()))
                     .build());
     PythonBinaryBuilder binary2Builder =
-        new PythonBinaryBuilder(
-                BuildTargetFactory.newInstance("//:bin2"),
-                pythonBuckConfig,
-                pythonPlatforms,
-                CxxPlatformUtils.DEFAULT_PLATFORM,
-                CxxTestUtils.createDefaultPlatforms())
+        PythonBinaryBuilder.create(
+                BuildTargetFactory.newInstance("//:bin2"), pythonBuckConfig, pythonPlatforms)
             .setMainModule("test")
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionBuilder.getTarget()));
     PythonBinaryBuilder binary3Builder =
-        new PythonBinaryBuilder(
-                BuildTargetFactory.newInstance("//:bin3"),
-                pythonBuckConfig,
-                pythonPlatforms,
-                CxxPlatformUtils.DEFAULT_PLATFORM,
-                CxxTestUtils.createDefaultPlatforms())
+        PythonBinaryBuilder.create(
+                BuildTargetFactory.newInstance("//:bin3"), pythonBuckConfig, pythonPlatforms)
             .setMainModule("test")
             .setPlatform(PY3.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionBuilder.getTarget()));
@@ -507,7 +499,7 @@ public class CxxPythonExtensionDescriptionTest {
     assertThat(
         cxxPythonExtension
             .getRuntimeDeps(new SourcePathRuleFinder(resolver))
-            .collect(MoreCollectors.toImmutableSet()),
+            .collect(ImmutableSet.toImmutableSet()),
         Matchers.hasItem(cxxBinary.getBuildTarget()));
   }
 

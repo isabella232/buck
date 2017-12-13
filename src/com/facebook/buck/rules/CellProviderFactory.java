@@ -17,12 +17,14 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.rules.keys.impl.ConfigRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -37,6 +39,7 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import org.pf4j.PluginManager;
 
 public class CellProviderFactory {
 
@@ -46,8 +49,10 @@ public class CellProviderFactory {
       Watchman watchman,
       BuckConfig rootConfig,
       CellConfig rootCellConfigOverrides,
+      PluginManager pluginManager,
       ImmutableMap<String, String> environment,
       ProcessExecutor processExecutor,
+      ExecutableFinder executableFinder,
       ProjectFilesystemFactory projectFilesystemFactory) {
 
     DefaultCellPathResolver rootCellCellPathResolver =
@@ -135,9 +140,18 @@ public class CellProviderFactory {
                         rootConfig.getEnvironment(),
                         cellPathResolver);
 
+                RuleKeyConfiguration ruleKeyConfiguration =
+                    ConfigRuleKeyConfigurationFactory.create(buckConfig);
+
                 ToolchainProvider toolchainProvider =
                     new DefaultToolchainProvider(
-                        environment, buckConfig, cellFilesystem, processExecutor);
+                        pluginManager,
+                        environment,
+                        buckConfig,
+                        cellFilesystem,
+                        processExecutor,
+                        executableFinder,
+                        ruleKeyConfiguration);
 
                 // TODO(13777679): cells in other watchman roots do not work correctly.
 
@@ -149,7 +163,7 @@ public class CellProviderFactory {
                     buckConfig,
                     cellProvider,
                     toolchainProvider,
-                    ConfigRuleKeyConfigurationFactory.create(buckConfig));
+                    ruleKeyConfiguration);
               }
             },
         cellProvider -> {
@@ -158,9 +172,17 @@ public class CellProviderFactory {
                   .getCanonicalCellName(rootFilesystem.getRootPath())
                   .isPresent(),
               "Root cell should be nameless");
+          RuleKeyConfiguration ruleKeyConfiguration =
+              ConfigRuleKeyConfigurationFactory.create(rootConfig);
           ToolchainProvider toolchainProvider =
               new DefaultToolchainProvider(
-                  environment, rootConfig, rootFilesystem, processExecutor);
+                  pluginManager,
+                  environment,
+                  rootConfig,
+                  rootFilesystem,
+                  processExecutor,
+                  executableFinder,
+                  ruleKeyConfiguration);
           return Cell.of(
               getKnownRoots(rootCellCellPathResolver),
               Optional.empty(),
@@ -169,7 +191,7 @@ public class CellProviderFactory {
               rootConfig,
               cellProvider,
               toolchainProvider,
-              ConfigRuleKeyConfigurationFactory.create(rootConfig));
+              ruleKeyConfiguration);
         });
   }
 
@@ -181,13 +203,18 @@ public class CellProviderFactory {
                 cellPath -> {
                   DistBuildCellParams cellParam =
                       Preconditions.checkNotNull(cellParams.get(cellPath));
+                  RuleKeyConfiguration ruleKeyConfiguration =
+                      ConfigRuleKeyConfigurationFactory.create(cellParam.getConfig());
 
                   ToolchainProvider toolchainProvider =
                       new DefaultToolchainProvider(
+                          cellParam.getPluginManager(),
                           cellParam.getEnvironment(),
                           cellParam.getConfig(),
                           cellParam.getFilesystem(),
-                          cellParam.getProcessExecutor());
+                          cellParam.getProcessExecutor(),
+                          cellParam.getExecutableFinder(),
+                          ruleKeyConfiguration);
 
                   return Cell.of(
                       cellParams.keySet(),
@@ -199,7 +226,7 @@ public class CellProviderFactory {
                       cellParam.getConfig(),
                       cellProvider,
                       toolchainProvider,
-                      ConfigRuleKeyConfigurationFactory.create(cellParam.getConfig()));
+                      ruleKeyConfiguration);
                 }),
         null);
   }

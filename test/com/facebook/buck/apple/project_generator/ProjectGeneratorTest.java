@@ -105,7 +105,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.keys.TestRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -116,7 +116,6 @@ import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
@@ -598,6 +597,36 @@ public class ProjectGeneratorTest {
     assertThat(headerSymlinkTrees, hasSize(2));
     assertEquals("buck-out/gen/_p/CwkbTNOBmb-pub", headerSymlinkTrees.get(0).toString());
     assertTrue(projectFilesystem.isFile(headerSymlinkTrees.get(0).resolve("lib/lib.h")));
+  }
+
+  @Test
+  public void testModularLibraryDoesNotOverwriteExistingUmbrella() throws IOException {
+    BuildTarget libTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+
+    TargetNode<?, ?> libNode =
+        AppleLibraryBuilder.createBuilder(libTarget)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .setExportedHeaders(ImmutableSortedSet.of(FakeSourcePath.of("lib/lib.h")))
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSwiftVersion(Optional.of("3"))
+            .setModular(true)
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(
+            ImmutableSet.of(libNode),
+            ImmutableSet.of(ProjectGenerator.Option.GENERATE_MISSING_UMBRELLA_HEADER));
+
+    projectGenerator.createXcodeProjects();
+    PBXProject project = projectGenerator.getGeneratedProject();
+    assertNotNull(project);
+
+    List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
+    assertThat(headerSymlinkTrees, hasSize(2));
+    assertEquals("buck-out/gen/_p/CwkbTNOBmb-pub", headerSymlinkTrees.get(0).toString());
+    Path umbrellaPath = headerSymlinkTrees.get(0).resolve("lib/lib.h");
+    assertTrue(projectFilesystem.isSymLink(umbrellaPath));
+    assertFalse(projectFilesystem.isFile(umbrellaPath));
   }
 
   @Test
@@ -1426,12 +1455,8 @@ public class ProjectGeneratorTest {
 
       // Check the header map
       assertThat(
-          headerMap.lookup(key),
-          equalTo(
-              Paths.get("../../")
-                  .resolve(projectCell.getRoot().getFileName())
-                  .resolve(link)
-                  .toString()));
+          projectFilesystem.getBuckPaths().getConfiguredBuckOut().resolve(headerMap.lookup(key)),
+          equalTo(link));
     }
   }
 
@@ -5045,8 +5070,7 @@ public class ProjectGeneratorTest {
             + "of the tested library in HEADER_SEARCH_PATHS",
         "$(inherited) "
             + "../buck-out/gen/_p/YAYFR3hXIb-priv/.hmap "
-            + "../buck-out/gen/_p/pub-hmap/.hmap "
-            + "../buck-out",
+            + "../buck-out/gen/_p/pub-hmap/.hmap",
         buildSettings2.get("HEADER_SEARCH_PATHS"));
 
     ProjectGenerator projectGeneratorLib1 =
@@ -5101,8 +5125,7 @@ public class ProjectGeneratorTest {
             + "of the tested library in HEADER_SEARCH_PATHS",
         "$(inherited) "
             + "../buck-out/gen/_p/WNl0jZWMBk-priv/.hmap "
-            + "../buck-out/gen/_p/pub-hmap/.hmap "
-            + "../buck-out",
+            + "../buck-out/gen/_p/pub-hmap/.hmap",
         buildSettings1.get("HEADER_SEARCH_PATHS"));
 
     // For //foo:test
@@ -5117,8 +5140,7 @@ public class ProjectGeneratorTest {
         "$(inherited) "
             + "../buck-out/gen/_p/LpygK8zq5F-priv/.hmap "
             + "../buck-out/gen/_p/pub-hmap/.hmap "
-            + "../buck-out/gen/_p/WNl0jZWMBk-priv/.hmap "
-            + "../buck-out",
+            + "../buck-out/gen/_p/WNl0jZWMBk-priv/.hmap",
         buildSettingsTest.get("HEADER_SEARCH_PATHS"));
   }
 
@@ -5179,7 +5201,7 @@ public class ProjectGeneratorTest {
         initialTargetNodes
             .stream()
             .map(TargetNode::getBuildTarget)
-            .collect(MoreCollectors.toImmutableSet());
+            .collect(ImmutableSet.toImmutableSet());
 
     final TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(allNodes));
     final AppleDependenciesCache cache = new AppleDependenciesCache(targetGraph);

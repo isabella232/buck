@@ -16,19 +16,18 @@
 
 package com.facebook.buck.android;
 
+import com.android.tools.r8.CompilationFailedException;
 import com.android.tools.r8.CompilationMode;
 import com.android.tools.r8.D8Command;
 import com.android.tools.r8.D8Output;
 import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.DiagnosticsHandler;
-import com.android.tools.r8.utils.CompilationFailedException;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -290,7 +289,7 @@ public class DxStep extends ShellStep {
                         .diagnostics
                         .stream()
                         .map(Diagnostic::getDiagnosticMessage)
-                        .collect(MoreCollectors.toImmutableList()))));
+                        .collect(ImmutableList.toImmutableList()))));
         e.printStackTrace(context.getStdErr());
         return 1;
       }

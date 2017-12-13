@@ -40,6 +40,11 @@ public class DistBuildConfig {
   private static final String FRONTEND_REQUEST_TIMEOUT_MILLIS = "stampede_timeout_millis";
   private static final long REQUEST_TIMEOUT_MILLIS_DEFAULT_VALUE = TimeUnit.SECONDS.toMillis(60);
 
+  // Connection and socket timeout used by minions in ThriftCoordinatorClient
+  private static final String COORDINATOR_CONNECTION_TIMEOUT_MILLIS =
+      "coordinator_connection_timeout_millis";
+  private static final int COORDINATOR_CONNECTION_TIMEOUT_MILLIS_DEFAULT_VALUE = 2000;
+
   @VisibleForTesting
   static final String ALWAYS_MATERIALIZE_WHITELIST = "always_materialize_whitelist";
 
@@ -89,6 +94,22 @@ public class DistBuildConfig {
 
   private static final String MAX_MINION_SILENCE_MILLIS = "max_minion_silence_millis";
   private static final long DEFAULT_MAX_MINION_SILENCE_MILLIS = TimeUnit.SECONDS.toMillis(30);
+
+  private static final String ENABLE_DEEP_REMOTE_BUILD = "enable_deep_remote_build";
+  private static final boolean DEFAULT_ENABLE_DEEP_REMOTE_BUILD = false;
+
+  private static final String ENABLE_ASYNC_LOGGING = "enable_async_logging";
+  private static final boolean DEFAULT_ENABLE_ASYNC_LOGGING = true;
+
+  // Percentage of available CPU cores to use for the coordinator build.
+  // Default this to 75% to ensure coordinator is always responsive to requests from minions
+  private static final String COORDINATOR_BUILD_CAPACITY_RATIO = "coordinator_build_capacity_ratio";
+  private static final Double DEFAULT_COORDINATOR_BUILD_CAPACITY_RATIO = 0.75;
+
+  // Percentage of available CPU cores to use for the minion builds.
+  // Default this to 90% to ensure we never timeout requests to the coordinator.
+  private static final String MINION_BUILD_CAPACITY_RATIO = "minion_build_capacity_ratio";
+  private static final Double DEFAULT_MINION_BUILD_CAPACITY_RATIO = 0.9;
 
   private final SlbBuckConfig frontendConfig;
   private final BuckConfig buckConfig;
@@ -155,6 +176,12 @@ public class DistBuildConfig {
         .orElse(REQUEST_TIMEOUT_MILLIS_DEFAULT_VALUE);
   }
 
+  public int getCoordinatorConnectionTimeoutMillis() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, COORDINATOR_CONNECTION_TIMEOUT_MILLIS)
+        .orElse(COORDINATOR_CONNECTION_TIMEOUT_MILLIS_DEFAULT_VALUE);
+  }
+
   public BuildMode getBuildMode() {
     return buckConfig
         .getEnum(STAMPEDE_SECTION, BUILD_MODE, BuildMode.class)
@@ -201,6 +228,16 @@ public class DistBuildConfig {
         .orElse(DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS);
   }
 
+  public boolean isDeepRemoteBuildEnabled() {
+    return buckConfig.getBooleanValue(
+        STAMPEDE_SECTION, ENABLE_DEEP_REMOTE_BUILD, DEFAULT_ENABLE_DEEP_REMOTE_BUILD);
+  }
+
+  public boolean isAsyncLoggingEnabled() {
+    return buckConfig.getBooleanValue(
+        STAMPEDE_SECTION, ENABLE_ASYNC_LOGGING, DEFAULT_ENABLE_ASYNC_LOGGING);
+  }
+
   public long getHearbeatServiceRateMillis() {
     return buckConfig
         .getLong(STAMPEDE_SECTION, HEARTBEAT_SERVICE_INTERVAL_MILLIS)
@@ -211,6 +248,24 @@ public class DistBuildConfig {
     return buckConfig
         .getLong(STAMPEDE_SECTION, MAX_MINION_SILENCE_MILLIS)
         .orElse(DEFAULT_MAX_MINION_SILENCE_MILLIS);
+  }
+
+  /** @return Ratio of available build capacity that should be used by coordinator */
+  public double getCoordinatorBuildCapacityRatio() {
+    Optional<String> configValue =
+        buckConfig.getValue(STAMPEDE_SECTION, COORDINATOR_BUILD_CAPACITY_RATIO);
+    return configValue.isPresent()
+        ? Double.valueOf(configValue.get())
+        : DEFAULT_COORDINATOR_BUILD_CAPACITY_RATIO;
+  }
+
+  /** @return Ratio of available build capacity that should be used by minions */
+  public double getMinionBuildCapacityRatio() {
+    Optional<String> configValue =
+        buckConfig.getValue(STAMPEDE_SECTION, MINION_BUILD_CAPACITY_RATIO);
+    return configValue.isPresent()
+        ? Double.valueOf(configValue.get())
+        : DEFAULT_MINION_BUILD_CAPACITY_RATIO;
   }
 
   /**

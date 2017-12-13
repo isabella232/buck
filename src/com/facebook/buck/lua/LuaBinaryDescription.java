@@ -40,7 +40,8 @@ import com.facebook.buck.python.CxxPythonExtension;
 import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonPackagable;
 import com.facebook.buck.python.PythonPackageComponents;
-import com.facebook.buck.python.PythonPlatform;
+import com.facebook.buck.python.toolchain.PythonPlatform;
+import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
@@ -64,7 +65,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -101,15 +101,10 @@ public class LuaBinaryDescription
 
   private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
-  private final FlavorDomain<PythonPlatform> pythonPlatforms;
 
-  public LuaBinaryDescription(
-      ToolchainProvider toolchainProvider,
-      CxxBuckConfig cxxBuckConfig,
-      FlavorDomain<PythonPlatform> pythonPlatforms) {
+  public LuaBinaryDescription(ToolchainProvider toolchainProvider, CxxBuckConfig cxxBuckConfig) {
     this.toolchainProvider = toolchainProvider;
     this.cxxBuckConfig = cxxBuckConfig;
-    this.pythonPlatforms = pythonPlatforms;
   }
 
   @Override
@@ -154,7 +149,7 @@ public class LuaBinaryDescription
     return nativeStarterLibrary.isPresent()
         ? ImmutableSet.of(nativeStarterLibrary.get())
         : Optionals.toStream(luaPlatform.getLuaCxxLibraryTarget())
-            .collect(MoreCollectors.toImmutableSet());
+            .collect(ImmutableSet.toImmutableSet());
   }
 
   private Starter getStarter(
@@ -630,14 +625,14 @@ public class LuaBinaryDescription
           nativeLibsLinktree
               .stream()
               .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
-              .collect(MoreCollectors.toImmutableList());
+              .collect(ImmutableList.toImmutableList());
 
       @AddToRuleKey
       private final List<NonHashableSourcePathContainer> toolPythonModulesLinktree =
           pythonModulesLinktree
               .stream()
               .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
-              .collect(MoreCollectors.toImmutableList());;
+              .collect(ImmutableList.toImmutableList());;
 
       @AddToRuleKey private final List<SourcePath> toolExtraInputs = extraInputs;
 
@@ -763,6 +758,10 @@ public class LuaBinaryDescription
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     LuaPlatform luaPlatform = getPlatform(buildTarget, args);
+    FlavorDomain<PythonPlatform> pythonPlatforms =
+        toolchainProvider
+            .getByName(PythonPlatformsProvider.DEFAULT_NAME, PythonPlatformsProvider.class)
+            .getPythonPlatforms();
     PythonPlatform pythonPlatform =
         pythonPlatforms
             .getValue(buildTarget)

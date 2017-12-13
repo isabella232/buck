@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -37,6 +38,7 @@ import javax.lang.model.element.QualifiedNameable;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.ElementFilter;
 import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 
 /**
  * An implementation of {@link Elements} using just the AST of a single module, without its
@@ -50,8 +52,8 @@ class TreeBackedElements extends ElementsExtendedImpl {
   private final Map<Name, ArtificialTypeElement> knownTypes = new HashMap<>();
   private final Map<Name, ArtificialPackageElement> knownPackages = new HashMap<>();
 
-  public TreeBackedElements(Elements javacElements, Trees trees) {
-    super(javacElements, trees);
+  public TreeBackedElements(Elements javacElements, Types javacTypes, Trees trees) {
+    super(javacElements, javacTypes, trees);
     this.javacElements = javacElements;
   }
 
@@ -117,6 +119,10 @@ class TreeBackedElements extends ElementsExtendedImpl {
 
   /* package */ TypeElement getJavacElement(TypeElement element) {
     return (TypeElement) getJavacElement((Element) element);
+  }
+
+  /* package */ ExecutableElement getJavacElement(ExecutableElement element) {
+    return (ExecutableElement) getJavacElement((Element) element);
   }
 
   /* package */ Element getJavacElement(Element element) {
@@ -256,7 +262,15 @@ class TreeBackedElements extends ElementsExtendedImpl {
 
   @Override
   public List<? extends Element> getAllMembers(TypeElement type) {
-    throw new UnsupportedOperationException();
+    if (type instanceof TreeBackedTypeElement) {
+      return javacElements
+          .getAllMembers(getJavacElement(type))
+          .stream()
+          .map(this::getCanonicalElement)
+          .collect(Collectors.toList());
+    }
+
+    return javacElements.getAllMembers(type);
   }
 
   @Override
@@ -272,7 +286,12 @@ class TreeBackedElements extends ElementsExtendedImpl {
   @Override
   public boolean overrides(
       ExecutableElement overrider, ExecutableElement overridden, TypeElement type) {
-    throw new UnsupportedOperationException();
+    if (type instanceof InferredTypeElement) {
+      throw new UnsupportedOperationException();
+    }
+
+    return javacElements.overrides(
+        getJavacElement(overrider), getJavacElement(overridden), getJavacElement(type));
   }
 
   @Override

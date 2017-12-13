@@ -66,7 +66,6 @@ import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -138,6 +137,7 @@ public class AndroidBinaryGraphEnhancerTest {
             ResourcesFilter.ResourceCompressionMode.DISABLED,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
+            Optional.empty(),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
             Optional.of(createStrictMock(AbstractPathSourcePath.class)),
@@ -295,6 +295,7 @@ public class AndroidBinaryGraphEnhancerTest {
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
+            Optional.empty(),
             /* locales */ ImmutableSet.of(),
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
@@ -352,7 +353,7 @@ public class AndroidBinaryGraphEnhancerTest {
             .getClasspathEntriesToDex()
             .stream()
             .map(pathResolver::getRelativePath)
-            .collect(MoreCollectors.toImmutableSet()));
+            .collect(ImmutableSet.toImmutableSet()));
     BuildRule enhancedBuildConfigRule = ruleResolver.getRule(enhancedBuildConfigTarget);
     assertTrue(enhancedBuildConfigRule instanceof AndroidBuildConfigJavaLibrary);
     AndroidBuildConfigJavaLibrary enhancedBuildConfigJavaLibrary =
@@ -422,6 +423,7 @@ public class AndroidBinaryGraphEnhancerTest {
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
+            Optional.empty(),
             /* locales */ ImmutableSet.of(),
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
@@ -489,6 +491,7 @@ public class AndroidBinaryGraphEnhancerTest {
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
+            Optional.empty(),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
@@ -586,6 +589,7 @@ public class AndroidBinaryGraphEnhancerTest {
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
+            Optional.empty(),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),

@@ -20,17 +20,13 @@ import static com.facebook.buck.rules.CellConfig.MalformedOverridesException;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 
-import com.facebook.buck.android.AndroidBuckConfig;
-import com.facebook.buck.android.AndroidDirectoryResolver;
-import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.AndroidPlatformTargetSupplier;
-import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
+import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.BuckInitializationDurationEvent;
@@ -58,6 +54,7 @@ import com.facebook.buck.event.listener.SuperConsoleConfig;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanDiagnosticEventListener;
 import com.facebook.buck.io.WatchmanFactory;
@@ -95,8 +92,8 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
-import com.facebook.buck.rules.keys.RuleKeyConfiguration;
-import com.facebook.buck.rules.keys.impl.ConfigRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
 import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
@@ -110,10 +107,10 @@ import com.facebook.buck.util.BuckArgsMethods;
 import com.facebook.buck.util.BuckIsDyingException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.Libc;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
@@ -195,7 +192,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
@@ -206,7 +202,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 import org.kohsuke.args4j.CmdLineException;
@@ -222,18 +217,6 @@ public final class Main {
    * <p>See: https://github.com/java-native-access/jna/issues/652
    */
   public static final int JNA_POINTER_SIZE = Pointer.SIZE;
-
-  /** Trying again won't help. */
-  public static final int FAIL_EXIT_CODE = 1;
-
-  /** Trying again later might work. */
-  public static final int BUSY_EXIT_CODE = 2;
-
-  /** Internal error exit code, meaning Buck fails with unknown exception */
-  public static final int INTERNAL_ERROR_EXIT_CODE = 13;
-
-  /** The command was interrupted */
-  public static final int INTERRUPTED_EXIT_CODE = 130;
 
   private static final Optional<String> BUCKD_LAUNCH_TIME_NANOS =
       Optional.ofNullable(System.getProperty("buck.buckd_launch_time_nanos"));
@@ -318,6 +301,7 @@ public final class Main {
   private static final Logger LOG = Logger.get(Main.class);
 
   private static boolean isSessionLeader;
+  private static PluginManager pluginManager;
 
   @Nullable private static FileLock resourcesFileLock = null;
 
@@ -374,7 +358,6 @@ public final class Main {
     installUncaughtExceptionHandler(context);
 
     Path projectRoot = Paths.get(".");
-    int exitCode = FAIL_EXIT_CODE;
     BuildId buildId = getBuildId(context);
 
     // Only post an overflow event if Watchman indicates a fresh instance event
@@ -387,6 +370,7 @@ public final class Main {
     // Get the client environment, either from this process or from the Nailgun context.
     ImmutableMap<String, String> clientEnvironment = getClientEnvironment(context);
 
+    ExitCode exitCode = ExitCode.SUCCESS;
     try {
       CommandMode commandMode = CommandMode.RELEASE;
       exitCode =
@@ -401,33 +385,39 @@ public final class Main {
               ImmutableList.copyOf(args));
     } catch (InterruptedException | ClosedByInterruptException e) {
       // We're about to exit, so it's acceptable to swallow interrupts here.
-      exitCode = INTERRUPTED_EXIT_CODE;
+      exitCode = ExitCode.SIGNAL_INTERRUPT;
       LOG.debug(e, "Interrupted");
     } catch (IOException e) {
       if (e.getMessage().startsWith("No space left on device")) {
+        exitCode = ExitCode.FATAL_DISK_FULL;
         makeStandardConsole(context).printBuildFailure(e.getMessage());
       } else {
+        exitCode = ExitCode.FATAL_IO;
         LOG.error(e);
       }
+    } catch (OutOfMemoryError e) {
+      exitCode = ExitCode.FATAL_OOM;
+      LOG.error(e, "Out of memory");
     } catch (HumanReadableException e) {
+      exitCode = ExitCode.BUILD_ERROR;
       makeStandardConsole(context).printBuildFailure(e.getHumanReadableErrorMessage());
     } catch (InterruptionFailedException e) { // Command could not be interrupted.
-      exitCode = INTERRUPTED_EXIT_CODE;
+      exitCode = ExitCode.SIGNAL_INTERRUPT;
       if (context.isPresent()) {
         context.get().getNGServer().shutdown(false);
       }
     } catch (BuckIsDyingException e) {
-      exitCode = INTERNAL_ERROR_EXIT_CODE;
+      exitCode = ExitCode.FATAL_GENERIC;
       LOG.warn(e, "Fallout because buck was already dying");
     } catch (Throwable t) {
-      exitCode = INTERNAL_ERROR_EXIT_CODE;
+      exitCode = ExitCode.FATAL_GENERIC;
       LOG.error(t, "Uncaught exception at top level");
     } finally {
       LOG.debug("Done.");
       LogConfig.flushLogs();
       // Exit explicitly so that non-daemon threads (of which we use many) don't
       // keep the VM alive.
-      System.exit(exitCode);
+      System.exit(exitCode.getCode());
     }
   }
 
@@ -439,25 +429,6 @@ public final class Main {
         new Ansi(
             AnsiEnvironmentChecking.environmentSupportsAnsiEscapes(
                 platform, getClientEnvironment(context))));
-  }
-
-  private OptionalInt parseArgs(ImmutableList<String> args, BuckCommand command) {
-    // Parse the command line args.
-    AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
-    try {
-      cmdLineParser.parseArgument(args);
-    } catch (CmdLineException e) {
-      // Can't go through the console for prettification since that needs the BuckConfig, and that
-      // needs to be created with the overrides, which are parsed from the command line here, which
-      // required the console to print the message that parsing has failed. So just write to stderr
-      // and be done with it.
-      stdErr.println(e.getLocalizedMessage());
-      stdErr.println("For help see 'buck --help'.");
-      return OptionalInt.of(1);
-    }
-    // Return help strings fast if the command is a help request.
-    OptionalInt result = command.runHelp(stdErr);
-    return result;
   }
 
   private void setupLogging(
@@ -536,10 +507,10 @@ public final class Main {
    * @param context an optional NGContext that is present if running inside a Nailgun server.
    * @param initTimestamp Value of System.nanoTime() when process got main()/nailMain() invoked.
    * @param unexpandedCommandLineArgs command line arguments
-   * @return an exit code or {@code null} if this is a process that should not exit
+   * @return an ExitCode representing the result of the command
    */
   @SuppressWarnings("PMD.PrematureDeclaration")
-  public int runMainWithExitCode(
+  public ExitCode runMainWithExitCode(
       BuildId buildId,
       Path projectRoot,
       Optional<NGContext> context,
@@ -550,27 +521,48 @@ public final class Main {
       ImmutableList<String> unexpandedCommandLineArgs)
       throws IOException, InterruptedException {
 
+    ExitCode exitCode = ExitCode.SUCCESS;
+
     ImmutableList<String> args =
         BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, projectRoot);
 
+    // Parse command line arguments
     BuckCommand command = new BuckCommand();
-    OptionalInt returnCode = parseArgs(args, command);
-    if (returnCode.isPresent()) {
-      return returnCode.getAsInt();
+    try {
+      // Parse the command line args.
+      AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
+      cmdLineParser.parseArgument(args);
+    } catch (CmdLineException e) {
+      // Can't go through the console for prettification since that needs the BuckConfig, and that
+      // needs to be created with the overrides, which are parsed from the command line here, which
+      // required the console to print the message that parsing has failed. So just write to stderr
+      // and be done with it.
+      stdErr.println(e.getLocalizedMessage());
+      stdErr.println("For help see 'buck --help'.");
+      return ExitCode.COMMANDLINE_ERROR;
     }
 
+    // Return help strings fast if the command is a help request.
+    Optional<ExitCode> result = command.runHelp(stdErr);
+    if (result.isPresent()) {
+      return result.get();
+    }
+
+    // Initialize logging
     try {
       setupLogging(commandMode, command, args);
     } catch (Throwable e) {
       // Explicitly catch error and print to stderr
       // because it is possible that logger is partially initialized
       // and exception will be logged nowhere.
-      System.err.println("Failed to initialize logger");
-      e.printStackTrace();
-      return INTERNAL_ERROR_EXIT_CODE;
+      stdErr.println("Failed to initialize logger");
+      e.printStackTrace(stdErr);
+      return ExitCode.FATAL_GENERIC;
     }
 
-    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    if (pluginManager == null) {
+      pluginManager = BuckPluginManagerFactory.createPluginManager();
+    }
 
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
@@ -592,6 +584,15 @@ public final class Main {
 
     Verbosity verbosity = VerbosityParser.parse(args);
 
+    // Switch to async file logging, if configured. A few log samples will have already gone
+    // via the regular file logger, but that's OK.
+    boolean isDistributedBuild =
+        command.subcommand != null && command.subcommand instanceof DistBuildCommand;
+    if (isDistributedBuild) {
+      DistBuildConfig distBuildConfig = new DistBuildConfig(buckConfig);
+      LogConfig.setUseAsyncFileLogging(distBuildConfig.isAsyncLoggingEnabled());
+    }
+
     // Setup the console.
     final Console console = makeCustomConsole(context, verbosity, buckConfig);
 
@@ -604,7 +605,7 @@ public final class Main {
       commandSemaphoreAcquired = commandSemaphore.tryAcquire();
       if (!commandSemaphoreAcquired) {
         LOG.warn("Buck server was busy executing a command. Maybe retrying later will help.");
-        return BUSY_EXIT_CODE;
+        return ExitCode.BUSY;
       }
     }
 
@@ -653,11 +654,6 @@ public final class Main {
 
       ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
-      AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
-      AndroidDirectoryResolver androidDirectoryResolver =
-          new DefaultAndroidDirectoryResolver(
-              filesystem.getRootPath().getFileSystem(), clientEnvironment, androidBuckConfig);
-
       SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory =
           new PlatformSandboxExecutionStrategyFactory();
 
@@ -681,14 +677,18 @@ public final class Main {
               knownBuildRuleTypesFactoryFactory.create(
                   processExecutor, pluginManager, sandboxExecutionStrategyFactory));
 
+      ExecutableFinder executableFinder = new ExecutableFinder();
+
       Cell rootCell =
           CellProviderFactory.createForLocalBuild(
                   filesystem,
                   watchman,
                   buckConfig,
                   command.getConfigOverrides(),
+                  pluginManager,
                   clientEnvironment,
                   processExecutor,
+                  executableFinder,
                   projectFilesystemFactory)
               .getCellByPath(filesystem.getRootPath());
 
@@ -709,7 +709,6 @@ public final class Main {
         TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
       }
 
-      int exitCode;
       ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
       ExecutionEnvironment executionEnvironment =
           new DefaultExecutionEnvironment(clientEnvironment, System.getProperties());
@@ -925,7 +924,7 @@ public final class Main {
                       cell ->
                           cell.getRoot().resolve(Configs.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME))
                   .filter(path -> Files.isRegularFile(path))
-                  .collect(MoreCollectors.toImmutableList());
+                  .collect(ImmutableList.toImmutableList());
           if (localConfigFiles.size() > 0) {
             String message =
                 localConfigFiles.size() == 1
@@ -1017,8 +1016,6 @@ public final class Main {
         } else {
           processManager = Optional.of(new PkillProcessManager(processExecutor));
         }
-        Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
-            new AndroidPlatformTargetSupplier(androidDirectoryResolver, androidBuckConfig);
 
         // At this point, we have parsed options but haven't started
         // running the command yet.  This is a good opportunity to
@@ -1041,57 +1038,46 @@ public final class Main {
         try {
           exitCode =
               command.run(
-                  CommandRunnerParams.builder()
-                      .setConsole(console)
-                      .setStdIn(stdIn)
-                      .setCell(rootCell)
-                      .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
-                      .setArtifactCacheFactory(artifactCacheFactory)
-                      .setBuckEventBus(buildEventBus)
-                      .setTypeCoercerFactory(parserAndCaches.getTypeCoercerFactory())
-                      .setParser(parserAndCaches.getParser())
-                      .setPlatform(platform)
-                      .setEnvironment(clientEnvironment)
-                      .setJavaPackageFinder(
-                          rootCell
-                              .getBuckConfig()
-                              .getView(JavaBuckConfig.class)
-                              .createDefaultJavaPackageFinder())
-                      .setClock(clock)
-                      .setVersionControlStatsGenerator(vcStatsGenerator)
-                      .setProcessManager(processManager)
-                      .setPersistentWorkerPools(persistentWorkerPools)
-                      .setWebServer(webServer)
-                      .setBuckConfig(buckConfig)
-                      .setFileHashCache(fileHashCache)
-                      .setExecutors(executors)
-                      .setScheduledExecutor(scheduledExecutorPool)
-                      .setBuildEnvironmentDescription(buildEnvironmentDescription)
-                      .setVersionedTargetGraphCache(parserAndCaches.getVersionedTargetGraphCache())
-                      .setActionGraphCache(parserAndCaches.getActionGraphCache())
-                      .setKnownBuildRuleTypesProvider(knownBuildRuleTypesProvider)
-                      .setInvocationInfo(Optional.of(invocationInfo))
-                      .setDefaultRuleKeyFactoryCacheRecycler(
-                          parserAndCaches.getDefaultRuleKeyFactoryCacheRecycler())
-                      .setBuildInfoStoreManager(storeManager)
-                      .setProjectFilesystemFactory(projectFilesystemFactory)
-                      .setRuleKeyConfiguration(ruleKeyConfiguration)
-                      .setProcessExecutor(processExecutor)
-                      .build());
+                  CommandRunnerParams.of(
+                      console,
+                      stdIn,
+                      rootCell,
+                      parserAndCaches.getVersionedTargetGraphCache(),
+                      artifactCacheFactory,
+                      parserAndCaches.getTypeCoercerFactory(),
+                      parserAndCaches.getParser(),
+                      buildEventBus,
+                      platform,
+                      clientEnvironment,
+                      rootCell
+                          .getBuckConfig()
+                          .getView(JavaBuckConfig.class)
+                          .createDefaultJavaPackageFinder(),
+                      clock,
+                      vcStatsGenerator,
+                      processManager,
+                      webServer,
+                      persistentWorkerPools,
+                      buckConfig,
+                      fileHashCache,
+                      executors,
+                      scheduledExecutorPool,
+                      buildEnvironmentDescription,
+                      parserAndCaches.getActionGraphCache(),
+                      knownBuildRuleTypesProvider,
+                      storeManager,
+                      Optional.of(invocationInfo),
+                      parserAndCaches.getDefaultRuleKeyFactoryCacheRecycler(),
+                      projectFilesystemFactory,
+                      ruleKeyConfiguration,
+                      processExecutor,
+                      executableFinder,
+                      pluginManager));
         } catch (InterruptedException | ClosedByInterruptException e) {
-          buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
+          buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
           throw e;
         }
-        // We've reserved exitCode 2 for timeouts, and some commands (e.g. run) may violate this
-        // Let's avoid an infinite loop
-        if (exitCode == BUSY_EXIT_CODE) {
-          exitCode = FAIL_EXIT_CODE; // Some loss of info here, but better than looping
-          LOG.error(
-              "Buck return with exit code %d which we use to indicate busy status. "
-                  + "This is probably propagating an exit code from a sub process or tool. "
-                  + "Coercing to %d to avoid retries.",
-              BUSY_EXIT_CODE, FAIL_EXIT_CODE);
-        }
+
         // Wait for HTTP writes to complete.
         closeHttpExecutorService(
             cacheBuckConfig, Optional.of(buildEventBus), httpWriteExecutorService);
@@ -1129,7 +1115,9 @@ public final class Main {
       }
       if (context.isPresent() && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
         context.get().in.close(); // Avoid client exit triggering client disconnection handling.
-        context.get().exit(exitCode); // Allow nailgun client to exit while outputting traces.
+        context
+            .get()
+            .exit(exitCode.getCode()); // Allow nailgun client to exit while outputting traces.
       }
 
       closeDiskIoExecutorService(diskIoExecutorService);
@@ -1576,7 +1564,6 @@ public final class Main {
     return eventListeners;
   }
 
-
   private BuildEnvironmentDescription getBuildEnvironmentDescription(
       ExecutionEnvironment executionEnvironment,
       BuckConfig buckConfig) {
@@ -1661,14 +1648,29 @@ public final class Main {
     // resource which other threads need.)
     Thread.setDefaultUncaughtExceptionHandler(
         (t, e) -> {
-          LOG.error(e, "Uncaught exception from thread %s", t);
+          ExitCode exitCode = ExitCode.FATAL_GENERIC;
+          if (e instanceof OutOfMemoryError) {
+            exitCode = ExitCode.FATAL_OOM;
+          } else if (e instanceof IOException) {
+            exitCode =
+                e.getMessage().startsWith("No space left on device")
+                    ? ExitCode.FATAL_DISK_FULL
+                    : ExitCode.FATAL_IO;
+          }
+
+          // Do not log anything in case we do not have space on the disk
+          if (exitCode == ExitCode.FATAL_DISK_FULL) {
+            LOG.error(e, "Uncaught exception from thread %s", t);
+          }
+
           if (context.isPresent()) {
             // Shut down the Nailgun server and make sure it stops trapping System.exit().
             //
             // We pass false for exitVM because otherwise Nailgun exits with code 0.
             context.get().getNGServer().shutdown(/* exitVM */ false);
           }
-          NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(INTERNAL_ERROR_EXIT_CODE);
+
+          NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(exitCode.getCode());
         });
   }
 
