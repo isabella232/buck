@@ -25,8 +25,8 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.google.common.collect.ImmutableMap;
@@ -70,8 +70,7 @@ public class BuildTargetParserTest {
     // Note the sort order.
     assertEquals("//:lib#bar,foo", buildTarget.getFullyQualifiedName());
     assertThat(
-        buildTarget.getFlavors(),
-        hasItems((Flavor) InternalFlavor.of("foo"), InternalFlavor.of("bar")));
+        buildTarget.getFlavors(), hasItems(InternalFlavor.of("foo"), InternalFlavor.of("bar")));
   }
 
   @Test
@@ -183,7 +182,7 @@ public class BuildTargetParserTest {
 
   @Test
   public void testParseWithRepoName() {
-    final Path localRepoRoot = Paths.get("/opt/local/repo");
+    Path localRepoRoot = Paths.get("/opt/local/repo");
     CellPathResolver cellRoots =
         DefaultCellPathResolver.of(
             Paths.get("/opt/local/rootcell"), ImmutableMap.of("localreponame", localRepoRoot));

@@ -24,12 +24,13 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.plugin.BuckPluginManagerFactory;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
@@ -41,9 +42,9 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableSet;
@@ -59,6 +60,8 @@ import org.junit.Rule;
 import org.junit.Test;
 
 public class BuckQueryEnvironmentTest {
+
+  private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -88,6 +91,7 @@ public class BuckQueryEnvironmentTest {
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
+    ExecutableFinder executableFinder = new ExecutableFinder();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     Parser parser =
         new Parser(
@@ -95,12 +99,16 @@ public class BuckQueryEnvironmentTest {
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider);
+            knownBuildRuleTypesProvider,
+            executableFinder);
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
     parserState =
         new PerBuildState(
-            parser,
+            typeCoercerFactory,
+            new ConstructorArgMarshaller(typeCoercerFactory),
+            parser.getPermState(),
             eventBus,
+            executableFinder,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -114,12 +122,18 @@ public class BuckQueryEnvironmentTest {
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     buckQueryEnvironment =
         BuckQueryEnvironment.from(
-            cell, ownersReportBuilder, parserState, executor, targetPatternEvaluator);
+            cell,
+            ownersReportBuilder,
+            parserState,
+            executor,
+            targetPatternEvaluator,
+            null /* TODO */,
+            TYPE_COERCER_FACTORY);
     cellRoot = workspace.getDestPath();
   }
 
   @After
-  public void cleanUp() throws Exception {
+  public void cleanUp() {
     parserState.close();
     executor.shutdown();
   }

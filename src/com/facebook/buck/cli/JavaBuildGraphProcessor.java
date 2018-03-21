@@ -19,7 +19,6 @@ package com.facebook.buck.cli;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.autodeps.JavaDepsFinder;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -33,23 +32,29 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
+import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * Utility that aids in creating the objects necessary to traverse the target graph with special
@@ -87,10 +92,9 @@ final class JavaBuildGraphProcessor {
    * runs it. This method will take responsibility for cleaning up the executor service after it
    * runs.
    */
-  static void run(
-      final CommandRunnerParams params, final AbstractCommand command, final Processor processor)
+  static void run(CommandRunnerParams params, AbstractCommand command, Processor processor)
       throws ExitCodeException, InterruptedException, IOException {
-    final ConcurrencyLimit concurrencyLimit = command.getConcurrencyLimit(params.getBuckConfig());
+    ConcurrencyLimit concurrencyLimit = command.getConcurrencyLimit(params.getBuckConfig());
     try (CommandThreadManager pool =
         new CommandThreadManager(command.getClass().getName(), concurrencyLimit)) {
       Cell cell = params.getCell();
@@ -109,7 +113,7 @@ final class JavaBuildGraphProcessor {
                         TargetNodePredicateSpec.of(
                             BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))))
                 .getTargetGraph();
-      } catch (BuildTargetException | BuildFileParseException e) {
+      } catch (BuildFileParseException e) {
         params
             .getBuckEventBus()
             .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -118,32 +122,44 @@ final class JavaBuildGraphProcessor {
 
       BuildRuleResolver buildRuleResolver =
           new SingleThreadedBuildRuleResolver(
-              graph, new DefaultTargetNodeToBuildRuleTransformer(), params.getBuckEventBus());
+              graph,
+              new DefaultTargetNodeToBuildRuleTransformer(),
+              params.getCell().getCellProvider(),
+              params.getBuckEventBus());
+      SourcePathRuleFinder sourcePathRuleFinder = new SourcePathRuleFinder(buildRuleResolver);
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
       LocalCachingBuildEngineDelegate cachingBuildEngineDelegate =
           new LocalCachingBuildEngineDelegate(params.getFileHashCache());
-      try (CachingBuildEngine buildEngine =
-          new CachingBuildEngine(
-              cachingBuildEngineDelegate,
-              pool.getWeightedListeningExecutorService(),
-              new DefaultStepRunner(),
-              CachingBuildEngine.BuildMode.SHALLOW,
-              cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
-              cachingBuildEngineBuckConfig.getBuildDepFiles(),
-              cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
-              cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-              buildRuleResolver,
-              params.getBuildInfoStoreManager(),
-              cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
-              cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
-              RuleKeyFactories.of(
-                  params.getRuleKeyConfiguration(),
-                  cachingBuildEngineDelegate.getFileHashCache(),
+      try (RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
+              new EventPostingRuleKeyCacheScope<>(
+                  params.getBuckEventBus(),
+                  new TrackedRuleKeyCache<>(
+                      new DefaultRuleKeyCache<>(), new InstrumentingCacheStatsTracker()));
+          CachingBuildEngine buildEngine =
+              new CachingBuildEngine(
+                  cachingBuildEngineDelegate,
+                  Optional.empty(),
+                  pool.getWeightedListeningExecutorService(),
+                  new DefaultStepRunner(),
+                  CachingBuildEngine.BuildMode.SHALLOW,
+                  cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
+                  cachingBuildEngineBuckConfig.getBuildDepFiles(),
+                  cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+                  cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
                   buildRuleResolver,
-                  params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
-                  new DefaultRuleKeyCache<>()),
-              new NoOpRemoteBuildRuleCompletionWaiter()); ) {
+                  sourcePathRuleFinder,
+                  DefaultSourcePathResolver.from(sourcePathRuleFinder),
+                  params.getBuildInfoStoreManager(),
+                  cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
+                  cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
+                  RuleKeyFactories.of(
+                      params.getRuleKeyConfiguration(),
+                      cachingBuildEngineDelegate.getFileHashCache(),
+                      buildRuleResolver,
+                      params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+                      ruleKeyCacheScope.getCache()),
+                  new NoOpRemoteBuildRuleCompletionWaiter())) {
         // Create a BuildEngine because we store symbol information as build artifacts.
         BuckEventBus eventBus = params.getBuckEventBus();
         ExecutionContext executionContext =
@@ -152,9 +168,7 @@ final class JavaBuildGraphProcessor {
                 .setConcurrencyLimit(concurrencyLimit)
                 .setBuckEventBus(eventBus)
                 .setEnvironment(/* environment */ ImmutableMap.of())
-                .setExecutors(
-                    ImmutableMap.<ExecutorPool, ListeningExecutorService>of(
-                        ExecutorPool.CPU, pool.getListeningExecutorService()))
+                .setExecutors(ImmutableMap.of(ExecutorPool.CPU, pool.getListeningExecutorService()))
                 .setJavaPackageFinder(params.getJavaPackageFinder())
                 .setPlatform(params.getPlatform())
                 .setCellPathResolver(params.getCell().getCellPathResolver())

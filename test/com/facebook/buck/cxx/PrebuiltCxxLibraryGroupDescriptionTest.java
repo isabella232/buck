@@ -27,12 +27,10 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -47,9 +45,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
   public void exportedPreprocessorFlags() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     CxxPreprocessorDep lib =
         (CxxPreprocessorDep)
@@ -57,15 +53,14 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setExportedPreprocessorFlags(ImmutableList.of("-flag"))
                 .build(resolver);
     assertThat(
-        lib.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM).getPreprocessorFlags(),
+        lib.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, resolver)
+            .getPreprocessorFlags(),
         Matchers.equalTo(CxxFlags.toLanguageFlags(StringArg.from("-flag"))));
   }
 
   @Test
   public void includeDirs() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath includes = FakeSourcePath.of("include");
     CxxPreprocessorDep lib =
@@ -74,7 +69,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setIncludeDirs(ImmutableList.of(includes))
                 .build(resolver);
     assertThat(
-        lib.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM).getIncludes(),
+        lib.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, resolver).getIncludes(),
         Matchers.equalTo(
             ImmutableList.<CxxHeaders>of(
                 CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, includes))));
@@ -82,9 +77,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
   public void staticLink() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = FakeSourcePath.of("include");
     NativeLinkable lib =
@@ -95,7 +88,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(resolver);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC),
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, resolver),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -107,9 +100,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
   public void staticPicLink() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath path = FakeSourcePath.of("include");
     NativeLinkable lib =
@@ -120,7 +111,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(resolver);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC),
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, resolver),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -132,9 +123,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
   public void sharedLink() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = FakeSourcePath.of("dir/lib1.so");
     PathSourcePath lib2 = FakeSourcePath.of("dir/lib2.so");
@@ -148,7 +137,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(resolver);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED),
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, resolver),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(
@@ -161,9 +150,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
   @Test
   public void exportedDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     CxxLibrary dep =
         (CxxLibrary)
@@ -174,15 +161,13 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setExportedDeps(ImmutableSortedSet.of(dep.getBuildTarget()))
                 .build(resolver);
     assertThat(
-        lib.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
+        lib.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.contains(dep));
   }
 
   @Test
   public void providedSharedLibs() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//:lib");
     SourcePath lib1 = FakeSourcePath.of("dir/lib1.so");
     SourcePath lib2 = FakeSourcePath.of("dir/lib2.so");
@@ -195,21 +180,19 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .build(resolver);
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED),
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, resolver),
         Matchers.equalTo(
             NativeLinkableInput.builder()
                 .addArgs(SourcePathArg.of(lib1), SourcePathArg.of(lib2))
                 .build()));
     assertThat(
-        lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM),
+        lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.equalTo(ImmutableMap.of("lib1.so", lib1)));
   }
 
   @Test
   public void preferredLinkage() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
 
     NativeLinkable any =
         (NativeLinkable)
@@ -218,7 +201,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setStaticLink(ImmutableList.of("-something"))
                 .build(resolver);
     assertThat(
-        any.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        any.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.equalTo(NativeLinkable.Linkage.ANY));
 
     NativeLinkable staticOnly =
@@ -227,7 +210,7 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setStaticLink(ImmutableList.of("-something"))
                 .build(resolver);
     assertThat(
-        staticOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        staticOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.equalTo(NativeLinkable.Linkage.STATIC));
 
     NativeLinkable sharedOnly =
@@ -236,12 +219,12 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 .setSharedLink(ImmutableList.of("-something"))
                 .build(resolver);
     assertThat(
-        sharedOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM),
+        sharedOnly.getPreferredLinkage(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.equalTo(NativeLinkable.Linkage.SHARED));
   }
 
   @Test
-  public void cxxGenruleLib() throws Exception {
+  public void cxxGenruleLib() {
     CxxGenruleBuilder cxxGenruleBuilder =
         new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:dep")).setOut("libtest.so");
     PrebuiltCxxLibraryGroupBuilder builder =
@@ -251,24 +234,21 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
                 ImmutableList.of(DefaultBuildTargetSourcePath.of(cxxGenruleBuilder.getTarget())));
 
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(cxxGenruleBuilder.build(), builder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+        new TestBuildRuleResolver(
+            TargetGraphFactory.newInstance(cxxGenruleBuilder.build(), builder.build()));
 
     CxxGenrule cxxGenrule = (CxxGenrule) cxxGenruleBuilder.build(resolver);
     NativeLinkable library = (NativeLinkable) builder.build(resolver);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC);
-    SourcePath lib = cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, resolver);
+    SourcePath lib = cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     assertThat(input.getArgs(), Matchers.contains(SourcePathArg.of(lib)));
   }
 
   @Test
   public void supportedPlatforms() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxLibrary dep1 =
         (CxxLibrary)
             new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep")).build(resolver);
@@ -292,23 +272,24 @@ public class PrebuiltCxxLibraryGroupDescriptionTest {
 
     assertThat(
         lib.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED),
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, resolver),
         Matchers.equalTo(NativeLinkableInput.of()));
 
     assertThat(
-        lib.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
+        lib.getNativeLinkableExportedDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.emptyIterable());
 
     assertThat(
-        lib.getNativeLinkableDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM),
+        lib.getNativeLinkableDepsForPlatform(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.emptyIterable());
 
-    assertThat(lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM), Matchers.anEmptyMap());
+    assertThat(
+        lib.getSharedLibraries(CxxPlatformUtils.DEFAULT_PLATFORM, resolver), Matchers.anEmptyMap());
 
     CxxPreprocessorDep cxxPreprocessorDep = (CxxPreprocessorDep) buildRule;
 
     assertThat(
-        cxxPreprocessorDep.getCxxPreprocessorDeps(CxxPlatformUtils.DEFAULT_PLATFORM),
+        cxxPreprocessorDep.getCxxPreprocessorDeps(CxxPlatformUtils.DEFAULT_PLATFORM, resolver),
         Matchers.emptyIterable());
   }
 }

@@ -28,6 +28,7 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.cache.NoOpCacheStatsTracker;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -39,7 +40,7 @@ public class RuleKeyCacheRecyclerTest {
   private static final ProjectFilesystem FILESYSTEM = new FakeProjectFilesystem();
   private static final EventBus EVENT_BUS = new EventBus();
   private static final BuckEventBus BUCK_EVENT_BUS =
-      new DefaultBuckEventBus(FakeClock.DO_NOT_CARE, new BuildId());
+      new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId());
   private static final int RULE_KEY_SEED = 0;
   private static final ActionGraph ACTION_GRAPH = new ActionGraph(ImmutableList.of());
   private static final RuleKeyCacheRecycler.SettingsAffectingCache SETTINGS =
@@ -53,9 +54,13 @@ public class RuleKeyCacheRecyclerTest {
     RuleKeyInput input2 = RuleKeyInput.of(FILESYSTEM, FILESYSTEM.getPath("input2"));
     AddsToRuleKey appendable2 = new AddsToRuleKey() {};
     cache.get(
-        appendable1, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input1)));
+        appendable1,
+        a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input1)),
+        new NoOpCacheStatsTracker());
     cache.get(
-        appendable2, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input2)));
+        appendable2,
+        a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input2)),
+        new NoOpCacheStatsTracker());
     RuleKeyCacheRecycler<String> recycler =
         RuleKeyCacheRecycler.createAndRegister(EVENT_BUS, cache, ImmutableSet.of(FILESYSTEM));
     recycler.onFilesystemChange(
@@ -71,7 +76,9 @@ public class RuleKeyCacheRecyclerTest {
     RuleKeyInput input = RuleKeyInput.of(FILESYSTEM, FILESYSTEM.getPath("input"));
     AddsToRuleKey appendable = new AddsToRuleKey() {};
     cache.get(
-        appendable, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input)));
+        appendable,
+        a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input)),
+        new NoOpCacheStatsTracker());
     RuleKeyCacheRecycler<String> recycler =
         RuleKeyCacheRecycler.createAndRegister(EVENT_BUS, cache, ImmutableSet.of(FILESYSTEM));
     recycler.onFilesystemChange(
@@ -90,13 +97,17 @@ public class RuleKeyCacheRecyclerTest {
     RuleKeyInput input1 = RuleKeyInput.of(FILESYSTEM, FILESYSTEM.getPath("input1"));
     AddsToRuleKey appendable1 = new AddsToRuleKey() {};
     cache.get(
-        appendable1, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input1)));
+        appendable1,
+        a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input1)),
+        new NoOpCacheStatsTracker());
 
     // Create another rule key appendable with an input and cache it.
     RuleKeyInput input2 = RuleKeyInput.of(FILESYSTEM, FILESYSTEM.getPath("input2"));
     AddsToRuleKey appendable2 = new AddsToRuleKey() {};
     cache.get(
-        appendable2, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input2)));
+        appendable2,
+        a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of(input2)),
+        new NoOpCacheStatsTracker());
 
     RuleKeyCacheRecycler<String> recycler =
         RuleKeyCacheRecycler.createAndRegister(EVENT_BUS, cache, ImmutableSet.of(FILESYSTEM));
@@ -122,7 +133,9 @@ public class RuleKeyCacheRecyclerTest {
         SETTINGS,
         c -> {
           cache.get(
-              appendable, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()));
+              appendable,
+              a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()),
+              new NoOpCacheStatsTracker());
         });
     assertTrue(cache.isCached(appendable));
     recycler.withRecycledCache(BUCK_EVENT_BUS, SETTINGS, c -> {});
@@ -141,7 +154,9 @@ public class RuleKeyCacheRecyclerTest {
         SETTINGS,
         c -> {
           cache.get(
-              appendable, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()));
+              appendable,
+              a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()),
+              new NoOpCacheStatsTracker());
         });
     assertTrue(cache.isCached(appendable));
     recycler.withRecycledCache(
@@ -162,7 +177,9 @@ public class RuleKeyCacheRecyclerTest {
         SETTINGS,
         c -> {
           cache.get(
-              appendable, a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()));
+              appendable,
+              a -> new RuleKeyResult<>("", ImmutableList.of(), ImmutableList.of()),
+              new NoOpCacheStatsTracker());
         });
     assertTrue(cache.isCached(appendable));
     recycler.withRecycledCache(

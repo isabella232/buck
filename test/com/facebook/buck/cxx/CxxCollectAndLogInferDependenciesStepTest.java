@@ -30,29 +30,21 @@ import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -62,18 +54,13 @@ import org.junit.Test;
 public class CxxCollectAndLogInferDependenciesStepTest {
 
   private static ProjectFilesystem createFakeFilesystem(String fakeRoot) {
-    final Path fakeRootPath = Paths.get(fakeRoot);
+    Path fakeRootPath = Paths.get(fakeRoot);
     Preconditions.checkArgument(fakeRootPath.isAbsolute(), "fakeRoot must be an absolute path");
     return new FakeProjectFilesystem(fakeRootPath);
   }
 
   private CxxInferCapture createCaptureRule(
-      BuildTarget buildTarget,
-      BuildRuleParams buildRuleParams,
-      SourcePathResolver sourcePathResolver,
-      ProjectFilesystem filesystem,
-      InferBuckConfig inferBuckConfig)
-      throws Exception {
+      BuildTarget buildTarget, ProjectFilesystem filesystem, InferBuckConfig inferBuckConfig) {
     class FrameworkPathAppendableFunction
         implements RuleKeyAppendableFunction<FrameworkPath, Path> {
       @Override
@@ -94,7 +81,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     PreprocessorDelegate preprocessorDelegate =
         new PreprocessorDelegate(
-            sourcePathResolver,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification(),
             Paths.get("whatever"),
@@ -107,11 +93,12 @@ public class CxxCollectAndLogInferDependenciesStepTest {
     return new CxxInferCapture(
         buildTarget,
         filesystem,
-        buildRuleParams,
+        ImmutableSortedSet.of(),
         CxxToolFlags.of(),
         CxxToolFlags.of(),
         FakeSourcePath.of("src.c"),
         AbstractCxxSource.Type.C,
+        Optional.empty(),
         Paths.get("src.o"),
         preprocessorDelegate,
         inferBuckConfig);
@@ -142,7 +129,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     int exitCode = step.execute(executionContext).getExitCode();
-    assertThat(exitCode, is(StepExecutionResult.SUCCESS.getExitCode()));
+    assertThat(exitCode, is(StepExecutionResults.SUCCESS.getExitCode()));
 
     String expectedOutput =
         InferLogLine.fromBuildTarget(testBuildTarget, analyzeRule.getAbsolutePathToResultsDir())
@@ -177,7 +164,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     int exitCode = step.execute(executionContext).getExitCode();
-    assertThat(exitCode, is(StepExecutionResult.SUCCESS.getExitCode()));
+    assertThat(exitCode, is(StepExecutionResults.SUCCESS.getExitCode()));
 
     String expectedOutput =
         InferLogLine.fromBuildTarget(testBuildTarget, analyzeRule.getAbsolutePathToResultsDir())
@@ -205,19 +192,10 @@ public class CxxCollectAndLogInferDependenciesStepTest {
             UnflavoredBuildTarget.of(
                 filesystem2.getRootPath(), Optional.of("cell2"), "//target/in_cell_two", "short2"),
             ImmutableSet.of(CxxInferEnhancer.INFER_CAPTURE_FLAVOR));
-    BuildRuleParams buildRuleParams2 = TestBuildRuleParams.create();
-
-    BuildRuleResolver testBuildRuleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(testBuildRuleResolver));
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
-    CxxInferCapture captureRule =
-        createCaptureRule(
-            buildTarget2, buildRuleParams2, testSourcePathResolver, filesystem2, inferBuckConfig);
+    CxxInferCapture captureRule = createCaptureRule(buildTarget2, filesystem2, inferBuckConfig);
 
     CxxInferAnalyze analyzeRule =
         new CxxInferAnalyze(
@@ -233,14 +211,12 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     int exitCode = step.execute(executionContext).getExitCode();
-    assertThat(exitCode, is(StepExecutionResult.SUCCESS.getExitCode()));
+    assertThat(exitCode, is(StepExecutionResults.SUCCESS.getExitCode()));
 
     String expectedOutput =
         InferLogLine.fromBuildTarget(buildTarget1, analyzeRule.getAbsolutePathToResultsDir())
-                .toString()
             + "\n"
-            + InferLogLine.fromBuildTarget(buildTarget2, captureRule.getAbsolutePathToOutput())
-                .toString();
+            + InferLogLine.fromBuildTarget(buildTarget2, captureRule.getAbsolutePathToOutput());
 
     assertEquals(expectedOutput + "\n", filesystem1.readFileIfItExists(outputFile).get());
   }
@@ -264,19 +240,10 @@ public class CxxCollectAndLogInferDependenciesStepTest {
             UnflavoredBuildTarget.of(
                 filesystem2.getRootPath(), Optional.of("cell2"), "//target/in_cell_two", "short2"),
             ImmutableSet.of(CxxInferEnhancer.INFER_CAPTURE_FLAVOR));
-    BuildRuleParams buildRuleParams2 = TestBuildRuleParams.create();
-
-    BuildRuleResolver testBuildRuleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(testBuildRuleResolver));
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(FakeBuckConfig.builder().build());
 
-    CxxInferCapture captureRule =
-        createCaptureRule(
-            buildTarget2, buildRuleParams2, testSourcePathResolver, filesystem2, inferBuckConfig);
+    CxxInferCapture captureRule = createCaptureRule(buildTarget2, filesystem2, inferBuckConfig);
 
     CxxInferAnalyze analyzeRule =
         new CxxInferAnalyze(
@@ -292,14 +259,12 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     int exitCode = step.execute(executionContext).getExitCode();
-    assertThat(exitCode, is(StepExecutionResult.SUCCESS.getExitCode()));
+    assertThat(exitCode, is(StepExecutionResults.SUCCESS.getExitCode()));
 
     String expectedOutput =
         InferLogLine.fromBuildTarget(buildTarget1, analyzeRule.getAbsolutePathToResultsDir())
-                .toString()
             + "\n"
-            + InferLogLine.fromBuildTarget(buildTarget2, captureRule.getAbsolutePathToOutput())
-                .toString();
+            + InferLogLine.fromBuildTarget(buildTarget2, captureRule.getAbsolutePathToOutput());
 
     assertEquals(expectedOutput + "\n", filesystem1.readFileIfItExists(outputFile).get());
   }

@@ -54,18 +54,17 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -146,7 +145,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void iphoneOSSdkPathsBuiltFromDirectory() throws Exception {
+  public void iphoneOSSdkPathsBuiltFromDirectory() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -184,7 +183,7 @@ public class AppleCxxPlatformsTest {
     paths.forEach(this::touchFile);
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "7.0",
@@ -197,9 +196,7 @@ public class AppleCxxPlatformsTest {
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -248,7 +245,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void watchOSSdkPathsBuiltFromDirectory() throws Exception {
+  public void watchOSSdkPathsBuiltFromDirectory() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -282,7 +279,7 @@ public class AppleCxxPlatformsTest {
     paths.forEach(this::touchFile);
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "2.0",
@@ -295,9 +292,7 @@ public class AppleCxxPlatformsTest {
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -341,7 +336,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void appleTVOSSdkPathsBuiltFromDirectory() throws Exception {
+  public void appleTVOSSdkPathsBuiltFromDirectory() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -376,7 +371,7 @@ public class AppleCxxPlatformsTest {
     paths.forEach(this::touchFile);
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "9.1",
@@ -389,9 +384,7 @@ public class AppleCxxPlatformsTest {
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -436,7 +429,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void invalidFlavorCharactersInSdkAreEscaped() throws Exception {
+  public void invalidFlavorCharactersInSdkAreEscaped() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -471,7 +464,7 @@ public class AppleCxxPlatformsTest {
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "7.0",
@@ -487,7 +480,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void cxxToolParamsReadFromBuckConfig() throws Exception {
+  public void cxxToolParamsReadFromBuckConfig() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -522,7 +515,7 @@ public class AppleCxxPlatformsTest {
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "7.0",
@@ -551,7 +544,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void pathNotFoundThrows() throws Exception {
+  public void pathNotFoundThrows() {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(containsString("Cannot find tool"));
     AppleSdkPaths appleSdkPaths =
@@ -578,7 +571,7 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
-    AppleCxxPlatforms.buildWithExecutableChecker(
+    AppleCxxPlatforms.buildWithXcodeToolFinder(
         projectFilesystem,
         targetSdk,
         "7.0",
@@ -591,7 +584,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void iphoneOSSimulatorPlatformSetsLinkerFlags() throws Exception {
+  public void iphoneOSSimulatorPlatformSetsLinkerFlags() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -627,7 +620,7 @@ public class AppleCxxPlatformsTest {
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "7.0",
@@ -645,7 +638,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void watchOSSimulatorPlatformSetsLinkerFlags() throws Exception {
+  public void watchOSSimulatorPlatformSetsLinkerFlags() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -681,7 +674,7 @@ public class AppleCxxPlatformsTest {
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "2.0",
@@ -699,7 +692,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void appleTVOSSimulatorPlatformSetsLinkerFlags() throws Exception {
+  public void appleTVOSSimulatorPlatformSetsLinkerFlags() {
     AppleSdkPaths appleSdkPaths =
         AppleSdkPaths.builder()
             .setDeveloperPath(developerDir)
@@ -736,7 +729,7 @@ public class AppleCxxPlatformsTest {
             .build();
 
     AppleCxxPlatform appleCxxPlatform =
-        AppleCxxPlatforms.buildWithExecutableChecker(
+        AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
             targetSdk,
             "9.1",
@@ -761,9 +754,7 @@ public class AppleCxxPlatformsTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructCompileRuleKeys(
       Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws IOException {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
@@ -821,9 +812,7 @@ public class AppleCxxPlatformsTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructLinkRuleKeys(
       ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
@@ -860,7 +849,8 @@ public class AppleCxxPlatformsTest {
               NativeLinkableInput.builder()
                   .setArgs(SourcePathArg.from(FakeSourcePath.of("input.o")))
                   .build(),
-              Optional.empty());
+              Optional.empty(),
+              TestCellPathResolver.get(projectFilesystem));
       ruleKeys.put(entry.getKey(), ruleKeyFactory.build(rule));
     }
     return ruleKeys.build();
@@ -890,7 +880,7 @@ public class AppleCxxPlatformsTest {
             .build();
     getCommonKnownPaths(root).forEach(this::touchFile);
     this.touchFile(root.resolve("Toolchains/XcodeDefault.xctoolchain/usr/bin/ar"));
-    return AppleCxxPlatforms.buildWithExecutableChecker(
+    return AppleCxxPlatforms.buildWithXcodeToolFinder(
         projectFilesystem,
         targetSdk,
         "7.0",
@@ -944,7 +934,7 @@ public class AppleCxxPlatformsTest {
   }
 
   @Test
-  public void filePathIsUsedWhenBuildTargetDoesNotExist() throws IOException {
+  public void filePathIsUsedWhenBuildTargetDoesNotExist() {
     Path codesignPath = projectFilesystem.getPath("/foo/fakecodesign");
     touchFile(codesignPath);
     AppleCxxPlatform appleCxxPlatform =
@@ -1129,7 +1119,7 @@ public class AppleCxxPlatformsTest {
     Files.createDirectories(tempRoot.resolve("usr/lib/swift_static/iphoneos"));
     Optional<AppleToolchain> selectedSwiftToolChain =
         useDefaultSwift ? Optional.empty() : Optional.of(swiftToolchain);
-    final ImmutableSet<Path> knownPaths =
+    ImmutableSet<Path> knownPaths =
         ImmutableSet.<Path>builder()
             .addAll(getCommonKnownPaths(developerDir))
             .add(developerDir.resolve("Platforms/iPhoneOS.platform/Developer/usr/bin/libtool"))
@@ -1140,7 +1130,7 @@ public class AppleCxxPlatformsTest {
                     "Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-stdlib-tool"))
             .build();
     knownPaths.forEach(this::touchFile);
-    return AppleCxxPlatforms.buildWithExecutableChecker(
+    return AppleCxxPlatforms.buildWithXcodeToolFinder(
         projectFilesystem,
         FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_SDK,
         "7.0",

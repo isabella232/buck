@@ -25,7 +25,11 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -47,7 +51,7 @@ public class DexWithClassesTest {
         new DexProducedFromJavaLibrary(
             buildTarget,
             new FakeProjectFilesystem(),
-            TestAndroidLegacyToolchainFactory.create(),
+            TestAndroidPlatformTargetFactory.create(),
             params,
             javaLibrary,
             DxStep.DX);
@@ -60,10 +64,12 @@ public class DexWithClassesTest {
                     "com/example/Main", HashCode.fromString(Strings.repeat("cafebabe", 5))),
                 Optional.empty()));
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DexWithClasses dexWithClasses = DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexFromJavaLibrary);
     assertEquals(
         BuildTargets.getGenPath(javaLibrary.getProjectFilesystem(), buildTarget, "%s.dex.jar"),
-        dexWithClasses.getPathToDexFile());
+        pathResolver.getRelativePath(dexWithClasses.getSourcePathToDexFile()));
     assertEquals(ImmutableSet.of("com/example/Main"), dexWithClasses.getClassNames());
     assertEquals(1600, dexWithClasses.getWeightEstimate());
   }
@@ -79,7 +85,7 @@ public class DexWithClassesTest {
         new DexProducedFromJavaLibrary(
             buildTarget,
             new FakeProjectFilesystem(),
-            TestAndroidLegacyToolchainFactory.create(),
+            TestAndroidPlatformTargetFactory.create(),
             params,
             javaLibrary,
             DxStep.DX);

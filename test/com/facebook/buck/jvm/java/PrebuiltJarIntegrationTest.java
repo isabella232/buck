@@ -26,9 +26,10 @@ import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
@@ -62,14 +63,14 @@ public class PrebuiltJarIntegrationTest {
   }
 
   @Test
-  public void testAbiKeyIsHashOfFileContents() throws IOException, InterruptedException {
+  public void testAbiKeyIsHashOfFileContents() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "prebuilt", temp);
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:jar");
     BuildTarget abiTarget = target.withAppendedFlavors(HasJavaAbi.CLASS_ABI_FLAVOR);
-    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckBuild(target.getFullyQualifiedName());
     result.assertSuccess();
 
     BuckBuildLog buildLog = workspace.getBuildLog();
@@ -153,8 +154,7 @@ public class PrebuiltJarIntegrationTest {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "prebuilt", temp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult processResult =
-        workspace.runBuckBuild("//:jar_from_exported_zip");
+    ProcessResult processResult = workspace.runBuckBuild("//:jar_from_exported_zip");
     processResult.assertSuccess();
     assertThat(processResult.getStderr(), Matchers.stringContainsInOrder("renaming to junit.jar"));
 

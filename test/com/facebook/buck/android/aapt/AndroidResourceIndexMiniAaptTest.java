@@ -29,14 +29,12 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -54,10 +52,7 @@ import org.junit.Test;
 
 public class AndroidResourceIndexMiniAaptTest {
   private final SourcePathResolver resolver =
-      DefaultSourcePathResolver.from(
-          new SourcePathRuleFinder(
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
 
   @Rule public ExpectedException thrown = ExpectedException.none();
   @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
@@ -278,7 +273,7 @@ public class AndroidResourceIndexMiniAaptTest {
     aapt.processFileNamesInDirectory(filesystem, Paths.get("sample_res/transition-v19"));
     aapt.processValues(
         filesystem,
-        new DefaultBuckEventBus(FakeClock.DO_NOT_CARE, new BuildId("")),
+        new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId("")),
         Paths.get("sample_res/values"));
 
     assertEquals(

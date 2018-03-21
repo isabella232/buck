@@ -19,11 +19,11 @@ package com.facebook.buck.apple.toolchain;
 import com.dd.plist.NSArray;
 import com.dd.plist.NSObject;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.toolchain.Toolchain;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -102,7 +102,7 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
       ApplePlatform platform,
       Optional<ImmutableMap<String, NSObject>> entitlements,
       Optional<? extends Iterable<CodeSignIdentity>> identities) {
-    final Optional<String> prefix;
+    Optional<String> prefix;
     if (entitlements.isPresent()) {
       prefix = ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get());
     } else {
@@ -116,7 +116,7 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
       if (profile.getExpirationDate().after(new Date())) {
         Pair<String, String> appID = profile.getAppID();
 
-        LOG.debug("Looking at provisioning profile " + profile.getUUID() + "," + appID.toString());
+        LOG.debug("Looking at provisioning profile " + profile.getUUID() + "," + appID);
 
         if (!prefix.isPresent() || prefix.get().equals(appID.getFirst())) {
           String profileBundleID = appID.getSecond();
@@ -208,7 +208,7 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
       }
     }
 
-    LOG.debug("Found provisioning profile " + bestMatch.toString());
+    LOG.debug("Found provisioning profile " + bestMatch);
     return bestMatch;
   }
 

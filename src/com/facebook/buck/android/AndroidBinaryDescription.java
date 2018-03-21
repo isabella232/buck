@@ -27,8 +27,9 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.RedexOptions;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
-import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -46,8 +47,8 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -59,15 +60,16 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
+import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -75,7 +77,6 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
@@ -86,7 +87,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -109,11 +109,8 @@ public class AndroidBinaryDescription
    */
   private static final long DEFAULT_LINEAR_ALLOC_HARD_LIMIT = 4 * 1024 * 1024;
 
-  private static final MacroHandler MACRO_HANDLER =
-      new MacroHandler(
-          ImmutableMap.of(
-              "exe", new ExecutableMacroExpander(),
-              "location", new LocationMacroExpander()));
+  private static final ImmutableList<AbstractMacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+      ImmutableList.of(new ExecutableMacroExpander(), new LocationMacroExpander());
 
   private static final Pattern COUNTRY_LOCALE_PATTERN = Pattern.compile("([a-z]{2})-[A-Z]{2}");
 
@@ -125,30 +122,31 @@ public class AndroidBinaryDescription
           PACKAGE_STRING_ASSETS_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
           AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR,
+          AndroidBinaryGraphEnhancer.PROGUARD_TEXT_OUTPUT_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_RESOURCES_FLAVOR);
 
-  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
   private final ProGuardConfig proGuardConfig;
   private final BuckConfig buckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
   private final AndroidInstallConfig androidInstallConfig;
+  private final ApkConfig apkConfig;
 
   public AndroidBinaryDescription(
-      ToolchainProvider toolchainProvider,
       JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
-      DxConfig dxConfig) {
-    this.toolchainProvider = toolchainProvider;
+      DxConfig dxConfig,
+      ApkConfig apkConfig) {
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.buckConfig = buckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
     this.androidInstallConfig = new AndroidInstallConfig(buckConfig);
+    this.apkConfig = apkConfig;
   }
 
   @Override
@@ -158,13 +156,12 @@ public class AndroidBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AndroidBinaryDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
+
     try (SimplePerfEvent.Scope ignored =
         SimplePerfEvent.scope(
             Optional.ofNullable(resolver.getEventBus()),
@@ -199,11 +196,15 @@ public class AndroidBinaryDescription
       if (!args.getApplicationModuleConfigs().isEmpty()) {
         apkModuleGraph =
             new APKModuleGraph(
-                Optional.of(args.getApplicationModuleConfigs()), targetGraph, buildTarget);
+                Optional.of(args.getApplicationModuleConfigs()),
+                context.getTargetGraph(),
+                buildTarget);
       } else {
         apkModuleGraph =
             new APKModuleGraph(
-                targetGraph, buildTarget, Optional.of(args.getApplicationModuleTargets()));
+                context.getTargetGraph(),
+                buildTarget,
+                Optional.of(args.getApplicationModuleTargets()));
       }
 
       EnumSet<ExopackageMode> exopackageModes = EnumSet.noneOf(ExopackageMode.class);
@@ -250,6 +251,7 @@ public class AndroidBinaryDescription
               .filter(JavaLibrary.class)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
 
+      ToolchainProvider toolchainProvider = context.getToolchainProvider();
       ListeningExecutorService dxExecutorService =
           toolchainProvider
               .getByName(DxToolchain.DEFAULT_NAME, DxToolchain.class)
@@ -257,6 +259,8 @@ public class AndroidBinaryDescription
 
       JavaOptionsProvider javaOptionsProvider =
           toolchainProvider.getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class);
+
+      CellPathResolver cellRoots = context.getCellPathResolver();
 
       NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs =
           NonPredexedDexBuildableArgs.builder()
@@ -282,19 +286,19 @@ public class AndroidBinaryDescription
       ResourceFilter resourceFilter = new ResourceFilter(args.getResourceFilter());
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-      AndroidLegacyToolchain androidLegacyToolchain =
+      AndroidPlatformTarget androidPlatformTarget =
           toolchainProvider.getByName(
-              AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+              AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
 
-      NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
-          toolchainProvider.getByName(
-              NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
+      ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
       AndroidBinaryGraphEnhancer graphEnhancer =
           new AndroidBinaryGraphEnhancer(
+              toolchainProvider,
+              cellRoots,
               buildTarget,
               projectFilesystem,
-              androidLegacyToolchain,
+              androidPlatformTarget,
               params,
               resolver,
               args.getAaptMode(),
@@ -304,6 +308,7 @@ public class AndroidBinaryDescription
               args.getDuplicateResourceWhitelist(),
               args.getResourceUnionPackage(),
               addFallbackLocales(args.getLocales()),
+              args.getLocalizedStringFileName(),
               args.getManifest(),
               args.getManifestSkeleton(),
               packageType,
@@ -327,7 +332,7 @@ public class AndroidBinaryDescription
               Optional.empty(),
               args.isTrimResourceIds(),
               args.getKeepResourcePattern(),
-              ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
+              args.isIgnoreAaptProguardConfig(),
               Optional.of(args.getNativeLibraryMergeMap()),
               args.getNativeLibraryMergeGlue(),
               args.getNativeLibraryMergeCodeGenerator(),
@@ -370,7 +375,9 @@ public class AndroidBinaryDescription
           new AndroidBinary(
               buildTarget,
               projectFilesystem,
-              androidLegacyToolchain,
+              toolchainProvider.getByName(
+                  AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+              androidPlatformTarget,
               params,
               ruleFinder,
               Optional.of(args.getProguardJvmArgs()),
@@ -399,7 +406,8 @@ public class AndroidBinaryDescription
               filesInfo.getNativeFilesInfo(),
               filesInfo.getResourceFilesInfo(),
               ImmutableSortedSet.copyOf(result.getAPKModuleGraph().getAPKModules()),
-              filesInfo.getExopackageInfo());
+              filesInfo.getExopackageInfo(),
+              apkConfig.getCompressionLevel());
       // The exo installer is always added to the index so that the action graph is the same
       // between build and install calls.
       new AndroidBinaryInstallGraphEnhancer(
@@ -474,27 +482,6 @@ public class AndroidBinaryDescription
       if (redexTarget.isPresent()) {
         extraDepsBuilder.add(redexTarget.get());
       }
-
-      constructorArg
-          .getRedexExtraArgs()
-          .forEach(
-              a ->
-                  addDepsFromParam(
-                      buildTarget, cellRoots, a, extraDepsBuilder, targetGraphOnlyDepsBuilder));
-    }
-  }
-
-  private void addDepsFromParam(
-      BuildTarget target,
-      CellPathResolver cellNames,
-      String paramValue,
-      ImmutableCollection.Builder<BuildTarget> buildDefsBuilder,
-      ImmutableCollection.Builder<BuildTarget> nonBuildDefsBuilder) {
-    try {
-      MACRO_HANDLER.extractParseTimeDeps(
-          target, cellNames, paramValue, buildDefsBuilder, nonBuildDefsBuilder);
-    } catch (MacroException e) {
-      throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
     }
   }
 
@@ -503,8 +490,14 @@ public class AndroidBinaryDescription
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots) {
-    return arg.getPostFilterResourcesCmd()
-        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver));
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(buildTarget)
+            .setCellPathResolver(cellRoots)
+            .setResolver(resolver)
+            .setExpanders(MACRO_EXPANDERS)
+            .build();
+    return arg.getPostFilterResourcesCmd().map(macrosConverter::convert);
   }
 
   private Optional<Arg> getPreprocessJavaClassesBash(
@@ -512,8 +505,14 @@ public class AndroidBinaryDescription
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots) {
-    return arg.getPreprocessJavaClassesBash()
-        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver));
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(buildTarget)
+            .setCellPathResolver(cellRoots)
+            .setResolver(resolver)
+            .setExpanders(MACRO_EXPANDERS)
+            .build();
+    return arg.getPreprocessJavaClassesBash().map(macrosConverter::convert);
   }
 
   private Optional<RedexOptions> getRedexOptions(
@@ -535,10 +534,15 @@ public class AndroidBinaryDescription
           buildTarget, SECTION, CONFIG_PARAM_REDEX);
     }
 
-    Function<String, Arg> macroArgFunction =
-        MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(buildTarget)
+            .setCellPathResolver(cellRoots)
+            .setResolver(resolver)
+            .setExpanders(MACRO_EXPANDERS)
+            .build();
     List<Arg> redexExtraArgs =
-        arg.getRedexExtraArgs().stream().map(macroArgFunction).collect(Collectors.toList());
+        arg.getRedexExtraArgs().stream().map(macrosConverter::convert).collect(Collectors.toList());
 
     return Optional.of(
         RedexOptions.builder()
@@ -683,8 +687,15 @@ public class AndroidBinaryDescription
 
     ImmutableSet<String> getLocales();
 
+    Optional<String> getLocalizedStringFileName();
+
     @Value.Default
     default boolean isBuildStringSourceMap() {
+      return false;
+    }
+
+    @Value.Default
+    default boolean isIgnoreAaptProguardConfig() {
       return false;
     }
 
@@ -693,7 +704,7 @@ public class AndroidBinaryDescription
     @Value.NaturalOrder
     ImmutableSortedSet<BuildTarget> getPreprocessJavaClassesDeps();
 
-    Optional<String> getPreprocessJavaClassesBash();
+    Optional<StringWithMacros> getPreprocessJavaClassesBash();
 
     @Value.Default
     default boolean isReorderClassesIntraDex() {
@@ -745,7 +756,7 @@ public class AndroidBinaryDescription
 
     @Value.Default
     default BuildConfigFields getBuildConfigValues() {
-      return BuildConfigFields.empty();
+      return BuildConfigFields.of();
     }
 
     @Value.Default
@@ -755,9 +766,9 @@ public class AndroidBinaryDescription
 
     Optional<SourcePath> getRedexConfig();
 
-    ImmutableList<String> getRedexExtraArgs();
+    ImmutableList<StringWithMacros> getRedexExtraArgs();
 
-    Optional<String> getPostFilterResourcesCmd();
+    Optional<StringWithMacros> getPostFilterResourcesCmd();
 
     Optional<SourcePath> getBuildConfigValuesFile();
 

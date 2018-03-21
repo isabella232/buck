@@ -11,7 +11,7 @@ genrule(
     name = "gen_aar-with-jsr",
     out = "jsr.aar",
     cmd = "$(exe :aar_generator) " +
-          "--lib $(location //third-party/jsr:jsr) $TMP $OUT",
+          "--lib $(location buck//third-party/java/jsr:jsr305) $TMP $OUT",
     visibility = [
         "PUBLIC",
     ],
@@ -83,5 +83,15 @@ android_binary(
     manifest = "AndroidManifest.xml",
     deps = [
         "//android_prebuilt_aar-dep:aar-no-classes-dot-jar",
+    ],
+)
+
+android_binary(
+    name = "app-dep-on-aar-without-res",
+    keystore = ":debug",
+    manifest = "AndroidManifest.xml",
+    deps = [
+        ":aar",
+        "//prebuilt_aar_without_res:play-services-base-license",
     ],
 )

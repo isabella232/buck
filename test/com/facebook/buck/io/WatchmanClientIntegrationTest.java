@@ -16,9 +16,9 @@
 
 package com.facebook.buck.io;
 
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -80,7 +80,7 @@ public class WatchmanClientIntegrationTest {
     if (Platform.detect() == Platform.WINDOWS) {
       Random random = new Random(0);
       UUID uuid = new UUID(random.nextLong(), random.nextLong());
-      watchmanSockFile = Paths.get("\\\\.\\pipe\\watchman-test-" + uuid.toString());
+      watchmanSockFile = Paths.get("\\\\.\\pipe\\watchman-test-" + uuid);
     } else {
       watchmanSockFile = watchmanBaseDir.getRoot().resolve("sock");
     }

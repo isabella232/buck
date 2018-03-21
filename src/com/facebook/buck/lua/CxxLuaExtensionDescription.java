@@ -42,7 +42,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -53,7 +55,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -80,7 +81,8 @@ public class CxxLuaExtensionDescription
     implements Description<CxxLuaExtensionDescriptionArg>,
         ImplicitDepsInferringDescription<
             CxxLuaExtensionDescription.AbstractCxxLuaExtensionDescriptionArg>,
-        VersionPropagator<CxxLuaExtensionDescriptionArg> {
+        VersionPropagator<CxxLuaExtensionDescriptionArg>,
+        Flavored {
 
   private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
@@ -132,6 +134,7 @@ public class CxxLuaExtensionDescription
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             buildTarget,
             projectFilesystem,
+            ruleFinder,
             ruleResolver,
             cxxPlatform,
             headers,
@@ -145,11 +148,15 @@ public class CxxLuaExtensionDescription
     ImmutableSet<BuildRule> deps = args.getCxxDeps().get(ruleResolver, cxxPlatform);
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         ImmutableList.<CxxPreprocessorInput>builder()
-            .add(luaPlatform.getLuaCxxLibrary(ruleResolver).getCxxPreprocessorInput(cxxPlatform))
+            .add(
+                luaPlatform
+                    .getLuaCxxLibrary(ruleResolver)
+                    .getCxxPreprocessorInput(cxxPlatform, ruleResolver))
             .addAll(
                 CxxDescriptionEnhancer.collectCxxPreprocessorInput(
                     buildTarget,
                     cxxPlatform,
+                    ruleResolver,
                     deps,
                     ImmutableListMultimap.copyOf(
                         Multimaps.transformValues(
@@ -163,7 +170,8 @@ public class CxxLuaExtensionDescription
                                     buildTarget, cellRoots, ruleResolver, cxxPlatform, f))),
                     ImmutableList.of(headerSymlinkTree),
                     ImmutableSet.of(),
-                    CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps),
+                    CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                        cxxPlatform, ruleResolver, deps),
                     args.getIncludeDirs(),
                     sandboxTree,
                     args.getRawHeaders()))
@@ -264,7 +272,8 @@ public class CxxLuaExtensionDescription
                     luaPlatform,
                     args))
             .build(),
-        Optional.empty());
+        Optional.empty(),
+        cellRoots);
   }
 
   @Override
@@ -274,15 +283,14 @@ public class CxxLuaExtensionDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
-      final CxxLuaExtensionDescriptionArg args) {
-
+      CxxLuaExtensionDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     FlavorDomain<LuaPlatform> luaPlatforms = getLuaPlatformsProvider().getLuaPlatforms();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    CellPathResolver cellRoots = context.getCellPathResolver();
 
     // See if we're building a particular "type" of this library, and if so, extract
     // it as an enum.
@@ -296,8 +304,6 @@ public class CxxLuaExtensionDescription
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     return new CxxLuaExtension(buildTarget, projectFilesystem, params) {
 
       @Override
@@ -320,14 +326,19 @@ public class CxxLuaExtensionDescription
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(CxxPlatform cxxPlatform) {
+      public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return RichStream.from(args.getCxxDeps().get(resolver, cxxPlatform))
             .filter(NativeLinkable.class)
             .toImmutableList();
       }
 
       @Override
-      public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+      public NativeLinkableInput getNativeLinkTargetInput(
+          CxxPlatform cxxPlatform,
+          BuildRuleResolver ruleResolver,
+          SourcePathResolver pathResolver,
+          SourcePathRuleFinder ruleFinder) {
         return NativeLinkableInput.builder()
             .addAllArgs(
                 getExtensionArgs(
@@ -364,8 +375,14 @@ public class CxxLuaExtensionDescription
       Optionals.addIfPresent(luaPlatform.getLuaCxxLibraryTarget(), extraDepsBuilder);
 
       // Get any parse time deps from the C/C++ platforms.
-      extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(luaPlatform.getCxxPlatform()));
+      targetGraphOnlyDepsBuilder.addAll(
+          CxxPlatforms.getParseTimeDeps(luaPlatform.getCxxPlatform()));
     }
+  }
+
+  @Override
+  public Optional<ImmutableSet<FlavorDomain<?>>> flavorDomains() {
+    return Optional.of(ImmutableSet.of(getLuaPlatformsProvider().getLuaPlatforms()));
   }
 
   private LuaPlatformsProvider getLuaPlatformsProvider() {

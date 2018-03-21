@@ -67,13 +67,13 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   private static ImmutableSet<PathOrGlobMatcher> extractIgnorePaths(
-      final Path root, Config config, final BuckPaths buckPaths) {
+      Path root, Config config, BuckPaths buckPaths) {
     ImmutableSet.Builder<PathOrGlobMatcher> builder = ImmutableSet.builder();
 
     builder.add(new PathOrGlobMatcher(root, ".idea"));
 
-    final String projectKey = "project";
-    final String ignoreKey = "ignore";
+    String projectKey = "project";
+    String ignoreKey = "ignore";
 
     String buckdDirProperty = System.getProperty(BUCK_BUCKD_DIR_KEY, ".buckd");
     if (!Strings.isNullOrEmpty(buckdDirProperty)) {
@@ -121,8 +121,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
       Path cellBuckOut =
           embeddedCellBuckOutInfo
               .get()
-              .getRootCellBuckOut()
-              .resolve("cells")
+              .getEmbeddedCellsBuckOutBaseDir()
               .resolve(embeddedCellBuckOutInfo.get().getCellName());
       buckPaths = buckPaths.withConfiguredBuckOut(rootPath.relativize(cellBuckOut));
     } else if (configuredBuckOut.isPresent()) {

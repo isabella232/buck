@@ -22,13 +22,18 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.util.cache.CacheStatsTracker;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableMap;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeoutException;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 public class VersionedTargetGraphCache {
+
+  // How many times to attempt to build a version target graph in the face of timeouts.
+  private static final int ATTEMPTS = 3;
 
   private static final Logger LOG = Logger.get(VersionedTargetGraphCache.class);
 
@@ -40,7 +45,7 @@ public class VersionedTargetGraphCache {
       ImmutableMap<String, VersionUniverse> versionUniverses,
       ForkJoinPool pool,
       TypeCoercerFactory typeCoercerFactory)
-      throws VersionException, InterruptedException {
+      throws VersionException, TimeoutException, InterruptedException {
     return VersionedTargetGraphBuilder.transform(
         new VersionUniverseVersionSelector(
             targetGraphAndBuildTargets.getTargetGraph(), versionUniverses),
@@ -53,26 +58,47 @@ public class VersionedTargetGraphCache {
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
       ForkJoinPool pool,
-      TypeCoercerFactory typeCoercerFactory)
-      throws VersionException, InterruptedException {
+      TypeCoercerFactory typeCoercerFactory,
+      CacheStatsTracker statsTracker)
+      throws VersionException, TimeoutException, InterruptedException {
+
+    CacheStatsTracker.CacheRequest request = statsTracker.startRequest();
 
     // If new inputs match old ones, we can used the cached graph, if present.
     VersionedTargetGraphInputs newInputs =
         VersionedTargetGraphInputs.of(targetGraphAndBuildTargets, versionUniverses);
     if (cachedVersionedTargetGraph != null
         && newInputs.equals(cachedVersionedTargetGraph.getInputs())) {
-      return VersionedTargetGraphCacheResult.of(
-          ResultType.HIT, cachedVersionedTargetGraph.getTargetGraphAndBuildTargets());
+
+      VersionedTargetGraphCacheResult result =
+          VersionedTargetGraphCacheResult.of(
+              ResultType.HIT, cachedVersionedTargetGraph.getTargetGraphAndBuildTargets());
+
+      request.recordHit();
+
+      return result;
     }
 
     // Build and cache new versioned target graph.
-    ResultType resultType =
-        cachedVersionedTargetGraph == null ? ResultType.EMPTY : ResultType.MISMATCH;
+    ResultType resultType;
+    if (cachedVersionedTargetGraph == null) {
+      request.recordMiss();
+      resultType = ResultType.EMPTY;
+    } else {
+      request.recordMissMatch();
+      resultType = ResultType.MISMATCH;
+    }
+
     TargetGraphAndBuildTargets newVersionedTargetGraph =
         createdVersionedTargetGraph(
             targetGraphAndBuildTargets, versionUniverses, pool, typeCoercerFactory);
     cachedVersionedTargetGraph = CachedVersionedTargetGraph.of(newInputs, newVersionedTargetGraph);
-    return VersionedTargetGraphCacheResult.of(resultType, newVersionedTargetGraph);
+    VersionedTargetGraphCacheResult result =
+        VersionedTargetGraphCacheResult.of(resultType, newVersionedTargetGraph);
+
+    request.recordLoadSuccess();
+
+    return result;
   }
 
   /**
@@ -84,18 +110,37 @@ public class VersionedTargetGraphCache {
       TypeCoercerFactory typeCoercerFactory,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool)
+      ForkJoinPool pool,
+      CacheStatsTracker statsTracker)
       throws VersionException, InterruptedException {
 
     VersionedTargetGraphEvent.Started started = VersionedTargetGraphEvent.started();
     eventBus.post(started);
     try {
-      VersionedTargetGraphCacheResult result =
-          getVersionedTargetGraph(
-              targetGraphAndBuildTargets, versionUniverses, pool, typeCoercerFactory);
-      LOG.info("versioned target graph " + result.getType().getDescription());
-      eventBus.post(result.getType().getEvent());
-      return result;
+
+      // TODO(agallagher): There are occasional deadlocks happening inside the `ForkJoinPool` used
+      // by the `VersionedTargetGraphBuilder`, and it's not clear if this is from our side and if
+      // so, where we're causing this.  So in the meantime, we build-in a timeout into the builder
+      // and catch it here, performing retries and logging.
+      for (int attempt = 1; ; attempt++) {
+        try {
+          VersionedTargetGraphCacheResult result =
+              getVersionedTargetGraph(
+                  targetGraphAndBuildTargets,
+                  versionUniverses,
+                  pool,
+                  typeCoercerFactory,
+                  statsTracker);
+          LOG.info("versioned target graph " + result.getType().getDescription());
+          eventBus.post(result.getType().getEvent());
+          return result;
+        } catch (TimeoutException e) {
+          eventBus.post(VersionedTargetGraphEvent.timeout());
+          LOG.warn("Timed out building versioned target graph.");
+          if (attempt < ATTEMPTS) continue;
+          throw new RuntimeException(e);
+        }
+      }
     } finally {
       eventBus.post(VersionedTargetGraphEvent.finished(started));
     }
@@ -105,14 +150,16 @@ public class VersionedTargetGraphCache {
       BuckEventBus eventBus,
       BuckConfig buckConfig,
       TypeCoercerFactory typeCoercerFactory,
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets)
-      throws VersionException, InterruptedException {
+      TargetGraphAndBuildTargets targetGraphAndBuildTargets,
+      CacheStatsTracker statsTracker)
+      throws VersionException, TimeoutException, InterruptedException {
     return getVersionedTargetGraph(
             eventBus,
             typeCoercerFactory,
             targetGraphAndBuildTargets,
             new VersionBuckConfig(buckConfig).getVersionUniverses(),
-            new ForkJoinPool(buckConfig.getNumThreads()))
+            new ForkJoinPool(buckConfig.getNumThreads()),
+            statsTracker)
         .getTargetGraphAndBuildTargets();
   }
 

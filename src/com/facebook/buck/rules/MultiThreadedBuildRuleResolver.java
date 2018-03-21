@@ -19,6 +19,7 @@ package com.facebook.buck.rules;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.Scope;
+import com.facebook.buck.util.concurrent.Parallelizer;
 import com.facebook.buck.util.concurrent.WorkThreadTrackingFuture;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -29,7 +30,6 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.RecursiveTask;
 import java.util.function.Function;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -45,10 +45,13 @@ import javax.annotation.Nullable;
  * </ul>
  */
 public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
+  private boolean isValid = true;
   private final ForkJoinPool forkJoinPool;
+
   private final TargetGraph targetGraph;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
   @Nullable private final BuckEventBus eventBus;
+  private final CellProvider cellProvider;
 
   private final BuildRuleResolverMetadataCache metadataCache;
   private final ConcurrentHashMap<BuildTarget, Task<BuildRule>> buildRuleIndex;
@@ -57,11 +60,13 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
       ForkJoinPool forkJoinPool,
       TargetGraph targetGraph,
       TargetNodeToBuildRuleTransformer buildRuleGenerator,
+      CellProvider cellProvider,
       BuckEventBus eventBus) {
     this.forkJoinPool = forkJoinPool;
     this.targetGraph = targetGraph;
     this.buildRuleGenerator = buildRuleGenerator;
     this.eventBus = eventBus;
+    this.cellProvider = cellProvider;
 
     int initialCapacity = (int) (targetGraph.getNodes().size() * 5 * 1.1);
     this.buildRuleIndex = new ConcurrentHashMap<>(initialCapacity);
@@ -71,6 +76,7 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public Iterable<BuildRule> getBuildRules() {
+    Preconditions.checkState(isValid);
     return buildRuleIndex
         .values()
         .stream()
@@ -80,6 +86,7 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+    Preconditions.checkState(isValid);
     return Optional.ofNullable(buildRuleIndex.get(buildTarget))
         .flatMap(
             future ->
@@ -91,6 +98,7 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
   @Override
   public BuildRule computeIfAbsent(
       BuildTarget target, Function<BuildTarget, BuildRule> mappingFunction) {
+    Preconditions.checkState(isValid);
     Preconditions.checkState(
         isInForkJoinPool(), "Should only be called while executing in the pool");
 
@@ -102,14 +110,21 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public BuildRule requireRule(BuildTarget target) {
+    Preconditions.checkState(isValid);
     return Futures.getUnchecked(
         buildRuleIndex.computeIfAbsent(
             target,
-            wrap(key -> buildRuleGenerator.transform(targetGraph, this, targetGraph.get(target)))));
+            wrap(
+                key ->
+                    buildRuleGenerator.transform(
+                        cellProvider, targetGraph, this, targetGraph.get(target)))));
   }
 
+  /** Please use {@code computeIfAbsent} instead */
+  @Deprecated
   @Override
   public <T extends BuildRule> T addToIndex(T buildRule) {
+    Preconditions.checkState(isValid);
     buildRuleIndex.compute(
         buildRule.getBuildTarget(),
         (key, existing) -> {
@@ -138,18 +153,27 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public <T> Optional<T> requireMetadata(BuildTarget target, Class<T> metadataClass) {
+    Preconditions.checkState(isValid);
     return metadataCache.requireMetadata(target, metadataClass);
   }
 
   @Nullable
   @Override
   public BuckEventBus getEventBus() {
+    Preconditions.checkState(isValid);
     return eventBus;
   }
 
   @Override
-  public <T> Stream<T> maybeParallelize(Stream<T> stream) {
-    return stream.parallel();
+  public Parallelizer getParallelizer() {
+    Preconditions.checkState(isValid);
+    return Parallelizer.PARALLEL;
+  }
+
+  @Override
+  public void invalidate() {
+    isValid = false;
+    buildRuleIndex.clear();
   }
 
   private boolean isInForkJoinPool() {
@@ -215,7 +239,7 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
       Task<V> task =
           new Task<V>() {
             @Override
-            protected V doCompute() throws Exception {
+            protected V doCompute() {
               throw new AssertionError("This task should be directly completed.");
             }
           };

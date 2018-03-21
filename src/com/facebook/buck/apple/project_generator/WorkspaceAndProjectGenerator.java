@@ -46,8 +46,8 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.Optionals;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -266,7 +266,7 @@ public class WorkspaceAndProjectGenerator {
         ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY)) {
       return workspaceGenerator.getWorkspaceDir();
     } else {
-      final ImmutableMap<BuildTarget, PBXTarget> buildTargetToTarget =
+      ImmutableMap<BuildTarget, PBXTarget> buildTargetToTarget =
           buildTargetToPbxTargetMapBuilder.build();
 
       writeWorkspaceSchemes(
@@ -337,7 +337,7 @@ public class WorkspaceAndProjectGenerator {
   }
 
   private void generateProject(
-      final Map<Path, ProjectGenerator> projectGenerators,
+      Map<Path, ProjectGenerator> projectGenerators,
       ListeningExecutorService listeningExecutorService,
       WorkspaceGenerator workspaceGenerator,
       ImmutableSet<BuildTarget> targetsInRequiredProjects,
@@ -353,19 +353,19 @@ public class WorkspaceAndProjectGenerator {
     ImmutableMultimap<Cell, BuildTarget> projectCellToBuildTargets =
         projectCellToBuildTargetsBuilder.build();
     List<ListenableFuture<GenerationResult>> projectGeneratorFutures = new ArrayList<>();
-    for (final Cell projectCell : projectCellToBuildTargets.keySet()) {
+    for (Cell projectCell : projectCellToBuildTargets.keySet()) {
       ImmutableMultimap.Builder<Path, BuildTarget> projectDirectoryToBuildTargetsBuilder =
           ImmutableMultimap.builder();
-      final ImmutableSet<BuildTarget> cellRules =
+      ImmutableSet<BuildTarget> cellRules =
           ImmutableSet.copyOf(projectCellToBuildTargets.get(projectCell));
       for (BuildTarget buildTarget : cellRules) {
         projectDirectoryToBuildTargetsBuilder.put(buildTarget.getBasePath(), buildTarget);
       }
       ImmutableMultimap<Path, BuildTarget> projectDirectoryToBuildTargets =
           projectDirectoryToBuildTargetsBuilder.build();
-      final Path relativeTargetCell = rootCell.getRoot().relativize(projectCell.getRoot());
-      for (final Path projectDirectory : projectDirectoryToBuildTargets.keySet()) {
-        final ImmutableSet<BuildTarget> rules =
+      Path relativeTargetCell = rootCell.getRoot().relativize(projectCell.getRoot());
+      for (Path projectDirectory : projectDirectoryToBuildTargets.keySet()) {
+        ImmutableSet<BuildTarget> rules =
             filterRulesForProjectDirectory(
                 projectGraph,
                 ImmutableSet.copyOf(projectDirectoryToBuildTargets.get(projectDirectory)));
@@ -373,7 +373,7 @@ public class WorkspaceAndProjectGenerator {
           continue;
         }
 
-        final boolean isMainProject =
+        boolean isMainProject =
             workspaceArguments.getSrcTarget().isPresent()
                 && rules.contains(workspaceArguments.getSrcTarget().get());
         projectGeneratorFutures.add(
@@ -442,7 +442,7 @@ public class WorkspaceAndProjectGenerator {
       Map<Path, ProjectGenerator> projectGenerators,
       Cell projectCell,
       Path projectDirectory,
-      final ImmutableSet<BuildTarget> rules,
+      ImmutableSet<BuildTarget> rules,
       boolean isMainProject,
       ImmutableSet<BuildTarget> targetsInRequiredProjects)
       throws IOException {
@@ -693,16 +693,20 @@ public class WorkspaceAndProjectGenerator {
             (AppleBundleDescriptionArg) projectTargetNode.getConstructorArg();
         // We don't support apple_bundle rules referring to apple_binary rules
         // outside their current directory.
-        Preconditions.checkState(
+        BuildTarget binaryTarget =
             appleBundleDescriptionArg
                 .getBinary()
-                .getBasePath()
-                .equals(projectTargetNode.getBuildTarget().getBasePath()),
+                .orElseThrow(
+                    () ->
+                        new HumanReadableException(
+                            "apple_bundle rules without binary attribute are not supported."));
+        Preconditions.checkState(
+            binaryTarget.getBasePath().equals(projectTargetNode.getBuildTarget().getBasePath()),
             "apple_bundle target %s contains reference to binary %s outside base path %s",
             projectTargetNode.getBuildTarget(),
             appleBundleDescriptionArg.getBinary(),
             projectTargetNode.getBuildTarget().getBasePath());
-        binaryTargetsInsideBundlesBuilder.add(appleBundleDescriptionArg.getBinary());
+        binaryTargetsInsideBundlesBuilder.add(binaryTarget);
       }
     }
     ImmutableSet<BuildTarget> binaryTargetsInsideBundles =
@@ -794,10 +798,10 @@ public class WorkspaceAndProjectGenerator {
    * @return targets and their dependencies that should be build.
    */
   private static ImmutableSet<TargetNode<?, ?>> getTransitiveDepsAndInputs(
-      final TargetGraph projectGraph,
-      final AppleDependenciesCache dependenciesCache,
+      TargetGraph projectGraph,
+      AppleDependenciesCache dependenciesCache,
       Iterable<? extends TargetNode<?, ?>> nodes,
-      final ImmutableSet<TargetNode<?, ?>> excludes) {
+      ImmutableSet<TargetNode<?, ?>> excludes) {
     return FluentIterable.from(nodes)
         .transformAndConcat(
             input ->

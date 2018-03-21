@@ -2,7 +2,10 @@
 from __future__ import print_function
 import logging
 import os
+import signal
+import subprocess
 import sys
+import re
 import uuid
 import zipfile
 import errno
@@ -12,12 +15,77 @@ from buck_tool import ExecuteTarget, install_signal_handlers, \
     BuckStatusReporter
 from buck_project import BuckProject, NoBuckConfigFoundException
 from tracing import Tracing
-from subprocutils import propagate_failure
+from subprocutils import propagate_failure, check_output
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+REQUIRED_JAVA_VERSION = "8"
+
+
+# Kill all buck processes
+def killall_buck(reporter):
+    # Linux or macOS
+    if os.name != 'posix':
+        message = 'killall is not implemented on: ' + os.name
+        logging.error(message)
+        reporter.status_message = message
+        return 10  # FATAL_GENERIC
+
+    for line in os.popen('jps -l'):
+        split = line.split()
+        if len(split) == 1:
+            # Java processes which are launched not as `java Main`
+            # (e. g. `idea`) are shown with only PID without
+            # main class name.
+            continue
+        if len(split) != 2:
+            raise Exception('cannot parse a line in jps -l outout: ' +
+                            repr(line))
+        pid = int(split[0])
+        name = split[1]
+        if name != 'com.facebook.buck.cli.bootstrapper.ClassLoaderBootstrapper':
+            continue
+
+        os.kill(pid, signal.SIGTERM)
+    return 0
+
+
+def _get_java_version():
+    """
+    Returns a Java version string (e.g. "7", "8").
+
+    Information is provided by java tool and parsing is based on
+    http://www.oracle.com/technetwork/java/javase/versioning-naming-139433.html
+    """
+    java_version = check_output(["java", "-version"], stderr=subprocess.STDOUT)
+    # extract java version from a string like 'java version "1.8.0_144"'
+    match = re.search("java version \"(?P<version>.+)\"", java_version)
+    if not match:
+        return None
+    pieces = match.group("version").split(".")
+    if pieces[0] != "1":
+        # versions starting at 9 look like "9.0.4"
+        return pieces[0]
+    # versions <9 look like "1.8.0_144"
+    return pieces[1]
+
+
+def _warn_about_wrong_java_version(required_version, actual_version):
+    """
+    Prints a warning about actual Java version being incompatible with the one
+    required by Buck.
+    """
+    logging.warning(
+        "You're using Java %s, but Buck requires Java %s.\nPlease follow " +
+        "https://buckbuild.com/setup/getting_started.html " +
+        "to properly setup your local enviroment and avoid build issues.",
+        actual_version, required_version)
 
 
 def main(argv, reporter):
+    java_version = _get_java_version()
+    if java_version and java_version != REQUIRED_JAVA_VERSION:
+        _warn_about_wrong_java_version(REQUIRED_JAVA_VERSION, java_version)
+
     def get_repo(p):
         # Try to detect if we're running a PEX by checking if we were invoked
         # via a zip file.
@@ -27,6 +95,10 @@ def main(argv, reporter):
         else:
             from buck_repo import BuckRepo
             return BuckRepo(THIS_DIR, p, reporter)
+
+    # If 'killall' is the second argument, shut down all the buckd processes
+    if sys.argv[1:] == ['killall']:
+        return killall_buck(reporter)
 
     install_signal_handlers()
     try:

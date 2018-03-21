@@ -97,8 +97,14 @@ public final class Configs {
     RawConfig.Builder builder = RawConfig.builder();
     for (Path file : configFiles) {
       try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-        ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration = Inis.read(reader);
-        LOG.debug("Loaded a configuration file %s: %s", file, parsedConfiguration);
+        ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
+            Inis.read(reader, file.toString());
+        if (file.equals(configFile)) {
+          LOG.debug("Loaded project configuration file %s", file);
+          LOG.verbose("Contents of %s: %s", file, parsedConfiguration);
+        } else {
+          LOG.debug("Loaded a configuration file %s, %s", file, parsedConfiguration);
+        }
         builder.putAll(parsedConfiguration);
       }
     }
@@ -119,7 +125,8 @@ public final class Configs {
   public static ImmutableMap<String, ImmutableMap<String, String>> parseConfigFile(Path file)
       throws IOException {
     try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-      ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration = Inis.read(reader);
+      ImmutableMap<String, ImmutableMap<String, String>> parsedConfiguration =
+          Inis.read(reader, file.toString());
       LOG.debug("Loaded a configuration file %s: %s", file, parsedConfiguration);
       return parsedConfiguration;
     }

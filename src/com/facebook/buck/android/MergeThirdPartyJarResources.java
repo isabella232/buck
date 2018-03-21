@@ -17,16 +17,14 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.resources.ResourcesZipBuilder;
-import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
-import com.facebook.buck.rules.modern.InputDataRetriever;
-import com.facebook.buck.rules.modern.InputPath;
-import com.facebook.buck.rules.modern.InputPathResolver;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
@@ -34,10 +32,10 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 import com.google.common.io.Files;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,8 +49,8 @@ import java.util.zip.ZipFile;
 /** Merges resources from third party jars for exo-for-resources. */
 public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdPartyJarResources>
     implements Buildable {
-  private final ImmutableSortedSet<InputPath> pathsToThirdPartyJars;
-  private final OutputPath mergedPath;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> pathsToThirdPartyJars;
+  @AddToRuleKey private final OutputPath mergedPath;
 
   protected MergeThirdPartyJarResources(
       BuildTarget buildTarget,
@@ -60,15 +58,8 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
       SourcePathRuleFinder ruleFinder,
       ImmutableSet<SourcePath> pathsToThirdPartyJars) {
     super(buildTarget, projectFilesystem, ruleFinder, MergeThirdPartyJarResources.class);
-    this.pathsToThirdPartyJars = toInputPaths(pathsToThirdPartyJars);
+    this.pathsToThirdPartyJars = ImmutableSortedSet.copyOf(pathsToThirdPartyJars);
     this.mergedPath = new OutputPath("java.resources");
-  }
-
-  private ImmutableSortedSet<InputPath> toInputPaths(ImmutableSet<SourcePath> sourcePaths) {
-    return sourcePaths
-        .stream()
-        .map(InputPath::new)
-        .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
   }
 
   @Override
@@ -78,16 +69,12 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      EventDispatcher eventDispatcher,
+      BuildContext buildContext,
       ProjectFilesystem filesystem,
-      InputPathResolver inputPathResolver,
-      InputDataRetriever inputDataRetriever,
       OutputPathResolver outputPathResolver,
       BuildCellRelativePathFactory buildCellPathFactory) {
     ImmutableSet<Path> thirdPartyJars =
-        inputPathResolver
-            .resolveAllPaths(pathsToThirdPartyJars)
-            .collect(ImmutableSet.toImmutableSet());
+        buildContext.getSourcePathResolver().getAllAbsolutePaths(pathsToThirdPartyJars);
     return ImmutableList.of(
         createMergedThirdPartyJarsStep(
             thirdPartyJars, filesystem.resolve(outputPathResolver.resolvePath(mergedPath))));
@@ -97,8 +84,7 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
       ImmutableSet<Path> thirdPartyJars, Path absoluteMergedPath) {
     return new AbstractExecutionStep("merging_third_party_jar_resources") {
       @Override
-      public StepExecutionResult execute(ExecutionContext context)
-          throws IOException, InterruptedException {
+      public StepExecutionResult execute(ExecutionContext context) throws IOException {
         try (ResourcesZipBuilder builder = new ResourcesZipBuilder(absoluteMergedPath)) {
           for (Path jar : thirdPartyJars) {
             try (ZipFile base = new ZipFile(jar.toFile())) {
@@ -144,7 +130,7 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
             }
           }
         }
-        return StepExecutionResult.SUCCESS;
+        return StepExecutionResults.SUCCESS;
       }
     };
   }

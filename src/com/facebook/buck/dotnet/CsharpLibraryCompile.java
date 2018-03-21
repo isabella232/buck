@@ -18,10 +18,10 @@ package com.facebook.buck.dotnet;
 
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -63,9 +63,7 @@ public class CsharpLibraryCompile extends ShellStep {
         DotnetFramework.resolveFramework(context.getEnvironment(), version);
 
     ImmutableList.Builder<String> args = ImmutableList.builder();
-    args.add(csc.toAbsolutePath().toString())
-        .add("/target:library")
-        .add("/out:" + output.toString());
+    args.add(csc.toAbsolutePath().toString()).add("/target:library").add("/out:" + output);
 
     for (Either<Path, String> ref : references) {
       args.add("/reference:" + resolveReference(netFramework, ref));

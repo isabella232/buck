@@ -27,15 +27,12 @@ import com.facebook.buck.python.toolchain.PythonEnvironment;
 import com.facebook.buck.python.toolchain.PythonVersion;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -45,7 +42,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -70,19 +67,18 @@ public class PythonPackagedBinaryTest {
       String mod1,
       Path src1,
       String mod2,
-      Path src2)
-      throws IOException {
+      Path src2) {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:bin");
 
     // The top-level python binary that lists the above libraries as deps.
     PythonBinary binary =
-        PythonPackagedBinary.from(
+        new PythonPackagedBinary(
             target,
             new FakeProjectFilesystem(),
-            TestBuildRuleParams.create(),
             ruleFinder,
+            ImmutableSortedSet::of,
             PythonTestUtils.PYTHON_PLATFORM,
             PEX,
             ImmutableList.of(),
@@ -98,7 +94,7 @@ public class PythonPackagedBinaryTest {
                     Paths.get(mod2), PathSourcePath.of(projectFilesystem, src2)),
                 ImmutableMap.of(),
                 ImmutableMap.of(),
-                ImmutableSet.of(),
+                ImmutableMultimap.of(),
                 Optional.empty()),
             ImmutableSortedSet.of(),
             /* cache */ true,
@@ -110,10 +106,7 @@ public class PythonPackagedBinaryTest {
 
   @Test
   public void testRuleKeysFromModuleLayouts() throws IOException {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Create two different sources, which we'll swap in as different modules.

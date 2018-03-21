@@ -28,6 +28,7 @@ import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -76,6 +77,13 @@ public class OcamlBuildStep implements Step {
     hasGeneratedSources =
         ocamlContext.getLexInput().size() > 0 || ocamlContext.getYaccInput().size() > 0;
 
+    ImmutableList<String> ocamlDepFlags =
+        ImmutableList.<String>builder()
+            .addAll(
+                this.ocamlContext.getIncludeFlags(/* isBytecode */ false, /* excludeDeps */ true))
+            .addAll(this.ocamlContext.getOcamlDepFlags())
+            .build();
+
     this.depToolStep =
         new OcamlDepToolStep(
             target,
@@ -83,7 +91,7 @@ public class OcamlBuildStep implements Step {
             this.ocamlContext.getSourcePathResolver(),
             this.ocamlContext.getOcamlDepTool().get(),
             ocamlContext.getMLInput(),
-            this.ocamlContext.getIncludeFlags(/* isBytecode */ false, /* excludeDeps */ true));
+            ocamlDepFlags);
   }
 
   @Override
@@ -178,7 +186,7 @@ public class OcamlBuildStep implements Step {
                   ocamlContext.getBytecodeIncludeFlags()));
       return debugLauncher.execute(context);
     } else {
-      return StepExecutionResult.SUCCESS;
+      return StepExecutionResults.SUCCESS;
     }
   }
 
@@ -214,7 +222,7 @@ public class OcamlBuildStep implements Step {
         return compileExecutionResult;
       }
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   private StepExecutionResult executeNativeLinking(
@@ -313,7 +321,7 @@ public class OcamlBuildStep implements Step {
       if (!outputFileName.endsWith(OcamlCompilables.OCAML_CMI)) {
         linkerInputs.add(outputPath);
       }
-      final ImmutableList<Arg> compileFlags =
+      ImmutableList<Arg> compileFlags =
           getCompileFlags(/* isBytecode */ false, /* excludeDeps */ false);
       Step compileStep =
           new OcamlMLCompileStep(
@@ -334,7 +342,7 @@ public class OcamlBuildStep implements Step {
         return compileExecutionResult;
       }
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   private StepExecutionResult executeMLBytecodeCompilation(
@@ -366,7 +374,7 @@ public class OcamlBuildStep implements Step {
       if (!outputFileName.endsWith(OcamlCompilables.OCAML_CMI)) {
         linkerInputs.add(outputPath);
       }
-      final ImmutableList<Arg> compileFlags =
+      ImmutableList<Arg> compileFlags =
           getCompileFlags(/* isBytecode */ true, /* excludeDeps */ false);
       Step compileBytecodeStep =
           new OcamlMLCompileStep(
@@ -387,7 +395,7 @@ public class OcamlBuildStep implements Step {
         return compileExecutionResult;
       }
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   private StepExecutionResult generateSources(ExecutionContext context, Path workingDirectory)
@@ -435,7 +443,7 @@ public class OcamlBuildStep implements Step {
         return lexExecutionResult;
       }
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   private ImmutableList<Path> sortDependency(

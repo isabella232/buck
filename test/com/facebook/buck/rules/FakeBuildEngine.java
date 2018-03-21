@@ -21,18 +21,14 @@ import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 
 /** Fake implementation of {@link BuildEngine} for use in tests. */
 public class FakeBuildEngine implements BuildEngine {
 
   private final ImmutableMap<BuildTarget, BuildResult> buildResults;
-  private final ImmutableMap<BuildTarget, RuleKey> ruleKeys;
 
-  public FakeBuildEngine(
-      Map<BuildTarget, BuildResult> buildResults, Map<BuildTarget, RuleKey> ruleKeys) {
+  public FakeBuildEngine(Map<BuildTarget, BuildResult> buildResults) {
     this.buildResults = ImmutableMap.copyOf(buildResults);
-    this.ruleKeys = ImmutableMap.copyOf(ruleKeys);
   }
 
   @Override
@@ -44,19 +40,13 @@ public class FakeBuildEngine implements BuildEngine {
   }
 
   @Override
-  public BuildResult getBuildRuleResult(BuildTarget buildTarget)
-      throws ExecutionException, InterruptedException {
+  public BuildResult getBuildRuleResult(BuildTarget buildTarget) {
     return buildResults.get(buildTarget);
   }
 
   @Override
-  public boolean isRuleBuilt(BuildTarget buildTarget) throws InterruptedException {
+  public boolean isRuleBuilt(BuildTarget buildTarget) {
     return buildResults.containsKey(buildTarget);
-  }
-
-  @Override
-  public RuleKey getRuleKey(BuildTarget buildTarget) {
-    return ruleKeys.get(buildTarget);
   }
 
   @Override

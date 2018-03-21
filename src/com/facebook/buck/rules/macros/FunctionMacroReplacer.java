@@ -16,23 +16,22 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.model.macros.MacroReplacer;
 import com.google.common.collect.ImmutableList;
 import java.util.function.Function;
 
 /** A @{link MacroReplacer} wrapping a @{link Function}. */
-public class FunctionMacroReplacer implements MacroReplacer {
+public class FunctionMacroReplacer<T> implements MacroReplacer<T> {
 
-  private final Function<ImmutableList<String>, String> function;
+  private final Function<ImmutableList<String>, T> function;
 
-  public FunctionMacroReplacer(Function<ImmutableList<String>, String> function) {
+  public FunctionMacroReplacer(Function<ImmutableList<String>, T> function) {
     this.function = function;
   }
 
   @Override
-  public String replace(MacroMatchResult input) throws MacroException {
+  public T replace(MacroMatchResult input) {
     return function.apply(input.getMacroInput());
   }
 }

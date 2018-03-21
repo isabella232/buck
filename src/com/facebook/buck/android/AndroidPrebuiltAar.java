@@ -21,11 +21,13 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
+import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.jvm.java.RemoveClassesPatternsMatcher;
 import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildDeps;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
@@ -63,10 +65,11 @@ public class AndroidPrebuiltAar extends AndroidLibrary
     super(
         androidLibraryBuildTarget,
         projectFilesystem,
-        ImmutableSortedSet.copyOf(
-            Iterables.concat(
-                androidLibraryParams.getBuildDeps(),
-                ruleFinder.filterBuildRuleInputs(abiClasspath.get()))),
+        new BuildDeps(
+            ImmutableSortedSet.copyOf(
+                Iterables.concat(
+                    androidLibraryParams.getBuildDeps(),
+                    ruleFinder.filterBuildRuleInputs(abiClasspath.get())))),
         resolver,
         new JarBuildStepsFactory(
             projectFilesystem,
@@ -94,12 +97,15 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
         HasJavaAbi.getClassAbiJar(androidLibraryBuildTarget),
+        /* sourceOnlyAbiJar */ null,
         /* mavenCoords */ Optional.empty(),
         Optional.of(
             ExplicitBuildTargetSourcePath.of(
                 unzipAar.getBuildTarget(), unzipAar.getAndroidManifest())),
         /* tests */ ImmutableSortedSet.of(),
-        /* requiredForSourceAbi */ requiredForSourceAbi);
+        /* requiredForSourceAbi */ requiredForSourceAbi,
+        UnusedDependenciesAction.IGNORE,
+        Optional.empty());
     this.unzipAar = unzipAar;
     this.prebuiltJar = prebuiltJar;
     this.nativeLibsDirectory = nativeLibsDirectory;

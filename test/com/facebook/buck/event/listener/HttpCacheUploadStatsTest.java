@@ -15,10 +15,10 @@
  */
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.artifact_cache.ArtifactCacheEvent.StoreType;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEventStoreData;
 import com.google.common.collect.ImmutableSet;
-import java.io.IOException;
 import java.util.Optional;
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,13 +29,14 @@ public class HttpCacheUploadStatsTest {
   private static final long ARTIFACT_ONE_AND_TWO_TOTAL_BYTES = 30;
 
   @Test
-  public void testCacheUploadEvents() throws IOException {
+  public void testCacheUploadEvents() {
     HttpCacheUploadStats uploadStats = new HttpCacheUploadStats();
 
     // Schedule, start, and finish upload event one.
 
     HttpArtifactCacheEvent.Scheduled scheduledEventOne =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(Optional.of("fake"), ImmutableSet.of());
+        HttpArtifactCacheEvent.newStoreScheduledEvent(
+            Optional.of("fake"), ImmutableSet.of(), StoreType.ARTIFACT);
 
     uploadStats.processHttpArtifactCacheScheduledEvent(scheduledEventOne);
     Assert.assertEquals(1, uploadStats.getHttpArtifactTotalUploadsScheduledCount());
@@ -55,9 +56,11 @@ public class HttpCacheUploadStatsTest {
 
     // Schedule, start, finish, events two and three
     HttpArtifactCacheEvent.Scheduled scheduledEventTwo =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(Optional.of("fake"), ImmutableSet.of());
+        HttpArtifactCacheEvent.newStoreScheduledEvent(
+            Optional.of("fake"), ImmutableSet.of(), StoreType.ARTIFACT);
     HttpArtifactCacheEvent.Scheduled scheduledEventThree =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(Optional.of("fake"), ImmutableSet.of());
+        HttpArtifactCacheEvent.newStoreScheduledEvent(
+            Optional.of("fake"), ImmutableSet.of(), StoreType.ARTIFACT);
     uploadStats.processHttpArtifactCacheScheduledEvent(scheduledEventTwo);
     uploadStats.processHttpArtifactCacheScheduledEvent(scheduledEventTwo);
     Assert.assertEquals(3, uploadStats.getHttpArtifactTotalUploadsScheduledCount());
@@ -95,7 +98,7 @@ public class HttpCacheUploadStatsTest {
     HttpArtifactCacheEventStoreData.Builder storeDataBuilder =
         finishedEventBuilder.getStoreBuilder();
 
-    storeDataBuilder.setWasStoreSuccessful(wasSuccessful);
+    storeDataBuilder.setWasStoreSuccessful(wasSuccessful).setStoreType(StoreType.ARTIFACT);
     if (wasSuccessful) {
       storeDataBuilder.setArtifactSizeBytes(artifactSizeBytes);
     }

@@ -27,7 +27,7 @@ import com.facebook.buck.config.BuckConfigTestUtils;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
@@ -320,7 +320,7 @@ public class ArtifactCacheBuckConfigTest {
 
   @Test
   public void errorMessageFormatter() throws IOException {
-    final String testText = "this is a test";
+    String testText = "this is a test";
     ArtifactCacheBuckConfig config =
         createFromText("[cache]", "http_error_message_format = " + testText);
 

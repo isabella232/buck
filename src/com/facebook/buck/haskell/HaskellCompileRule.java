@@ -33,6 +33,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -44,6 +45,7 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Optionals;
@@ -151,25 +153,25 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       SourcePathRuleFinder ruleFinder,
-      final Tool compiler,
+      Tool compiler,
       HaskellVersion haskellVersion,
       ImmutableList<String> flags,
-      final PreprocessorFlags ppFlags,
+      PreprocessorFlags ppFlags,
       CxxPlatform cxxPlatform,
       PicType picType,
       boolean hsProfile,
       Optional<String> main,
       Optional<HaskellPackageInfo> packageInfo,
-      final ImmutableList<SourcePath> includes,
-      final ImmutableSortedMap<String, HaskellPackage> exposedPackages,
-      final ImmutableSortedMap<String, HaskellPackage> packages,
-      final HaskellSources sources,
+      ImmutableList<SourcePath> includes,
+      ImmutableSortedMap<String, HaskellPackage> exposedPackages,
+      ImmutableSortedMap<String, HaskellPackage> packages,
+      HaskellSources sources,
       Preprocessor preprocessor) {
     Supplier<ImmutableSortedSet<BuildRule>> declaredDeps =
         MoreSuppliers.memoize(
             () ->
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(compiler.getDeps(ruleFinder))
+                    .addAll(BuildableSupport.getDepsCollection(compiler, ruleFinder))
                     .addAll(ppFlags.getDeps(ruleFinder))
                     .addAll(ruleFinder.filterBuildRuleInputs(includes))
                     .addAll(sources.getDeps(ruleFinder))
@@ -392,7 +394,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
   }
 
   public ImmutableList<SourcePath> getObjects() {
-    final String suffix = "." + getObjectSuffix();
+    String suffix = "." + getObjectSuffix();
 
     ImmutableList.Builder<SourcePath> objects = ImmutableList.builder();
     for (String module : sources.getModuleNames()) {
@@ -433,8 +435,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
   private Step prepareOutputDir(String name, Path root, String suffix) {
     return new AbstractExecutionStep(String.format("preparing %s output dir", name)) {
       @Override
-      public StepExecutionResult execute(ExecutionContext context)
-          throws IOException, InterruptedException {
+      public StepExecutionResult execute(ExecutionContext context) throws IOException {
         getProjectFilesystem().mkdirs(root);
         getProjectFilesystem()
             .walkRelativeFileTree(
@@ -470,7 +471,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
                     return super.postVisitDirectory(dir, exc);
                   }
                 });
-        return StepExecutionResult.SUCCESS;
+        return StepExecutionResults.SUCCESS;
       }
     };
   }

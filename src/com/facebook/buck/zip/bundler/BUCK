@@ -11,6 +11,7 @@ buck_module(
         "//src/com/facebook/buck/rules/modern:modern",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
+        "//src/com/facebook/buck/unarchive:unarchive",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/zip:zip",
     ],
@@ -18,6 +19,7 @@ buck_module(
         "//test/com/facebook/buck/zip/bundler:bundler",
     ],
     visibility = [
+        "//src/com/facebook/buck/shell/filegroup:filegroup",
         "//src/com/facebook/buck/zip/rules:rules",
         "//test/...",
     ],

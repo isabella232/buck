@@ -22,6 +22,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import java.io.IOException;
@@ -74,12 +75,12 @@ public class AndroidModuleConsistencyStep implements Step {
       ProguardTranslatorFactory translatorFactory =
           ProguardTranslatorFactory.create(
               filesystem, proguardFullConfigFile, proguardMappingFile, skipProguard);
-      final ImmutableMultimap<String, APKModule> classToModuleMap =
+      ImmutableMultimap<String, APKModule> classToModuleMap =
           APKModuleGraph.getAPKModuleToClassesMap(
                   apkModuleToJarPathMap, translatorFactory.createObfuscationFunction(), filesystem)
               .inverse();
 
-      final ImmutableMap<String, String> classToModuleResult =
+      ImmutableMap<String, String> classToModuleResult =
           AppModularityMetadataUtil.getClassToModuleMap(filesystem, metadataInput);
 
       boolean hasError = false;
@@ -109,13 +110,13 @@ public class AndroidModuleConsistencyStep implements Step {
         throw new IllegalStateException(errorMessage.toString());
       }
 
-      return StepExecutionResult.SUCCESS;
+      return StepExecutionResults.SUCCESS;
     } catch (IOException e) {
       context.logError(e, "There was an error running AndroidModuleConsistencyStep.");
-      return StepExecutionResult.ERROR;
+      return StepExecutionResults.ERROR;
     } catch (IllegalStateException e) {
       context.logError(e, "There was an error running AndroidModuleConsistencyStep.");
-      return StepExecutionResult.ERROR;
+      return StepExecutionResults.ERROR;
     }
   }
 

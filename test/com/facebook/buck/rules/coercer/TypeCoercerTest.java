@@ -27,14 +27,15 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -54,6 +55,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
+import org.immutables.value.Value;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -94,8 +96,7 @@ public class TypeCoercerTest {
   }
 
   @Test
-  public void coercingSortedSetsShouldThrowOnDuplicates()
-      throws CoerceFailedException, NoSuchFieldException {
+  public void coercingSortedSetsShouldThrowOnDuplicates() throws NoSuchFieldException {
     Type type = TestFields.class.getField("sortedSetOfStrings").getGenericType();
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
@@ -168,13 +169,13 @@ public class TypeCoercerTest {
         (TypeCoercer<ImmutableMap<String, ImmutableList<String>>>)
             typeCoercerFactory.typeCoercerForType(type);
 
-    final ImmutableMap<String, ImmutableList<String>> input =
+    ImmutableMap<String, ImmutableList<String>> input =
         ImmutableMap.of(
             "foo", ImmutableList.of("//foo:bar", "//foo:baz"),
             "bar", ImmutableList.of(":bar", "//foo:foo"));
 
     TestTraversal traversal = new TestTraversal();
-    coercer.traverse(input, traversal);
+    coercer.traverse(cellRoots, input, traversal);
 
     Matcher<Iterable<?>> matcher =
         Matchers.contains(
@@ -284,8 +285,8 @@ public class TypeCoercerTest {
         (TypeCoercer<Either<String, List<String>>>) typeCoercerFactory.typeCoercerForType(type);
 
     TestTraversal traversal = new TestTraversal();
-    Either<String, List<String>> input = Either.ofRight((List<String>) ImmutableList.of("foo"));
-    coercer.traverse(input, traversal);
+    Either<String, List<String>> input = Either.ofRight(ImmutableList.of("foo"));
+    coercer.traverse(cellRoots, input, traversal);
     assertThat(
         traversal.getObjects(),
         Matchers.contains(
@@ -295,9 +296,9 @@ public class TypeCoercerTest {
 
     traversal = new TestTraversal();
     Either<String, List<String>> input2 = Either.ofLeft("foo");
-    coercer.traverse(input2, traversal);
+    coercer.traverse(cellRoots, input2, traversal);
     assertThat(traversal.getObjects(), hasSize(1));
-    assertThat(traversal.getObjects().get(0), sameInstance((Object) "foo"));
+    assertThat(traversal.getObjects().get(0), sameInstance("foo"));
   }
 
   static class TestTraversal implements TypeCoercer.Traversal {
@@ -344,7 +345,7 @@ public class TypeCoercerTest {
 
     TestTraversal traversal = new TestTraversal();
     Pair<Path, String> input = new Pair<>(Paths.get("foo"), "bar");
-    coercer.traverse(input, traversal);
+    coercer.traverse(cellRoots, input, traversal);
     assertThat(
         traversal.getObjects(),
         Matchers.contains(
@@ -633,6 +634,81 @@ public class TypeCoercerTest {
     assertEquals(expected, result);
   }
 
+  @Test
+  public void canCoerceImmutableType() throws Exception {
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(SomeImmutable.class);
+    ImmutableMap<String, Object> map =
+        ImmutableMap.of(
+            "another_immutable",
+            ImmutableMap.of(
+                "set_optional", "green",
+                "required", "black",
+                "default1", "white",
+                "default2", "red"));
+    Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), map);
+
+    SomeImmutable expected =
+        SomeImmutable.builder()
+            .setAnotherImmutable(
+                AnotherImmutable.builder()
+                    .setInterfaceDefault("blue")
+                    .setSetOptional("green")
+                    .setRequired("black")
+                    .setDefault1("white")
+                    .build())
+            .build();
+    assertEquals(expected, result);
+  }
+
+  @Test
+  public void cantCoerceImmutableType() throws Exception {
+    exception.expectMessage("another_immutable");
+    exception.expect(CoerceFailedException.class);
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(SomeImmutable.class);
+    ImmutableMap<String, Object> map = ImmutableMap.of("wrong_key", ImmutableMap.of());
+    coercer.coerce(cellRoots, filesystem, Paths.get(""), map);
+  }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractSomeImmutable {
+    AnotherImmutable getAnotherImmutable();
+  }
+
+  interface AnotherImmutableInterface {
+    Optional<String> getInterfaceOptional();
+
+    @Value.Default
+    default String getInterfaceDefault() {
+      return "blue";
+    }
+  }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  abstract static class AbstractAnotherImmutable implements AnotherImmutableInterface {
+    abstract Optional<String> getSetOptional();
+
+    abstract Optional<String> getUnsetOptional();
+
+    abstract String getRequired();
+
+    @Value.Default
+    String getDefault1() {
+      return "purple";
+    }
+
+    @Value.Default
+    String getDefault2() {
+      return "red";
+    }
+
+    @Value.Default
+    String getDefault3() {
+      return "yellow";
+    }
+  }
+
   @SuppressFieldNotInitialized
   static class TestFields {
     public ImmutableMap<String, ImmutableList<Integer>> stringMapOfLists;
@@ -664,7 +740,7 @@ public class TypeCoercerTest {
     public ImmutableList<NeededCoverageSpec> listOfNeededCoverageSpecs;
   }
 
-  private static enum TestEnum {
+  private enum TestEnum {
     RED,
     PURPLE,
     yellow,

@@ -23,9 +23,9 @@ import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal.CycleExceptio
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -50,7 +50,7 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
    * </pre>
    */
   @Test
-  public void testExpectedTraversal() throws CycleException, IOException, InterruptedException {
+  public void testExpectedTraversal() throws CycleException {
     Multimap<String, String> graph = LinkedListMultimap.create();
     graph.put("A", "B");
     graph.put("A", "C");
@@ -83,7 +83,7 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
    * Note that there is a circular dependency from F -> C -> E -> F.
    */
   @Test
-  public void testCycleDetection() throws IOException, InterruptedException, CycleException {
+  public void testCycleDetection() {
     Multimap<String, String> graph = LinkedListMultimap.create();
     graph.put("A", "B");
     graph.put("A", "C");
@@ -108,7 +108,7 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
 
   /** Ensures that a cycle is detected in a trivial graph of a single node that points to itself. */
   @Test
-  public void testTrivialCycle() throws IOException, InterruptedException, CycleException {
+  public void testTrivialCycle() {
     Multimap<String, String> graph = LinkedListMultimap.create();
     graph.put("A", "A");
     TestDagDepthFirstSearch dfs = new TestDagDepthFirstSearch(graph);
@@ -137,8 +137,7 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
    * </pre>
    */
   @Test
-  public void testCycleExceptionDoesNotContainUnrelatedNodes()
-      throws IOException, InterruptedException, CycleException {
+  public void testCycleExceptionDoesNotContainUnrelatedNodes() {
     Multimap<String, String> graph = LinkedListMultimap.create();
     graph.put("A", "B");
     graph.put("B", "C");
@@ -168,12 +167,9 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
    *   / | \
    * C   D   E
    * </pre>
-   *
-   * @throws CycleException
    */
   @Test
-  public void testTraverseMultipleInitialNodes()
-      throws CycleException, IOException, InterruptedException, CycleException {
+  public void testTraverseMultipleInitialNodes() throws CycleException {
     Multimap<String, String> graph = LinkedListMultimap.create();
     graph.put("A", "B");
     graph.put("B", "C");
@@ -185,14 +181,34 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
     assertEquals(ImmutableList.of("C", "D", "E", "B", "A"), dfs.exploredNodes);
   }
 
+  @Test
+  public void testShortCircuitTraversal() throws CycleException {
+    Multimap<String, String> graph = LinkedListMultimap.create();
+    graph.put("A", "B");
+    graph.put("B", "C");
+    graph.put("C", "D");
+    graph.put("B", "E");
+
+    TestDagDepthFirstSearch dfs = new TestDagDepthFirstSearch(graph, node -> node != "C");
+    dfs.traverse(ImmutableList.of("A"));
+    assertEquals(ImmutableList.of("C", "E", "B", "A"), dfs.exploredNodes);
+  }
+
   private static class TestDagDepthFirstSearch {
 
     private final Multimap<String, String> graph;
+    private final Predicate<String> shouldExploreChildren;
     private final List<String> exploredNodes = new ArrayList<>();
     private int numFindChildrenCalls;
 
     public TestDagDepthFirstSearch(Multimap<String, String> graph) {
+      this(graph, node -> true);
+    }
+
+    public TestDagDepthFirstSearch(
+        Multimap<String, String> graph, Predicate<String> shouldExploreChildren) {
       this.graph = graph;
+      this.shouldExploreChildren = shouldExploreChildren;
       this.numFindChildrenCalls = 0;
     }
 
@@ -204,7 +220,7 @@ public class AcyclicDepthFirstPostOrderTraversalTest {
                 ++numFindChildrenCalls;
                 return graph.get(node).iterator();
               });
-      for (String node : traversal.traverse(initial)) {
+      for (String node : traversal.traverse(initial, shouldExploreChildren)) {
         exploredNodes.add(node);
       }
     }

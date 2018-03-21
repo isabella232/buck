@@ -19,6 +19,7 @@ package com.facebook.buck.cxx.toolchain.nativelink;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -37,8 +38,8 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
-      CxxPlatform cxxPlatform) {
-    return getNativeLinkableDeps();
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+    return getNativeLinkableDeps(ruleResolver);
   }
 
   /**
@@ -47,21 +48,21 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-      CxxPlatform cxxPlatform) {
-    return getNativeLinkableExportedDeps();
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+    return getNativeLinkableExportedDeps(ruleResolver);
   }
 
   /**
    * @return All native linkable dependencies that might be required by this linkable on any
    *     platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableDeps();
+  Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver);
 
   /**
    * @return All native linkable exported dependencies that might be required by this linkable on
    *     any platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps();
+  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver);
 
   enum LanguageExtensions {
     HS_PROFILE
@@ -75,27 +76,30 @@ public interface NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions);
+      ImmutableSet<LanguageExtensions> languageExtensions,
+      BuildRuleResolver ruleResolver);
 
   /**
    * Return input that *dependents* should put on their link line when linking against this
    * linkable.
    */
   default NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) {
-    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of());
+      CxxPlatform cxxPlatform, Linker.LinkableDepType type, BuildRuleResolver ruleResolver) {
+    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of(), ruleResolver);
   }
 
-  Linkage getPreferredLinkage(CxxPlatform cxxPlatform);
+  Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
 
   /**
    * @return a map of shared library SONAME to shared library path for the given {@link
    *     CxxPlatform}.
    */
-  ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform);
+  ImmutableMap<String, SourcePath> getSharedLibraries(
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
 
   /** @return whether this {@link NativeLinkable} supports omnibus linking. */
-  default boolean supportsOmnibusLinking(@SuppressWarnings("unused") CxxPlatform cxxPlatform) {
+  @SuppressWarnings("unused")
+  default boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     return true;
   }
 

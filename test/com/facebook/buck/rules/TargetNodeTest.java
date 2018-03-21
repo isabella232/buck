@@ -26,7 +26,7 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.ParamInfoException;
@@ -148,14 +148,11 @@ public class TargetNodeTest {
 
     @Override
     public BuildRule createBuildRule(
-        TargetGraph targetGraph,
+        BuildRuleCreationContext context,
         BuildTarget buildTarget,
-        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
-        BuildRuleResolver resolver,
-        CellPathResolver cellRoots,
         ExampleDescriptionArg args) {
-      return new FakeBuildRule(buildTarget, projectFilesystem, params);
+      return new FakeBuildRule(buildTarget, context.getProjectFilesystem(), params);
     }
   }
 

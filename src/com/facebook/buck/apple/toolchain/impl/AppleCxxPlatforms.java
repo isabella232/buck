@@ -131,7 +131,7 @@ public class AppleCxxPlatforms {
               LOG.debug("SDK %s using default version %s", sdk, targetSdkVersion);
               for (String architecture : sdk.getArchitectures()) {
                 appleCxxPlatformsBuilder.add(
-                    buildWithExecutableChecker(
+                    buildWithXcodeToolFinder(
                         filesystem,
                         sdk,
                         targetSdkVersion,
@@ -147,12 +147,12 @@ public class AppleCxxPlatforms {
   }
 
   @VisibleForTesting
-  public static AppleCxxPlatform buildWithExecutableChecker(
+  public static AppleCxxPlatform buildWithXcodeToolFinder(
       ProjectFilesystem filesystem,
       AppleSdk targetSdk,
       String minVersion,
       String targetArchitecture,
-      final AppleSdkPaths sdkPaths,
+      AppleSdkPaths sdkPaths,
       BuckConfig buckConfig,
       XcodeToolFinder xcodeToolFinder,
       XcodeBuildVersionCache xcodeBuildVersionCache,
@@ -191,8 +191,7 @@ public class AppleCxxPlatforms {
       ldflagsBuilder.addAll(Linkers.iXlinker("-ObjC"));
     }
     if (targetSdk.getApplePlatform().equals(ApplePlatform.WATCHOS)) {
-      ldflagsBuilder.addAll(
-          Linkers.iXlinker("-bitcode_verify"));
+      ldflagsBuilder.addAll(Linkers.iXlinker("-bitcode_verify"));
     }
 
     // Populate Xcode version keys from Xcode's own Info.plist if available.
@@ -399,7 +398,7 @@ public class AppleCxxPlatforms {
     whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getSdkPath().toString()) + "\\/.*");
     whitelistBuilder.add(
         "^"
-            + Pattern.quote(sdkPaths.getPlatformPath().toString() + "/Developer/Library/Frameworks")
+            + Pattern.quote(sdkPaths.getPlatformPath() + "/Developer/Library/Frameworks")
             + "\\/.*");
     for (Path toolchainPath : sdkPaths.getToolchainPaths()) {
       LOG.debug("Apple toolchain path: %s", toolchainPath);
@@ -410,7 +409,7 @@ public class AppleCxxPlatforms {
       }
     }
     HeaderVerification headerVerification =
-        config.getHeaderVerification().withPlatformWhitelist(whitelistBuilder.build());
+        config.getHeaderVerificationOrIgnore().withPlatformWhitelist(whitelistBuilder.build());
     LOG.debug(
         "Headers verification platform whitelist: %s", headerVerification.getPlatformWhitelist());
 
@@ -430,7 +429,7 @@ public class AppleCxxPlatforms {
             ImmutableList.<String>builder().addAll(cflags).addAll(ldflagsBuilder.build()).build(),
             strip,
             ArchiverProvider.from(new BsdArchiver(ar)),
-            new ConstantToolProvider(ranlib),
+            Optional.of(new ConstantToolProvider(ranlib)),
             new PosixNmSymbolNameTool(nm),
             cflagsBuilder.build(),
             ImmutableList.of(),
@@ -545,11 +544,11 @@ public class AppleCxxPlatforms {
   }
 
   private static Optional<Tool> getOptionalToolWithParams(
-      final String tool,
+      String tool,
       ImmutableList<Path> toolSearchPaths,
       XcodeToolFinder xcodeToolFinder,
-      final String version,
-      final ImmutableList<String> params) {
+      String version,
+      ImmutableList<String> params) {
     return xcodeToolFinder
         .getToolPath(toolSearchPaths, tool)
         .map(

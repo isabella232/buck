@@ -19,6 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
@@ -42,9 +43,12 @@ class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildRuleTran
 
   @Override
   public <T, U extends Description<T>> BuildRule transform(
-      TargetGraph targetGraph, BuildRuleResolver ruleResolver, TargetNode<T, U> targetNode) {
+      CellProvider cellProvider,
+      TargetGraph targetGraph,
+      BuildRuleResolver ruleResolver,
+      TargetNode<T, U> targetNode) {
     TargetNode<?, ?> node = substituteTargetNodeIfNecessary(targetNode);
-    return delegate.transform(targetGraph, ruleResolver, node);
+    return delegate.transform(cellProvider, targetGraph, ruleResolver, node);
   }
 
   public ImmutableSet<BuildTarget> getDownloadableTargets() {

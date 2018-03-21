@@ -22,6 +22,7 @@ import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
+import com.facebook.buck.apple.project_generator.ProjectGenerator.Option;
 import com.facebook.buck.cli.output.PathOutputPresenter;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
@@ -34,18 +35,18 @@ import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
@@ -62,8 +63,8 @@ import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.config.Configs;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionException;
-import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -99,7 +100,7 @@ public class XCodeProjectCommandHelper {
   private final BuckEventBus buckEventBus;
   private final Parser parser;
   private final BuckConfig buckConfig;
-  private final VersionedTargetGraphCache versionedTargetGraphCache;
+  private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
   private final ImmutableSet<String> appleCxxFlavors;
@@ -126,7 +127,7 @@ public class XCodeProjectCommandHelper {
       BuckEventBus buckEventBus,
       Parser parser,
       BuckConfig buckConfig,
-      VersionedTargetGraphCache versionedTargetGraphCache,
+      InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
       Cell cell,
       RuleKeyConfiguration ruleKeyConfiguration,
@@ -194,7 +195,7 @@ public class XCodeProjectCommandHelper {
                       PerBuildState.SpeculativeParsing.ENABLED,
                       parserConfig.getDefaultFlavorsMode())));
       projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
-    } catch (BuildTargetException | BuildFileParseException e) {
+    } catch (BuildFileParseException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -230,10 +231,7 @@ public class XCodeProjectCommandHelper {
               isWithDependenciesTests(buckConfig),
               passedInTargetsSet.isEmpty(),
               executor);
-    } catch (BuildFileParseException
-        | TargetGraph.NoSuchNodeException
-        | BuildTargetException
-        | VersionException e) {
+    } catch (BuildFileParseException | TargetGraph.NoSuchNodeException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -304,7 +302,7 @@ public class XCodeProjectCommandHelper {
   /** Run xcode specific project generation actions. */
   private ExitCode runXcodeProjectGenerator(
       ListeningExecutorService executor,
-      final TargetGraphAndTargets targetGraphAndTargets,
+      TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet)
       throws IOException, InterruptedException {
     ExitCode exitCode = ExitCode.SUCCESS;
@@ -318,7 +316,8 @@ public class XCodeProjectCommandHelper {
             appleConfig.shouldUseHeaderMapsInXcodeProject(),
             appleConfig.shouldMergeHeaderMapsInXcodeProject(),
             appleConfig.shouldGenerateHeaderSymlinkTreesOnly(),
-            appleConfig.shouldGenerateMissingUmbrellaHeaders());
+            appleConfig.shouldGenerateMissingUmbrellaHeaders(),
+            appleConfig.shouldAddLinkerFlagsForLinkWholeLibraries());
 
     LOG.debug("Xcode project generation: Generates workspaces for targets");
 
@@ -381,7 +380,7 @@ public class XCodeProjectCommandHelper {
       BuckConfig buckConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
       ListeningExecutorService executorService,
-      final TargetGraphAndTargets targetGraphAndTargets,
+      TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
       ImmutableSet<String> appleCxxFlavors,
@@ -403,11 +402,12 @@ public class XCodeProjectCommandHelper {
     }
 
     LazyActionGraph lazyActionGraph =
-        new LazyActionGraph(targetGraphAndTargets.getTargetGraph(), buckEventBus);
+        new LazyActionGraph(
+            targetGraphAndTargets.getTargetGraph(), cell.getCellProvider(), buckEventBus);
 
     LOG.debug("Generating workspace for config targets %s", targets);
     ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder = ImmutableSet.builder();
-    for (final BuildTarget inputTarget : targets) {
+    for (BuildTarget inputTarget : targets) {
       TargetNode<?, ?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
       XcodeWorkspaceConfigDescriptionArg workspaceArgs;
       if (inputNode.getDescription() instanceof XcodeWorkspaceConfigDescription) {
@@ -498,7 +498,7 @@ public class XCodeProjectCommandHelper {
               .stream()
               .flatMap(Collection::stream)
               .collect(ImmutableSet.toImmutableSet());
-    } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
+    } catch (HumanReadableException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return FocusedModuleTargetMatcher.noFocus();
     }
@@ -521,7 +521,8 @@ public class XCodeProjectCommandHelper {
       boolean shouldUseHeaderMaps,
       boolean shouldMergeHeaderMaps,
       boolean shouldGenerateHeaderSymlinkTreesOnly,
-      boolean shouldGenerateMissingUmbrellaHeaders) {
+      boolean shouldGenerateMissingUmbrellaHeaders,
+      boolean shouldAddLinkerFlagsForLinkWholeLibraries) {
     ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
     if (isReadonly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_READ_ONLY_FILES);
@@ -542,6 +543,9 @@ public class XCodeProjectCommandHelper {
     }
     if (shouldMergeHeaderMaps) {
       optionsBuilder.add(ProjectGenerator.Option.MERGE_HEADER_MAPS);
+    }
+    if (shouldAddLinkerFlagsForLinkWholeLibraries) {
+      optionsBuilder.add(Option.FORCE_LOAD_LINK_WHOLE_LIBRARIES);
     }
     if (shouldGenerateHeaderSymlinkTreesOnly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
@@ -647,12 +651,13 @@ public class XCodeProjectCommandHelper {
     LOG.debug("Displaying prompt %s..", prompt);
     console.getStdOut().print(console.getAnsi().asWarningText(prompt + " [Y/n] "));
 
-    Optional<String> result;
-    try (InputStreamReader stdinReader = new InputStreamReader(System.in, Charsets.UTF_8);
-        BufferedReader bufferedStdinReader = new BufferedReader(stdinReader)) {
-      result = Optional.ofNullable(bufferedStdinReader.readLine());
-    }
-    LOG.debug("Result of prompt: [%s]", result);
+    // Do not close readers! Otherwise they close System.in in turn
+    // Another design may be to provide reader in the context, to use instead of System.in
+    BufferedReader bufferedStdinReader =
+        new BufferedReader(new InputStreamReader(System.in, Charsets.UTF_8));
+    Optional<String> result = Optional.ofNullable(bufferedStdinReader.readLine());
+
+    LOG.debug("Result of prompt: [%s]", result.orElse(""));
     return result.isPresent()
         && (result.get().isEmpty() || result.get().toLowerCase(Locale.US).startsWith("y"));
   }
@@ -670,7 +675,7 @@ public class XCodeProjectCommandHelper {
 
   private TargetGraph getProjectGraphForIde(
       ListeningExecutorService executor, ImmutableSet<BuildTarget> passedInTargets)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
 
     if (passedInTargets.isEmpty()) {
       return parser
@@ -696,8 +701,7 @@ public class XCodeProjectCommandHelper {
       boolean isWithDependenciesTests,
       boolean needsFullRecursiveParse,
       ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
-          VersionException {
+      throws IOException, InterruptedException, BuildFileParseException, VersionException {
 
     ImmutableSet<BuildTarget> explicitTestTargets = ImmutableSet.of();
     ImmutableSet<BuildTarget> graphRootsOrSourceTargets =
@@ -832,11 +836,15 @@ public class XCodeProjectCommandHelper {
     private final TargetGraph targetGraph;
     private final BuildRuleResolver resolver;
 
-    public LazyActionGraph(TargetGraph targetGraph, BuckEventBus buckEventBus) {
+    public LazyActionGraph(
+        TargetGraph targetGraph, CellProvider cellProvider, BuckEventBus buckEventBus) {
       this.targetGraph = targetGraph;
       this.resolver =
           new SingleThreadedBuildRuleResolver(
-              targetGraph, new DefaultTargetNodeToBuildRuleTransformer(), buckEventBus);
+              targetGraph,
+              new DefaultTargetNodeToBuildRuleTransformer(),
+              cellProvider,
+              buckEventBus);
     }
 
     public BuildRuleResolver getBuildRuleResolverWhileRequiringSubgraph(TargetNode<?, ?> root) {

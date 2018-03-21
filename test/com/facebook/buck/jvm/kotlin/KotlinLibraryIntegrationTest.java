@@ -16,14 +16,14 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import java.io.IOException;
 import java.nio.file.Path;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -39,37 +39,32 @@ public class KotlinLibraryIntegrationTest {
     workspace.setUp();
 
     Path kotlincPath = TestDataHelper.getTestDataScenario(this, "kotlinc");
-    MoreFiles.copyRecursively(kotlincPath, tmp.newFolder("kotlinc"));
+    MostFiles.copyRecursively(kotlincPath, tmp.newFolder("kotlinc"));
 
     KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
   }
 
   @Test
   public void shouldCompileKotlinClass() throws Exception {
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//com/example/good:example");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//com/example/good:example");
     buildResult.assertSuccess("Build should have succeeded.");
   }
 
   @Test
   public void shouldCompileLibraryWithDependencyOnAnother() throws Exception {
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//com/example/child:child");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//com/example/child:child");
     buildResult.assertSuccess("Build should have succeeded.");
   }
 
   @Test
   public void shouldFailToCompileInvalidKotlinCode() throws Exception {
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//com/example/bad:fail");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//com/example/bad:fail");
     buildResult.assertFailure();
   }
 
   @Test
-  @Ignore("https://github.com/facebook/buck/issues/1371")
   public void shouldCompileMixedJavaAndKotlinSources() throws Exception {
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//com/example/mixed:example");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//com/example/mixed:example");
     buildResult.assertSuccess("Build should have succeeded.");
   }
 }

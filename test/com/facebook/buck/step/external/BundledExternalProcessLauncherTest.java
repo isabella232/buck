@@ -21,8 +21,8 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -39,7 +39,7 @@ public class BundledExternalProcessLauncherTest {
   @Rule public TemporaryPaths temporaryPaths = new TemporaryPaths();
 
   @Test
-  public void canLaunch() throws IOException, InterruptedException {
+  public void canLaunch() throws IOException {
     // Worker process is currently broken on Windows.
     assumeTrue(Platform.detect() != Platform.WINDOWS);
 

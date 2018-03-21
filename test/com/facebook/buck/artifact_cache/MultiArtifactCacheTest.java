@@ -27,7 +27,7 @@ import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -67,7 +67,7 @@ public class MultiArtifactCacheTest {
   }
 
   @Test
-  public void testCacheFetch() throws InterruptedException, IOException {
+  public void testCacheFetch() throws IOException {
     DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache();
     DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
     MultiArtifactCache multiArtifactCache =
@@ -100,7 +100,7 @@ public class MultiArtifactCacheTest {
   }
 
   @Test
-  public void testCacheMultiContains() throws InterruptedException, IOException {
+  public void testCacheMultiContains() throws IOException {
     DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache();
     DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
     MultiArtifactCache multiArtifactCache =
@@ -226,7 +226,7 @@ public class MultiArtifactCacheTest {
   }
 
   @Test
-  public void testCacheStore() throws InterruptedException, IOException {
+  public void testCacheStore() throws IOException {
     DummyArtifactCache dummyArtifactCache1 = new DummyArtifactCache();
     DummyArtifactCache dummyArtifactCache2 = new DummyArtifactCache();
     MultiArtifactCache multiArtifactCache =
@@ -260,6 +260,11 @@ public class MultiArtifactCacheTest {
     @Override
     public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
       return Futures.immediateFuture(fetch(ruleKey, output));
+    }
+
+    @Override
+    public void skipPendingAndFutureAsyncFetches() {
+      // Async requests are not supported by SimpleArtifactCache, so do nothing
     }
 
     private CacheResult fetch(RuleKey ruleKey, LazyPath output) {
@@ -316,8 +321,7 @@ public class MultiArtifactCacheTest {
   }
 
   @Test
-  public void testCacheStoreWithBorrowablePathConsumingCache()
-      throws InterruptedException, IOException, ExecutionException {
+  public void testCacheStoreWithBorrowablePathConsumingCache() {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path fetchFile = filesystem.resolve("fetch_file");
 
@@ -346,7 +350,7 @@ public class MultiArtifactCacheTest {
   }
 
   @Test
-  public void preserveErrorsFromInnerCache() throws InterruptedException, IOException {
+  public void preserveErrorsFromInnerCache() {
     ErroringArtifactCache inner = new ErroringArtifactCache();
     MultiArtifactCache cache = new MultiArtifactCache(ImmutableList.of(inner));
     CacheResult result = Futures.getUnchecked(cache.fetchAsync(dummyRuleKey, dummyFile));

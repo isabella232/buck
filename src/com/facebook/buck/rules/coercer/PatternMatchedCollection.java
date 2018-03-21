@@ -17,10 +17,10 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatable;
 import com.google.common.collect.ImmutableList;
@@ -72,7 +72,7 @@ public class PatternMatchedCollection<T>
   }
 
   public static <T> PatternMatchedCollection<T> of() {
-    return new PatternMatchedCollection<>(ImmutableList.<Pair<Pattern, T>>of());
+    return new PatternMatchedCollection<>(ImmutableList.of());
   }
 
   public <V> PatternMatchedCollection<V> map(Function<T, V> func) {

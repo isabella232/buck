@@ -25,17 +25,22 @@ import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.UnusedDependenciesFinderFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildDeps;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -56,8 +61,10 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   public static Builder builder(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      ToolchainProvider toolchainProvider,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellPathResolver,
       JavaBuckConfig javaBuckConfig,
       JavacOptions javacOptions,
       AndroidLibraryDescription.CoreArg args,
@@ -65,8 +72,10 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     return new Builder(
         buildTarget,
         projectFilesystem,
+        toolchainProvider,
         params,
         buildRuleResolver,
+        cellPathResolver,
         javaBuckConfig,
         javacOptions,
         args,
@@ -77,7 +86,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   AndroidLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      ImmutableSortedSet<BuildRule> buildDeps,
+      BuildDeps buildDeps,
       SourcePathResolver resolver,
       JarBuildStepsFactory jarBuildStepsFactory,
       Optional<SourcePath> proguardConfig,
@@ -85,10 +94,13 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
       @Nullable BuildTarget abiJar,
+      @Nullable BuildTarget sourceOnlyAbiJar,
       Optional<String> mavenCoords,
       Optional<SourcePath> manifestFile,
       ImmutableSortedSet<BuildTarget> tests,
-      boolean requiredForSourceOnlyAbi) {
+      boolean requiredForSourceOnlyAbi,
+      UnusedDependenciesAction unusedDependenciesAction,
+      Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory) {
     super(
         buildTarget,
         projectFilesystem,
@@ -100,9 +112,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         fullJarExportedDeps,
         fullJarProvidedDeps,
         abiJar,
+        sourceOnlyAbiJar,
         mavenCoords,
         tests,
-        requiredForSourceOnlyAbi);
+        requiredForSourceOnlyAbi,
+        unusedDependenciesAction,
+        unusedDependenciesFinderFactory);
     this.manifestFile = manifestFile;
   }
 
@@ -124,8 +139,10 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     protected Builder(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
+        ToolchainProvider toolchainProvider,
         BuildRuleParams params,
         BuildRuleResolver buildRuleResolver,
+        CellPathResolver cellPathResolver,
         JavaBuckConfig javaBuckConfig,
         JavacOptions javacOptions,
         AndroidLibraryDescription.CoreArg args,
@@ -135,8 +152,10 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
           new DefaultJavaLibraryRules.Builder(
               buildTarget,
               projectFilesystem,
+              toolchainProvider,
               params,
               buildRuleResolver,
+              cellPathResolver,
               compilerFactory,
               javaBuckConfig,
               args);
@@ -146,7 +165,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
             public DefaultJavaLibrary newInstance(
                 BuildTarget buildTarget,
                 ProjectFilesystem projectFilesystem,
-                ImmutableSortedSet<BuildRule> buildDeps,
+                BuildDeps buildDeps,
                 SourcePathResolver resolver,
                 JarBuildStepsFactory jarBuildStepsFactory,
                 Optional<SourcePath> proguardConfig,
@@ -154,9 +173,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                 ImmutableSortedSet<BuildRule> fullJarExportedDeps,
                 ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
                 @Nullable BuildTarget abiJar,
+                @Nullable BuildTarget sourceOnlyAbiJar,
                 Optional<String> mavenCoords,
                 ImmutableSortedSet<BuildTarget> tests,
-                boolean requiredForSourceOnlyAbi) {
+                boolean requiredForSourceOnlyAbi,
+                UnusedDependenciesAction unusedDependenciesAction,
+                Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory) {
               return new AndroidLibrary(
                   buildTarget,
                   projectFilesystem,
@@ -168,10 +190,13 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                   fullJarExportedDeps,
                   fullJarProvidedDeps,
                   abiJar,
+                  sourceOnlyAbiJar,
                   mavenCoords,
                   args.getManifest(),
                   tests,
-                  requiredForSourceOnlyAbi);
+                  requiredForSourceOnlyAbi,
+                  unusedDependenciesAction,
+                  unusedDependenciesFinderFactory);
             }
           });
       delegateBuilder.setJavacOptions(javacOptions);
@@ -194,7 +219,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
               /* forceFinalResourceIds */ false,
               args.getResourceUnionPackage(),
               args.getFinalRName(),
-              false);
+              /* useOldStyleableFormat */ false,
+              args.isSkipNonUnionRDotJava());
 
       getDummyRDotJava()
           .ifPresent(

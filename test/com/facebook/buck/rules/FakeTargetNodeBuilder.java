@@ -16,9 +16,14 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import static org.junit.Assert.assertNotNull;
+
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.collect.ImmutableCollection;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 public class FakeTargetNodeBuilder
@@ -28,6 +33,33 @@ public class FakeTargetNodeBuilder
 
   private FakeTargetNodeBuilder(FakeDescription description, BuildTarget target) {
     super(description, target);
+  }
+
+  public FakeTargetNodeBuilder setLabel(String label) {
+    getArgForPopulating().addLabels(label);
+    return this;
+  }
+
+  public FakeTargetNodeBuilder setDeps(TargetNode<?, ?>... deps) {
+    getArgForPopulating()
+        .setDeps(Stream.of(deps).map(x -> x.getBuildTarget()).collect(Collectors.toList()));
+    return this;
+  }
+
+  public FakeTargetNodeBuilder setExtraDeps(TargetNode<?, ?>... deps) {
+    description.setExtraDeps(
+        Stream.of(deps).map(x -> x.getBuildTarget()).collect(Collectors.toSet()));
+    return this;
+  }
+
+  public FakeTargetNodeBuilder setTargetGraphOnlyDeps(TargetNode<?, ?>... deps) {
+    description.setTargetGraphOnlyDeps(
+        Stream.of(deps).map(x -> x.getBuildTarget()).collect(Collectors.toSet()));
+    return this;
+  }
+
+  public static FakeTargetNodeBuilder newBuilder(FakeDescription description, BuildTarget target) {
+    return new FakeTargetNodeBuilder(description, target);
   }
 
   public static FakeTargetNodeBuilder newBuilder(BuildRule rule) {
@@ -40,13 +72,29 @@ public class FakeTargetNodeBuilder
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractFakeTargetNodeArg extends CommonDescriptionArg {}
+  interface AbstractFakeTargetNodeArg extends CommonDescriptionArg, HasDeclaredDeps {}
 
-  public static class FakeDescription implements Description<FakeTargetNodeArg> {
+  public static class FakeDescription
+      implements Description<FakeTargetNodeArg>,
+          ImplicitDepsInferringDescription<FakeTargetNodeArg> {
     private final BuildRule rule;
+    private Set<BuildTarget> extraDeps;
+    private Set<BuildTarget> targetGraphOnlyDeps;
+
+    public FakeDescription() {
+      this.rule = null;
+    }
 
     public FakeDescription(BuildRule rule) {
       this.rule = rule;
+    }
+
+    private void setExtraDeps(Set<BuildTarget> extraDeps) {
+      this.extraDeps = extraDeps;
+    }
+
+    private void setTargetGraphOnlyDeps(Set<BuildTarget> targetGraphOnlyDeps) {
+      this.targetGraphOnlyDeps = targetGraphOnlyDeps;
     }
 
     @Override
@@ -56,14 +104,27 @@ public class FakeTargetNodeBuilder
 
     @Override
     public BuildRule createBuildRule(
-        TargetGraph targetGraph,
+        BuildRuleCreationContext context,
         BuildTarget buildTarget,
-        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
-        BuildRuleResolver resolver,
-        CellPathResolver cellRoots,
         FakeTargetNodeArg args) {
+      assertNotNull(rule);
       return rule;
+    }
+
+    @Override
+    public void findDepsForTargetFromConstructorArgs(
+        BuildTarget buildTarget,
+        CellPathResolver cellRoots,
+        FakeTargetNodeArg constructorArg,
+        ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+        ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+      if (extraDeps != null) {
+        extraDepsBuilder.addAll(extraDeps);
+      }
+      if (targetGraphOnlyDeps != null) {
+        targetGraphOnlyDepsBuilder.addAll(targetGraphOnlyDeps);
+      }
     }
   }
 }

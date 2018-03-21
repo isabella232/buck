@@ -16,12 +16,13 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Charsets;
@@ -247,7 +248,7 @@ public class DefaultOnDiskBuildInfo implements OnDiskBuildInfo {
 
   private void validateArtifactHasKey(ZipFile artifact, String key) {
     Preconditions.checkState(
-        artifact.getEntry(metadataDirectory.resolve(key).toString()) != null,
+        artifact.getEntry(MorePaths.pathWithUnixSeparators(metadataDirectory.resolve(key))) != null,
         "Artifact missing artifactMetadata for key %s",
         key);
   }

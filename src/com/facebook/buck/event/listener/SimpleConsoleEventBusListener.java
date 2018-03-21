@@ -20,6 +20,7 @@ import static com.facebook.buck.rules.BuildRuleSuccessType.BUILT_LOCALLY;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildRunEvent;
+import com.facebook.buck.distributed.build_client.StampedeConsoleEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -95,7 +96,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   }
 
   public static String getBuildLogLine(BuildId buildId) {
-    return "Build UUID: " + buildId.toString();
+    return "Build UUID: " + buildId;
   }
 
   /** Print information regarding the current distributed build. */
@@ -179,8 +180,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         Optional.empty(),
         lines);
 
-    String httpStatus = renderHttpUploads();
-    if (httpArtifactUploadsScheduledCount.get() > 0) {
+    String httpStatus = renderRemoteUploads();
+    if (remoteArtifactUploadsScheduledCount.get() > 0) {
       lines.add("WAITING FOR HTTP CACHE UPLOADS " + httpStatus);
     }
 
@@ -220,6 +221,11 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     ImmutableList.Builder<String> lines = ImmutableList.builder();
     formatConsoleEvent(event, lines);
     printLines(lines);
+  }
+
+  @Subscribe
+  public void logStampedeConsoleEvent(StampedeConsoleEvent event) {
+    logEvent(event.getConsoleEvent());
   }
 
   @Override

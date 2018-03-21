@@ -20,7 +20,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.Pair;
+import com.facebook.buck.util.types.Pair;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -29,7 +29,7 @@ public class ProvisioningProfileMetadataTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
-  public void testSplitAppID() throws Exception {
+  public void testSplitAppID() {
     Pair<String, String> result;
 
     result = ProvisioningProfileMetadata.splitAppID("ABCDE12345.com.example.TestApp");

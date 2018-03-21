@@ -89,7 +89,7 @@ public final class CxxInferEnhancer {
     }
   }
 
-  public static FlavorDomain<InferFlavors> INFER_FLAVOR_DOMAIN =
+  public static final FlavorDomain<InferFlavors> INFER_FLAVOR_DOMAIN =
       FlavorDomain.from("Infer flavors", InferFlavors.class);
 
   public static BuildRule requireInferRule(
@@ -256,18 +256,20 @@ public final class CxxInferEnhancer {
   }
 
   private <T extends BuildRule> ImmutableSet<T> requireTransitiveDependentLibraries(
-      final CxxPlatform cxxPlatform,
-      final Iterable<? extends BuildRule> deps,
-      final Flavor requiredFlavor,
-      final Class<T> ruleClass) {
-    final ImmutableSet.Builder<T> depsBuilder = ImmutableSet.builder();
+      CxxPlatform cxxPlatform,
+      Iterable<? extends BuildRule> deps,
+      Flavor requiredFlavor,
+      Class<T> ruleClass) {
+    ImmutableSet.Builder<T> depsBuilder = ImmutableSet.builder();
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
       @Override
       public Iterable<BuildRule> visit(BuildRule buildRule) {
         if (buildRule instanceof CxxLibrary) {
           CxxLibrary library = (CxxLibrary) buildRule;
           depsBuilder.add(
-              (ruleClass.cast(library.requireBuildRule(requiredFlavor, cxxPlatform.getFlavor()))));
+              (ruleClass.cast(
+                  library.requireBuildRule(
+                      ruleResolver, requiredFlavor, cxxPlatform.getFlavor()))));
           return buildRule.getBuildDeps();
         }
         return ImmutableSet.of();
@@ -287,6 +289,7 @@ public final class CxxInferEnhancer {
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         target,
         cxxPlatform,
+        ruleResolver,
         deps,
         ImmutableListMultimap.copyOf(
             Multimaps.transformValues(
@@ -302,6 +305,7 @@ public final class CxxInferEnhancer {
         args.getFrameworks(),
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
             cxxPlatform,
+            ruleResolver,
             RichStream.from(deps).filter(CxxPreprocessorDep.class::isInstance).toImmutableList()),
         args.getIncludeDirs(),
         sandboxTree,
@@ -338,6 +342,7 @@ public final class CxxInferEnhancer {
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             target,
             filesystem,
+            ruleFinder,
             ruleResolver,
             cxxPlatform,
             headers,
@@ -362,6 +367,7 @@ public final class CxxInferEnhancer {
     } else if (args instanceof CxxLibraryDescription.CommonArg) {
       preprocessorInputs =
           CxxLibraryDescription.getPreprocessorInputsForBuildingLibrarySources(
+              cxxBuckConfig,
               ruleResolver,
               cellRoots,
               target,

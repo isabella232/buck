@@ -33,6 +33,7 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymCopyStep;
 import com.google.common.collect.ImmutableList;
@@ -142,7 +143,7 @@ class CxxInferAnalyze extends AbstractBuildRule {
             new AbstractExecutionStep("write_specs_path_list") {
               @Override
               public StepExecutionResult execute(ExecutionContext executionContext)
-                  throws IOException, InterruptedException {
+                  throws IOException {
                 ImmutableList<String> specsDirsWithAbsolutePath =
                     getSpecsOfAllDeps()
                         .stream()
@@ -151,7 +152,7 @@ class CxxInferAnalyze extends AbstractBuildRule {
                                 context.getSourcePathResolver().getAbsolutePath(input).toString())
                         .collect(ImmutableList.toImmutableList());
                 getProjectFilesystem().writeLinesToPath(specsDirsWithAbsolutePath, specsPathList);
-                return StepExecutionResult.SUCCESS;
+                return StepExecutionResults.SUCCESS;
               }
             })
         .add(

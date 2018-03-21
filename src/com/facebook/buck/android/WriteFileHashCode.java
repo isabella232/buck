@@ -16,16 +16,14 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
-import com.facebook.buck.rules.modern.InputDataRetriever;
-import com.facebook.buck.rules.modern.InputPath;
-import com.facebook.buck.rules.modern.InputPathResolver;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
@@ -33,13 +31,14 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 
 /** Computes the hash of a file and writes it as the output. */
 public class WriteFileHashCode extends ModernBuildRule<WriteFileHashCode> implements Buildable {
-  private final InputPath inputPath;
-  private final OutputPath outputPath;
+  @AddToRuleKey private final SourcePath inputPath;
+  @AddToRuleKey private final OutputPath outputPath;
 
   public WriteFileHashCode(
       BuildTarget buildTarget,
@@ -47,27 +46,26 @@ public class WriteFileHashCode extends ModernBuildRule<WriteFileHashCode> implem
       SourcePathRuleFinder ruleFinder,
       SourcePath pathToFile) {
     super(buildTarget, projectFilesystem, ruleFinder, WriteFileHashCode.class);
-    this.inputPath = new InputPath(pathToFile);
+    this.inputPath = pathToFile;
     this.outputPath = new OutputPath("file.hash");
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      EventDispatcher eventDispatcher,
+      BuildContext buildContext,
       ProjectFilesystem filesystem,
-      InputPathResolver inputPathResolver,
-      InputDataRetriever inputDataRetriever,
       OutputPathResolver outputPathResolver,
       BuildCellRelativePathFactory buildCellPathFactory) {
     return ImmutableList.of(
         new AbstractExecutionStep("writing_file_hash") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context)
-              throws IOException, InterruptedException {
+          public StepExecutionResult execute(ExecutionContext context) throws IOException {
             filesystem.writeContentsToPath(
-                filesystem.computeSha1(inputPathResolver.resolvePath(inputPath)).getHash(),
+                filesystem
+                    .computeSha1(buildContext.getSourcePathResolver().getAbsolutePath(inputPath))
+                    .getHash(),
                 outputPathResolver.resolvePath(outputPath));
-            return StepExecutionResult.SUCCESS;
+            return StepExecutionResults.SUCCESS;
           }
         });
   }

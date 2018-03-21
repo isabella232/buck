@@ -63,16 +63,13 @@ abstract class AbstractUnflavoredBuildTarget implements Comparable<AbstractUnfla
         !getBaseName().contains("\\"), "baseName may not contain backslashes.");
 
     Preconditions.checkArgument(
-        getShortName().lastIndexOf("#") == -1,
-        "Build target name cannot contain '#' but was: %s.",
-        getShortName());
-
-    Preconditions.checkArgument(
         !getShortName().contains("#"),
         "Build target name cannot contain '#' but was: %s.",
         getShortName());
   }
 
+  // TODO: remove cell root path from this object. Don't forget to remove TODOs from
+  // BuildTargetMacro after that
   public abstract Path getCellPath();
 
   public abstract Optional<String> getCell();

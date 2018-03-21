@@ -16,11 +16,9 @@
 
 package com.facebook.buck.toolchain.impl;
 
-import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
-import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
 import com.facebook.buck.toolchain.Toolchain;
+import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.ToolchainWithCapability;
 import com.google.common.collect.ImmutableList;
@@ -28,22 +26,16 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 public class ToolchainProviderBuilder {
   private final Map<String, Toolchain> toolchains = new HashMap<>();
 
   public ToolchainProviderBuilder() {}
 
-  public ToolchainProviderBuilder withDefaultNdkCxxPlatforms() {
-    return withToolchain(
-        NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.of(ImmutableMap.of()));
-  }
-
-  public ToolchainProviderBuilder withDefaultCxxPlatforms() {
-    return withToolchain(
-        CxxPlatformsProvider.DEFAULT_NAME,
-        CxxPlatformsProvider.of(
-            CxxPlatformUtils.DEFAULT_PLATFORM, CxxPlatformUtils.DEFAULT_PLATFORMS));
+  public ToolchainProviderBuilder withToolchain(NamedToolchain toolchain) {
+    toolchains.put(toolchain.getName(), toolchain.getToolchain());
+    return this;
   }
 
   public ToolchainProviderBuilder withToolchain(String name, Toolchain toolchain) {
@@ -78,6 +70,11 @@ public class ToolchainProviderBuilder {
     }
 
     @Override
+    public boolean isToolchainFailed(String toolchainName) {
+      return false;
+    }
+
+    @Override
     public <T extends ToolchainWithCapability> Collection<String> getToolchainsWithCapability(
         Class<T> capability) {
       ImmutableList.Builder<String> featureSupportingToolchains = ImmutableList.builder();
@@ -89,6 +86,12 @@ public class ToolchainProviderBuilder {
       }
 
       return featureSupportingToolchains.build();
+    }
+
+    @Override
+    public Optional<ToolchainInstantiationException> getToolchainInstantiationException(
+        String toolchainName) {
+      return Optional.empty();
     }
   }
 }

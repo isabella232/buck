@@ -19,6 +19,7 @@ package com.facebook.buck.rules;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
@@ -35,26 +36,33 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.step.fs.SymlinkTreeMergeStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.base.Charsets;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.stream.Stream;
 import org.hamcrest.Matchers;
 import org.hamcrest.junit.ExpectedException;
+import org.hamcrest.text.MatchesPattern;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -76,7 +84,7 @@ public class SymlinkTreeTest {
 
   @Before
   public void setUp() throws Exception {
-    projectFilesystem = new FakeProjectFilesystem(tmpDir.getRoot());
+    projectFilesystem = TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot());
 
     // Create a build target to use when building the symlink tree.
     buildTarget = BuildTargetFactory.newInstance("//test:test");
@@ -102,18 +110,24 @@ public class SymlinkTreeTest {
     // The output path used by the buildable for the link tree.
     outputPath = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
 
-    ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ruleResolver = new TestBuildRuleResolver();
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Setup the symlink tree buildable.
-    symlinkTreeBuildRule = new SymlinkTree(buildTarget, projectFilesystem, outputPath, links);
+    symlinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            links,
+            ImmutableMultimap.of(),
+            ruleFinder);
   }
 
   @Test
-  public void testSymlinkTreeBuildSteps() throws IOException {
+  public void testSymlinkTreeBuildSteps() {
 
     // Create the fake build contexts.
     BuildContext buildContext = FakeBuildContext.withSourcePathResolver(pathResolver);
@@ -128,7 +142,10 @@ public class SymlinkTreeTest {
                         buildContext.getBuildCellRootPath(), projectFilesystem, outputPath)))
             .add(
                 new SymlinkTreeStep(
-                    projectFilesystem, outputPath, pathResolver.getMappedPaths(links)))
+                    "link_tree", projectFilesystem, outputPath, pathResolver.getMappedPaths(links)))
+            .add(
+                new SymlinkTreeMergeStep(
+                    "link_tree", projectFilesystem, outputPath, ImmutableMultimap.of()))
             .build();
     ImmutableList<Step> actualBuildSteps =
         symlinkTreeBuildRule.getBuildSteps(buildContext, buildableContext);
@@ -146,17 +163,17 @@ public class SymlinkTreeTest {
     Files.write(aFile, "hello world".getBytes(Charsets.UTF_8));
     SymlinkTree modifiedSymlinkTreeBuildRule =
         new SymlinkTree(
+            "link_tree",
             buildTarget,
             projectFilesystem,
             outputPath,
             ImmutableMap.of(
                 Paths.get("different/link"),
                 PathSourcePath.of(
-                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), aFile))));
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), aFile))),
+            ImmutableMultimap.of(),
+            ruleFinder);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Calculate their rule keys and verify they're different.
@@ -171,6 +188,185 @@ public class SymlinkTreeTest {
         new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
             .build(modifiedSymlinkTreeBuildRule);
     assertNotEquals(key1, key2);
+  }
+
+  @Test
+  public void testSymlinkTreeRuleKeyChangesIfMergeDirectoriesChange() throws Exception {
+    // Create a BuildRule wrapping the stock SymlinkTree buildable.
+    // BuildRule rule1 = symlinkTreeBuildable;
+
+    Path file1 = tmpDir.newFile();
+    Files.write(file1, "hello world".getBytes(Charsets.UTF_8));
+
+    BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
+    BuildTarget exportFileTarget2 = BuildTargetFactory.newInstance("//test:dir2");
+
+    Genrule exportFile1 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget1).setOut("dir1").build(ruleResolver);
+    Genrule exportFile2 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget2).setOut("dir1").build(ruleResolver);
+
+    projectFilesystem.mkdirs(Paths.get("test", "dir1"));
+    projectFilesystem.writeContentsToPath("file", Paths.get("test", "dir1", "file1"));
+    projectFilesystem.mkdirs(Paths.get("test", "dir2"));
+    projectFilesystem.writeContentsToPath("file", Paths.get("test", "dir2", "file2"));
+    ruleResolver.computeIfAbsent(exportFileTarget1, target -> exportFile1);
+    ruleResolver.computeIfAbsent(exportFileTarget2, target -> exportFile2);
+
+    // Create three link tree objects. One will change the dependencies, and one just changes
+    // destination subdirs to make sure that's taken into account
+    SymlinkTree firstSymLinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            ImmutableMap.of(
+                Paths.get("file"),
+                PathSourcePath.of(
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1))),
+            ImmutableSetMultimap.of(Paths.get(""), exportFile1.getSourcePathToOutput()),
+            ruleFinder);
+
+    SymlinkTree secondSymLinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            ImmutableMap.of(
+                Paths.get("file"),
+                PathSourcePath.of(
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1))),
+            ImmutableSetMultimap.of(Paths.get(""), exportFile2.getSourcePathToOutput()),
+            ruleFinder);
+
+    SymlinkTree thirdSymLinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            ImmutableMap.of(
+                Paths.get("file"),
+                PathSourcePath.of(
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1))),
+            ImmutableSetMultimap.of(Paths.get("other_subdir"), exportFile2.getSourcePathToOutput()),
+            ruleFinder);
+
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
+
+    // Calculate their rule keys and verify they're different.
+    DefaultFileHashCache hashCache =
+        DefaultFileHashCache.createDefaultFileHashCache(
+            TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot()),
+            FileHashCacheMode.DEFAULT);
+    FileHashLoader hashLoader = new StackedFileHashCache(ImmutableList.of(hashCache));
+    RuleKey key1 =
+        new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
+            .build(firstSymLinkTreeBuildRule);
+    RuleKey key2 =
+        new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
+            .build(secondSymLinkTreeBuildRule);
+    RuleKey key3 =
+        new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
+            .build(thirdSymLinkTreeBuildRule);
+
+    assertNotEquals(key1, key2);
+    assertNotEquals(key1, key3);
+    assertNotEquals(key2, key3);
+  }
+
+  @Test
+  public void testSymlinkTreeRuleKeyAreEqualIfMergeDirectoriesAreEquivalent() throws Exception {
+    // Create a BuildRule wrapping the stock SymlinkTree buildable.
+    // BuildRule rule1 = symlinkTreeBuildable;
+
+    Path file1 = tmpDir.newFile();
+    Files.write(file1, "hello world".getBytes(Charsets.UTF_8));
+
+    BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
+    BuildTarget exportFileTarget2 = BuildTargetFactory.newInstance("//test:dir2");
+
+    Genrule exportFile1 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget1).setOut("dir1").build(ruleResolver);
+    Genrule exportFile2 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget2).setOut("dir1").build(ruleResolver);
+
+    projectFilesystem.mkdirs(Paths.get("test", "dir1"));
+    projectFilesystem.writeContentsToPath("file", Paths.get("test", "dir1", "file1"));
+    projectFilesystem.mkdirs(Paths.get("test", "dir2"));
+    projectFilesystem.writeContentsToPath("file", Paths.get("test", "dir2", "file2"));
+    ruleResolver.computeIfAbsent(exportFileTarget1, target -> exportFile1);
+    ruleResolver.computeIfAbsent(exportFileTarget2, target -> exportFile2);
+
+    ImmutableListMultimap<Path, SourcePath> firstMergeDirectories =
+        ImmutableListMultimap.of(
+            Paths.get(""),
+            exportFile2.getSourcePathToOutput(),
+            Paths.get(""),
+            exportFile1.getSourcePathToOutput(),
+            Paths.get("subdir"),
+            exportFile2.getSourcePathToOutput(),
+            Paths.get("subdir"),
+            exportFile1.getSourcePathToOutput());
+
+    ImmutableListMultimap<Path, SourcePath> secondMergeDirectories =
+        ImmutableListMultimap.of(
+            Paths.get("subdir"),
+            exportFile1.getSourcePathToOutput(),
+            Paths.get("subdir"),
+            exportFile2.getSourcePathToOutput(),
+            Paths.get(""),
+            exportFile1.getSourcePathToOutput(),
+            Paths.get(""),
+            exportFile2.getSourcePathToOutput());
+
+    // Create three link tree objects. One will change the dependencies, and one just changes
+    // destination subdirs to make sure that's taken into account
+    SymlinkTree firstSymLinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            ImmutableMap.of(
+                Paths.get("file"),
+                PathSourcePath.of(
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1))),
+            firstMergeDirectories,
+            ruleFinder);
+
+    SymlinkTree secondSymLinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            ImmutableMap.of(
+                Paths.get("file"),
+                PathSourcePath.of(
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1))),
+            secondMergeDirectories,
+            ruleFinder);
+
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
+
+    // Calculate their rule keys and verify they're different.
+    DefaultFileHashCache hashCache =
+        DefaultFileHashCache.createDefaultFileHashCache(
+            TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot()),
+            FileHashCacheMode.DEFAULT);
+    FileHashLoader hashLoader = new StackedFileHashCache(ImmutableList.of(hashCache));
+    RuleKey key1 =
+        new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
+            .build(firstSymLinkTreeBuildRule);
+    RuleKey key2 =
+        new TestDefaultRuleKeyFactory(hashLoader, resolver, ruleFinder)
+            .build(secondSymLinkTreeBuildRule);
+
+    assertNotEquals(firstMergeDirectories, secondMergeDirectories);
+    assertEquals(key1, key2);
   }
 
   @Test
@@ -200,9 +396,7 @@ public class SymlinkTreeTest {
       throws Exception {
     // If a dependent of a symlink tree uses the symlink tree's output as an input, that dependent's
     // rulekey must change when the link contents change.
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     ruleResolver.addToIndex(symlinkTreeBuildRule);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -233,8 +427,7 @@ public class SymlinkTreeTest {
   }
 
   @Test
-  public void testSymlinkTreeInputBasedRuleKeysAreImmuneToLinkSourceContentChanges()
-      throws Exception {
+  public void testSymlinkTreeInputBasedRuleKeysAreImmuneToLinkSourceContentChanges() {
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
@@ -242,10 +435,13 @@ public class SymlinkTreeTest {
 
     symlinkTreeBuildRule =
         new SymlinkTree(
+            "link_tree",
             buildTarget,
             projectFilesystem,
             outputPath,
-            ImmutableMap.of(Paths.get("link"), dep.getSourcePathToOutput()));
+            ImmutableMap.of(Paths.get("link"), dep.getSourcePathToOutput()),
+            ImmutableMultimap.of(),
+            ruleFinder);
 
     // Generate an input-based rule key for the symlink tree with the contents of the link
     // target hashing to "aaaa".
@@ -270,13 +466,16 @@ public class SymlinkTreeTest {
   public void verifyStepFailsIfKeyContainsDotDot() throws Exception {
     SymlinkTree symlinkTree =
         new SymlinkTree(
+            "link_tree",
             buildTarget,
             projectFilesystem,
             outputPath,
             ImmutableMap.of(
                 Paths.get("../something"),
                 PathSourcePath.of(
-                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), tmpDir.newFile()))));
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), tmpDir.newFile()))),
+            ImmutableMultimap.of(),
+            ruleFinder);
     int exitCode =
         symlinkTree.getVerifyStep().execute(TestExecutionContext.newInstance()).getExitCode();
     assertThat(exitCode, Matchers.not(Matchers.equalTo(0)));
@@ -284,9 +483,7 @@ public class SymlinkTreeTest {
 
   @Test
   public void resolveDuplicateRelativePathsIsNoopWhenThereAreNoDuplicates() {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -306,9 +503,7 @@ public class SymlinkTreeTest {
 
   @Test
   public void resolveDuplicateRelativePaths() throws InterruptedException, IOException {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     tmp.getRoot().resolve("one").toFile().mkdir();
@@ -334,9 +529,7 @@ public class SymlinkTreeTest {
 
   @Test
   public void resolveDuplicateRelativePathsWithConflicts() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     tmp.getRoot().resolve("a-fs").toFile().mkdir();
@@ -364,5 +557,225 @@ public class SymlinkTreeTest {
             ImmutableSortedSet.copyOf(expected.keySet()), resolver);
 
     assertThat(resolvedDuplicates, Matchers.equalTo(expected));
+  }
+
+  @Test
+  public void mergesDirectoryContentsIntoMainSymlinkTree() throws IOException {
+    BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
+    Path dir1 = Paths.get("test", "dir1");
+    Path dir1file = dir1.resolve("file1");
+    BuildTarget exportFileTarget2 = BuildTargetFactory.newInstance("//test:dir2");
+    Path dir2 = Paths.get("test", "dir2");
+    Path dir2file = dir1.resolve("file2");
+
+    projectFilesystem.mkdirs(dir1);
+    projectFilesystem.writeContentsToPath("file", dir1file);
+    projectFilesystem.mkdirs(dir2);
+    projectFilesystem.writeContentsToPath("file", dir2file);
+
+    Genrule exportFile1 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget1, projectFilesystem)
+            .setOut("dir1")
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, dir1file)))
+            .setCmd("mkdir -p $OUT && cp $SRCS $OUT")
+            .setCmdExe("mkdir $OUT && copy $SRCS $OUT")
+            .build(ruleResolver);
+    Genrule exportFile2 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget2, projectFilesystem)
+            .setOut("dir2")
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, dir2file)))
+            .setCmd("mkdir -p $OUT && cp $SRCS $OUT")
+            .setCmdExe("mkdir $OUT && copy $SRCS $OUT")
+            .build(ruleResolver);
+
+    ruleResolver.computeIfAbsent(exportFileTarget1, target -> exportFile1);
+    ruleResolver.computeIfAbsent(exportFileTarget2, target -> exportFile2);
+
+    symlinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            links,
+            ImmutableMultimap.of(
+                Paths.get(""),
+                exportFile1.getSourcePathToOutput(),
+                Paths.get("subdir"),
+                exportFile2.getSourcePathToOutput()),
+            ruleFinder);
+
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
+    FakeBuildableContext buildableContext = new FakeBuildableContext();
+    Stream.concat(
+            Stream.concat(
+                exportFile1.getBuildSteps(context, buildableContext).stream(),
+                exportFile2.getBuildSteps(context, buildableContext).stream()),
+            symlinkTreeBuildRule.getBuildSteps(context, buildableContext).stream())
+        .forEach(
+            step -> {
+              try {
+                step.execute(TestExecutionContext.newInstanceWithRealProcessExecutor());
+              } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+            });
+
+    assertEquals(
+        ImmutableSortedSet.of(exportFile1, exportFile2), symlinkTreeBuildRule.getBuildDeps());
+    if (Platform.detect() != Platform.WINDOWS) {
+      assertTrue(projectFilesystem.isSymLink(outputPath.resolve("file1")));
+      assertTrue(projectFilesystem.isSymLink(outputPath.resolve("subdir").resolve("file2")));
+    }
+    assertTrue(
+        Files.isSameFile(
+            pathResolver.getAbsolutePath(exportFile1.getSourcePathToOutput()).resolve("file1"),
+            projectFilesystem.resolve(outputPath.resolve("file1"))));
+    assertTrue(
+        Files.isSameFile(
+            pathResolver.getAbsolutePath(exportFile2.getSourcePathToOutput()).resolve("file2"),
+            projectFilesystem.resolve(outputPath.resolve("subdir").resolve("file2"))));
+  }
+
+  @Test
+  public void failsOnMergeConflicts() throws IOException {
+    exception.expect(HumanReadableException.class);
+    if (Platform.detect() != Platform.WINDOWS) {
+      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already links to.*"));
+    } else {
+      // Windows doesn't return true from 'isSymlink', so error is slightly different
+      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already exists.*"));
+    }
+
+    BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
+    Path dir1 = Paths.get("test", "dir1");
+    Path dir1file = dir1.resolve("file1");
+    BuildTarget exportFileTarget2 = BuildTargetFactory.newInstance("//test:dir2");
+    Path dir2 = Paths.get("test", "dir2");
+    Path dir2file = dir1.resolve("file1");
+
+    projectFilesystem.mkdirs(dir1);
+    projectFilesystem.writeContentsToPath("file", dir1file);
+    projectFilesystem.mkdirs(dir2);
+    projectFilesystem.writeContentsToPath("file", dir2file);
+
+    Genrule exportFile1 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget1, projectFilesystem)
+            .setOut("dir1")
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, dir1file)))
+            .setCmd("mkdir -p $OUT && cp $SRCS $OUT")
+            .setCmdExe("mkdir $OUT && copy $SRCS $OUT")
+            .build(ruleResolver);
+    Genrule exportFile2 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget2, projectFilesystem)
+            .setOut("dir2")
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, dir2file)))
+            .setCmd("mkdir -p $OUT && cp $SRCS $OUT")
+            .setCmdExe("mkdir $OUT && copy $SRCS $OUT")
+            .build(ruleResolver);
+
+    ruleResolver.computeIfAbsent(exportFileTarget1, target -> exportFile1);
+    ruleResolver.computeIfAbsent(exportFileTarget2, target -> exportFile2);
+
+    symlinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            links,
+            ImmutableMultimap.of(
+                Paths.get(""),
+                exportFile1.getSourcePathToOutput(),
+                Paths.get(""),
+                exportFile2.getSourcePathToOutput()),
+            ruleFinder);
+
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
+    FakeBuildableContext buildableContext = new FakeBuildableContext();
+    Stream.concat(
+            Stream.concat(
+                exportFile1.getBuildSteps(context, buildableContext).stream(),
+                exportFile2.getBuildSteps(context, buildableContext).stream()),
+            symlinkTreeBuildRule.getBuildSteps(context, buildableContext).stream())
+        .forEach(
+            step -> {
+              try {
+                step.execute(TestExecutionContext.newInstanceWithRealProcessExecutor());
+              } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+            });
+  }
+
+  @Test
+  public void failsOnMergeConflictsFromExplicitlyListedFiles() throws IOException {
+    exception.expect(HumanReadableException.class);
+    if (Platform.detect() != Platform.WINDOWS) {
+      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already links to.*"));
+    } else {
+      // Windows doesn't return true from 'isSymlink', so error is slightly different
+      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already exists.*"));
+    }
+
+    BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
+    Path dir1 = Paths.get("test", "dir1");
+    Path dir1file = dir1.resolve("file");
+
+    Genrule exportFile1 =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget1, projectFilesystem)
+            .setOut("dir1")
+            .setSrcs(ImmutableList.of(FakeSourcePath.of(projectFilesystem, dir1file)))
+            .setCmd("mkdir $OUT && cp $SRCS $OUT")
+            .setCmdExe("mkdir $OUT && copy $SRCS $OUT")
+            .build(ruleResolver);
+
+    projectFilesystem.mkdirs(dir1);
+    projectFilesystem.writeContentsToPath("file", dir1file);
+    ruleResolver.computeIfAbsent(exportFileTarget1, target -> exportFile1);
+
+    symlinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            links,
+            ImmutableMultimap.of(Paths.get(""), exportFile1.getSourcePathToOutput()),
+            ruleFinder);
+
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
+    FakeBuildableContext buildableContext = new FakeBuildableContext();
+    Stream.concat(
+            exportFile1.getBuildSteps(context, buildableContext).stream(),
+            symlinkTreeBuildRule.getBuildSteps(context, buildableContext).stream())
+        .forEach(
+            step -> {
+              try {
+                step.execute(TestExecutionContext.newInstanceWithRealProcessExecutor());
+              } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+              }
+            });
+  }
+
+  @Test
+  public void getsCorrectCompileTimeDeps() {
+    BuildTarget exportFileTarget = BuildTargetFactory.newInstance("//test:dir");
+    Genrule exportFile =
+        GenruleBuilder.newGenruleBuilder(exportFileTarget).setOut("dir1").build(ruleResolver);
+    ruleResolver.computeIfAbsent(exportFileTarget, target -> exportFile);
+
+    symlinkTreeBuildRule =
+        new SymlinkTree(
+            "link_tree",
+            buildTarget,
+            projectFilesystem,
+            outputPath,
+            links,
+            ImmutableMultimap.of(Paths.get(""), exportFile.getSourcePathToOutput()),
+            ruleFinder);
+
+    assertEquals(ImmutableSortedSet.of(exportFile), symlinkTreeBuildRule.getBuildDeps());
   }
 }

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.util.unit;
 
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.MoreStrings;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableMap;
 import java.math.BigDecimal;
 import java.util.Locale;
@@ -34,7 +34,7 @@ public enum SizeUnit {
   private final int ordinal;
   private final String abbreviation;
 
-  private SizeUnit(int ordinal, String abbreviation) {
+  SizeUnit(int ordinal, String abbreviation) {
     this.ordinal = ordinal;
     this.abbreviation = abbreviation;
   }

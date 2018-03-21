@@ -19,8 +19,8 @@ package com.facebook.buck.android;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import java.io.IOException;
 import org.junit.Before;
@@ -48,13 +48,13 @@ public class AndroidConsistencyIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testModuleConsistencyStep() throws IOException, InterruptedException {
+  public void testModuleConsistencyStep() throws IOException {
     String target = "//apps/multidex:app-with-consistency-check";
     workspace.runBuckCommand("build", target).assertSuccess();
   }
 
   @Test
-  public void testModuleConsistencyFailure() throws IOException, InterruptedException {
+  public void testModuleConsistencyFailure() throws IOException {
     String target = "//apps/multidex:app-with-consistency-failure";
     workspace.runBuckCommand("build", target).assertFailure();
   }

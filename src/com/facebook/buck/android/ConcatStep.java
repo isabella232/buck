@@ -20,6 +20,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Joiner;
 import com.google.common.base.Suppliers;
@@ -72,13 +73,13 @@ public class ConcatStep implements Step {
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
     ImmutableList<Path> list = inputs.get();
-    try (OutputStream out = filesystem.newFileOutputStream(output); ) {
+    try (OutputStream out = filesystem.newFileOutputStream(output)) {
       for (Path p : list) {
         filesystem.copyToOutputStream(p, out);
       }
       out.flush();
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override

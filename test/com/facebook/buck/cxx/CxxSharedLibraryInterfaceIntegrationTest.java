@@ -19,13 +19,13 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBuckConfig;
-import com.facebook.buck.android.AndroidNdkHelper;
-import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
-import com.facebook.buck.android.NdkCxxPlatformCompiler;
-import com.facebook.buck.android.NdkCxxPlatforms;
-import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
+import com.facebook.buck.android.toolchain.ndk.impl.NdkCxxPlatforms;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
@@ -36,9 +36,9 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.testutil.ParameterizedTests;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
@@ -59,20 +59,19 @@ import org.junit.runners.Parameterized;
 @RunWith(Parameterized.class)
 public class CxxSharedLibraryInterfaceIntegrationTest {
 
-  private static Optional<ImmutableList<Flavor>> getNdkPlatforms() throws InterruptedException {
+  private static Optional<ImmutableList<Flavor>> getNdkPlatforms() {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
-    DefaultAndroidDirectoryResolver resolver =
-        new DefaultAndroidDirectoryResolver(
-            filesystem.getRootPath().getFileSystem(),
-            ImmutableMap.copyOf(System.getenv()),
-            AndroidNdkHelper.DEFAULT_CONFIG);
-    Optional<Path> ndkDir = resolver.getNdkOrAbsent();
-    if (!ndkDir.isPresent()) {
+
+    Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(filesystem);
+
+    if (!androidNdk.isPresent()) {
       return Optional.empty();
     }
+
+    Path ndkDir = androidNdk.get().getNdkRootPath();
     NdkCompilerType compilerType = NdkCxxPlatforms.DEFAULT_COMPILER_TYPE;
-    Optional<String> ndkVersion = resolver.getNdkVersion();
+    String ndkVersion = androidNdk.get().getNdkVersion();
     String gccVersion = NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion);
     String clangVersion = NdkCxxPlatforms.getDefaultClangVersionForNdk(ndkVersion);
     String compilerVersion = compilerType == NdkCompilerType.GCC ? gccVersion : clangVersion;
@@ -87,7 +86,7 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             new CxxBuckConfig(FakeBuckConfig.builder().build()),
             new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect()),
             filesystem,
-            ndkDir.get(),
+            ndkDir,
             compiler,
             NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
             NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM,
@@ -113,13 +112,18 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
     ndkPlatforms.ifPresent(platforms::addAll);
 
     return ParameterizedTests.getPermutations(
-        ImmutableList.of("cxx_library", "prebuilt_cxx_library"), platforms);
+        ImmutableList.of("cxx_library", "prebuilt_cxx_library"),
+        platforms,
+        /* independentInterfaces */ ImmutableList.of(true, false));
   }
 
   @Parameterized.Parameter public String type;
 
   @Parameterized.Parameter(value = 1)
   public Flavor platform;
+
+  @Parameterized.Parameter(value = 2)
+  public boolean independentInterfaces;
 
   private ProjectWorkspace workspace;
 
@@ -186,6 +190,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.shlib_interfaces=enabled",
             "-c",
+            "cxx.independent_shlib_interfaces=" + independentInterfaces,
+            "-c",
             "cxx.objcopy=/usr/bin/objcopy",
             "-c",
             "cxx.platform=" + platform,
@@ -232,6 +238,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
         ImmutableList.of(
             "-c",
             "cxx.shlib_interfaces=enabled",
+            "-c",
+            "cxx.independent_shlib_interfaces=" + independentInterfaces,
             "-c",
             "cxx.objcopy=/usr/bin/objcopy",
             "-c",
@@ -283,6 +291,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.shlib_interfaces=enabled",
             "-c",
+            "cxx.independent_shlib_interfaces=" + independentInterfaces,
+            "-c",
             "cxx.objcopy=/usr/bin/objcopy",
             "-c",
             "cxx.platform=" + platform,
@@ -305,6 +315,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             "-c",
             "cxx.shlib_interfaces=enabled",
             "-c",
+            "cxx.independent_shlib_interfaces=" + independentInterfaces,
+            "-c",
             "cxx.objcopy=/usr/bin/objcopy",
             "-c",
             "cxx.platform=" + platform,
@@ -324,6 +336,8 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
         ImmutableList.of(
             "-c",
             "cxx.shlib_interfaces=enabled",
+            "-c",
+            "cxx.independent_shlib_interfaces=" + independentInterfaces,
             "-c",
             "cxx.objcopy=/usr/bin/objcopy",
             "-c",

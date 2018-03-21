@@ -22,17 +22,21 @@ import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.BuckInitializationDurationEvent;
-import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.EventKey;
+import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.eventbus.Subscribe;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -44,6 +48,14 @@ public class PerfTimesEventListener implements BuckEventListener {
   private final AtomicLong accumulatedParseTime = new AtomicLong();
   private final AtomicBoolean firstCacheFetchEvent = new AtomicBoolean(false);
   private final AtomicBoolean firstLocalBuildEvent = new AtomicBoolean(false);
+
+  /**
+   * Calculation of rule key computation time is complicated since we have multiple types and it
+   * happens ad hoc. In order to calculate it we measure start and finish events.
+   */
+  private Map<BuildRule, TimeCostEntry<BuildRuleEvent>> ruleKeysCosts = new HashMap<>();
+
+  private AtomicLong ruleKeyCalculationTotalTimeMs = new AtomicLong(0L);
 
   private PerfTimesStats.Builder perfTimesStatsBuilder = PerfTimesStats.builder();
 
@@ -57,7 +69,6 @@ public class PerfTimesEventListener implements BuckEventListener {
     this.eventBus = eventBus;
     perfTimesStatsBuilder.setPythonTimeMs(
         executionEnvironment.getenv("BUCK_PYTHON_SPACE_INIT_TIME").map(Long::valueOf).orElse(0L));
-    eventBus.post(PerfTimesEvent.update(perfTimesStatsBuilder.build()));
   }
 
   @Subscribe
@@ -81,13 +92,43 @@ public class PerfTimesEventListener implements BuckEventListener {
   }
 
   @Subscribe
-  public void actionGraphFinished(ActionGraphEvent.Finished finished) {
+  public synchronized void actionGraphFinished(ActionGraphEvent.Finished finished) {
     perfTimesStatsBuilder.setActionGraphTimeMs(getTimeDifferenceSinceLastEventToEvent(finished));
     eventBus.post(PerfTimesEvent.update(perfTimesStatsBuilder.build()));
   }
 
+  /**
+   * Records when we start calculating a rulekey.
+   *
+   * @param event the event that sings the start.
+   */
   @Subscribe
-  public void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
+  public synchronized void onRuleKeyCalculationStarted(BuildRuleEvent.StartedRuleKeyCalc event) {
+    ruleKeysCosts.computeIfAbsent(
+        event.getBuildRule(),
+        buildRule -> ruleKeysCosts.put(buildRule, new TimeCostEntry<>(event)));
+  }
+
+  /**
+   * Records when a rulekey finished calculation and it is time to extract time it took.
+   *
+   * @param event the event that signs the end of calculation.
+   */
+  @Subscribe
+  public synchronized void onRuleKeyCalculationFinished(BuildRuleEvent.FinishedRuleKeyCalc event) {
+    TimeCostEntry<BuildRuleEvent> timeCostEntry = ruleKeysCosts.get(event.getBuildRule());
+    if (timeCostEntry != null && timeCostEntry.getStartEvent() != null) {
+      long costTimeMs =
+          TimeUnit.NANOSECONDS.toMillis(
+              event.getNanoTime() - timeCostEntry.getStartEvent().getNanoTime());
+      long newValue = ruleKeyCalculationTotalTimeMs.addAndGet(costTimeMs);
+      perfTimesStatsBuilder.setTotalRulekeyTimeMs(newValue);
+      eventBus.post(PerfTimesEvent.update(perfTimesStatsBuilder.build()));
+    }
+  }
+
+  @Subscribe
+  public synchronized void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
     if (firstCacheFetchEvent.compareAndSet(false, true)) {
       perfTimesStatsBuilder.setRulekeyTimeMs(getTimeDifferenceSinceLastEventToEvent(event));
       eventBus.post(PerfTimesEvent.update(perfTimesStatsBuilder.build()));
@@ -95,7 +136,7 @@ public class PerfTimesEventListener implements BuckEventListener {
   }
 
   @Subscribe
-  public void buildRuleWillBuildLocally(BuildRuleEvent.WillBuildLocally event) {
+  public synchronized void buildRuleWillBuildLocally(BuildRuleEvent.WillBuildLocally event) {
     if (firstLocalBuildEvent.compareAndSet(false, true)) {
       perfTimesStatsBuilder.setFetchTimeMs(getTimeDifferenceSinceLastEventToEvent(event));
       eventBus.post(PerfTimesEvent.update(perfTimesStatsBuilder.build()));
@@ -109,7 +150,7 @@ public class PerfTimesEventListener implements BuckEventListener {
   }
 
   @Subscribe
-  public synchronized void commandFinished(CommandEvent.Finished finished) {
+  public synchronized void installFinished(InstallEvent.Finished finished) {
     perfTimesStatsBuilder.setInstallTimeMs(getTimeDifferenceSinceLastEventToEvent(finished));
     eventBus.post(PerfTimesEvent.complete(perfTimesStatsBuilder.build()));
   }
@@ -122,7 +163,7 @@ public class PerfTimesEventListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) throws InterruptedException {}
+  public void outputTrace(BuildId buildId) {}
 
   public static class PerfTimesEvent extends AbstractBuckEvent {
     private String eventName;

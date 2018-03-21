@@ -36,7 +36,7 @@ import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.JsonMatcher;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -105,7 +105,7 @@ public class MachineReadableLogJsonViewTest {
   }
 
   @Test
-  public void testBuildRuleEvent() throws IOException, InterruptedException {
+  public void testBuildRuleEvent() throws IOException {
     BuildRule rule = new FakeBuildRule("//fake:rule");
     long durationMillis = 5;
     long durationNanos = 5 * 1000 * 1000;
@@ -164,6 +164,8 @@ public class MachineReadableLogJsonViewTest {
                 .setPythonTimeMs(4L)
                 .setInitTimeMs(8L)
                 .setProcessingTimeMs(15L)
+                .setRulekeyTimeMs(100L)
+                .setTotalRulekeyTimeMs(42L)
                 .setActionGraphTimeMs(16L)
                 .setBuildTimeMs(23L)
                 .setInstallTimeMs(42L)
@@ -179,7 +181,8 @@ public class MachineReadableLogJsonViewTest {
             + "\"parseTimeMs\":0,"
             + "\"processingTimeMs\":15,"
             + "\"actionGraphTimeMs\":16,"
-            + "\"rulekeyTimeMs\":0,"
+            + "\"rulekeyTimeMs\":100,"
+            + "\"totalRulekeyTimeMs\":42,"
             + "\"fetchTimeMs\":0,"
             + "\"buildTimeMs\":23,"
             + "\"installTimeMs\":42}}",
@@ -218,7 +221,7 @@ public class MachineReadableLogJsonViewTest {
             + "\"successUploadCount\":2,\"failureUploadCount\":0}");
   }
 
-  private void assertJsonEquals(String expected, String actual) throws IOException {
+  private void assertJsonEquals(String expected, String actual) {
     String commonHeader = String.format("\"timestamp\":%d", timestamp);
     assertThat(actual, new JsonMatcher(String.format(expected, commonHeader)));
   }

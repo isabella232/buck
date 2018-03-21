@@ -21,35 +21,52 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.function.Function;
 import org.immutables.value.Value;
 import org.junit.Before;
 import org.junit.Test;
-import org.kohsuke.args4j.CmdLineException;
 
 /** Reports targets that own a specified list of files. */
 public class OwnersReportTest {
@@ -63,14 +80,11 @@ public class OwnersReportTest {
 
     @Override
     public BuildRule createBuildRule(
-        TargetGraph targetGraph,
+        BuildRuleCreationContext context,
         BuildTarget buildTarget,
-        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
-        BuildRuleResolver resolver,
-        CellPathResolver cellRoots,
         FakeRuleDescriptionArg args) {
-      return new FakeBuildRule(buildTarget, projectFilesystem, params);
+      return new FakeBuildRule(buildTarget, context.getProjectFilesystem(), params);
     }
 
     @BuckStyleImmutable
@@ -112,8 +126,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyPathsThatAreNotFilesAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyPathsThatAreNotFilesAreCorrectlyReported() throws IOException {
     filesystem.mkdirs(filesystem.getPath("java/somefolder/badfolder"));
     filesystem.mkdirs(filesystem.getPath("com/test/subtest"));
 
@@ -132,8 +145,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyMissingFilesAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyMissingFilesAreCorrectlyReported() {
     // Inputs that should be treated as missing files
     String input = "java/somefolder/badfolder/somefile.java";
 
@@ -149,8 +161,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyInputsWithoutOwnersAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithoutOwnersAreCorrectlyReported() throws IOException {
     // Inputs that should be treated as existing files
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
@@ -171,8 +182,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyInputsAgainstRulesThatListDirectoryInputs()
-      throws IOException, InterruptedException {
+  public void verifyInputsAgainstRulesThatListDirectoryInputs() throws IOException {
     // Inputs that should be treated as existing files
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
@@ -196,8 +206,7 @@ public class OwnersReportTest {
 
   /** Verify that owners are correctly detected: - one owner, multiple inputs */
   @Test
-  public void verifyInputsWithOneOwnerAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithOneOwnerAreCorrectlyReported() throws IOException {
 
     ImmutableList<String> inputs =
         ImmutableList.of("java/somefolder/badfolder/somefile.java", "java/somefolder/perfect.java");
@@ -228,8 +237,7 @@ public class OwnersReportTest {
 
   /** Verify that owners are correctly detected: - inputs that belong to multiple targets */
   @Test
-  public void verifyInputsWithMultipleOwnersAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithMultipleOwnersAreCorrectlyReported() throws IOException {
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
 
@@ -253,5 +261,52 @@ public class OwnersReportTest {
     assertTrue(report.owners.containsKey(targetNode2));
     assertEquals(targetNode1.getInputs(), report.owners.get(targetNode1));
     assertEquals(targetNode2.getInputs(), report.owners.get(targetNode2));
+  }
+
+  @Test
+  public void verifyThatRequestedFilesThatDoNotExistOnDiskAreReported() {
+    String input = "java/some_file";
+
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
+    OwnersReport report =
+        OwnersReport.builder(
+                cell, createParser(cell), BuckEventBusForTests.newInstance(FakeClock.doNotCare()))
+            .build(
+                getBuildFileTrees(cell),
+                MoreExecutors.newDirectExecutorService(),
+                ImmutableSet.of(input));
+
+    assertEquals(1, report.nonExistentInputs.size());
+    assertTrue(report.nonExistentInputs.contains(input));
+  }
+
+  private Parser createParser(Cell cell) {
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
+    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
+        KnownBuildRuleTypesProvider.of(
+            DefaultKnownBuildRuleTypesFactory.of(
+                processExecutor,
+                BuckPluginManagerFactory.createPluginManager(),
+                new TestSandboxExecutionStrategyFactory()));
+    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
+    return new Parser(
+        new BroadcastEventListener(),
+        cell.getBuckConfig().getView(ParserConfig.class),
+        coercerFactory,
+        new ConstructorArgMarshaller(coercerFactory),
+        knownBuildRuleTypesProvider,
+        new ExecutableFinder());
+  }
+
+  private ImmutableMap<Cell, BuildFileTree> getBuildFileTrees(Cell rootCell) {
+    return rootCell
+        .getAllCells()
+        .stream()
+        .collect(
+            ImmutableMap.toImmutableMap(
+                Function.identity(),
+                cell ->
+                    new FilesystemBackedBuildFileTree(
+                        cell.getFilesystem(), cell.getBuildFileName())));
   }
 }

@@ -20,7 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -34,9 +34,7 @@ public class CommandToolTest {
 
   @Test
   public void buildTargetSourcePath() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -53,7 +51,7 @@ public class CommandToolTest {
     assertThat(
         tool.getCommandPrefix(pathResolver),
         Matchers.contains(pathResolver.getAbsolutePath(rule.getSourcePathToOutput()).toString()));
-    assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
+    assertThat(BuildableSupport.getDepsCollection(tool, ruleFinder), Matchers.contains(rule));
     assertThat(
         BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
         Matchers.contains(path));
@@ -61,9 +59,7 @@ public class CommandToolTest {
 
   @Test
   public void pathSourcePath() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -80,9 +76,7 @@ public class CommandToolTest {
 
   @Test
   public void extraInputs() {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     FakeBuildRule rule = new FakeBuildRule("//some:target");
     rule.setOutputFile("foo");
@@ -91,7 +85,7 @@ public class CommandToolTest {
 
     CommandTool tool = new CommandTool.Builder().addInputs(ImmutableList.of(path)).build();
 
-    assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
+    assertThat(BuildableSupport.getDepsCollection(tool, ruleFinder), Matchers.contains(rule));
     assertThat(
         BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
         Matchers.contains(path));
@@ -99,9 +93,7 @@ public class CommandToolTest {
 
   @Test
   public void environment() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     SourcePath path = FakeSourcePath.of("input");
@@ -115,9 +107,7 @@ public class CommandToolTest {
 
   @Test
   public void environmentBuildTargetSourcePath() throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -134,7 +124,7 @@ public class CommandToolTest {
         tool.getEnvironment(pathResolver),
         Matchers.hasEntry(
             "ENV", pathResolver.getAbsolutePath(rule.getSourcePathToOutput()).toString()));
-    assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
+    assertThat(BuildableSupport.getDepsCollection(tool, ruleFinder), Matchers.contains(rule));
     assertThat(
         BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
         Matchers.contains(path));

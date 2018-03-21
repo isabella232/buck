@@ -32,13 +32,12 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
@@ -70,23 +69,27 @@ public class CxxPreprocessablesTest {
     }
 
     @Override
-    public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+    public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
+        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
       return FluentIterable.from(getBuildDeps()).filter(CxxPreprocessorDep.class);
     }
 
     @Override
-    public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+    public CxxPreprocessorInput getCxxPreprocessorInput(
+        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
       return input;
     }
 
     @Override
     public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-        CxxPlatform cxxPlatform) {
+        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
       ImmutableMap.Builder<BuildTarget, CxxPreprocessorInput> builder = ImmutableMap.builder();
-      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform));
+      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, ruleResolver));
       for (BuildRule dep : getBuildDeps()) {
         if (dep instanceof CxxPreprocessorDep) {
-          builder.putAll(((CxxPreprocessorDep) dep).getTransitiveCxxPreprocessorInput(cxxPlatform));
+          builder.putAll(
+              ((CxxPreprocessorDep) dep)
+                  .getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver));
         }
       }
       return builder.build();
@@ -128,7 +131,7 @@ public class CxxPreprocessablesTest {
   }
 
   @Test
-  public void getTransitiveCxxPreprocessorInput() throws Exception {
+  public void getTransitiveCxxPreprocessorInput() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(
@@ -167,15 +170,13 @@ public class CxxPreprocessablesTest {
     ImmutableList<CxxPreprocessorInput> actual =
         ImmutableList.copyOf(
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                cxxPlatform, ImmutableList.<BuildRule>of(dep3)));
+                cxxPlatform, new TestBuildRuleResolver(), ImmutableList.<BuildRule>of(dep3)));
     assertEquals(expected, actual);
   }
 
   @Test
   public void createHeaderSymlinkTreeBuildRuleHasNoDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup up the main build target and build params, which some random dep.  We'll make
@@ -203,7 +204,12 @@ public class CxxPreprocessablesTest {
     // Build our symlink tree rule using the helper method.
     HeaderSymlinkTree symlinkTree =
         CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
-            target, filesystem, root, links, HeaderMode.SYMLINK_TREE_ONLY);
+            target,
+            filesystem,
+            new SourcePathRuleFinder(resolver),
+            root,
+            links,
+            HeaderMode.SYMLINK_TREE_ONLY);
 
     // Verify that the symlink tree has no deps.  This is by design, since setting symlinks can
     // be done completely independently from building the source that the links point to and
@@ -212,8 +218,7 @@ public class CxxPreprocessablesTest {
   }
 
   @Test
-  public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables()
-      throws Exception {
+  public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables() {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
@@ -236,7 +241,7 @@ public class CxxPreprocessablesTest {
     CxxPreprocessorInput totalInput =
         CxxPreprocessorInput.concat(
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                cxxPlatform, ImmutableList.of(top)));
+                cxxPlatform, new TestBuildRuleResolver(), ImmutableList.of(top)));
     assertTrue(bottomInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
     assertFalse(totalInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
   }

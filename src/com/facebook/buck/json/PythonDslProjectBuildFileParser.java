@@ -34,11 +34,11 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.InputStreamConsumer;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.MoreThrowables;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.concurrent.AssertScopeExclusiveAccess;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.google.common.annotations.VisibleForTesting;
@@ -104,8 +104,8 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   private AtomicReference<Path> currentBuildFile = new AtomicReference<Path>();
 
   public PythonDslProjectBuildFileParser(
-      final ProjectBuildFileParserOptions options,
-      final TypeCoercerFactory typeCoercerFactory,
+      ProjectBuildFileParserOptions options,
+      TypeCoercerFactory typeCoercerFactory,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
       ProcessExecutor processExecutor) {
@@ -271,10 +271,6 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       argBuilder.add("--allow_empty_globs");
     }
 
-    if (options.getFreezeGlobals()) {
-      argBuilder.add("--freeze_globals");
-    }
-
     if (options.getUseWatchmanGlob()) {
       argBuilder.add("--use_watchman_glob");
     }
@@ -328,6 +324,15 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
     // Add ignore paths.
     argBuilder.add("--ignore_paths", ignorePathsJson.get().toString());
+
+    // Disable native rules if requested
+    if (options.getDisableImplicitNativeRules()) {
+      argBuilder.add("--disable_implicit_native_rules");
+    }
+
+    if (options.isWarnAboutDeprecatedSyntax()) {
+      argBuilder.add("--warn_about_deprecated_syntax");
+    }
 
     return argBuilder.build();
   }
@@ -483,7 +488,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
             String.format(
                 "Invalid diagnostic(level=%s, message=%s, source=%s)", level, message, source));
       }
-      if (source != null && source.equals("watchman")) {
+      if ("watchman".equals(source)) {
         handleWatchmanDiagnostic(buildFile, level, message, buckEventBus);
       } else {
         String header;

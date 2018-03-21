@@ -20,6 +20,7 @@ import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
@@ -33,6 +34,7 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDirectoryAction;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
@@ -62,11 +64,12 @@ class AndroidBinaryResourcesGraphEnhancer {
       InternalFlavor.of("write_exo_resources_hash");
   private static final Flavor COPY_MANIFEST_FLAVOR = InternalFlavor.of("copy_manifest");
 
-  private final AndroidLegacyToolchain androidLegacyToolchain;
+  private final AndroidPlatformTarget androidPlatformTarget;
   private final SourcePathRuleFinder ruleFinder;
   private final FilterResourcesSteps.ResourceFilter resourceFilter;
   private final ResourcesFilter.ResourceCompressionMode resourceCompressionMode;
   private final ImmutableSet<String> locales;
+  private final Optional<String> localizedStringFileName;
   private final BuildTarget buildTarget;
   private final ProjectFilesystem projectFilesystem;
   private final BuildRuleResolver ruleResolver;
@@ -88,7 +91,7 @@ class AndroidBinaryResourcesGraphEnhancer {
   public AndroidBinaryResourcesGraphEnhancer(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      AndroidPlatformTarget androidPlatformTarget,
       BuildRuleResolver ruleResolver,
       BuildTarget originalBuildTarget,
       boolean exopackageForResources,
@@ -98,6 +101,7 @@ class AndroidBinaryResourcesGraphEnhancer {
       FilterResourcesSteps.ResourceFilter resourceFilter,
       ResourcesFilter.ResourceCompressionMode resourceCompressionMode,
       ImmutableSet<String> locales,
+      Optional<String> localizedStringFileName,
       Optional<String> resourceUnionPackage,
       boolean shouldBuildStringSourceMap,
       boolean skipCrunchPngs,
@@ -107,7 +111,7 @@ class AndroidBinaryResourcesGraphEnhancer {
       ManifestEntries manifestEntries,
       Optional<Arg> postFilterResourcesCmd,
       boolean noAutoVersionResources) {
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.androidPlatformTarget = androidPlatformTarget;
     this.buildTarget = buildTarget;
     this.projectFilesystem = projectFilesystem;
     this.ruleResolver = ruleResolver;
@@ -116,6 +120,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     this.resourceFilter = resourceFilter;
     this.resourceCompressionMode = resourceCompressionMode;
     this.locales = locales;
+    this.localizedStringFileName = localizedStringFileName;
     this.aaptMode = aaptMode;
     this.rawManifest = rawManifest;
     this.manifestSkeleton = manifestSkeleton;
@@ -256,7 +261,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     resultBuilder.setPackageStringAssets(packageStringAssets);
 
     SourcePath pathToRDotTxt;
-    final ImmutableList<ExopackagePathAndHash> exoResources;
+    ImmutableList<ExopackagePathAndHash> exoResources;
     if (exopackageForResources) {
       MergeAssets mergeAssets =
           createMergeAssetsRule(packageableCollection.getAssetsDirectories(), Optional.empty());
@@ -324,7 +329,8 @@ class AndroidBinaryResourcesGraphEnhancer {
             ruleFinder,
             "AndroidManifest.xml",
             ExportFileDescription.Mode.COPY,
-            aaptOutputInfo.getAndroidManifestXml());
+            aaptOutputInfo.getAndroidManifestXml(),
+            ExportFileDirectoryAction.FAIL);
     ruleResolver.addToIndex(manifestCopyRule);
 
     return resultBuilder
@@ -362,10 +368,10 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new SplitResources(
         buildTarget.withAppendedFlavors(SPLIT_RESOURCES_FLAVOR),
         projectFilesystem,
-        androidLegacyToolchain,
         ruleFinder,
         aaptOutputPath,
-        aaptRDotTxtPath);
+        aaptRDotTxtPath,
+        androidPlatformTarget);
   }
 
   private Aapt2Link createAapt2Link(
@@ -387,7 +393,7 @@ class AndroidBinaryResourcesGraphEnhancer {
             new Aapt2Compile(
                 buildTarget.withAppendedFlavors(InternalFlavor.of("aapt2_compile_" + index)),
                 projectFilesystem,
-                androidLegacyToolchain,
+                androidPlatformTarget,
                 compileDeps,
                 resDir);
         ruleResolver.addToIndex(compileRule);
@@ -406,13 +412,13 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new Aapt2Link(
         buildTarget.withAppendedFlavors(AAPT2_LINK_FLAVOR),
         projectFilesystem,
-        androidLegacyToolchain,
         ruleFinder,
         compileListBuilder.build(),
         getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
         realManifest,
         manifestEntries,
-        noAutoVersionResources);
+        noAutoVersionResources,
+        androidPlatformTarget);
   }
 
   private GenerateRDotJava createGenerateRDotJava(
@@ -453,6 +459,7 @@ class AndroidBinaryResourcesGraphEnhancer {
         resourceDetails.getResourceDirectories(),
         ImmutableSet.copyOf(resourceDetails.getWhitelistedStringDirectories()),
         locales,
+        localizedStringFileName,
         resourceCompressionMode,
         resourceFilter,
         postFilterResourcesCmd);
@@ -465,7 +472,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new AaptPackageResources(
         buildTarget.withAppendedFlavors(AAPT_PACKAGE_FLAVOR),
         projectFilesystem,
-        androidLegacyToolchain,
+        androidPlatformTarget,
         ruleFinder,
         ruleResolver,
         realManifest,

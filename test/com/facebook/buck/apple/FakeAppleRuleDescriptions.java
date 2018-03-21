@@ -28,8 +28,14 @@ import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
 import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxBinaryDescription;
-import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxBinaryFactory;
+import com.facebook.buck.cxx.CxxBinaryFlavored;
+import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
+import com.facebook.buck.cxx.CxxBinaryMetadataFactory;
+import com.facebook.buck.cxx.CxxLibraryFactory;
+import com.facebook.buck.cxx.CxxLibraryFlavored;
+import com.facebook.buck.cxx.CxxLibraryImplicitFlavors;
+import com.facebook.buck.cxx.CxxLibraryMetadataFactory;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -85,6 +91,15 @@ public class FakeAppleRuleDescriptions {
           .setName("iphoneos")
           .setArchitectures(ImmutableList.of("i386", "x86_64"))
           .setVersion("8.0")
+          .setToolchains(ImmutableList.of())
+          .build();
+
+  public static final AppleSdk DEFAULT_WATCHOS_SDK =
+      AppleSdk.builder()
+          .setApplePlatform(ApplePlatform.WATCHOS)
+          .setName("watchos")
+          .setArchitectures(ImmutableList.of("armv7k"))
+          .setVersion("2.0")
           .setToolchains(ImmutableList.of())
           .build();
 
@@ -154,7 +169,7 @@ public class FakeAppleRuleDescriptions {
       };
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_I386_PLATFORM =
-      AppleCxxPlatforms.buildWithExecutableChecker(
+      AppleCxxPlatforms.buildWithXcodeToolFinder(
           FAKE_PROJECT_FILESYSTEM,
           DEFAULT_IPHONEOS_SDK,
           "8.0",
@@ -166,7 +181,7 @@ public class FakeAppleRuleDescriptions {
           Optional.empty());
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_X86_64_PLATFORM =
-      AppleCxxPlatforms.buildWithExecutableChecker(
+      AppleCxxPlatforms.buildWithXcodeToolFinder(
           FAKE_PROJECT_FILESYSTEM,
           DEFAULT_IPHONEOS_SDK,
           "8.0",
@@ -177,8 +192,20 @@ public class FakeAppleRuleDescriptions {
           FAKE_XCODE_BUILD_VERSION_CACHE,
           Optional.empty());
 
+  public static final AppleCxxPlatform DEFAULT_WATCHOS_ARMV7K_PLATFORM =
+      AppleCxxPlatforms.buildWithXcodeToolFinder(
+          FAKE_PROJECT_FILESYSTEM,
+          DEFAULT_WATCHOS_SDK,
+          "2.0",
+          "armv7k",
+          DEFAULT_IPHONEOS_SDK_PATHS,
+          DEFAULT_BUCK_CONFIG,
+          new XcodeToolFinder(),
+          FAKE_XCODE_BUILD_VERSION_CACHE,
+          Optional.empty());
+
   public static final AppleCxxPlatform DEFAULT_MACOSX_X86_64_PLATFORM =
-      AppleCxxPlatforms.buildWithExecutableChecker(
+      AppleCxxPlatforms.buildWithXcodeToolFinder(
           FAKE_PROJECT_FILESYSTEM,
           DEFAULT_MACOSX_SDK,
           "8.0",
@@ -198,14 +225,16 @@ public class FakeAppleRuleDescriptions {
           DEFAULT_PLATFORM,
           DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
           DEFAULT_IPHONEOS_X86_64_PLATFORM.getCxxPlatform(),
-          DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform());
+          DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform(),
+          DEFAULT_WATCHOS_ARMV7K_PLATFORM.getCxxPlatform());
 
   public static final FlavorDomain<AppleCxxPlatform> DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN =
       FlavorDomain.of(
           "Fake Apple C++ Platforms",
           DEFAULT_IPHONEOS_I386_PLATFORM,
           DEFAULT_IPHONEOS_X86_64_PLATFORM,
-          DEFAULT_MACOSX_X86_64_PLATFORM);
+          DEFAULT_MACOSX_X86_64_PLATFORM,
+          DEFAULT_WATCHOS_ARMV7K_PLATFORM);
 
   public static final FlavorDomain<SwiftPlatform> DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN =
       new FlavorDomain<>(
@@ -216,7 +245,9 @@ public class FakeAppleRuleDescriptions {
               DEFAULT_IPHONEOS_X86_64_PLATFORM.getFlavor(),
               DEFAULT_IPHONEOS_X86_64_PLATFORM.getSwiftPlatform().get(),
               DEFAULT_MACOSX_X86_64_PLATFORM.getFlavor(),
-              DEFAULT_MACOSX_X86_64_PLATFORM.getSwiftPlatform().get()));
+              DEFAULT_MACOSX_X86_64_PLATFORM.getSwiftPlatform().get(),
+              DEFAULT_WATCHOS_ARMV7K_PLATFORM.getFlavor(),
+              DEFAULT_WATCHOS_ARMV7K_PLATFORM.getSwiftPlatform().get()));
 
   public static final SwiftLibraryDescription SWIFT_LIBRARY_DESCRIPTION =
       new SwiftLibraryDescription(
@@ -224,38 +255,67 @@ public class FakeAppleRuleDescriptions {
           CxxPlatformUtils.DEFAULT_CONFIG,
           new SwiftBuckConfig(DEFAULT_BUCK_CONFIG));
   /** A fake apple_library description with an iOS platform for use in tests. */
-  public static final AppleLibraryDescription LIBRARY_DESCRIPTION =
-      new AppleLibraryDescription(
-          createTestToolchainProvider(
-              DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
-          new CxxLibraryDescription(
-              new ToolchainProviderBuilder()
-                  .withToolchain(
-                      CxxPlatformsProvider.DEFAULT_NAME,
-                      CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
-                  .build(),
-              CxxPlatformUtils.DEFAULT_CONFIG,
-              new InferBuckConfig(DEFAULT_BUCK_CONFIG)),
-          SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
-          new SwiftBuckConfig(DEFAULT_BUCK_CONFIG));
+  public static final AppleLibraryDescription LIBRARY_DESCRIPTION = createAppleLibraryDescription();
+
+  private static AppleLibraryDescription createAppleLibraryDescription() {
+    ToolchainProvider toolchainProvider =
+        createTestToolchainProvider(
+            DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN);
+    CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors =
+        new CxxLibraryImplicitFlavors(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxLibraryFlavored cxxLibraryFlavored =
+        new CxxLibraryFlavored(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxLibraryFactory cxxLibraryFactory =
+        new CxxLibraryFactory(
+            toolchainProvider,
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new InferBuckConfig(DEFAULT_BUCK_CONFIG));
+    CxxLibraryMetadataFactory cxxLibraryMetadataFactory =
+        new CxxLibraryMetadataFactory(toolchainProvider);
+
+    return new AppleLibraryDescription(
+        toolchainProvider,
+        SWIFT_LIBRARY_DESCRIPTION,
+        DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+        new SwiftBuckConfig(DEFAULT_BUCK_CONFIG),
+        cxxLibraryImplicitFlavors,
+        cxxLibraryFlavored,
+        cxxLibraryFactory,
+        cxxLibraryMetadataFactory);
+  }
 
   /** A fake apple_binary description with an iOS platform for use in tests. */
-  public static final AppleBinaryDescription BINARY_DESCRIPTION =
-      new AppleBinaryDescription(
-          createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
-          new CxxBinaryDescription(
-              new ToolchainProviderBuilder()
-                  .withToolchain(
-                      CxxPlatformsProvider.DEFAULT_NAME,
-                      CxxPlatformsProvider.of(
-                          DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
-                          DEFAULT_APPLE_FLAVOR_DOMAIN))
-                  .build(),
-              CxxPlatformUtils.DEFAULT_CONFIG,
-              new InferBuckConfig(DEFAULT_BUCK_CONFIG)),
-          SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
+  public static final AppleBinaryDescription BINARY_DESCRIPTION = createAppleBinaryDescription();
+
+  private static AppleBinaryDescription createAppleBinaryDescription() {
+    ToolchainProvider toolchainProvider =
+        new ToolchainProviderBuilder()
+            .withToolchain(
+                CxxPlatformsProvider.DEFAULT_NAME,
+                CxxPlatformsProvider.of(
+                    DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(), DEFAULT_APPLE_FLAVOR_DOMAIN))
+            .build();
+    CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors =
+        new CxxBinaryImplicitFlavors(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxBinaryFactory cxxBinaryFactory =
+        new CxxBinaryFactory(
+            toolchainProvider,
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new InferBuckConfig(DEFAULT_BUCK_CONFIG));
+    CxxBinaryMetadataFactory cxxBinaryMetadataFactory =
+        new CxxBinaryMetadataFactory(toolchainProvider);
+    CxxBinaryFlavored cxxBinaryFlavored =
+        new CxxBinaryFlavored(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+
+    return new AppleBinaryDescription(
+        createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
+        SWIFT_LIBRARY_DESCRIPTION,
+        DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+        cxxBinaryImplicitFlavors,
+        cxxBinaryFactory,
+        cxxBinaryMetadataFactory,
+        cxxBinaryFlavored);
+  }
 
   /** A fake apple_bundle description with an iOS platform for use in tests. */
   public static final AppleBundleDescription BUNDLE_DESCRIPTION =

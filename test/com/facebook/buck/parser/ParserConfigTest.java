@@ -29,7 +29,7 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.WatchmanWatcher.CursorType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -68,8 +68,7 @@ public class ParserConfigTest {
 
     for (ParserConfig.GlobHandler handler : ParserConfig.GlobHandler.values()) {
       Reader reader =
-          new StringReader(
-              Joiner.on('\n').join("[project]", "glob_handler = " + handler.toString()));
+          new StringReader(Joiner.on('\n').join("[project]", "glob_handler = " + handler));
       ParserConfig config =
           BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader)
               .getView(ParserConfig.class);
@@ -152,7 +151,7 @@ public class ParserConfigTest {
   }
 
   @Test
-  public void shouldGetReadOnlyDirs() throws IOException {
+  public void shouldGetReadOnlyDirs() {
     String existingPath1 = "tmp/tmp-file";
     String existingPath2 = "tmp2/tmp2-file";
     ImmutableSet<Path> readOnlyPaths =

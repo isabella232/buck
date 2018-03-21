@@ -18,9 +18,10 @@ package com.facebook.buck.go;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -60,27 +61,27 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithAsm() throws IOException, InterruptedException {
+  public void binaryWithAsm() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "asm", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("run", "//src/asm_test:bin");
+    ProcessResult result = workspace.runBuckCommand("run", "//src/asm_test:bin");
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.containsString("Sum is 6"));
   }
 
   @Test
-  public void binaryWithCgo() throws IOException, InterruptedException {
+  public void binaryWithCgo() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("run", "//src/cgo_test:bin");
+    ProcessResult result = workspace.runBuckCommand("run", "//src/cgo_test:bin");
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.containsString("fmt: Go string"));
   }
 
   @Test
-  public void buildAfterChangeWorks() throws IOException, InterruptedException {
+  public void buildAfterChangeWorks() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -92,7 +93,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithLibrary() throws IOException, InterruptedException {
+  public void binaryWithLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
@@ -103,7 +104,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void vendoredLibrary() throws IOException, InterruptedException {
+  public void vendoredLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "vendored_library", tmp);
     workspace.setUp();
@@ -114,7 +115,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void libraryWithPrefix() throws IOException, InterruptedException {
+  public void libraryWithPrefix() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "library_with_prefix", tmp);
     workspace.setUp();
@@ -125,7 +126,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void libraryWithPrefixAfterChange() throws IOException, InterruptedException {
+  public void libraryWithPrefixAfterChange() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "library_with_prefix", tmp);
     workspace.setUp();
@@ -134,15 +135,15 @@ public class GoBinaryIntegrationTest {
         workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
         Matchers.containsString("Hello, world!"));
     workspace.writeContentsToPath(
-        workspace.getFileContents("messenger/printer.go").replace('!', '?'),
-        "messenger/printer.go");
+        workspace.getFileContents("messenger/printer/printer.go").replace('!', '?'),
+        "messenger/printer/printer.go");
     assertThat(
         workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
         Matchers.containsString("Hello, world?"));
   }
 
   @Test
-  public void nonGoLibraryDepErrors() throws IOException, InterruptedException {
+  public void nonGoLibraryDepErrors() throws IOException {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(Matchers.containsString("is not an instance of go_library"));
 
@@ -154,7 +155,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void exportedDeps() throws IOException, InterruptedException {
+  public void exportedDeps() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "exported_deps", tmp);
     workspace.setUp();
@@ -162,7 +163,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void generatedSources() throws IOException, InterruptedException {
+  public void generatedSources() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "generated_source", tmp);
     workspace.setUp();
@@ -170,7 +171,15 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void emptySources() throws IOException, InterruptedException {
+  public void generatedSourceDir() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "generated_source_dir", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:main").assertSuccess();
+  }
+
+  @Test
+  public void emptySources() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty_sources", tmp);
     workspace.setUp();
@@ -188,7 +197,7 @@ public class GoBinaryIntegrationTest {
     workspace.runBuckBuild("//:main").assertSuccess();
 
     // Clean the build products, as we're going to test that pulling from cache works.
-    workspace.runBuckCommand("clean");
+    workspace.runBuckCommand("clean", "--keep-cache");
 
     // Make a white-space only change -- enough to force a relink of the binary.
     workspace.replaceFileContents("main.go", "a.A()", " a.A()");
@@ -196,5 +205,13 @@ public class GoBinaryIntegrationTest {
     // Run another build and verify it successfully built locally.
     workspace.runBuckBuild("//:main").assertSuccess();
     workspace.getBuildLog().assertTargetBuiltLocally("//:main");
+  }
+
+  @Test
+  public void buildConstraints() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "build_constraints", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:family").assertSuccess();
   }
 }

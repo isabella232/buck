@@ -30,7 +30,6 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
@@ -41,6 +40,7 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.timing.SettableFakeClock;
+import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -193,7 +193,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests = */ false);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -215,7 +215,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ true);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -240,7 +240,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ false);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -260,7 +260,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ true);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -445,6 +445,7 @@ public class XCodeProjectCommandHelperTest {
             true /* shouldUseHeaderMaps */,
             false /* shouldMergeHeaderMaps */,
             false /* shouldGenerateHeaderSymlinkTreeOnly */,
+            false,
             false),
         ImmutableSet.of(),
         FocusedModuleTargetMatcher.noFocus(),

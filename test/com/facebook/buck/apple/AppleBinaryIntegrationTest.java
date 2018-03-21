@@ -40,8 +40,9 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
@@ -84,7 +85,7 @@ public class AppleBinaryIntegrationTest {
 
     Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
-    assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
         containsString("executable"));
@@ -107,7 +108,7 @@ public class AppleBinaryIntegrationTest {
 
     Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
-    assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(false));
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(false));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
         containsString("executable"));
@@ -130,7 +131,7 @@ public class AppleBinaryIntegrationTest {
 
     Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
-    assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
         containsString("executable"));
@@ -155,7 +156,7 @@ public class AppleBinaryIntegrationTest {
 
     Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
-    assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
         containsString("executable"));
@@ -186,6 +187,85 @@ public class AppleBinaryIntegrationTest {
   }
 
   @Test
+  public void appleBinaryUsesDefaultPlatformForPlatformDeps() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_binary_with_platform_deps", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+  }
+
+  @Test
+  public void appleBinaryExplicitPlatformForPlatformDeps() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_binary_with_platform_deps", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#iphoneos-arm64");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#iphoneos-armv7");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertFailure();
+  }
+
+  @Test
+  public void testAppleBinarySupportsEntitlements() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_binary_builds_something", tmp);
+    workspace.setUp();
+
+    // iphonesimulator -- needs entitlements
+    {
+      BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestAppWithEntitlements");
+      workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+      Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+      assertThat(Files.exists(outputPath), is(true));
+      assertThat(
+          workspace.runCommand("file", outputPath.toString()).getStdout().get(),
+          containsString("executable"));
+      assertThat(
+          workspace
+              .runCommand("otool", "-s", "__TEXT", "__entitlements", outputPath.toString())
+              .getStdout()
+              .get(),
+          containsString("Contents of (__TEXT,__entitlements) section"));
+    }
+
+    // macosx -- doesn't need entitlements
+    {
+      BuildTarget target =
+          BuildTargetFactory.newInstance("//Apps/TestApp:TestAppWithEntitlements#macosx-x86_64");
+      workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+      Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+      assertThat(Files.exists(outputPath), is(true));
+      assertThat(
+          workspace.runCommand("file", outputPath.toString()).getStdout().get(),
+          containsString("executable"));
+      assertThat(
+          workspace
+              .runCommand("otool", "-s", "__TEXT", "__entitlements", outputPath.toString())
+              .getStdout()
+              .get(),
+          not(containsString("Contents of (__TEXT,__entitlements) section")));
+    }
+  }
+
+  @Test
   public void testAppleBinaryWithThinLTO() throws Exception {
     assumeTrue(Platform.detect() == Platform.MACOS);
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
@@ -199,7 +279,7 @@ public class AppleBinaryIntegrationTest {
 
     Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
     assertThat(Files.exists(outputPath), is(true));
-    assertThat(Files.isDirectory(Paths.get(outputPath.toString() + "-lto")), is(true));
+    assertThat(Files.isDirectory(Paths.get(outputPath + "-lto")), is(true));
     assertThat(
         workspace.runCommand("file", outputPath.toString()).getStdout().get(),
         containsString("executable"));
@@ -225,7 +305,7 @@ public class AppleBinaryIntegrationTest {
                 BuildTargetFactory.newInstance("//Apps/TestApp:TestApp#macosx-x86_64")
                     .withAppendedFlavors(AppleDescriptions.INCLUDE_FRAMEWORKS_FLAVOR),
                 "%s"));
-    assertThat(Files.isDirectory(Paths.get(outputPath.toString() + "-lto")), is(true));
+    assertThat(Files.isDirectory(Paths.get(outputPath + "-lto")), is(true));
 
     Path bundlePath =
         workspace.getPath(
@@ -454,8 +534,7 @@ public class AppleBinaryIntegrationTest {
   }
 
   @Test
-  public void testAppleLibraryPropagatesExportedPlatformLinkerFlags()
-      throws IOException, InterruptedException {
+  public void testAppleLibraryPropagatesExportedPlatformLinkerFlags() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
@@ -463,8 +542,7 @@ public class AppleBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "apple_binary_with_library_dependency_builds_something", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//Apps/TestApp:BadTestApp");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//Apps/TestApp:BadTestApp");
     buildResult.assertFailure();
     String stderr = buildResult.getStderr();
     assertTrue(stderr.contains("bad-flag"));
@@ -483,8 +561,7 @@ public class AppleBinaryIntegrationTest {
     BuildTarget buildTarget =
         BuildTargetFactory.newInstance(
             "//Apps/TestApp:TestApp#default," + CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR);
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("build", buildTarget.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("build", buildTarget.getFullyQualifiedName());
     result.assertSuccess();
 
     Path projectRoot = tmp.getRoot().toRealPath();
@@ -533,8 +610,7 @@ public class AppleBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "apple_xcode_error", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult buildResult =
-        workspace.runBuckCommand("build", "//Apps/TestApp:TestApp");
+    ProcessResult buildResult = workspace.runBuckCommand("build", "//Apps/TestApp:TestApp");
     buildResult.assertFailure();
     String stderr = buildResult.getStderr();
 
@@ -556,12 +632,12 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target =
         BuildTargetFactory.newInstance("//Apps/TestApp:TestApp")
             .withAppendedFlavors(InternalFlavor.of("iphonesimulator-x86_64"));
-    ProjectWorkspace.ProcessResult first =
+    ProcessResult first =
         workspace.runBuckCommand(
             workspace.getPath("first"), "build", target.getFullyQualifiedName());
     first.assertSuccess();
 
-    ProjectWorkspace.ProcessResult second =
+    ProcessResult second =
         workspace.runBuckCommand(
             workspace.getPath("second"), "build", target.getFullyQualifiedName());
     second.assertSuccess();
@@ -594,12 +670,12 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target =
         BuildTargetFactory.newInstance(
             "//Apps/TestApp:TestApp#iphonesimulator-x86_64," + debugFormat.getFlavor().getName());
-    ProjectWorkspace.ProcessResult first =
+    ProcessResult first =
         workspace.runBuckCommand(
             workspace.getPath("first"), "build", target.getFullyQualifiedName());
     first.assertSuccess();
 
-    ProjectWorkspace.ProcessResult second =
+    ProcessResult second =
         workspace.runBuckCommand(
             workspace.getPath("second"), "build", target.getFullyQualifiedName());
     second.assertSuccess();
@@ -792,7 +868,7 @@ public class AppleBinaryIntegrationTest {
         BuildTargetFactory.newInstance("//:DemoAppBinary")
             .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
-    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
     BuildTarget appTarget =
@@ -849,7 +925,7 @@ public class AppleBinaryIntegrationTest {
         BuildTargetFactory.newInstance("//:DemoAppBinary")
             .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
-    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
     BuildTarget appTarget =
@@ -909,7 +985,7 @@ public class AppleBinaryIntegrationTest {
         BuildTargetFactory.newInstance("//:DemoAppBinary")
             .withAppendedFlavors(platformFlavor, AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
-    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
 
     BuildTarget appTarget =
@@ -1112,8 +1188,7 @@ public class AppleBinaryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty_source_targets", tmp);
     workspace.setUp();
     BuildTarget target = workspace.newBuildTarget("//:real-none2#macosx-x86_64");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("run", target.getFullyQualifiedName());
     result.assertSuccess();
     Assert.assertThat(result.getStdout(), equalTo("Hello"));
   }
@@ -1132,17 +1207,16 @@ public class AppleBinaryIntegrationTest {
     BuildTarget target = workspace.newBuildTarget("//:binary");
 
     // Populate the cache and then reset the build log
-    ProjectWorkspace.ProcessResult cachePopulatingResult =
+    ProcessResult cachePopulatingResult =
         workspace.runBuckCommand("build", target.getFullyQualifiedName());
     cachePopulatingResult.assertSuccess();
 
     // Reset us back to a clean state
-    workspace.runBuckCommand("clean");
+    workspace.runBuckCommand("clean", "--keep-cache");
 
     // Now do the actual test - modify a file, do a build again, and confirm it rebuilt our swift
     workspace.copyFile("producer.h.new", "producer.h");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
 
     workspace

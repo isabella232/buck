@@ -32,6 +32,10 @@ abstract class AbstractDistBuildClientStats {
 
   abstract boolean performedLocalBuild();
 
+  abstract boolean performedRacingBuild();
+
+  abstract Optional<Boolean> racingBuildFinishedFirst();
+
   abstract Optional<Boolean> isLocalFallbackBuildEnabled();
 
   abstract Optional<Integer> distributedBuildExitCode();
@@ -45,6 +49,14 @@ abstract class AbstractDistBuildClientStats {
   abstract Optional<Long> localPreparationDurationMs();
 
   abstract Optional<Long> localGraphConstructionDurationMs();
+
+  abstract Optional<Long> localFileHashComputationDurationMs();
+
+  abstract Optional<Long> localTargetGraphSerializationDurationMs();
+
+  abstract Optional<Long> localUploadFromDirCacheDurationMs();
+
+  abstract Optional<Long> missingRulesUploadedFromDirCacheCount();
 
   abstract Optional<Long> performDistributedBuildDurationMs();
 

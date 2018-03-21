@@ -18,20 +18,20 @@ package com.facebook.buck.rust;
 
 import static com.facebook.buck.rust.RustCompileUtils.ruleToCrateName;
 
-import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
+import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -45,13 +45,13 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionPropagator;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -96,7 +96,7 @@ public class RustLibraryDescription
       RustBuckConfig rustBuckConfig,
       ImmutableList<String> extraFlags,
       ImmutableList<String> extraLinkerFlags,
-      Iterable<com.facebook.buck.rules.args.Arg> linkerInputs,
+      Iterable<Arg> linkerInputs,
       String crate,
       CrateType crateType,
       Linker.LinkableDepType depType,
@@ -127,20 +127,20 @@ public class RustLibraryDescription
         crateType,
         depType,
         rootModuleAndSources.getSecond(),
-        rootModuleAndSources.getFirst());
+        rootModuleAndSources.getFirst(),
+        rustBuckConfig.getForceRlib());
   }
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       RustLibraryDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
 
@@ -205,7 +205,7 @@ public class RustLibraryDescription
     return new RustLibrary(buildTarget, projectFilesystem, params) {
       // RustLinkable
       @Override
-      public com.facebook.buck.rules.args.Arg getLinkerArg(
+      public Arg getLinkerArg(
           boolean direct,
           boolean isCheck,
           CxxPlatform cxxPlatform,
@@ -312,13 +312,33 @@ public class RustLibraryDescription
 
       // NativeLinkable
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
+      public Iterable<? extends NativeLinkable> getNativeLinkableDeps(
+          BuildRuleResolver ruleResolver) {
         return ImmutableList.of();
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
-        return FluentIterable.from(getBuildDeps()).filter(NativeLinkable.class);
+      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+          BuildRuleResolver ruleResolver) {
+        // We want to skip over all the transitive Rust deps, and only return non-Rust
+        // deps at the edge of the graph
+        ImmutableList.Builder<NativeLinkable> nativedeps = ImmutableList.builder();
+
+        new AbstractBreadthFirstTraversal<BuildRule>(getBuildDeps()) {
+          @Override
+          public Iterable<BuildRule> visit(BuildRule rule) {
+            if (rule instanceof RustLinkable) {
+              // Rust rule - we just want to visit the children
+              return rule.getBuildDeps();
+            }
+            if (rule instanceof NativeLinkable) {
+              nativedeps.add((NativeLinkable) rule);
+            }
+            return ImmutableList.of();
+          }
+        }.start();
+
+        return nativedeps.build();
       }
 
       @Override
@@ -326,7 +346,8 @@ public class RustLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType depType,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions) {
+          ImmutableSet<LanguageExtensions> languageExtensions,
+          BuildRuleResolver ruleResolver) {
         CrateType crateType;
 
         switch (depType) {
@@ -369,16 +390,16 @@ public class RustLibraryDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return args.getPreferredLinkage();
       }
 
       @Override
-      public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+      public ImmutableMap<String, SourcePath> getSharedLibraries(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
-            CxxDescriptionEnhancer.getSharedLibrarySoname(
-                Optional.empty(), getBuildTarget(), cxxPlatform);
+            CrateType.DYLIB.filenameFor(getBuildTarget(), crate, cxxPlatform);
         BuildRule sharedLibraryBuildRule =
             requireBuild(
                 buildTarget,

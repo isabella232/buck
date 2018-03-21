@@ -32,6 +32,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -93,8 +94,8 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
       ImmutableList<String> compilerFlags,
       ImmutableList<String> linkerFlags,
       ImmutableSet<SourcePath> interfaces,
-      final ImmutableSortedMap<String, HaskellPackage> packages,
-      final ImmutableSortedMap<String, HaskellPackage> exposedPackages,
+      ImmutableSortedMap<String, HaskellPackage> packages,
+      ImmutableSortedMap<String, HaskellPackage> exposedPackages,
       HaskellPackageInfo packageInfo,
       HaskellPlatform platform,
       Preprocessor preprocessor,
@@ -120,7 +121,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       HaskellSources sources,
-      final Tool haddockTool,
+      Tool haddockTool,
       ImmutableList<String> haddockFlags,
       ImmutableList<String> compilerFlags,
       ImmutableList<String> linkerFlags,
@@ -145,7 +146,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
         MoreSuppliers.memoize(
             () ->
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(haddockTool.getDeps(ruleFinder))
+                    .addAll(BuildableSupport.getDepsCollection(haddockTool, ruleFinder))
                     .addAll(sources.getDeps(ruleFinder))
                     .addAll(ruleFinder.filterBuildRuleInputs(interfaces))
                     .addAll(pkgDeps.build())
@@ -373,7 +374,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
     }
   }
 
-  public static enum Type {
+  public enum Type {
     HTML,
     HOOGLE
   }

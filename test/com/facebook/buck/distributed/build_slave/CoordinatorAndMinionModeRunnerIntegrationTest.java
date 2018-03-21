@@ -18,12 +18,16 @@ package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.build_slave.MinionModeRunnerIntegrationTest.FakeBuildExecutorImpl;
+import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.event.listener.NoOpBuildRuleFinishedPublisher;
+import com.facebook.buck.event.DefaultBuckEventBus;
+import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
 import java.io.IOException;
@@ -72,11 +76,12 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
             STAMPEDE_ID,
             eventListener,
             logDirectoryPath,
-            new NoOpBuildRuleFinishedPublisher(),
+            new NoOpCoordinatorBuildRuleEventsPublisher(),
             MOCK_SERVICE,
             Optional.of(new BuildId("10-20")),
             Optional.empty(),
-            EasyMock.createNiceMock(MinionHealthTracker.class));
+            EasyMock.createNiceMock(MinionHealthTracker.class),
+            EasyMock.createNiceMock(MinionCountProvider.class));
     FakeBuildExecutorImpl localBuilder = new FakeBuildExecutorImpl();
     MinionModeRunner minion =
         new MinionModeRunner(
@@ -88,14 +93,16 @@ public class CoordinatorAndMinionModeRunnerIntegrationTest {
             MAX_PARALLEL_WORK_UNITS,
             EasyMock.createNiceMock(MinionModeRunner.BuildCompletionChecker.class),
             POLL_LOOP_INTERVAL_MILLIS,
-            new NoOpUnexpectedSlaveCacheMissTracker(),
-            CONNECTION_TIMEOUT_MILLIS);
+            new NoOpMinionBuildProgressTracker(),
+            CONNECTION_TIMEOUT_MILLIS,
+            new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId()));
     CoordinatorAndMinionModeRunner jointRunner =
         new CoordinatorAndMinionModeRunner(coordinator, minion);
-    int exitCode = jointRunner.runAndReturnExitCode(heartbeatService);
-    Assert.assertEquals(0, exitCode);
+    ExitCode exitCode = jointRunner.runAndReturnExitCode(heartbeatService);
+    Assert.assertEquals(ExitCode.SUCCESS, exitCode);
     Assert.assertEquals(4, localBuilder.getBuildTargets().size());
-    Assert.assertEquals(BuildTargetsQueueTest.ROOT_TARGET, localBuilder.getBuildTargets().get(3));
+    Assert.assertEquals(
+        CustomBuildRuleResolverFactory.ROOT_TARGET, localBuilder.getBuildTargets().get(3));
 
     Path buildTracePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
     Assert.assertTrue(buildTracePath.toFile().exists());

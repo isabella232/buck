@@ -24,9 +24,9 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import java.io.IOException;
@@ -43,13 +43,14 @@ public class AndroidPrebuiltAarIntegrationTest extends AbiCompilationModeTest {
   @Before
   public void setUp() throws InterruptedException, IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "android_prebuilt_aar", tmp);
+    workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "android_prebuilt_aar", tmp, true);
     workspace.setUp();
     setWorkspaceCompilationMode(workspace);
   }
 
   @Test
-  public void testBuildAndroidPrebuiltAar() throws InterruptedException, IOException {
+  public void testBuildAndroidPrebuiltAar() throws IOException {
     String target = "//:app";
     workspace.runBuckBuild(target).assertSuccess();
     ZipInspector zipInspector =
@@ -76,8 +77,7 @@ public class AndroidPrebuiltAarIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testPrebuiltRDotTxtContainsTransitiveDependencies()
-      throws InterruptedException, IOException {
+  public void testPrebuiltRDotTxtContainsTransitiveDependencies() throws IOException {
     String target = "//third-party/design-library:design-library";
     workspace.runBuckBuild(target).assertSuccess();
 
@@ -105,5 +105,10 @@ public class AndroidPrebuiltAarIntegrationTest extends AbiCompilationModeTest {
   @Test
   public void testNoClassesDotJar() throws IOException {
     workspace.runBuckBuild("//:app-no-classes-dot-jar").assertSuccess();
+  }
+
+  @Test
+  public void testAarWithoutResBuildsFine() throws IOException {
+    workspace.runBuckBuild("//:app-dep-on-aar-without-res").assertSuccess();
   }
 }

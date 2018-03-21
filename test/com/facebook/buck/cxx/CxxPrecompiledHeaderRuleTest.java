@@ -20,10 +20,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.Compiler;
@@ -32,7 +32,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
-import com.facebook.buck.cxx.toolchain.PchUnavailableException;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -56,23 +55,22 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -96,20 +94,19 @@ public class CxxPrecompiledHeaderRuleTest {
   private static final CxxBuckConfig CXX_CONFIG_PCH_ENABLED =
       new CxxBuckConfig(FakeBuckConfig.builder().setSections("[cxx]", "pch_enabled=true").build());
 
-  @Rule public TemporaryPaths tmp = new TemporaryPaths(true);
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private ProjectFilesystem filesystem;
   private ProjectWorkspace workspace;
 
   private PreprocessorProvider preprocessorSupportingPch;
   private CxxPlatform platformSupportingPch;
-  private CxxBuckConfig cxxConfigPchDisabledGenerateError;
-  private CxxPlatform platformNotSupportingPchError;
-  private CxxBuckConfig cxxConfigPchDisabledGenerateWarning;
-  private CxxPlatform platformNotSupportingPchWarning;
+  private CxxBuckConfig cxxConfigPchDisabled;
+  private CxxPlatform platformNotSupportingPch;
 
   @Before
   public void setUp() throws InterruptedException, IOException {
-    assumeTrue(platformOkForPCHTests());
+    CxxPrecompiledHeaderTestUtils.assumePrecompiledHeadersAreSupported();
+
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_precompiled_header_rule", tmp);
@@ -123,32 +120,18 @@ public class CxxPrecompiledHeaderRuleTest {
     platformSupportingPch =
         CxxPlatformUtils.build(CXX_CONFIG_PCH_ENABLED).withCpp(preprocessorSupportingPch);
 
-    cxxConfigPchDisabledGenerateError =
+    cxxConfigPchDisabled =
         new CxxBuckConfig(
-            FakeBuckConfig.builder()
-                .setSections("[cxx]\n" + "pch_enabled=false\n" + "pch_unavailable=error\n")
-                .build());
+            FakeBuckConfig.builder().setSections("[cxx]\n" + "pch_enabled=false\n").build());
 
-    platformNotSupportingPchError =
-        CxxPlatformUtils.build(cxxConfigPchDisabledGenerateError)
-            .withCpp(preprocessorSupportingPch);
-
-    cxxConfigPchDisabledGenerateWarning =
-        new CxxBuckConfig(
-            FakeBuckConfig.builder()
-                .setSections("[cxx]\n" + "pch_enabled=false\n" + "pch_unavailable=warn\n")
-                .build());
-
-    platformNotSupportingPchWarning =
-        CxxPlatformUtils.build(cxxConfigPchDisabledGenerateWarning)
-            .withCpp(preprocessorSupportingPch);
+    platformNotSupportingPch =
+        CxxPlatformUtils.build(cxxConfigPchDisabled).withCpp(preprocessorSupportingPch);
   }
 
   public final TargetNodeToBuildRuleTransformer transformer =
       new DefaultTargetNodeToBuildRuleTransformer();
 
-  public final BuildRuleResolver ruleResolver =
-      new SingleThreadedBuildRuleResolver(TargetGraph.EMPTY, transformer);
+  public final BuildRuleResolver ruleResolver = new TestBuildRuleResolver(transformer);
   public final SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
   public final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -168,8 +151,9 @@ public class CxxPrecompiledHeaderRuleTest {
     return new CxxPrecompiledHeaderTemplate(
         target,
         new FakeProjectFilesystem(),
-        newParams().copyAppendingExtraDeps(deps),
-        headerSourcePath);
+        deps,
+        headerSourcePath,
+        pathResolver.getAbsolutePath(headerSourcePath));
   }
 
   public CxxSource.Builder newCxxSourceBuilder() {
@@ -226,10 +210,6 @@ public class CxxPrecompiledHeaderRuleTest {
     return list.subList(i, list.size());
   }
 
-  private boolean platformOkForPCHTests() {
-    return Platform.detect() != Platform.WINDOWS;
-  }
-
   /** @return exit code from that process */
   private int runBuiltBinary(String binaryTarget) throws Exception {
     return workspace
@@ -244,9 +224,9 @@ public class CxxPrecompiledHeaderRuleTest {
 
   /** Stolen from {@link PrecompiledHeaderIntegrationTest} */
   private static Matcher<BuckBuildLog> reportedTargetSuccessType(
-      final BuildTarget target, final BuildRuleSuccessType successType) {
+      BuildTarget target, BuildRuleSuccessType successType) {
     return new CustomTypeSafeMatcher<BuckBuildLog>(
-        "target: " + target.toString() + " with result: " + successType) {
+        "target: " + target + " with result: " + successType) {
 
       @Override
       protected boolean matchesSafely(BuckBuildLog buckBuildLog) {
@@ -269,7 +249,7 @@ public class CxxPrecompiledHeaderRuleTest {
   }
 
   @Test
-  public void samePchIffSameFlags() throws Exception {
+  public void samePchIffSameFlags() {
     BuildTarget pchTarget = newTarget("//test:pch");
     CxxPrecompiledHeaderTemplate pch = newPCH(pchTarget);
     ruleResolver.addToIndex(pch);
@@ -332,7 +312,7 @@ public class CxxPrecompiledHeaderRuleTest {
   }
 
   @Test
-  public void userRuleChangesDependencyPCHRuleFlags() throws Exception {
+  public void userRuleChangesDependencyPCHRuleFlags() {
     BuildTarget pchTarget = newTarget("//test:pch");
     CxxPrecompiledHeaderTemplate pch = newPCH(pchTarget);
     ruleResolver.addToIndex(pch);
@@ -364,17 +344,17 @@ public class CxxPrecompiledHeaderRuleTest {
     assertNotNull(pchInstance);
     ImmutableList<String> pchCmd =
         pchInstance.makeMainStep(pathResolver, Paths.get("/tmp/x")).getCommand();
+
     assertTrue(seek(pchCmd, "-flag-for-source").size() > 0);
     assertTrue(seek(pchCmd, "-flag-for-factory").size() > 0);
   }
 
   @Test
-  public void pchDepsNotRepeatedInLinkArgs() throws Exception {
-    final BuildTarget publicHeaderTarget = BuildTargetFactory.newInstance("//test:header");
-    final BuildTarget publicHeaderSymlinkTreeTarget =
-        BuildTargetFactory.newInstance("//test:symlink");
-    final BuildTarget privateHeaderTarget = BuildTargetFactory.newInstance("//test:privateheader");
-    final BuildTarget privateHeaderSymlinkTreeTarget =
+  public void pchDepsNotRepeatedInLinkArgs() {
+    BuildTarget publicHeaderTarget = BuildTargetFactory.newInstance("//test:header");
+    BuildTarget publicHeaderSymlinkTreeTarget = BuildTargetFactory.newInstance("//test:symlink");
+    BuildTarget privateHeaderTarget = BuildTargetFactory.newInstance("//test:privateheader");
+    BuildTarget privateHeaderSymlinkTreeTarget =
         BuildTargetFactory.newInstance("//test:privatesymlink");
 
     ruleResolver.addToIndex(new FakeBuildRule(publicHeaderTarget));
@@ -436,7 +416,7 @@ public class CxxPrecompiledHeaderRuleTest {
     }
 
     assertNotNull(foundPCH);
-    final CxxPrecompiledHeader pch = foundPCH;
+    CxxPrecompiledHeader pch = foundPCH;
 
     ImmutableList<SourcePath> binObjects = ImmutableList.of(FakeSourcePath.of(filesystem, "bin.o"));
     ImmutableList<NativeLinkable> nativeLinkableDeps =
@@ -469,7 +449,8 @@ public class CxxPrecompiledHeaderRuleTest {
             ImmutableSet.of(), // blacklist,
             ImmutableSet.of(libTarget), // linkWholeDeps,
             NativeLinkableInput.builder().addAllArgs(SourcePathArg.from(binObjects)).build(),
-            Optional.<LinkOutputPostprocessor>empty());
+            Optional.empty(),
+            TestCellPathResolver.get(filesystem));
 
     CxxWriteArgsToFileStep argsToFile = null;
     for (Step step :
@@ -498,46 +479,32 @@ public class CxxPrecompiledHeaderRuleTest {
   }
 
   @Test
-  public void pchDisabledWithErrorModeShouldThrow() throws Exception {
+  public void pchDisabledShouldIncludeAsRegularHeader() {
     BuildTarget pchTarget = newTarget("//test:pch");
     CxxPrecompiledHeaderTemplate pch =
         newPCH(pchTarget, FakeSourcePath.of("header.h"), ImmutableSortedSet.of());
     ruleResolver.addToIndex(pch);
-    PchUnavailableException caught = null;
-    try {
-      newFactoryBuilder(newTarget("//test:lib"), new FakeProjectFilesystem())
-          .setPrecompiledHeader(DefaultBuildTargetSourcePath.of(pchTarget))
-          .setCxxPlatform(platformNotSupportingPchError)
-          .setCxxBuckConfig(cxxConfigPchDisabledGenerateError)
-          .build()
-          .requirePreprocessAndCompileBuildRule("lib.cpp", newSource("lib.cpp"));
-      throw new Error("`requirePreprocessAndCompileBuildRule` should have failed");
-    } catch (PchUnavailableException e) {
-      caught = e;
-    }
-    assertNotNull(caught);
+    CxxPreprocessAndCompile compileLibRule =
+        newFactoryBuilder(newTarget("//test:lib"), new FakeProjectFilesystem())
+            .setPrecompiledHeader(DefaultBuildTargetSourcePath.of(pchTarget))
+            .setCxxPlatform(platformNotSupportingPch)
+            .setCxxBuckConfig(cxxConfigPchDisabled)
+            .build()
+            .requirePreprocessAndCompileBuildRule("lib.cpp", newSource("lib.cpp"));
+
+    ruleResolver.addToIndex(compileLibRule);
+    ImmutableList<String> compileLibCmd =
+        compileLibRule.makeMainStep(pathResolver, Paths.get("/tmp/x"), false).getCommand();
+
+    assertSame(seek(compileLibCmd, "-include-pch").size(), 0);
+
+    List<String> flag = seek(compileLibCmd, "-include");
+    assertTrue(flag.size() >= 2);
+    assertTrue(flag.get(1).endsWith(".h"));
   }
 
   @Test
-  public void pchDisabledWithWarnModeShouldNotThrow() throws Exception {
-    BuildTarget pchTarget = newTarget("//test:pch");
-    CxxPrecompiledHeaderTemplate pch =
-        newPCH(pchTarget, FakeSourcePath.of("header.h"), ImmutableSortedSet.of());
-    ruleResolver.addToIndex(pch);
-    try {
-      newFactoryBuilder(newTarget("//test:lib"), new FakeProjectFilesystem())
-          .setPrecompiledHeader(DefaultBuildTargetSourcePath.of(pchTarget))
-          .setCxxPlatform(platformNotSupportingPchWarning)
-          .setCxxBuckConfig(cxxConfigPchDisabledGenerateWarning)
-          .build()
-          .requirePreprocessAndCompileBuildRule("lib.cpp", newSource("lib.cpp"));
-    } catch (PchUnavailableException e) {
-      throw new Error("This exception should not have been thrown: " + e);
-    }
-  }
-
-  @Test
-  public void userRuleIncludePathsChangedByPCH() throws Exception {
+  public void userRuleIncludePathsChangedByPCH() {
     CxxPreprocessorInput cxxPreprocessorInput =
         CxxPreprocessorInput.builder()
             .addIncludes(
@@ -710,7 +677,7 @@ public class CxxPrecompiledHeaderRuleTest {
     for (BuildTarget target : buildLogA.getAllTargets()) {
       if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
         pchHashA = buildLogA.getLogEntry(target).getRuleKey();
-        System.err.println("A: " + pchHashA);
+        System.err.println("A: " + target + " " + pchHashA);
       }
     }
     assertNotNull(pchHashA);
@@ -721,7 +688,7 @@ public class CxxPrecompiledHeaderRuleTest {
     for (BuildTarget target : buildLogB.getAllTargets()) {
       if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
         pchHashB = buildLogB.getLogEntry(target).getRuleKey();
-        System.err.println("B: " + pchHashB);
+        System.err.println("B: " + target + " " + pchHashB);
       }
     }
     assertNotNull(pchHashB);
@@ -733,7 +700,7 @@ public class CxxPrecompiledHeaderRuleTest {
     for (BuildTarget target : buildLogC.getAllTargets()) {
       if (target.toString().startsWith("//determinism/lib:pch#default,pch-cxx-")) {
         pchHashC = buildLogC.getLogEntry(target).getRuleKey();
-        System.err.println("C: " + pchHashC);
+        System.err.println("C: " + target + " " + pchHashC);
       }
     }
     assertNotNull(pchHashC);

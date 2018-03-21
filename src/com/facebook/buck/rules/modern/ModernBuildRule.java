@@ -19,28 +19,35 @@ package com.facebook.buck.rules.modern;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.DefaultInputRuleResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.types.Either;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import java.io.IOException;
-import java.util.Objects;
+import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -50,7 +57,7 @@ import javax.annotation.Nullable;
  * interfaces used by the build engine). Most of the overridden methods from
  * BuildRule/AbstractBuildRule are intentionally final to keep users on the safe path.
  *
- * <p>Deps, outputs and rulekeys are derived from the fields of the {@link Buildable}.
+ * <p>Deps, outputs, inputs and rulekeys are derived from the fields of the {@link Buildable}.
  *
  * <p>For simple ModernBuildRules (e.g. those that don't have any fields that can't be added to the
  * rulekey), the build rule class itself can (and should) implement Buildable. In this case, the
@@ -99,20 +106,19 @@ import javax.annotation.Nullable;
  * }
  * }</pre>
  */
-public class ModernBuildRule<T extends Buildable>
-    implements BuildRule,
-        HasRuntimeDeps,
+public abstract class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
+    implements HasRuntimeDeps,
         SupportsInputBasedRuleKey,
+        CacheableBuildRule,
         InitializableFromDisk<ModernBuildRule.DataHolder> {
-  private final BuildTarget buildTarget;
-  private final ProjectFilesystem filesystem;
-  private final InputRuleResolver inputRuleResolver;
   private final BuildOutputInitializer<DataHolder> buildOutputInitializer;
   private final OutputPathResolver outputPathResolver;
 
   private final Supplier<ImmutableSortedSet<BuildRule>> deps;
   private final T buildable;
   private final ClassInfo<T> classInfo;
+
+  private InputRuleResolver inputRuleResolver;
 
   protected ModernBuildRule(
       BuildTarget buildTarget,
@@ -135,15 +141,14 @@ public class ModernBuildRule<T extends Buildable>
       ProjectFilesystem filesystem,
       Either<T, Class<T>> buildableSource,
       SourcePathRuleFinder ruleFinder) {
-    this.filesystem = filesystem;
-    this.buildTarget = buildTarget;
+    super(buildTarget, filesystem);
     this.deps = MoreSuppliers.memoize(this::computeDeps);
     this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
     this.outputPathResolver =
         new DefaultOutputPathResolver(this.getProjectFilesystem(), this.getBuildTarget());
     this.buildable = buildableSource.transform(b -> b, clz -> clz.cast(this));
-    this.classInfo = DefaultClassInfoFactory.forBuildable(this.buildable);
+    this.classInfo = DefaultClassInfoFactory.forInstance(this.buildable);
   }
 
   private ImmutableSortedSet<BuildRule> computeDeps() {
@@ -152,7 +157,21 @@ public class ModernBuildRule<T extends Buildable>
     return depsBuilder.build();
   }
 
-  protected final T getBuildable() {
+  /** Computes the inputs of the build rule. */
+  @SuppressWarnings("unused")
+  public ImmutableSortedSet<SourcePath> computeInputs() {
+    return computeInputs(getBuildable(), classInfo);
+  }
+
+  /** Computes the inputs of the build rule. */
+  public static <T extends Buildable> ImmutableSortedSet<SourcePath> computeInputs(
+      T buildable, ClassInfo<T> classInfo) {
+    ImmutableSortedSet.Builder<SourcePath> depsBuilder = ImmutableSortedSet.naturalOrder();
+    classInfo.getInputs(buildable, depsBuilder::add);
+    return depsBuilder.build();
+  }
+
+  public final T getBuildable() {
     return buildable;
   }
 
@@ -162,6 +181,13 @@ public class ModernBuildRule<T extends Buildable>
     return null;
   }
 
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
+  }
   // -----------------------------------------------------------------------------------------------
   // ---------- These function's behaviors can be changed with interfaces on the Buildable ---------
   // -----------------------------------------------------------------------------------------------
@@ -192,13 +218,7 @@ public class ModernBuildRule<T extends Buildable>
   protected final SourcePath getSourcePath(OutputPath outputPath) {
     // TODO(cjhopman): enforce that the outputPath is actually from this target somehow.
     return ExplicitBuildTargetSourcePath.of(
-        buildTarget, outputPathResolver.resolvePath(outputPath));
-  }
-
-  protected final InputPath toInputPath(OutputPath outputPath) {
-    // TODO(cjhopman): either enforce that this is our own outputPath, or support actually
-    // converting other rule's outputs to our own inputs.
-    return new InputPath(getSourcePath(outputPath));
+        getBuildTarget(), outputPathResolver.resolvePath(outputPath));
   }
 
   @Override
@@ -214,7 +234,18 @@ public class ModernBuildRule<T extends Buildable>
   @Override
   public final ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
+    recordOutputs(buildableContext);
+    return stepsForBuildable(context, buildable, getProjectFilesystem(), getBuildTarget());
+  }
+
+  /**
+   * Returns the build steps for the Buildable. Unlike getBuildSteps(), this does not record outputs
+   * (callers should call recordOutputs() themselves).
+   */
+  public static <T extends Buildable> ImmutableList<Step> stepsForBuildable(
+      BuildContext context, T buildable, ProjectFilesystem filesystem, BuildTarget buildTarget) {
     ImmutableList.Builder<Step> stepBuilder = ImmutableList.builder();
+    OutputPathResolver outputPathResolver = new DefaultOutputPathResolver(filesystem, buildTarget);
     stepBuilder.addAll(
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
@@ -227,10 +258,8 @@ public class ModernBuildRule<T extends Buildable>
 
     stepBuilder.addAll(
         buildable.getBuildSteps(
-            context.getEventBus(),
+            context,
             filesystem,
-            new DefaultInputPathResolver(context.getSourcePathResolver()),
-            getInputDataRetriever(),
             outputPathResolver,
             new DefaultBuildCellRelativePathFactory(
                 context.getBuildCellRootPath(), filesystem, Optional.of(outputPathResolver))));
@@ -241,29 +270,37 @@ public class ModernBuildRule<T extends Buildable>
     // rule. With ModernBuildRule, all outputs are limited to the gen/scratch roots which are unique
     // to the rule and so the engine could reliably clean old state and then leaving the scratch
     // directory would be fine.
-    buildableContext.recordArtifact(outputPathResolver.getRootPath());
-    // All the outputs are already forced to be within getGenDirectory(), and so this recording
-    // isn't actually necessary.
-    classInfo.getOutputs(buildable, (name, output) -> recordOutput(buildableContext, output));
 
-    classInfo.getOutputData(buildable, (name, data) -> recordData(buildableContext, name, data));
     return stepBuilder.build();
   }
 
-  private void recordOutput(BuildableContext buildableContext, OutputPath output) {
-    buildableContext.recordArtifact(outputPathResolver.resolvePath(output));
+  /**
+   * Records the outputs of this buildrule. An output will only be recorded once (i.e. no duplicates
+   * and if a directory is recorded, none of its contents will be).
+   */
+  public void recordOutputs(BuildableContext buildableContext) {
+    Stream.Builder<Path> collector = Stream.builder();
+    collector.add(outputPathResolver.getRootPath());
+    classInfo.getOutputs(buildable, path -> collector.add(outputPathResolver.resolvePath(path)));
+    // ImmutableSet guarantees that iteration order is unchanged.
+    Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
+    for (Path path : outputs) {
+      Preconditions.checkState(!path.isAbsolute());
+      if (shouldRecord(outputs, path)) {
+        buildableContext.recordArtifact(path);
+      }
+    }
   }
 
-  private void recordData(BuildableContext buildableContext, String name, OutputData outputData) {
-    buildableContext.getClass();
-    name.getClass();
-    outputData.getClass();
-    // TODO(cjhopman): implement
-    throw new UnsupportedOperationException();
-  }
-
-  private InputDataRetriever getInputDataRetriever() {
-    return new InputDataRetriever() {};
+  private boolean shouldRecord(Set<Path> outputs, Path path) {
+    Path parent = path.getParent();
+    while (parent != null) {
+      if (outputs.contains(parent)) {
+        return false;
+      }
+      parent = parent.getParent();
+    }
+    return true;
   }
 
   @Override
@@ -273,11 +310,11 @@ public class ModernBuildRule<T extends Buildable>
 
   @Override
   public final void appendToRuleKey(RuleKeyObjectSink sink) {
-    classInfo.appendToRuleKey(buildable, sink);
+    AlterRuleKeys.amendKey(sink, buildable);
   }
 
   @Override
-  public final DataHolder initializeFromDisk() throws IOException {
+  public final DataHolder initializeFromDisk() {
     // TODO(cjhopman): implement
     return new DataHolder();
   }
@@ -294,48 +331,11 @@ public class ModernBuildRule<T extends Buildable>
   }
 
   @Override
-  public final BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
-  @Override
-  public final String getFullyQualifiedName() {
-    return buildTarget.getFullyQualifiedName();
-  }
-
-  @Override
-  public final ProjectFilesystem getProjectFilesystem() {
-    return filesystem;
-  }
-
-  @Override
   public final int compareTo(BuildRule that) {
     if (this == that) {
       return 0;
     }
 
     return this.getBuildTarget().compareTo(that.getBuildTarget());
-  }
-
-  @Override
-  public final boolean equals(Object obj) {
-    if (!(obj instanceof ModernBuildRule)) {
-      return false;
-    }
-    if (this.getClass() != obj.getClass()) {
-      return false;
-    }
-    ModernBuildRule<?> that = (ModernBuildRule<?>) obj;
-    return (this.classInfo == that.classInfo) && Objects.equals(this.buildTarget, that.buildTarget);
-  }
-
-  @Override
-  public final int hashCode() {
-    return this.buildTarget.hashCode();
-  }
-
-  @Override
-  public final String toString() {
-    return getFullyQualifiedName();
   }
 }

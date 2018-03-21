@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.httpserver.WebServer;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
@@ -43,11 +44,15 @@ class DaemonLifecycleManager {
 
   /** Get or create Daemon. */
   synchronized Daemon getDaemon(
-      Cell rootCell, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) throws IOException {
+      Cell rootCell,
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      ExecutableFinder executableFinder)
+      throws IOException {
     Path rootPath = rootCell.getFilesystem().getRootPath();
     if (daemon == null) {
       LOG.debug("Starting up daemon for project root [%s]", rootPath);
-      daemon = new Daemon(rootCell, knownBuildRuleTypesProvider, Optional.empty());
+      daemon =
+          new Daemon(rootCell, knownBuildRuleTypesProvider, executableFinder, Optional.empty());
     } else {
       // Buck daemons cache build files within a single project root, changing to a different
       // project root is not supported and will likely result in incorrect builds. The buck and
@@ -74,7 +79,7 @@ class DaemonLifecycleManager {
           webServer = Optional.empty();
           daemon.close();
         }
-        daemon = new Daemon(rootCell, knownBuildRuleTypesProvider, webServer);
+        daemon = new Daemon(rootCell, knownBuildRuleTypesProvider, executableFinder, webServer);
       }
     }
     return daemon;
@@ -83,12 +88,8 @@ class DaemonLifecycleManager {
   /** Manually kill the daemon instance, used for testing. */
   synchronized void resetDaemon() {
     if (daemon != null) {
-      try {
-        LOG.info("Closing daemon on reset request.");
-        daemon.close();
-      } catch (IOException e) { // NOPMD
-        // Swallow exceptions while closing daemon.
-      }
+      LOG.info("Closing daemon on reset request.");
+      daemon.close();
     }
     daemon = null;
   }

@@ -16,12 +16,19 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.replay;
+
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.ExitState;
+import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
+import com.facebook.buck.distributed.thrift.BuildJob;
+import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.event.listener.NoOpBuildRuleFinishedPublisher;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.SettableFuture;
 import java.io.IOException;
@@ -41,7 +48,7 @@ public class ThriftCoordinatorServerIntegrationTest {
   @Test
   public void testMakingSimpleRequest() throws IOException {
     try (ThriftCoordinatorServer server =
-            createServerOnRandomPort(BuildTargetsQueueFactory.newEmptyQueue());
+            createServerOnRandomPort(BuildTargetsQueue.newEmptyQueue());
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
@@ -64,7 +71,7 @@ public class ThriftCoordinatorServerIntegrationTest {
     EasyMock.expectLastCall().once();
     eventListener.onThriftServerClosing(EasyMock.capture(exitState));
     EasyMock.expectLastCall().once();
-    EasyMock.replay(eventListener);
+    replay(eventListener);
 
     try (ThriftCoordinatorServer server =
             createCoordinatorServer(OptionalInt.empty(), diamondQueue, eventListener);
@@ -83,7 +90,7 @@ public class ThriftCoordinatorServerIntegrationTest {
           client.getWork(
               MINION_ID,
               0,
-              ImmutableList.of(BuildTargetsQueueTest.LEAF_TARGET),
+              ImmutableList.of(CustomBuildRuleResolverFactory.LEAF_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseTwo.getWorkUnitsSize(), 2);
@@ -94,7 +101,8 @@ public class ThriftCoordinatorServerIntegrationTest {
               MINION_ID,
               0,
               ImmutableList.of(
-                  BuildTargetsQueueTest.LEFT_TARGET, BuildTargetsQueueTest.RIGHT_TARGET),
+                  CustomBuildRuleResolverFactory.LEFT_TARGET,
+                  CustomBuildRuleResolverFactory.RIGHT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseThree.getWorkUnitsSize(), 1);
@@ -104,7 +112,7 @@ public class ThriftCoordinatorServerIntegrationTest {
           client.getWork(
               MINION_ID,
               0,
-              ImmutableList.of(BuildTargetsQueueTest.ROOT_TARGET),
+              ImmutableList.of(CustomBuildRuleResolverFactory.ROOT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseFour.getWorkUnitsSize(), 0);
@@ -115,7 +123,7 @@ public class ThriftCoordinatorServerIntegrationTest {
           client.getWork(
               MINION_ID,
               0,
-              ImmutableList.of(BuildTargetsQueueTest.ROOT_TARGET),
+              ImmutableList.of(CustomBuildRuleResolverFactory.ROOT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseFive.getWorkUnitsSize(), 0);
@@ -127,8 +135,7 @@ public class ThriftCoordinatorServerIntegrationTest {
     EasyMock.verify(eventListener);
   }
 
-  public static ThriftCoordinatorServer createServerOnRandomPort(BuildTargetsQueue queue)
-      throws IOException {
+  public static ThriftCoordinatorServer createServerOnRandomPort(BuildTargetsQueue queue) {
     return createCoordinatorServer(OptionalInt.empty(), queue);
   }
 
@@ -150,9 +157,10 @@ public class ThriftCoordinatorServerIntegrationTest {
         future,
         STAMPEDE_ID,
         eventListener,
-        new NoOpBuildRuleFinishedPublisher(),
+        new NoOpCoordinatorBuildRuleEventsPublisher(),
         EasyMock.createNiceMock(MinionHealthTracker.class),
-        EasyMock.createNiceMock(DistBuildService.class));
+        EasyMock.createNiceMock(DistBuildService.class),
+        EasyMock.createNiceMock(MinionCountProvider.class));
   }
 
   @Test
@@ -161,7 +169,7 @@ public class ThriftCoordinatorServerIntegrationTest {
     StampedeId wrongStampedeId = new StampedeId().setId("not-" + STAMPEDE_ID.id);
 
     try (ThriftCoordinatorServer server =
-            createCoordinatorServer(OptionalInt.empty(), BuildTargetsQueueFactory.newEmptyQueue());
+            createCoordinatorServer(OptionalInt.empty(), BuildTargetsQueue.newEmptyQueue());
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", wrongStampedeId, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
@@ -174,7 +182,7 @@ public class ThriftCoordinatorServerIntegrationTest {
       }
 
       Assert.assertEquals(
-          ThriftCoordinatorServer.GET_WORK_FAILED_EXIT_CODE,
+          ExitCode.GET_WORK_FAILED_EXIT_CODE.getCode(),
           server.waitUntilBuildCompletesAndReturnExitCode());
     }
   }
@@ -191,9 +199,10 @@ public class ThriftCoordinatorServerIntegrationTest {
                 queueFuture,
                 STAMPEDE_ID,
                 eventListener,
-                new NoOpBuildRuleFinishedPublisher(),
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
-                EasyMock.createNiceMock(DistBuildService.class));
+                EasyMock.createNiceMock(DistBuildService.class),
+                EasyMock.createNiceMock(MinionCountProvider.class));
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
@@ -207,7 +216,87 @@ public class ThriftCoordinatorServerIntegrationTest {
       }
 
       Assert.assertEquals(
-          ThriftCoordinatorServer.GET_WORK_FAILED_EXIT_CODE,
+          ExitCode.GET_WORK_FAILED_EXIT_CODE.getCode(),
+          server.waitUntilBuildCompletesAndReturnExitCode());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("PMD.EmptyCatchBlock")
+  public void testCoordinatorExitsCodeIsZeroIfSucceededExternally() throws Exception {
+    SettableFuture<BuildTargetsQueue> future = SettableFuture.create();
+    future.set(BuildTargetsQueueTest.createDiamondDependencyQueue());
+
+    SettableFuture<BuildTargetsQueue> queueFuture = SettableFuture.create();
+    ThriftCoordinatorServer.EventListener eventListener =
+        EasyMock.createNiceMock(ThriftCoordinatorServer.EventListener.class);
+    DistBuildService distBuildService = EasyMock.createNiceMock(DistBuildService.class);
+
+    // Give coordinator BuildJob in FINISHED_SUCCESSFULLY state, at which point it should exit
+    // gracefully.
+    BuildJob buildJob = new BuildJob();
+    buildJob.setStatus(BuildStatus.FINISHED_SUCCESSFULLY);
+    expect(distBuildService.getCurrentBuildJobState(STAMPEDE_ID)).andReturn(buildJob);
+    replay(distBuildService);
+
+    try (ThriftCoordinatorServer server =
+            new ThriftCoordinatorServer(
+                OptionalInt.empty(),
+                queueFuture,
+                STAMPEDE_ID,
+                eventListener,
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
+                EasyMock.createNiceMock(MinionHealthTracker.class),
+                distBuildService,
+                EasyMock.createNiceMock(MinionCountProvider.class));
+        ThriftCoordinatorClient client =
+            new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
+      server.start();
+      client.start(server.getPort());
+
+      server.checkBuildStatusIsNotTerminated();
+
+      Assert.assertEquals(
+          ExitCode.SUCCESSFUL.getCode(), server.waitUntilBuildCompletesAndReturnExitCode());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("PMD.EmptyCatchBlock")
+  public void testCoordinatorExitsCodeIsNonZeroIfFailedExternally() throws Exception {
+    SettableFuture<BuildTargetsQueue> future = SettableFuture.create();
+    future.set(BuildTargetsQueueTest.createDiamondDependencyQueue());
+
+    SettableFuture<BuildTargetsQueue> queueFuture = SettableFuture.create();
+    ThriftCoordinatorServer.EventListener eventListener =
+        EasyMock.createNiceMock(ThriftCoordinatorServer.EventListener.class);
+    DistBuildService distBuildService = EasyMock.createNiceMock(DistBuildService.class);
+
+    // Give coordinator BuildJob in FAILED state, at which point it should exit with an error.
+    BuildJob buildJob = new BuildJob();
+    buildJob.setStatus(BuildStatus.FAILED);
+    expect(distBuildService.getCurrentBuildJobState(STAMPEDE_ID)).andReturn(buildJob);
+    replay(distBuildService);
+
+    try (ThriftCoordinatorServer server =
+            new ThriftCoordinatorServer(
+                OptionalInt.empty(),
+                queueFuture,
+                STAMPEDE_ID,
+                eventListener,
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
+                EasyMock.createNiceMock(MinionHealthTracker.class),
+                distBuildService,
+                EasyMock.createNiceMock(MinionCountProvider.class));
+        ThriftCoordinatorClient client =
+            new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
+      server.start();
+      client.start(server.getPort());
+
+      server.checkBuildStatusIsNotTerminated();
+
+      Assert.assertEquals(
+          ExitCode.BUILD_FAILED_EXTERNALLY_EXIT_CODE.getCode(),
           server.waitUntilBuildCompletesAndReturnExitCode());
     }
   }

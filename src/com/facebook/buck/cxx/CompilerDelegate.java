@@ -44,29 +44,15 @@ class CompilerDelegate implements AddsToRuleKey {
   @AddToRuleKey private final CxxToolFlags compilerFlags;
 
   // Fields that are not added to the rule key.
-  private final SourcePathResolver resolver;
   private final DebugPathSanitizer sanitizer;
 
-  public CompilerDelegate(
-      SourcePathResolver resolver,
-      DebugPathSanitizer sanitizer,
-      Compiler compiler,
-      CxxToolFlags flags) {
-    this.resolver = resolver;
+  public CompilerDelegate(DebugPathSanitizer sanitizer, Compiler compiler, CxxToolFlags flags) {
     this.sanitizer = sanitizer;
     this.compiler = compiler;
     this.compilerFlags = flags;
   }
 
-  /** Returns the argument list for executing the compiler. */
-  public ImmutableList<Arg> getCommand(CxxToolFlags prependedFlags, Path cellPath) {
-    return ImmutableList.<Arg>builder()
-        .addAll(StringArg.from(getCommandPrefix()))
-        .addAll(getArguments(prependedFlags, cellPath))
-        .build();
-  }
-
-  public ImmutableList<String> getCommandPrefix() {
+  public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
     return compiler.getCommandPrefix(resolver);
   }
 
@@ -84,7 +70,7 @@ class CompilerDelegate implements AddsToRuleKey {
     return compilerFlags;
   }
 
-  public ImmutableMap<String, String> getEnvironment() {
+  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
     return compiler.getEnvironment(resolver);
   }
 
@@ -122,9 +108,9 @@ class CompilerDelegate implements AddsToRuleKey {
 
   public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
-    deps.addAll(getCompiler().getDeps(ruleFinder));
+    deps.addAll(BuildableSupport.getDepsCollection(getCompiler(), ruleFinder));
     RichStream.from(getCompilerFlags().getAllFlags())
-        .flatMap(a -> a.getDeps(ruleFinder).stream())
+        .flatMap(a -> BuildableSupport.getDepsCollection(a, ruleFinder).stream())
         .forEach(deps::add);
     return deps.build();
   }

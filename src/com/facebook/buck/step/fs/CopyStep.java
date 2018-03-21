@@ -21,6 +21,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -114,7 +115,7 @@ public class CopyStep implements Step {
         // N.B., on Windows, java.nio.AbstractPath does not resolve *
         // as a path, causing InvalidPathException. Since this is purely a
         // description, manually create the source argument.
-        args.add(source.toString() + File.separator + "*");
+        args.add(source + File.separator + "*");
         break;
     }
     args.add(destination.toString());
@@ -139,6 +140,6 @@ public class CopyStep implements Step {
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
     filesystem.copy(source, destination, copySourceMode);
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 }

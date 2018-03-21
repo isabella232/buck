@@ -25,6 +25,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
 import java.io.BufferedInputStream;
@@ -91,10 +92,9 @@ class PlistProcessStep implements Step {
           | ParserConfigurationException
           | SAXException
           | UnsupportedOperationException e) {
-        throw new IOException(input.toString() + ": " + e);
+        throw new IOException(input + ": " + e);
       } catch (ArrayIndexOutOfBoundsException e) {
-        throw new HumanReadableException(
-            input.toString() + ": the content of the plist is invalid or empty.");
+        throw new HumanReadableException(input + ": the content of the plist is invalid or empty.");
       }
 
       if (infoPlist instanceof NSDictionary) {
@@ -111,7 +111,7 @@ class PlistProcessStep implements Step {
                 | ParseException
                 | ParserConfigurationException
                 | SAXException e) {
-              throw new IOException(additionalInputToMerge.toString() + ": " + e);
+              throw new IOException(additionalInputToMerge + ": " + e);
             }
 
             dictionary.putAll(((NSDictionary) mergeInfoPlist).getHashMap());
@@ -139,7 +139,7 @@ class PlistProcessStep implements Step {
       }
     }
 
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override

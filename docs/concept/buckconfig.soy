@@ -123,6 +123,7 @@ The following sections are recognized by Buck:
     'd',
     'doctor',
     'download',
+    'export_file',
     'go',
     'groovy',
     'halide',
@@ -251,6 +252,18 @@ $ buck targets --resolve-alias app#src_jar
     built against.  Even if not specified, the version that Buck chose to use will be printed to the
     console during the build.  A list of valid values on your system can be found by running{sp}
     <code>android list targets --compact</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'apk' /}
+  {param name: 'compression_level' /}
+  {param example_value: '6' /}
+  {param description}
+    This is the compression level used when deflating entries for APK. By default it's set
+    to <code>9</code>, which is best for binary size but makes APK creation slower.
+    If APK size is not a concern, as often is the case with CIs or during development, build time
+    can be improved by using smaller numbers or <code>0</code> to completely disable compression.
   {/param}
 {/call}
 
@@ -546,6 +559,31 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'apple' /}
+  {param name: 'ipa_compression_level' /}
+  {param example_value: 'min' /}
+  {param description}
+    Specify a compression level used when creating ipa. The possible values are:
+    <ul>
+      <li>
+        <code>none</code>: Do not compress ipa.
+      </li>
+      <li>
+        <code>min</code>: Use minimum compression level.
+      </li>
+      <li>
+        <code>default</code> (default): Use medium compression level.
+      </li>
+      <li>
+        <code>max</code>: Use maximum compression level.
+      </li>
+    </ul>
+
+    If omitted, the <code>default</code> value will be used.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'build' /}
   {param description}
@@ -577,17 +615,17 @@ $ buck targets --resolve-alias app#src_jar
 {call buckconfig.entry}
   {param section: 'build' /}
   {param name: 'depfiles' /}
-  {param example_value: 'enabled' /}
+  {param example_value: 'cache' /}
   {param description}
     Configures the use of dependency files for rules that support them.  This is an optimization
     that is useful when dependencies are over-specified and the rule can dynamically determine the
     subset of dependencies it actually needs.  The possible values are:
     <ul>
       <li>
-        <code>enabled</code> (default): Use dependency files to avoid unnecessary rebuilds.
+        <code>enabled</code>: Use dependency files to avoid unnecessary rebuilds.
       </li>
       <li>
-        <code>cache</code>: Use dependency files to avoid unnecessary rebuilds and to store/fetch
+        <code>cache</code> (default): Use dependency files to avoid unnecessary rebuilds and to store/fetch
         artifacts to/from the cache.
       </li>
       <li>
@@ -721,7 +759,12 @@ $ buck targets --resolve-alias app#src_jar
   {param name: 'name' /}
   {param example_value: 'TARGETS' /}
   {param description}
-    The name of {call buck.build_file /}s within a project. This defaults to <code>BUCK</code>.
+    The name of {call buck.build_file /}s within a project. 
+    This defaults to <code>BUCK</code>.
+    We recommend that you use the default name. However, you could
+    specify a different name&mdash;such as <code>TARGETS</code> shown
+    below&mdash;in order to support, for example, a legacy
+    project that used different buildfile naming conventions.
   {/param}
 {/call}
 
@@ -940,6 +983,37 @@ $ buck targets --resolve-alias app#src_jar
     This setting allows for the customization of how http cache errors appear to the user.  If the
     text <code>{lb}cache_name{rb}</code> is present, it will be replaced with the name of the cache.
     If the text {sp}<code>{lb}error_message{rb}</code>, it will be replaced with the error message.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_error_message_limit' /}
+  {param example_value}
+    100
+  {/param}
+  {param description}
+    This setting allows to set after how many errors Buck
+    will print the <code>http_error_message_format</code>. Every time it prints it the counter
+    resets to 0 to avoid spamming the console.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_max_store_attempts' /}
+  {param example_value: '1' /}
+  {param description}
+    Maximum number of times to attempt to store item to the cache before giving up.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_store_retry_interval_millis' /}
+  {param example_value: '1000' /}
+  {param description}
+    Interval to wait if previous cache store request failed.
   {/param}
 {/call}
 
@@ -1392,6 +1466,43 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'download' /}
+  {param name: 'in_build' /}
+  {param example_value: 'true' /}
+  {param description}
+    If true, allow downloads to be part of the build process. If false, buck build / run / test
+    will require the user to run 'buck fetch' first. This generally should not be changed, to
+    avoid surprising users with unexpected build times, when the cause is mostly download times.
+    By default this set to false.
+  {/param}
+{/call}
+
+{call buckconfig.section}
+  {param name: 'export_file' /}
+  {param description}
+    This section configures behavior of <code>export_file</code> build rule.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'export_file' /}
+  {param name: 'input_directory_action' /}
+  {param example_value: 'fail' /}
+  {param description}
+    <p>Defines the behavior of <code>export_file</code> when input of a build rule is a directory.
+    Support for directories will be removed soon and this option provides a way to migrate a project
+    to a state when none of the <code>export_file</code> rules use directories as inputs.</p>
+    <p>The valid values are:
+      <ul>
+        <li><code>allow</code> (default): directories are allowed and no action is taken,</li>
+        <li><code>warn</code>: emit a warning to the console,</li>
+        <li><code>fail</code>: fail the build.</li>
+      </ul>
+    </p>
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'cxx' /}
   {param description}
@@ -1711,6 +1822,50 @@ cxx_library(
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'default_reexport_all_header_dependencies' /}
+  {param example_value: 'true' /}
+  {param description}
+    Default value used for {call buck.reexport_all_header_dependencies /}, when
+    it's undefined on the build rule.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'shlib_interfaces' /}
+  {param example_value: 'enabled' /}
+  {param description}
+    When linking a executiable or shared library, any dependencies that build shared
+    libraries are normally added to the link line.  If this option is set, Buck will
+    use shared library interfaces for these dependencies instead of full shared libraries.
+    Shared library interfaces are a subset of the original shared library, removing
+    parts of the shared library (e.g. the `.text` segment for ELF) which are typically
+    unused used when this library is being linked against.  Using shared library interfaces
+    can allow Buck's input-based rule keys to avoid potentially unnecessary re-links
+    (see <code>CxxSharedLibraryInterfaceIntegrationTest</code> for examples).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'independent_shlib_interfaces' /}
+  {param example_value: 'true' /}
+  {param description}
+    Normally, a shared library interface for a rule is generated using it's
+    shared library.  Since linking a rule's shared library requires the shared
+    library interfaces for all dependencies be built, this means that dynamic
+    linking has inherent non-parallelism, due to this build dependency tree.
+
+    When this option is set, Buck will build shared library interfaces indepedent
+    of the rule's shared library (e.g. by linking it's own shared library without
+    any dependency shared libraries), allowing all shared library interfaces to
+    be built in parallel, and therefore also allowing subsequent shared libraries
+    to be built in parallel.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'doctor' /}
   {param description}
@@ -2013,6 +2168,16 @@ cxx_library(
 {/call}
 
 {call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'default_min_android_sdk_version' /}
+  {param example_value: '9' /}
+  {param description}
+    Default minimum Android SDK version supported for this project. Overwritten by min SDK version if
+    specified in target's AndroidManifest.xml.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
   {param section: 'project' /}
   {param name: 'generate_android_manifest' /}
   {param example_value: 'true' /}
@@ -2240,6 +2405,23 @@ cxx_library(
         </li>
       </ul>
     </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'java' /}
+  {param name: 'unused_dependencies_action' /}
+  {param example_value: 'warn' /}
+  {param description}
+     <p>Action performed when Buck detects that some dependencies are not used during Java compilation.</p>
+     <p>Note that this feature is experimental and does not handle runtime dependencies.</p>
+     <p>The valid values are:
+       <ul>
+         <li><code>ignore</code> (default): ignore unused dependencies,</li>
+         <li><code>warn</code>: emit a warning to the console,</li>
+         <li><code>fail</code>: fail the compilation.</li>
+       </ul>
+     </p>
   {/param}
 {/call}
 
@@ -2604,7 +2786,7 @@ your <code>.buckjavaargs</code> file</a>:
   {param example_value: 'android-21' /}
   {param description}
     The android platform libraries that the code is targetting.  This is equivalent to the{sp}
-    <code>APP_TARGET</code> in the NDK build system.  The default is <code>android-9</code>.
+    <code>APP_TARGET</code> in the NDK build system.  The default is <code>android-16</code>.
   {/param}
 {/call}
 
@@ -2776,19 +2958,6 @@ your <code>.buckjavaargs</code> file</a>:
 
 {call buckconfig.entry}
   {param section: 'parser' /}
-  {param name: 'freeze_globals' /}
-  {param example_value: 'false' /}
-  {param description}
-    Indicates whether globals imported by {call buck.fn_load /} and{sp}
-    {call buck.fn_include_defs /} should be "frozen", which means they will be converted into
-    their read-only counterparts. This can be used to detect
-    accidental attempts to modify global variables causing non-determinism and hard to debug bugs.
-    By default, this is not enabled (<code>false</code>).
-  {/param}
-{/call}
-
-{call buckconfig.entry}
-  {param section: 'parser' /}
   {param name: 'polyglot_parsing_enabled' /}
   {param example_value: 'true' /}
   {param description}
@@ -2808,6 +2977,30 @@ your <code>.buckjavaargs</code> file</a>:
     marker (<code># BUILD FILE SYNTAX: </code>). This flag is only applicable when
     <code>parser.polyglot_parsing_enabled</code> configuration is set to <code>true</code>.
     By default it's value is set to <code>PYTHON_DSL</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'disable_implicit_native_rules' /}
+  {param example_value: 'true' /}
+  {param description}
+    If set, native rules (cxx_library, android_library, etc) cannot be used in BUCK files. This
+    can be useful if your team has a common set of macros that should be loaded, and one desires
+    a fast-feedback way to make sure that Buck's native rules are not inadvertently used. If set,
+    native rules can only be accessed via the 'native' object within an extension file that is
+    evaluated with {call buck.fn_load /} or {call buck.fn_include_defs /}.
+    This flag is disabled by default (native rules can be used in build files).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'warn_about_deprecated_syntax' /}
+  {param example_value: 'false' /}
+  {param description}
+    If set, warnings about deprecated syntax in BUCK files will be issued.
+    This flag is enabled by default.
   {/param}
 {/call}
 
@@ -2971,6 +3164,16 @@ your <code>.buckjavaargs</code> file</a>:
   {param example_value: 'math, Foo' /}
   {param description}
     A comma-separated list that configures which Python modules can be imported in build files.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'project' /}
+  {param name: 'motd' /}
+  {param example_value: '"DO NOT BREAK THE BUILD"' /}
+  {param description}
+    A plain text message that will be printed first when a user interacts with buck. This supports
+    simple special characters like newlines (\n).
   {/param}
 {/call}
 
@@ -3291,7 +3494,20 @@ your <code>.buckjavaargs</code> file</a>:
     to <code>rustc</code> are not the original source paths. This option will remap those paths
     in compiler output, debug info, <code>file!()</code> and elsewhere to match the original
     source names. The options are "no" (don't remap), "unstable" (remap using the experimental
-    version of these options) and "yes" (remap using the stable versions, probably 1.22 onwards).
+    version of these options) and "yes" (remap using the stable versions, probably 1.25 onwards).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'rust' /}
+  {param name: 'force_rlib' /}
+  {param example_value: 'false' /}
+  {param description}
+    When <code>force_rlib</code> is true, then buck will always compile static (rlib) libraries
+    even when the final target (binary or unittest) is being linked with a shared link style.
+    Rust code is typically always statically linked, and a lot of surrounding tooling doesn't
+    cope well with dynamically linked Rust crates. Linking with a shared link style will still
+    dynamically link with C/C++ shared objects.
   {/param}
 {/call}
 
@@ -3383,7 +3599,7 @@ your <code>.buckjavaargs</code> file</a>:
         <li><code>target</code>: The {call buck.build_target /} of the test rule.</li>
         <li><code>type</code>: A string describing the type of the test.</li>
         <li>
-          <code>command</code>: An array of command line arguemtns the test runner should invoke to
+          <code>command</code>: An array of command line arguments the test runner should invoke to
           run the test.
         </li>
         <li>
@@ -3397,6 +3613,17 @@ your <code>.buckjavaargs</code> file</a>:
         </li>
       </ul>
     </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'test' /}
+  {param name: 'thread_utilization_ratio' /}
+  {param example_value: '0.5' /}
+  {param description}
+    Sets the maximum number of threads to use for testing as a ratio of the number of threads
+    used for building. By default(<code>1.0</code>), buck uses runs tests on all threads that
+    were used for building.
   {/param}
 {/call}
 
@@ -3569,6 +3796,18 @@ your <code>.buckjavaargs</code> file</a>:
     during building and testing after an error is reported. Only effective
     when the super console is used. The value has to be a positive number.
     Defaults to the value of {call buckconfig.ui_thread_line_limit /}.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ui' /}
+  {param name: 'superconsole' /}
+  {param example_value: 'ENABLED' /}
+  {param description}
+    Whether the super console is enabled. If so, a more reactive UI will be shown.
+    Valid values are ENABLED, DISABLED, and AUTO. By default, this is set to AUTO
+    which will take OS, terminal settings and other things into account. In most 
+    interactive cases, it will be enabled.
   {/param}
 {/call}
 

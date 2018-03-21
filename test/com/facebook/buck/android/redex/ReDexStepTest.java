@@ -18,16 +18,13 @@ package com.facebook.buck.android.redex;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.KeystoreProperties;
-import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.ExecutionContext;
@@ -41,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 public class ReDexStepTest {
@@ -65,21 +61,15 @@ public class ReDexStepTest {
     Path seeds = Paths.get("buck-out/gen/app/__proguard__/seeds.txt");
 
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
 
-    AndroidPlatformTarget androidPlatform = EasyMock.createMock(AndroidPlatformTarget.class);
     Path sdkDirectory = Paths.get("/Users/user/android-sdk-macosx");
-    EasyMock.expect(androidPlatform.checkSdkDirectory()).andReturn(sdkDirectory);
-    EasyMock.replay(androidPlatform);
 
     ReDexStep redex =
         new ReDexStep(
             BuildTargetFactory.newInstance("//dummy:target"),
             workingDirectory,
-            TestAndroidLegacyToolchainFactory.create(androidPlatform),
+            AndroidSdkLocation.of(sdkDirectory),
             redexBinaryArgs,
             redexEnvironmentVariables,
             inputApkPath,
@@ -98,8 +88,6 @@ public class ReDexStepTest {
     assertEquals(
         ImmutableMap.of("ANDROID_SDK", sdkDirectory.toString(), "REDEX_DEBUG", "1"),
         redex.getEnvironmentVariables(context));
-
-    EasyMock.verify(androidPlatform);
 
     assertEquals(
         ImmutableList.of(

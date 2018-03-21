@@ -21,6 +21,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -34,7 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpMethod;
@@ -104,13 +105,13 @@ public class HttpdForTests implements AutoCloseable {
   public URI getRootUri() {
     try {
       return getUri("/");
-    } catch (SocketException | URISyntaxException e) {
+    } catch (URISyntaxException e) {
       // Should never happen
       throw new RuntimeException(e);
     }
   }
 
-  public URI getUri(String path) throws URISyntaxException, SocketException {
+  public URI getUri(String path) throws URISyntaxException {
     assertTrue(
         "Server must be running before retrieving a URI, otherwise the resulting URI may "
             + "not have an appropriate port",
@@ -196,7 +197,7 @@ public class HttpdForTests implements AutoCloseable {
         Request request,
         HttpServletRequest httpServletRequest,
         HttpServletResponse httpServletResponse)
-        throws IOException, ServletException {
+        throws IOException {
       // Use an unusual charset.
       httpServletResponse.getOutputStream().write(content.getBytes(UTF_16));
       request.setHandled(true);
@@ -212,8 +213,7 @@ public class HttpdForTests implements AutoCloseable {
         String target,
         Request request,
         HttpServletRequest httpServletRequest,
-        HttpServletResponse httpServletResponse)
-        throws IOException, ServletException {
+        HttpServletResponse httpServletResponse) {
       if (!HttpMethod.PUT.is(request.getMethod())) {
         return;
       }
@@ -241,6 +241,52 @@ public class HttpdForTests implements AutoCloseable {
 
       setHandler(resourceHandler);
       setLogger(new StdErrLog());
+    }
+  }
+
+  /**
+   * A simple http handler that will return content at the given path (or 404 if not in the map),
+   * and that records all paths that are requested.
+   */
+  public static class CapturingHttpHandler extends AbstractHandler {
+
+    private ImmutableMap<String, byte[]> contentMap;
+    private final List<String> requestedPaths = new ArrayList<>();
+
+    /**
+     * Creates an instance of {@link CapturingHttpHandler}
+     *
+     * @param contentMap A map of paths (including leading /) to content that should be returned as
+     *     UTF-8 encoded strings
+     */
+    public CapturingHttpHandler(ImmutableMap<String, byte[]> contentMap) {
+      this.contentMap = contentMap;
+    }
+
+    @Override
+    public void handle(
+        String s,
+        Request request,
+        HttpServletRequest httpServletRequest,
+        HttpServletResponse httpServletResponse)
+        throws IOException {
+      synchronized (this) {
+        requestedPaths.add(request.getUri().getPath());
+      }
+      if (!contentMap.containsKey(request.getUri().getPath())) {
+        httpServletResponse.setStatus(404);
+        request.setHandled(true);
+        return;
+      }
+      httpServletResponse.setStatus(200);
+      httpServletResponse.getOutputStream().write(contentMap.get(request.getUri().getPath()));
+      request.setHandled(true);
+    }
+
+    public ImmutableList<String> getRequestedPaths() {
+      synchronized (this) {
+        return ImmutableList.copyOf(requestedPaths);
+      }
     }
   }
 }

@@ -42,10 +42,10 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXSourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
+import com.facebook.buck.apple.xcode.xcodeproj.ProductTypes;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
-import com.facebook.buck.js.JsBundle;
 import com.facebook.buck.js.JsBundleOutputs;
 import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
@@ -104,7 +104,7 @@ class NewNativeTargetProjectMutator {
   private final PathRelativizer pathRelativizer;
   private final Function<SourcePath, Path> sourcePathResolver;
 
-  private ProductType productType = ProductType.BUNDLE;
+  private ProductType productType = ProductTypes.BUNDLE;
   private Path productOutputPath = Paths.get("");
   private String productName = "";
   private String targetName = "";
@@ -383,9 +383,9 @@ class NewNativeTargetProjectMutator {
   }
 
   private void traverseGroupsTreeAndHandleSources(
-      final PBXGroup sourcesGroup,
-      final PBXSourcesBuildPhase sourcesBuildPhase,
-      final PBXHeadersBuildPhase headersBuildPhase,
+      PBXGroup sourcesGroup,
+      PBXSourcesBuildPhase sourcesBuildPhase,
+      PBXHeadersBuildPhase headersBuildPhase,
       Iterable<GroupedSource> groupedSources) {
     GroupedSource.Visitor visitor =
         new GroupedSource.Visitor() {
@@ -488,8 +488,8 @@ class NewNativeTargetProjectMutator {
     if (visibility != HeaderVisibility.PRIVATE) {
 
       if (this.frameworkHeadersEnabled
-          && (this.productType == ProductType.FRAMEWORK
-              || this.productType == ProductType.STATIC_FRAMEWORK)) {
+          && (this.productType == ProductTypes.FRAMEWORK
+              || this.productType == ProductTypes.STATIC_FRAMEWORK)) {
         headersBuildPhase.getFiles().add(buildFile);
       }
 
@@ -575,7 +575,7 @@ class NewNativeTargetProjectMutator {
         resourceDirs,
         variantResourceFiles);
 
-    final PBXBuildPhase phase = new PBXResourcesBuildPhase();
+    PBXBuildPhase phase = new PBXResourcesBuildPhase();
     addResourcesFileReference(
         targetGroup,
         resourceFiles.build(),
@@ -766,8 +766,8 @@ class NewNativeTargetProjectMutator {
         BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
         BuildRule rule = resolver.getRule(targetNode.getBuildTarget());
 
-        Preconditions.checkState(rule instanceof JsBundle);
-        JsBundle bundle = (JsBundle) rule;
+        Preconditions.checkState(rule instanceof JsBundleOutputs);
+        JsBundleOutputs bundle = (JsBundleOutputs) rule;
 
         SourcePath jsOutput = bundle.getSourcePathToOutput();
         SourcePath resOutput = bundle.getSourcePathToResources();

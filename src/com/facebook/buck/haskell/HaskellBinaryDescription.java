@@ -32,6 +32,7 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -45,7 +46,6 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -123,16 +123,16 @@ public class HaskellBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       HaskellBinaryDescriptionArg args) {
 
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    CellPathResolver cellRoots = context.getCellPathResolver();
     HaskellPlatform platform = getPlatform(buildTarget, args);
 
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     Optional<Type> type = BINARY_TYPE.getValue(buildTarget);
     // Handle #ghci flavor
     if (type.isPresent() && type.get() == Type.GHCI) {
@@ -140,6 +140,7 @@ public class HaskellBinaryDescription
           buildTarget,
           projectFilesystem,
           params,
+          cellRoots,
           resolver,
           platform,
           cxxBuckConfig,
@@ -211,6 +212,8 @@ public class HaskellBinaryDescription
               CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
                   buildTarget,
                   projectFilesystem,
+                  resolver,
+                  ruleFinder,
                   platform.getCxxPlatform(),
                   deps,
                   r -> Optional.empty()));
@@ -276,8 +279,8 @@ public class HaskellBinaryDescription
     ImmutableList<Arg> linkInputs = linkInputsBuilder.build();
     ImmutableList<Arg> linkFlags = linkFlagsBuilder.build();
 
-    final CommandTool executable = executableBuilder.build();
-    final HaskellLinkRule linkRule =
+    CommandTool executable = executableBuilder.build();
+    HaskellLinkRule linkRule =
         HaskellDescriptionUtils.createLinkRule(
             binaryTarget,
             projectFilesystem,
@@ -314,14 +317,14 @@ public class HaskellBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), extraDepsBuilder);
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()
         .ifPresent(
             depsQuery ->
                 QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
-                    .forEach(extraDepsBuilder::add));
+                    .forEach(targetGraphOnlyDepsBuilder::add));
   }
 
   @Override

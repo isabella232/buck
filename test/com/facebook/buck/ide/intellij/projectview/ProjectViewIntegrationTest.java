@@ -21,10 +21,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.Lists;
 import java.io.IOException;
@@ -52,7 +52,7 @@ public class ProjectViewIntegrationTest {
 
   @After
   public void after() throws IOException {
-    MoreFiles.deleteRecursivelyIfExists(viewPath);
+    MostFiles.deleteRecursivelyIfExists(viewPath);
     viewPath = null;
     workspace = null;
   }
@@ -108,7 +108,7 @@ public class ProjectViewIntegrationTest {
     assertTrue(Files.isSymbolicLink(buckOut));
   }
 
-  private void checkResDirectory() throws IOException {
+  private void checkResDirectory() {
     Path resDirectory = viewPath.resolve("res");
     assertTrue(Files.exists(resDirectory));
     assertTrue(Files.isDirectory(resDirectory));

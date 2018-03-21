@@ -18,7 +18,7 @@ package com.facebook.buck.tools.consistency;
 
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.tools.consistency.RuleKeyLogFileReader.ParseException;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -45,7 +45,7 @@ public class RuleKeyLogFilePrinterTest {
   private TestPrintStream stream = TestPrintStream.create();
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     logPath = temporaryFolder.newFile("out.bin.log").toAbsolutePath();
 
     ruleKeys.add(new FullRuleKey("hash1", "//this/is/a:test", "rule_type", ImmutableMap.of()));

@@ -40,9 +40,9 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.Config;
@@ -66,7 +66,7 @@ public class OCamlIntegrationTest {
   private ProjectWorkspace workspace;
 
   @Before
-  public void checkOcamlIsConfigured() throws InterruptedException, IOException {
+  public void checkOcamlIsConfigured() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
     workspace.setUp();
 
@@ -177,7 +177,7 @@ public class OCamlIntegrationTest {
   }
 
   @Test
-  public void testNativePlugin() throws IOException, Exception {
+  public void testNativePlugin() throws Exception {
     // Build the plugin
     BuildTarget pluginTarget =
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocaml_native_plugin:plugin");
@@ -541,6 +541,24 @@ public class OCamlIntegrationTest {
     // Make sure the ppx flag worked
     String out = workspace.runBuckCommand("run", binary.toString()).getStdout();
     assertEquals("42!\n", out);
+  }
+
+  @Test
+  public void testOcamlDepFlagMacros() throws IOException {
+    BuildTarget binary =
+        BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocamldep_flags:main");
+    BuildTarget lib =
+        BuildTargetFactory.newInstance(workspace.getDestPath(), "//ocamldep_flags:code");
+    ImmutableSet<BuildTarget> targets = ImmutableSet.of(binary, lib);
+
+    workspace.runBuckCommand("build", binary.toString()).assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    assertTrue(buildLog.getAllTargets().containsAll(targets));
+    buildLog.assertTargetBuiltLocally(binary.toString());
+
+    // Make sure the ppx flag worked
+    String out = workspace.runBuckCommand("run", binary.toString()).getStdout();
+    assertEquals("142!\n", out);
   }
 
   private String getOcamlVersion(ProjectWorkspace workspace)

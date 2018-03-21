@@ -15,7 +15,10 @@
  */
 package com.facebook.buck.rules;
 
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -26,6 +29,25 @@ public interface CellPathResolver {
    *     cell name cannot be resolved.
    */
   Optional<Path> getCellPath(Optional<String> cellName);
+
+  /**
+   * @param cellName name of cell, Optional.empty() for root cell.
+   * @return Absolute path to the physical location of the cell
+   * @throws AssertionError if cell is not known
+   */
+  Path getCellPathOrThrow(Optional<String> cellName);
+
+  /**
+   * @return Absolute path to the physical location of the cell that contains the provided target
+   * @throws AssertionError if cell is not known
+   */
+  Path getCellPathOrThrow(BuildTarget buildTarget);
+
+  /**
+   * @return Absolute path to the physical location of the cell that contains the provided target
+   * @throws AssertionError if cell is not known
+   */
+  Path getCellPathOrThrow(UnflavoredBuildTarget buildTarget);
 
   /** @return absolute paths to all cells this resolver knows about. */
   ImmutableMap<String, Path> getCellPaths();
@@ -42,4 +64,7 @@ public interface CellPathResolver {
    * @throws IllegalArgumentException if cell path is not known to the cell path resolver.
    */
   Optional<String> getCanonicalCellName(Path cellPath);
+
+  /** @return paths to roots of all cells known to this resolver. */
+  ImmutableSet<Path> getKnownRoots();
 }

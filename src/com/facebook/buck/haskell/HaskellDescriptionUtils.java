@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -47,6 +48,8 @@ import com.facebook.buck.model.UserFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -93,13 +96,13 @@ public class HaskellDescriptionUtils {
    */
   private static HaskellCompileRule createCompileRule(
       BuildTarget target,
-      final ProjectFilesystem projectFilesystem,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
-      final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
       ImmutableSet<BuildRule> deps,
       HaskellPlatform platform,
-      final Linker.LinkableDepType depType,
+      Linker.LinkableDepType depType,
       boolean hsProfile,
       Optional<String> main,
       Optional<HaskellPackageInfo> packageInfo,
@@ -108,11 +111,11 @@ public class HaskellDescriptionUtils {
 
     CxxPlatform cxxPlatform = platform.getCxxPlatform();
 
-    final Map<BuildTarget, ImmutableList<String>> depFlags = new TreeMap<>();
-    final Map<BuildTarget, ImmutableList<SourcePath>> depIncludes = new TreeMap<>();
-    final ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
+    Map<BuildTarget, ImmutableList<String>> depFlags = new TreeMap<>();
+    Map<BuildTarget, ImmutableList<SourcePath>> depIncludes = new TreeMap<>();
+    ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
         ImmutableSortedMap.naturalOrder();
-    final ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
+    ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
         ImmutableSortedMap.naturalOrder();
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
       private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
@@ -144,7 +147,7 @@ public class HaskellDescriptionUtils {
     }.start();
 
     Collection<CxxPreprocessorInput> cxxPreprocessorInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps);
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, resolver, deps);
     ExplicitCxxToolFlags.Builder toolFlagsBuilder = CxxToolFlags.explicitBuilder();
     PreprocessorFlags.Builder ppFlagsBuilder = PreprocessorFlags.builder();
     toolFlagsBuilder.setPlatformFlags(
@@ -292,14 +295,17 @@ public class HaskellDescriptionUtils {
     // the args go straight to the linker, and preserve their order.
     linkerArgsBuilder.addAll(linkerInputs);
     for (NativeLinkable nativeLinkable :
-        NativeLinkables.getNativeLinkables(platform.getCxxPlatform(), deps, depType).values()) {
-      NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(platform.getCxxPlatform());
+        NativeLinkables.getNativeLinkables(platform.getCxxPlatform(), resolver, deps, depType)
+            .values()) {
+      NativeLinkable.Linkage link =
+          nativeLinkable.getPreferredLinkage(platform.getCxxPlatform(), resolver);
       NativeLinkableInput input =
           nativeLinkable.getNativeLinkableInput(
               platform.getCxxPlatform(),
               NativeLinkables.getLinkStyle(link, depType),
               linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
-              ImmutableSet.of());
+              ImmutableSet.of(),
+              resolver);
       linkerArgsBuilder.addAll(input.getArgs());
     }
 
@@ -363,11 +369,14 @@ public class HaskellDescriptionUtils {
             baseParams
                 .withDeclaredDeps(
                     ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(linker.getDeps(ruleFinder))
+                        .addAll(BuildableSupport.getDepsCollection(linker, ruleFinder))
                         .addAll(
                             Stream.of(args, linkerArgs)
                                 .flatMap(Collection::stream)
-                                .flatMap(arg -> arg.getDeps(ruleFinder).stream())
+                                .flatMap(
+                                    arg ->
+                                        BuildableSupport.getDepsCollection(arg, ruleFinder)
+                                            .stream())
                                 .iterator())
                         .build())
                 .withoutExtraDeps(),
@@ -400,9 +409,10 @@ public class HaskellDescriptionUtils {
   /** Give a rule that will result in a ghci session for the target */
   public static HaskellGhciRule requireGhciRule(
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
+      CellPathResolver cellPathResolver,
+      BuildRuleResolver resolver,
       HaskellPlatform platform,
       CxxBuckConfig cxxBuckConfig,
       ImmutableSortedSet<BuildTarget> argDeps,
@@ -473,12 +483,14 @@ public class HaskellDescriptionUtils {
         HaskellGhciDescription.getOmnibusSpec(
             buildTarget,
             platform.getCxxPlatform(),
+            resolver,
             NativeLinkables.getNativeLinkableRoots(
                 RichStream.from(deps).filter(NativeLinkable.class).toImmutableList(),
                 n ->
                     n instanceof HaskellLibrary || n instanceof PrebuiltHaskellLibrary
                         ? Optional.of(
-                            n.getNativeLinkableExportedDepsForPlatform(platform.getCxxPlatform()))
+                            n.getNativeLinkableExportedDepsForPlatform(
+                                platform.getCxxPlatform(), resolver))
                         : Optional.empty()),
             // The preloaded deps form our excluded roots, which we need to keep them separate from
             // the omnibus library so that they can be `LD_PRELOAD`ed early.
@@ -486,16 +498,30 @@ public class HaskellDescriptionUtils {
                 .filter(NativeLinkable.class)
                 .collect(ImmutableMap.toImmutableMap(NativeLinkable::getBuildTarget, l -> l)));
 
+    // Add an -rpath to the omnibus for shared library dependencies
+    Path symlinkRelDir = HaskellGhciDescription.getSoLibsRelDir(buildTarget);
+    ImmutableList.Builder<Arg> extraLinkFlags = ImmutableList.builder();
+    extraLinkFlags.addAll(
+        StringArg.from(
+            Linkers.iXlinker(
+                "-rpath",
+                String.format(
+                    "%s/%s",
+                    platform.getCxxPlatform().getLd().resolve(resolver).origin(),
+                    symlinkRelDir.toString()))));
+
     // Construct the omnibus shared library.
     BuildRule omnibusSharedObject =
         HaskellGhciDescription.requireOmnibusSharedObject(
+            cellPathResolver,
             buildTarget,
             projectFilesystem,
             resolver,
             platform.getCxxPlatform(),
             cxxBuckConfig,
             omnibusSpec.getBody().values(),
-            omnibusSpec.getDeps().values());
+            omnibusSpec.getDeps().values(),
+            extraLinkFlags.build());
 
     // Build up a map of all transitive shared libraries the the monolithic omnibus library depends
     // on (basically, stuff we couldn't statically link in).  At this point, this should *not* be
@@ -503,13 +529,13 @@ public class HaskellDescriptionUtils {
     SharedLibrariesBuilder sharedLibsBuilder = new SharedLibrariesBuilder();
     ImmutableMap<BuildTarget, NativeLinkable> transitiveDeps =
         NativeLinkables.getTransitiveNativeLinkables(
-            platform.getCxxPlatform(), omnibusSpec.getDeps().values());
+            platform.getCxxPlatform(), resolver, omnibusSpec.getDeps().values());
     transitiveDeps
         .values()
         .stream()
         // Skip statically linked libraries.
-        .filter(l -> l.getPreferredLinkage(platform.getCxxPlatform()) != Linkage.STATIC)
-        .forEach(l -> sharedLibsBuilder.add(platform.getCxxPlatform(), l));
+        .filter(l -> l.getPreferredLinkage(platform.getCxxPlatform(), resolver) != Linkage.STATIC)
+        .forEach(l -> sharedLibsBuilder.add(platform.getCxxPlatform(), l, resolver));
     ImmutableSortedMap<String, SourcePath> sharedLibs = sharedLibsBuilder.build();
 
     // Build up a set of all transitive preload libs, which are the ones that have been "excluded"
@@ -523,9 +549,9 @@ public class HaskellDescriptionUtils {
         // always link dynamically.
         .filter(
             l ->
-                l.getPreferredLinkage(platform.getCxxPlatform()) != Linkage.STATIC
+                l.getPreferredLinkage(platform.getCxxPlatform(), resolver) != Linkage.STATIC
                     || omnibusSpec.getExcludedRoots().containsKey(l.getBuildTarget()))
-        .forEach(l -> preloadLibsBuilder.add(platform.getCxxPlatform(), l));
+        .forEach(l -> preloadLibsBuilder.add(platform.getCxxPlatform(), l, resolver));
     ImmutableSortedMap<String, SourcePath> preloadLibs = preloadLibsBuilder.build();
 
     HaskellSources srcs =

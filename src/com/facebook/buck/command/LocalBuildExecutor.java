@@ -33,18 +33,22 @@ import com.facebook.buck.rules.CachingBuildEngine.BuildMode;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.MetadataChecker;
 import com.facebook.buck.rules.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
+import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
@@ -68,7 +72,7 @@ public class LocalBuildExecutor implements BuildExecutor {
   private final WeightedListeningExecutorService executorService;
   private final CachingBuildEngineDelegate cachingBuildEngineDelegate;
   private final BuildExecutorArgs args;
-  private final Optional<RuleKeyCacheScope<RuleKey>> ruleKeyCacheScope;
+  private final RuleKeyCacheScope<RuleKey> ruleKeyCacheScope;
   private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
   private final Optional<CachingBuildEngine.BuildMode> buildEngineMode;
   private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
@@ -86,7 +90,8 @@ public class LocalBuildExecutor implements BuildExecutor {
       WeightedListeningExecutorService executorService,
       boolean keepGoing,
       boolean useDistributedBuildCache,
-      Optional<RuleKeyCacheScope<RuleKey>> ruleKeyRuleKeyCacheScope,
+      boolean isDownloadHeavyBuild,
+      RuleKeyCacheScope<RuleKey> ruleKeyRuleKeyCacheScope,
       Optional<BuildMode> buildEngineMode,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger,
       RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {
@@ -106,7 +111,8 @@ public class LocalBuildExecutor implements BuildExecutor {
             actionGraphAndResolver.getResolver(),
             args.getRootCell(),
             cachingBuildEngine,
-            args.getArtifactCacheFactory().newInstance(useDistributedBuildCache),
+            args.getArtifactCacheFactory()
+                .newInstance(useDistributedBuildCache, isDownloadHeavyBuild),
             args.getBuckConfig().getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
             args.getClock(),
             executionContext,
@@ -114,9 +120,9 @@ public class LocalBuildExecutor implements BuildExecutor {
   }
 
   @Override
-  public int buildLocallyAndReturnExitCode(
+  public ExitCode buildLocallyAndReturnExitCode(
       Iterable<String> targetToBuildStrings, Optional<Path> pathToBuildReport)
-      throws IOException, InterruptedException {
+      throws InterruptedException {
     Preconditions.checkArgument(!isShutdown);
     try {
       return build.executeAndPrintFailuresToEventBus(
@@ -144,7 +150,7 @@ public class LocalBuildExecutor implements BuildExecutor {
   }
 
   @Override
-  public int waitForBuildToFinish(
+  public ExitCode waitForBuildToFinish(
       Iterable<String> targetsToBuild,
       List<BuildEngineResult> resultFutures,
       Optional<Path> pathToBuildReport) {
@@ -163,7 +169,7 @@ public class LocalBuildExecutor implements BuildExecutor {
   }
 
   @Override
-  public synchronized void shutdown() throws IOException {
+  public synchronized void shutdown() {
     if (isShutdown) {
       return;
     }
@@ -193,9 +199,19 @@ public class LocalBuildExecutor implements BuildExecutor {
 
     CachingBuildEngineBuckConfig engineConfig =
         args.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
+    SourcePathRuleFinder sourcePathRuleFinder =
+        new SourcePathRuleFinder(actionGraphAndResolver.getResolver());
 
     return new CachingBuildEngine(
         cachingBuildEngineDelegate,
+        ModernBuildRuleBuilderFactory.getBuildStrategy(
+            args.getBuckConfig().getView(ModernBuildRuleConfig.class),
+            actionGraphAndResolver.getResolver(),
+            args.getRootCell(),
+            args.getBuckConfig().getCellPathResolver(),
+            cachingBuildEngineDelegate.getFileHashCache(),
+            args.getBuckEventBus(),
+            args.getConsole()),
         executorService,
         new DefaultStepRunner(),
         buildEngineMode.orElse(engineConfig.getBuildEngineMode()),
@@ -204,6 +220,8 @@ public class LocalBuildExecutor implements BuildExecutor {
         engineConfig.getBuildMaxDepFileCacheEntries(),
         engineConfig.getBuildArtifactCacheSizeLimit(),
         actionGraphAndResolver.getResolver(),
+        sourcePathRuleFinder,
+        DefaultSourcePathResolver.from(sourcePathRuleFinder),
         args.getBuildInfoStoreManager(),
         engineConfig.getResourceAwareSchedulingInfo(),
         engineConfig.getConsoleLogBuildRuleFailuresInline(),
@@ -212,7 +230,7 @@ public class LocalBuildExecutor implements BuildExecutor {
             cachingBuildEngineDelegate.getFileHashCache(),
             actionGraphAndResolver.getResolver(),
             args.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
-            ruleKeyCacheScope.map(RuleKeyCacheScope::getCache).orElse(new DefaultRuleKeyCache<>()),
+            ruleKeyCacheScope.getCache(),
             ruleKeyLogger),
         remoteBuildRuleCompletionWaiter);
   }
@@ -228,9 +246,9 @@ public class LocalBuildExecutor implements BuildExecutor {
    */
   public static ExecutionContext createExecutionContext(BuildExecutorArgs args) {
     // TODO(shivanker): Fix this for stampede to be able to build android.
-    final ConcurrencyLimit concurrencyLimit =
+    ConcurrencyLimit concurrencyLimit =
         args.getBuckConfig().getView(ResourcesConfig.class).getConcurrencyLimit();
-    final DefaultProcessExecutor processExecutor = new DefaultProcessExecutor(args.getConsole());
+    DefaultProcessExecutor processExecutor = new DefaultProcessExecutor(args.getConsole());
 
     return ExecutionContext.builder()
         .setConsole(args.getConsole())

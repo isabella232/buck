@@ -28,11 +28,20 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.rules.ParallelRuleKeyCalculator;
+import com.facebook.buck.rules.RuleDepsCache;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
@@ -74,7 +83,7 @@ public class DistBuildSlaveExecutor {
     }
   }
 
-  public int buildAndReturnExitCode() throws IOException, InterruptedException {
+  public ExitCode buildAndReturnExitCode() throws IOException, InterruptedException {
     Optional<BuildId> clientBuildId = fetchClientBuildId();
 
     DistBuildModeRunner runner = null;
@@ -89,14 +98,31 @@ public class DistBuildSlaveExecutor {
               clientBuildId,
               false,
               args.getLogDirectoryPath(),
-              args.getBuildRuleFinishedPublisher(),
+              args.getCoordinatorBuildRuleEventsPublisher(),
               args.getBuckEventBus(),
               args.getExecutorService(),
-              args.getArtifactCacheFactory().newInstance(true, true),
-              args.getRuleKeyConfiguration(),
-              /* ruleKeyCalculator */ Futures.immediateFuture(Optional.empty()),
-              args.getTimingStatsTracker());
-      return setPreparationCallbackAndRunWithHeartbeatService(runner);
+              args.getArtifactCacheFactory().remoteOnlyInstance(true, false),
+              Futures.transform(
+                  initializer.getDelegateAndGraphs(),
+                  graphs -> {
+                    SourcePathRuleFinder ruleFinder =
+                        new SourcePathRuleFinder(graphs.getActionGraphAndResolver().getResolver());
+                    return new ParallelRuleKeyCalculator<RuleKey>(
+                        args.getExecutorService(),
+                        new DefaultRuleKeyFactory(
+                            new RuleKeyFieldLoader(args.getRuleKeyConfiguration()),
+                            graphs.getCachingBuildEngineDelegate().getFileHashCache(),
+                            DefaultSourcePathResolver.from(ruleFinder),
+                            ruleFinder,
+                            args.getRuleKeyCacheScope().getCache(),
+                            Optional.empty()),
+                        new RuleDepsCache(graphs.getActionGraphAndResolver().getResolver()),
+                        (buckEventBus, rule) -> () -> {});
+                  },
+                  MoreExecutors.directExecutor()),
+              args.getHealthCheckStatsTracker(),
+              Optional.of(args.getTimingStatsTracker()));
+      return setPreparationCallbackAndRun(runner);
     }
 
     BuildExecutorArgs builderArgs = args.createBuilderArgs();
@@ -126,8 +152,9 @@ public class DistBuildSlaveExecutor {
                   args.getRemoteCoordinatorAddress(),
                   OptionalInt.of(args.getRemoteCoordinatorPort()),
                   args.getDistBuildConfig(),
-                  args.getUnexpectedSlaveCacheMissTracker(),
-                  args.getDistBuildConfig().getMinionBuildCapacityRatio());
+                  args.getMinionBuildProgressTracker(),
+                  args.getDistBuildConfig().getMinionBuildCapacityRatio(),
+                  args.getBuckEventBus());
           break;
 
         case COORDINATOR_AND_MINION:
@@ -142,13 +169,13 @@ public class DistBuildSlaveExecutor {
                   args.getBuildSlaveRunId(),
                   localBuildExecutor,
                   args.getLogDirectoryPath(),
-                  args.getBuildRuleFinishedPublisher(),
-                  args.getUnexpectedSlaveCacheMissTracker(),
+                  args.getCoordinatorBuildRuleEventsPublisher(),
+                  args.getMinionBuildProgressTracker(),
                   args.getBuckEventBus(),
                   args.getExecutorService(),
-                  args.getArtifactCacheFactory().newInstance(true, true),
-                  args.getRuleKeyConfiguration(),
+                  args.getArtifactCacheFactory().remoteOnlyInstance(true, false),
                   args.getTimingStatsTracker(),
+                  args.getHealthCheckStatsTracker(),
                   args.getDistBuildConfig().getCoordinatorBuildCapacityRatio());
           break;
 
@@ -157,10 +184,10 @@ public class DistBuildSlaveExecutor {
 
         default:
           LOG.error("Unknown distributed build mode [%s].", args.getDistBuildMode().toString());
-          return -1;
+          return ExitCode.FATAL_GENERIC;
       }
 
-      return setPreparationCallbackAndRunWithHeartbeatService(runner);
+      return setPreparationCallbackAndRun(runner);
     }
   }
 
@@ -181,7 +208,7 @@ public class DistBuildSlaveExecutor {
     }
   }
 
-  private int setPreparationCallbackAndRunWithHeartbeatService(DistBuildModeRunner runner)
+  private ExitCode setPreparationCallbackAndRun(DistBuildModeRunner runner)
       throws IOException, InterruptedException {
     runner
         .getAsyncPrepFuture()
@@ -196,10 +223,7 @@ public class DistBuildSlaveExecutor {
             },
             args.getExecutorService());
 
-    try (HeartbeatService service =
-        new HeartbeatService(args.getDistBuildConfig().getHearbeatServiceRateMillis())) {
-      return runner.runAndReturnExitCode(service);
-    }
+    return runner.runWithHeartbeatServiceAndReturnExitCode(args.getDistBuildConfig());
   }
 
   private FinalBuildStatusSetter createRemoteBuildFinalBuildStatusSetter() {
@@ -229,7 +253,8 @@ public class DistBuildSlaveExecutor {
                 args.getExecutorService(),
                 KEEP_GOING,
                 true,
-                Optional.empty(),
+                false,
+                args.getRuleKeyCacheScope(),
                 Optional.empty(),
                 Optional.empty(),
                 // Only the client side build needs to synchronize, not the slave.

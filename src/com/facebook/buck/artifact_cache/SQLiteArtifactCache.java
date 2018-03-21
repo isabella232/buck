@@ -22,15 +22,15 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sqlite.RetryBusyHandler;
 import com.facebook.buck.util.sqlite.SQLiteUtils;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
@@ -138,6 +138,11 @@ public class SQLiteArtifactCache implements ArtifactCache {
   @Override
   public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
     return Futures.immediateFuture(fetch(ruleKey, output));
+  }
+
+  @Override
+  public void skipPendingAndFutureAsyncFetches() {
+    // Async requests are not supported by SQLiteArtifactCache, so do nothing
   }
 
   private CacheResult fetch(RuleKey ruleKey, LazyPath output) {
@@ -424,7 +429,7 @@ public class SQLiteArtifactCache implements ArtifactCache {
           db.getContentToEvict(totalSizeBytes - maxBytesAfterDeletion.get());
 
       for (String filepath : contentToEvict.getFirst()) {
-        MoreFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
+        MostFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
       }
 
       Timestamp evictionCutoff = contentToEvict.getSecond();

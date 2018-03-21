@@ -30,7 +30,7 @@ import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SlbBuckConfig;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.zip.CustomZipEntry;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
@@ -164,9 +164,7 @@ public class DefaultDefectReporter implements DefectReporter {
   }
 
   private DefectSubmitResult uploadReport(
-      final DefectReport defectReport,
-      DefectSubmitResult.Builder defectSubmitResult,
-      ClientSideSlb slb)
+      DefectReport defectReport, DefectSubmitResult.Builder defectSubmitResult, ClientSideSlb slb)
       throws IOException {
     long timeout = doctorConfig.getReportTimeoutMs();
     OkHttpClient httpClient =
@@ -179,6 +177,7 @@ public class DefaultDefectReporter implements DefectReporter {
         new RetryingHttpService(
             buckEventBus,
             new LoadBalancedService(slb, httpClient, buckEventBus),
+            "buck_defect_reporter_http_retries",
             doctorConfig.getReportMaxUploadRetries());
 
     try {

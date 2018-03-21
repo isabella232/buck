@@ -43,7 +43,9 @@ public class BuckCommand extends AbstractContainerCommand {
     @SubCommand(name = "help", impl = HelpCommand.class),
     @SubCommand(name = "install", impl = InstallCommand.class),
     @SubCommand(name = "kill", impl = KillCommand.class),
+    @SubCommand(name = "killall", impl = KillAllCommand.class),
     @SubCommand(name = "machoutils", impl = MachOUtilsCommand.class),
+    @SubCommand(name = "parser-cache", impl = ParserCacheCommand.class),
     @SubCommand(name = "project", impl = ProjectCommand.class),
     @SubCommand(name = "publish", impl = PublishCommand.class),
     @SubCommand(name = "query", impl = QueryCommand.class),
@@ -119,9 +121,9 @@ public class BuckCommand extends AbstractContainerCommand {
     if (subcommand == null) {
       return "no_sub_command";
     } else {
-      final Class<? extends Command> subcommandClass = subcommand.getClass();
+      Class<? extends Command> subcommandClass = subcommand.getClass();
       try {
-        final SubCommands subCommands =
+        SubCommands subCommands =
             this.getClass()
                 .getDeclaredField(getSubcommandsFieldName())
                 .getAnnotation(SubCommands.class);

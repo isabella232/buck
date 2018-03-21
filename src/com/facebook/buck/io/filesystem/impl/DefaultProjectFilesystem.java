@@ -17,9 +17,9 @@
 package com.facebook.buck.io.filesystem.impl;
 
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.file.PathListing;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.CopySourceMode;
@@ -131,7 +131,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
 
   public DefaultProjectFilesystem(
       FileSystem vfs,
-      final Path root,
+      Path root,
       ImmutableSet<PathOrGlobMatcher> blackListedPaths,
       BuckPaths buckPaths,
       ProjectFilesystemDelegate delegate,
@@ -272,7 +272,10 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public Optional<Path> getPathRelativeToProjectRoot(Path path) {
     path = MorePaths.normalize(path);
     if (path.isAbsolute()) {
-      if (path.startsWith(projectRoot)) {
+      Path configuredBuckOut =
+          MorePaths.normalize(projectRoot.resolve(buckPaths.getConfiguredBuckOut()));
+      // If the path is in the configured buck-out, it's also part of the filesystem.
+      if (path.startsWith(configuredBuckOut) || path.startsWith(projectRoot)) {
         return Optional.of(MorePaths.relativize(projectRoot, path));
       } else {
         return Optional.empty();
@@ -375,8 +378,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
    * project root.
    */
   @Override
-  public void walkRelativeFileTree(
-      Path pathRelativeToProjectRoot, final FileVisitor<Path> fileVisitor) throws IOException {
+  public void walkRelativeFileTree(Path pathRelativeToProjectRoot, FileVisitor<Path> fileVisitor)
+      throws IOException {
     walkRelativeFileTree(pathRelativeToProjectRoot, fileVisitor, true);
   }
 
@@ -395,7 +398,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       EnumSet<FileVisitOption> visitOptions,
-      final FileVisitor<Path> fileVisitor)
+      FileVisitor<Path> fileVisitor)
       throws IOException {
     walkRelativeFileTree(pathRelativeToProjectRoot, visitOptions, fileVisitor, true);
   }
@@ -479,10 +482,10 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public ImmutableSet<Path> getFilesUnderPath(
       Path pathRelativeToProjectRoot,
-      final Predicate<Path> predicate,
+      Predicate<Path> predicate,
       EnumSet<FileVisitOption> visitOptions)
       throws IOException {
-    final ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
     walkRelativeFileTree(
         pathRelativeToProjectRoot,
         visitOptions,
@@ -558,7 +561,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
    */
   @Override
   public void deleteRecursivelyIfExists(Path pathRelativeToProjectRoot) throws IOException {
-    MoreFiles.deleteRecursivelyIfExists(resolve(pathRelativeToProjectRoot));
+    MostFiles.deleteRecursivelyIfExists(resolve(pathRelativeToProjectRoot));
   }
 
   /**
@@ -799,10 +802,10 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
         Files.copy(resolve(source), resolve(target), StandardCopyOption.REPLACE_EXISTING);
         break;
       case DIRECTORY_CONTENTS_ONLY:
-        MoreFiles.copyRecursively(resolve(source), resolve(target));
+        MostFiles.copyRecursively(resolve(source), resolve(target));
         break;
       case DIRECTORY_AND_CONTENTS:
-        MoreFiles.copyRecursively(resolve(source), resolve(target.resolve(source.getFileName())));
+        MostFiles.copyRecursively(resolve(source), resolve(target.resolve(source.getFileName())));
         break;
     }
   }
@@ -826,7 +829,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void createSymLink(Path symLink, Path realFile, boolean force) throws IOException {
     symLink = resolve(symLink);
     if (force) {
-      MoreFiles.deleteRecursivelyIfExists(symLink);
+      MostFiles.deleteRecursivelyIfExists(symLink);
     }
     if (Platform.detect() == Platform.WINDOWS) {
       if (windowsSymlinks) {
@@ -838,7 +841,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
         // otherwise, creating hardlinks
         if (isDirectory(realFile)) {
           // Hardlinks are only for files - so, copying folders
-          MoreFiles.copyRecursively(realFile, symLink);
+          MostFiles.copyRecursively(realFile, symLink);
         } else {
           realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
           Files.createLink(symLink, realFile);
@@ -894,9 +897,9 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     }
 
     if (isDirectory(path)) {
-      mode |= MoreFiles.S_IFDIR;
+      mode |= MostFiles.S_IFDIR;
     } else if (isFile(path)) {
-      mode |= MoreFiles.S_IFREG;
+      mode |= MostFiles.S_IFREG;
     }
 
     // Propagate any additional permissions
@@ -921,11 +924,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       return false;
     }
 
-    if (!Objects.equals(blackListedPaths, that.blackListedPaths)) {
-      return false;
-    }
-
-    return true;
+    return Objects.equals(blackListedPaths, that.blackListedPaths);
   }
 
   @Override

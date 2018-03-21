@@ -23,13 +23,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.python.toolchain.PythonPlatform;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.google.common.annotations.VisibleForTesting;
 import java.nio.file.Path;
 
 public abstract class CxxPythonExtension extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements PythonPackagable, HasRuntimeDeps {
+    implements PythonPackagable, HasRuntimeDeps, CacheableBuildRule {
 
   public CxxPythonExtension(
       BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {
@@ -37,13 +39,14 @@ public abstract class CxxPythonExtension extends NoopBuildRuleWithDeclaredAndExt
   }
 
   @VisibleForTesting
-  protected abstract BuildRule getExtension(PythonPlatform pythonPlatform, CxxPlatform cxxPlatform);
+  protected abstract BuildRule getExtension(
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
 
   public abstract Path getModule();
 
   @Override
   public abstract PythonPackageComponents getPythonPackageComponents(
-      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform);
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
 
   public abstract NativeLinkTarget getNativeLinkTarget(PythonPlatform pythonPlatform);
 }

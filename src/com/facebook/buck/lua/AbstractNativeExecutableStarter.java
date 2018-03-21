@@ -43,6 +43,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -84,6 +85,8 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
   abstract SourcePathResolver getPathResolver();
 
   abstract SourcePathRuleFinder getRuleFinder();
+
+  abstract CellPathResolver getCellPathResolver();
 
   abstract LuaPlatform getLuaPlatform();
 
@@ -176,10 +179,10 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
     ImmutableList.Builder<CxxPreprocessorInput> inputs = ImmutableList.builder();
     inputs.addAll(
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-            cxxPlatform, FluentIterable.from(deps).filter(BuildRule.class)));
+            cxxPlatform, getRuleResolver(), FluentIterable.from(deps).filter(BuildRule.class)));
     for (CxxPreprocessorDep dep :
         Iterables.filter(deps, Predicates.not(BuildRule.class::isInstance))) {
-      inputs.add(dep.getCxxPreprocessorInput(cxxPlatform));
+      inputs.add(dep.getCxxPreprocessorInput(cxxPlatform, getRuleResolver()));
     }
     return inputs.build();
   }
@@ -268,7 +271,8 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
                     ImmutableSet.of(),
                     ImmutableSet.of(),
                     getNativeLinkableInput(),
-                    Optional.empty()));
+                    Optional.empty(),
+                    getCellPathResolver()));
     return linkRule.getSourcePathToOutput();
   }
 
@@ -283,12 +287,17 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(CxxPlatform cxxPlatform) {
+  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     return getNativeStarterDeps();
   }
 
   @Override
-  public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+  public NativeLinkableInput getNativeLinkTargetInput(
+      CxxPlatform cxxPlatform,
+      BuildRuleResolver ruleResolver,
+      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder) {
     return getNativeLinkableInput();
   }
 

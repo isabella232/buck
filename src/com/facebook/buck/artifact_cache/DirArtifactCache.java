@@ -94,6 +94,11 @@ public class DirArtifactCache implements ArtifactCache {
     return Futures.immediateFuture(fetch(ruleKey, output));
   }
 
+  @Override
+  public void skipPendingAndFutureAsyncFetches() {
+    // Async requests are not supported by DirArtifactCache, so do nothing
+  }
+
   private CacheResult fetch(RuleKey ruleKey, LazyPath output) {
     CacheResult result;
     try {
@@ -269,7 +274,7 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   Path getPathForRuleKey(RuleKey ruleKey, Optional<String> extension) {
-    return getParentDirForRuleKey(ruleKey).resolve(ruleKey.toString() + extension.orElse(""));
+    return getParentDirForRuleKey(ruleKey).resolve(ruleKey + extension.orElse(""));
   }
 
   @VisibleForTesting
@@ -328,8 +333,8 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   List<Path> getAllFilesInCache() {
-    final List<Path> allFiles = new ArrayList<>();
-    final Path tempFolderPath = getPathToTempFolder();
+    List<Path> allFiles = new ArrayList<>();
+    Path tempFolderPath = getPathToTempFolder();
     try {
       Files.walkFileTree(
           filesystem.resolve(cacheDir),
@@ -377,7 +382,7 @@ public class DirArtifactCache implements ArtifactCache {
   DirectoryCleaner.PathSelector getDirectoryCleanerPathSelector() {
     return new DirectoryCleaner.PathSelector() {
       @Override
-      public Iterable<Path> getCandidatesToDelete(Path rootPath) throws IOException {
+      public Iterable<Path> getCandidatesToDelete(Path rootPath) {
         return getAllFilesInCache();
       }
 

@@ -28,6 +28,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableCacheKey;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -38,7 +39,9 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroFinder;
+import com.facebook.buck.model.macros.StringMacroCombiner;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -46,12 +49,12 @@ import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -67,7 +70,8 @@ import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.LoadingCache;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -77,11 +81,12 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimaps;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.immutables.value.Value;
@@ -174,9 +179,10 @@ public class PrebuiltCxxLibraryDescription
       try {
         return MacroFinder.replace(
             ImmutableMap.of(
-                "platform", new FunctionMacroReplacer(f -> cxxPlatform.getFlavor().toString())),
+                "platform", new FunctionMacroReplacer<>(f -> cxxPlatform.getFlavor().toString())),
             str,
-            true);
+            true,
+            new StringMacroCombiner());
       } catch (MacroException e) {
         throw new HumanReadableException(e, "%s: %s in \"%s\"", target, e.getMessage(), str);
       }
@@ -201,12 +207,14 @@ public class PrebuiltCxxLibraryDescription
   private static HeaderSymlinkTree createExportedHeaderSymlinkTreeBuildRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       PrebuiltCxxLibraryDescriptionArg args) {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
+        ruleFinder,
         resolver,
         cxxPlatform,
         parseExportedHeaders(buildTarget, resolver, cxxPlatform, args),
@@ -310,7 +318,8 @@ public class PrebuiltCxxLibraryDescription
             .addAllArgs(
                 cxxPlatform.getLd().resolve(ruleResolver).linkWhole(SourcePathArg.of(library)))
             .build(),
-        Optional.empty());
+        Optional.empty(),
+        cellRoots);
   }
 
   /**
@@ -383,25 +392,23 @@ public class PrebuiltCxxLibraryDescription
             args);
 
     return SharedLibraryInterfaceFactoryResolver.resolveFactory(params.get())
-        .createSharedInterfaceLibrary(
+        .createSharedInterfaceLibraryFromLibrary(
             baseTarget.withAppendedFlavors(
                 Type.SHARED_INTERFACE.getFlavor(), cxxPlatform.getFlavor()),
             projectFilesystem,
             resolver,
             pathResolver,
             ruleFinder,
+            cxxPlatform,
             sharedLibrary);
   }
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver ruleResolver,
-      CellPathResolver cellRoots,
-      final PrebuiltCxxLibraryDescriptionArg args) {
+      PrebuiltCxxLibraryDescriptionArg args) {
 
     // See if we're building a particular "type" of this library, and if so, extract
     // it as an enum.
@@ -413,8 +420,8 @@ public class PrebuiltCxxLibraryDescription
             .getFlavorAndValue(buildTarget);
 
     Optional<ImmutableMap<BuildTarget, Version>> selectedVersions =
-        targetGraph.get(buildTarget).getSelectedVersions();
-    final Optional<String> versionSubdir =
+        context.getTargetGraph().get(buildTarget).getSelectedVersions();
+    Optional<String> versionSubdir =
         selectedVersions.isPresent() && args.getVersionedSubDir().isPresent()
             ? Optional.of(
                 args.getVersionedSubDir()
@@ -424,6 +431,9 @@ public class PrebuiltCxxLibraryDescription
                         selectedVersions.get()))
             : Optional.empty();
 
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    CellPathResolver cellRoots = context.getCellPathResolver();
+    BuildRuleResolver ruleResolver = context.getBuildRuleResolver();
     // If we *are* building a specific type of this lib, call into the type specific
     // rule builder methods.  Currently, we only support building a shared lib from the
     // pre-existing static lib, which we do here.
@@ -433,7 +443,12 @@ public class PrebuiltCxxLibraryDescription
           buildTarget.withoutFlavors(type.get().getKey(), platform.get().getKey());
       if (type.get().getValue() == Type.EXPORTED_HEADERS) {
         return createExportedHeaderSymlinkTreeBuildRule(
-            buildTarget, projectFilesystem, ruleResolver, platform.get().getValue(), args);
+            buildTarget,
+            projectFilesystem,
+            new SourcePathRuleFinder(ruleResolver),
+            ruleResolver,
+            platform.get().getValue(),
+            args);
       } else if (type.get().getValue() == Type.SHARED) {
         return createSharedLibraryBuildRule(
             buildTarget,
@@ -461,7 +476,7 @@ public class PrebuiltCxxLibraryDescription
     if (selectedVersions.isPresent() && args.getVersionedSubDir().isPresent()) {
       ImmutableList<String> versionSubDirs =
           args.getVersionedSubDir()
-              .orElse(VersionMatchedCollection.<String>of())
+              .orElse(VersionMatchedCollection.of())
               .getMatchingValues(selectedVersions.get());
       if (versionSubDirs.size() != 1) {
         throw new HumanReadableException(
@@ -472,15 +487,14 @@ public class PrebuiltCxxLibraryDescription
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    final PrebuiltCxxLibraryPaths paths = getPaths(buildTarget, args, versionSubdir);
+    PrebuiltCxxLibraryPaths paths = getPaths(buildTarget, args, versionSubdir);
     return new PrebuiltCxxLibrary(buildTarget, projectFilesystem, params) {
 
-      private final Map<NativeLinkableCacheKey, NativeLinkableInput> nativeLinkableCache =
-          new HashMap<>();
+      private final Cache<NativeLinkableCacheKey, NativeLinkableInput> nativeLinkableCache =
+          CacheBuilder.newBuilder().build();
 
-      private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
-          transitiveCxxPreprocessorInputCache =
-              CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+      private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache =
+          new TransitiveCxxPreprocessorInputCache(this);
 
       private boolean hasHeaders(CxxPlatform cxxPlatform) {
         if (!args.getExportedHeaders().isEmpty()) {
@@ -533,7 +547,8 @@ public class PrebuiltCxxLibraryDescription
        *
        * @return the {@link SourcePath} representing the actual shared library.
        */
-      private SourcePath requireSharedLibrary(CxxPlatform cxxPlatform, boolean link) {
+      private SourcePath requireSharedLibrary(
+          CxxPlatform cxxPlatform, boolean link, BuildRuleResolver ruleResolver) {
         if (link
             && args.isSupportsSharedLibraryInterface()
             && cxxPlatform.getSharedLibraryInterfaceParams().isPresent()) {
@@ -559,7 +574,8 @@ public class PrebuiltCxxLibraryDescription
        *     library.
        */
       @Override
-      Optional<SourcePath> getStaticLibrary(CxxPlatform cxxPlatform) {
+      Optional<SourcePath> getStaticLibrary(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return paths.getStaticLibrary(
             getProjectFilesystem(), ruleResolver, cellRoots, cxxPlatform, selectedVersions);
       }
@@ -569,18 +585,20 @@ public class PrebuiltCxxLibraryDescription
        *     PIC library.
        */
       @Override
-      Optional<SourcePath> getStaticPicLibrary(CxxPlatform cxxPlatform) {
+      Optional<SourcePath> getStaticPicLibrary(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         Optional<SourcePath> staticPicLibraryPath =
             paths.getStaticPicLibrary(
                 getProjectFilesystem(), ruleResolver, cellRoots, cxxPlatform, selectedVersions);
         // If a specific static-pic variant isn't available, then just use the static variant.
         return staticPicLibraryPath.isPresent()
             ? staticPicLibraryPath
-            : getStaticLibrary(cxxPlatform);
+            : getStaticLibrary(cxxPlatform, ruleResolver);
       }
 
       @Override
-      public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+      public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
@@ -588,7 +606,8 @@ public class PrebuiltCxxLibraryDescription
       }
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput(final CxxPlatform cxxPlatform) {
+      public CxxPreprocessorInput getCxxPreprocessorInput(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
         if (hasHeaders(cxxPlatform)) {
@@ -612,12 +631,12 @@ public class PrebuiltCxxLibraryDescription
 
       @Override
       public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-          CxxPlatform cxxPlatform) {
-        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
       }
 
       @Override
-      public Iterable<NativeLinkable> getNativeLinkableDeps() {
+      public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
         return getDeclaredDeps()
             .stream()
             .filter(r -> r instanceof NativeLinkable)
@@ -626,15 +645,17 @@ public class PrebuiltCxxLibraryDescription
       }
 
       @Override
-      public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(CxxPlatform cxxPlatform) {
+      public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return getNativeLinkableDeps();
+        return getNativeLinkableDeps(ruleResolver);
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
+      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+          BuildRuleResolver ruleResolver) {
         return args.getExportedDeps()
             .stream()
             .map(ruleResolver::getRule)
@@ -645,19 +666,23 @@ public class PrebuiltCxxLibraryDescription
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-          CxxPlatform cxxPlatform) {
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return getNativeLinkableExportedDeps();
+        return getNativeLinkableExportedDeps(ruleResolver);
       }
 
-      private NativeLinkableInput getNativeLinkableInputUncached(
-          CxxPlatform cxxPlatform, Linker.LinkableDepType type, boolean forceLinkWhole) {
+      private NativeLinkableInput computeNativeLinkableInputUncached(
+          NativeLinkableCacheKey key, BuildRuleResolver ruleResolver) {
+        CxxPlatform cxxPlatform = key.getCxxPlatform();
 
         if (!isPlatformSupported(cxxPlatform)) {
           return NativeLinkableInput.of();
         }
+
+        Linker.LinkableDepType type = key.getType();
+        boolean forceLinkWhole = key.getForceLinkWhole();
 
         // Build the library path and linker arguments that we pass through the
         // {@link NativeLinkable} interface for linking.
@@ -667,8 +692,9 @@ public class PrebuiltCxxLibraryDescription
 
         if (!args.isHeaderOnly()) {
           if (type == Linker.LinkableDepType.SHARED) {
-            Preconditions.checkState(getPreferredLinkage(cxxPlatform) != Linkage.STATIC);
-            final SourcePath sharedLibrary = requireSharedLibrary(cxxPlatform, true);
+            Preconditions.checkState(
+                getPreferredLinkage(cxxPlatform, ruleResolver) != Linkage.STATIC);
+            SourcePath sharedLibrary = requireSharedLibrary(cxxPlatform, true, ruleResolver);
             if (args.getLinkWithoutSoname()) {
               if (!(sharedLibrary instanceof PathSourcePath)) {
                 throw new HumanReadableException(
@@ -676,14 +702,16 @@ public class PrebuiltCxxLibraryDescription
               }
               linkerArgsBuilder.add(new RelativeLinkArg((PathSourcePath) sharedLibrary));
             } else {
-              linkerArgsBuilder.add(SourcePathArg.of(requireSharedLibrary(cxxPlatform, true)));
+              linkerArgsBuilder.add(
+                  SourcePathArg.of(requireSharedLibrary(cxxPlatform, true, ruleResolver)));
             }
           } else {
-            Preconditions.checkState(getPreferredLinkage(cxxPlatform) != Linkage.SHARED);
+            Preconditions.checkState(
+                getPreferredLinkage(cxxPlatform, ruleResolver) != Linkage.SHARED);
             Optional<SourcePath> staticLibraryPath =
                 type == Linker.LinkableDepType.STATIC_PIC
-                    ? getStaticPicLibrary(cxxPlatform)
-                    : getStaticLibrary(cxxPlatform);
+                    ? getStaticPicLibrary(cxxPlatform, ruleResolver)
+                    : getStaticLibrary(cxxPlatform, ruleResolver);
             SourcePathArg staticLibrary =
                 SourcePathArg.of(
                     staticLibraryPath.orElseThrow(
@@ -698,7 +726,7 @@ public class PrebuiltCxxLibraryDescription
             }
           }
         }
-        final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
+        ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
 
         return NativeLinkableInput.of(linkerArgs, args.getFrameworks(), args.getLibraries());
       }
@@ -708,19 +736,21 @@ public class PrebuiltCxxLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions) {
+          ImmutableSet<LanguageExtensions> languageExtensions,
+          BuildRuleResolver ruleResolver) {
         NativeLinkableCacheKey key =
-            NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole);
-        NativeLinkableInput input = nativeLinkableCache.get(key);
-        if (input == null) {
-          input = getNativeLinkableInputUncached(cxxPlatform, type, forceLinkWhole);
-          nativeLinkableCache.put(key, input);
+            NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
+        try {
+          return nativeLinkableCache.get(
+              key, () -> computeNativeLinkableInputUncached(key, ruleResolver));
+        } catch (ExecutionException e) {
+          throw new UncheckedExecutionException(e.getCause());
         }
-        return input;
       }
 
       @Override
-      public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+      public NativeLinkable.Linkage getPreferredLinkage(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (args.isHeaderOnly()) {
           return Linkage.ANY;
         }
@@ -742,13 +772,14 @@ public class PrebuiltCxxLibraryDescription
       }
 
       @Override
-      public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+      public boolean supportsOmnibusLinking(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return args.getSupportsMergedLinking()
-            .orElse(getPreferredLinkage(cxxPlatform) != Linkage.SHARED);
+            .orElse(getPreferredLinkage(cxxPlatform, ruleResolver) != Linkage.SHARED);
       }
 
       @Override
-      public Iterable<AndroidPackageable> getRequiredPackageables() {
+      public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
         return AndroidPackageableCollector.getPackageableRules(params.getBuildDeps());
       }
 
@@ -762,7 +793,8 @@ public class PrebuiltCxxLibraryDescription
       }
 
       @Override
-      public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+      public ImmutableMap<String, SourcePath> getSharedLibraries(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableMap.of();
         }
@@ -770,15 +802,16 @@ public class PrebuiltCxxLibraryDescription
         String resolvedSoname = getSoname(cxxPlatform);
         ImmutableMap.Builder<String, SourcePath> solibs = ImmutableMap.builder();
         if (!args.isHeaderOnly() && !args.isProvided()) {
-          SourcePath sharedLibrary = requireSharedLibrary(cxxPlatform, false);
+          SourcePath sharedLibrary = requireSharedLibrary(cxxPlatform, false, ruleResolver);
           solibs.put(resolvedSoname, sharedLibrary);
         }
         return solibs.build();
       }
 
       @Override
-      public Optional<NativeLinkTarget> getNativeLinkTarget(CxxPlatform cxxPlatform) {
-        if (getPreferredLinkage(cxxPlatform) == Linkage.SHARED) {
+      public Optional<NativeLinkTarget> getNativeLinkTarget(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        if (getPreferredLinkage(cxxPlatform, ruleResolver) == Linkage.SHARED) {
           return Optional.empty();
         }
         return Optional.of(
@@ -795,21 +828,27 @@ public class PrebuiltCxxLibraryDescription
 
               @Override
               public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
-                  CxxPlatform cxxPlatform) {
+                  CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
                 return Iterables.concat(
-                    getNativeLinkableDepsForPlatform(cxxPlatform),
-                    getNativeLinkableExportedDepsForPlatform(cxxPlatform));
+                    getNativeLinkableDepsForPlatform(cxxPlatform, ruleResolver),
+                    getNativeLinkableExportedDepsForPlatform(cxxPlatform, ruleResolver));
               }
 
               @Override
-              public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+              public NativeLinkableInput getNativeLinkTargetInput(
+                  CxxPlatform cxxPlatform,
+                  BuildRuleResolver ruleResolver,
+                  SourcePathResolver pathResolver,
+                  SourcePathRuleFinder ruleFinder) {
                 return NativeLinkableInput.builder()
                     .addAllArgs(StringArg.from(getExportedLinkerFlags(cxxPlatform)))
                     .addAllArgs(
                         cxxPlatform
                             .getLd()
                             .resolve(ruleResolver)
-                            .linkWhole(SourcePathArg.of(getStaticPicLibrary(cxxPlatform).get())))
+                            .linkWhole(
+                                SourcePathArg.of(
+                                    getStaticPicLibrary(cxxPlatform, ruleResolver).get())))
                     .build();
               }
 
@@ -846,18 +885,21 @@ public class PrebuiltCxxLibraryDescription
 
     Optional<SourcePath> getSharedLib();
 
+    @Hint(isTargetGraphOnlyDep = true)
     Optional<PatternMatchedCollection<SourcePath>> getPlatformSharedLib();
 
     Optional<VersionMatchedCollection<SourcePath>> getVersionedSharedLib();
 
     Optional<SourcePath> getStaticLib();
 
+    @Hint(isTargetGraphOnlyDep = true)
     Optional<PatternMatchedCollection<SourcePath>> getPlatformStaticLib();
 
     Optional<VersionMatchedCollection<SourcePath>> getVersionedStaticLib();
 
     Optional<SourcePath> getStaticPicLib();
 
+    @Hint(isTargetGraphOnlyDep = true)
     Optional<PatternMatchedCollection<SourcePath>> getPlatformStaticPicLib();
 
     Optional<VersionMatchedCollection<SourcePath>> getVersionedStaticPicLib();

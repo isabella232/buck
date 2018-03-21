@@ -29,22 +29,19 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Functions;
+import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -57,28 +54,29 @@ import org.junit.Test;
 public class CxxLibraryTest {
 
   @Test
-  public void cxxLibraryInterfaces() throws Exception {
+  public void cxxLibraryInterfaces() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildRuleParams params = TestBuildRuleParams.create();
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Setup some dummy values for the header info.
-    final BuildTarget publicHeaderTarget = BuildTargetFactory.newInstance("//:header");
-    final BuildTarget publicHeaderSymlinkTreeTarget = BuildTargetFactory.newInstance("//:symlink");
-    final BuildTarget privateHeaderTarget = BuildTargetFactory.newInstance("//:privateheader");
-    final BuildTarget privateHeaderSymlinkTreeTarget =
+    BuildTarget publicHeaderTarget = BuildTargetFactory.newInstance("//:header");
+    BuildTarget publicHeaderSymlinkTreeTarget = BuildTargetFactory.newInstance("//:symlink");
+    BuildTarget privateHeaderTarget = BuildTargetFactory.newInstance("//:privateheader");
+    BuildTarget privateHeaderSymlinkTreeTarget =
         BuildTargetFactory.newInstance("//:privatesymlink");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule archive = new FakeBuildRule("//:archive").setOutputFile("libarchive.a");
+    BuildRule archive = new FakeBuildRule("//:archive").setOutputFile("libarchive.a");
 
     // Setup some dummy values for the library archive info.
-    final BuildRule sharedLibrary = new FakeBuildRule("//:shared").setOutputFile("libshared.so");
-    final Path sharedLibraryOutput = Paths.get("output/path/lib.so");
-    final String sharedLibrarySoname = "lib.so";
+    BuildRule sharedLibrary = new FakeBuildRule("//:shared").setOutputFile("libshared.so");
+    Path sharedLibraryOutput = Paths.get("output/path/lib.so");
+    String sharedLibrarySoname = "lib.so";
 
     // Construct a CxxLibrary object to test.
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     FakeCxxLibrary cxxLibrary =
         new FakeCxxLibrary(
             target,
@@ -113,7 +111,8 @@ public class CxxLibraryTest {
                     .build())
             .build();
     assertEquals(
-        expectedPublicCxxPreprocessorInput, cxxLibrary.getCxxPreprocessorInput(cxxPlatform));
+        expectedPublicCxxPreprocessorInput,
+        cxxLibrary.getCxxPreprocessorInput(cxxPlatform, ruleResolver));
 
     CxxPreprocessorInput expectedPrivateCxxPreprocessorInput =
         CxxPreprocessorInput.builder()
@@ -133,7 +132,7 @@ public class CxxLibraryTest {
             .build();
     assertEquals(
         expectedPrivateCxxPreprocessorInput,
-        cxxLibrary.getPrivateCxxPreprocessorInput(cxxPlatform));
+        cxxLibrary.getPrivateCxxPreprocessorInput(cxxPlatform, ruleResolver));
 
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
@@ -144,7 +143,8 @@ public class CxxLibraryTest {
             ImmutableSet.of());
     assertEquals(
         expectedStaticNativeLinkableInput,
-        cxxLibrary.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC));
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform, Linker.LinkableDepType.STATIC, ruleResolver));
 
     // Verify that we get the static archive and its build target via the NativeLinkable
     // interface.
@@ -155,7 +155,8 @@ public class CxxLibraryTest {
             ImmutableSet.of());
     assertEquals(
         expectedSharedNativeLinkableInput,
-        cxxLibrary.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.SHARED));
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform, Linker.LinkableDepType.SHARED, ruleResolver));
 
     // Verify that the implemented BuildRule methods are effectively unused.
     assertEquals(ImmutableList.<Step>of(), cxxLibrary.getBuildSteps(null, null));
@@ -164,9 +165,7 @@ public class CxxLibraryTest {
 
   @Test
   public void headerOnlyExports() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
@@ -189,12 +188,12 @@ public class CxxLibraryTest {
             target,
             projectFilesystem,
             params,
-            ruleResolver,
-            CxxDeps.EMPTY,
-            CxxDeps.EMPTY,
+            ruleResolver.getParallelizer(),
+            CxxDeps.of(),
+            CxxDeps.of(),
             /* headerOnly */ x -> true,
-            Functions.constant(StringArg.from("-ldl")),
-            /* linkTargetInput */ Functions.constant(NativeLinkableInput.of()),
+            (unused1, unused2) -> StringArg.from("-ldl"),
+            /* linkTargetInput */ (unused1, unused2, unused3, unused4) -> NativeLinkableInput.of(),
             /* supportedPlatformsRegex */ Optional.empty(),
             ImmutableSet.of(frameworkPath),
             ImmutableSet.of(),
@@ -213,6 +212,7 @@ public class CxxLibraryTest {
 
     assertEquals(
         expectedSharedNativeLinkableInput,
-        cxxLibrary.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.SHARED));
+        cxxLibrary.getNativeLinkableInput(
+            cxxPlatform, Linker.LinkableDepType.SHARED, ruleResolver));
   }
 }

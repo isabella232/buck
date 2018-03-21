@@ -17,11 +17,16 @@
 package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.ExitCode;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.IOException;
 
-public class CoordinatorAndMinionModeRunner implements DistBuildModeRunner {
+/**
+ * {@link DistBuildModeRunner} implementation for running a distributed build as coordinator as well
+ * as minion on a remote machine.
+ */
+public class CoordinatorAndMinionModeRunner extends AbstractDistBuildModeRunner {
   private static final Logger LOG = Logger.get(CoordinatorAndMinionModeRunner.class);
 
   private final CoordinatorModeRunner coordinatorModeRunner;
@@ -40,8 +45,7 @@ public class CoordinatorAndMinionModeRunner implements DistBuildModeRunner {
   }
 
   @Override
-  public int runAndReturnExitCode(HeartbeatService heartbeatService)
-      throws IOException, InterruptedException {
+  public ExitCode runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
     LOG.debug("Running the Coordinator in async mode...");
     try (CoordinatorModeRunner.AsyncCoordinatorRun coordinatorRun =
         coordinatorModeRunner.runAsyncAndReturnExitCode(heartbeatService)) {

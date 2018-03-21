@@ -25,15 +25,16 @@ import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasDefaultFlavors;
-import com.facebook.buck.model.MissingBuildFileException;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
+import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
@@ -45,6 +46,7 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreMaps;
+import com.facebook.buck.util.MoreThrowables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -59,6 +61,7 @@ import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.AbstractMap;
@@ -85,31 +88,30 @@ public class Parser {
   private final ConstructorArgMarshaller marshaller;
   private final TypeCoercerFactory typeCoercerFactory;
   private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final ParserPythonInterpreterProvider parserPythonInterpreterProvider;
 
   public Parser(
       BroadcastEventListener broadcastEventListener,
       ParserConfig parserConfig,
       TypeCoercerFactory typeCoercerFactory,
       ConstructorArgMarshaller marshaller,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      ExecutableFinder executableFinder) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.permState =
         new DaemonicParserState(
-            broadcastEventListener, typeCoercerFactory, parserConfig.getNumParsingThreads());
+            broadcastEventListener,
+            typeCoercerFactory,
+            parserConfig.getNumParsingThreads(),
+            parserConfig.shouldIgnoreEnvironmentVariablesChanges());
     this.marshaller = marshaller;
     this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.parserPythonInterpreterProvider =
+        new ParserPythonInterpreterProvider(parserConfig, executableFinder);
   }
 
-  protected DaemonicParserState getPermState() {
+  public DaemonicParserState getPermState() {
     return permState;
-  }
-
-  protected TypeCoercerFactory getTypeCoercerFactory() {
-    return typeCoercerFactory;
-  }
-
-  protected ConstructorArgMarshaller getMarshaller() {
-    return marshaller;
   }
 
   @VisibleForTesting
@@ -139,8 +141,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -156,11 +161,14 @@ public class Parser {
       boolean enableProfiling,
       ListeningExecutorService executor,
       BuildTarget target)
-      throws BuildFileParseException, BuildTargetException {
+      throws BuildFileParseException {
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -217,8 +225,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -229,7 +240,7 @@ public class Parser {
   }
 
   private RuntimeException propagateRuntimeCause(RuntimeException e)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
+      throws IOException, InterruptedException, BuildFileParseException {
     Throwables.throwIfInstanceOf(e, HumanReadableException.class);
 
     Throwable t = e.getCause();
@@ -243,20 +254,23 @@ public class Parser {
   }
 
   public TargetGraph buildTargetGraph(
-      final BuckEventBus eventBus,
-      final Cell rootCell,
-      final boolean enableProfiling,
+      BuckEventBus eventBus,
+      Cell rootCell,
+      boolean enableProfiling,
       ListeningExecutorService executor,
-      final Iterable<BuildTarget> toExplore)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
+      Iterable<BuildTarget> toExplore)
+      throws IOException, InterruptedException, BuildFileParseException {
     if (Iterables.isEmpty(toExplore)) {
       return TargetGraph.EMPTY;
     }
 
-    try (final PerBuildState state =
+    try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,
@@ -268,15 +282,15 @@ public class Parser {
 
   @SuppressWarnings("PMD.PrematureDeclaration")
   protected TargetGraph buildTargetGraph(
-      final PerBuildState state, final BuckEventBus eventBus, final Iterable<BuildTarget> toExplore)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException {
+      PerBuildState state, BuckEventBus eventBus, Iterable<BuildTarget> toExplore)
+      throws IOException, InterruptedException, BuildFileParseException {
 
     if (Iterables.isEmpty(toExplore)) {
       return TargetGraph.EMPTY;
     }
 
-    final MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
-    final Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
+    MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
+    Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
 
     ParseEvent.Started parseStart = ParseEvent.started(toExplore);
     eventBus.post(parseStart);
@@ -286,7 +300,7 @@ public class Parser {
           TargetNode<?, ?> node;
           try {
             node = state.getTargetNode(target);
-          } catch (BuildFileParseException | BuildTargetException e) {
+          } catch (BuildFileParseException e) {
             throw new RuntimeException(e);
           }
 
@@ -299,8 +313,6 @@ public class Parser {
             try {
               state.getTargetNode(dep);
             } catch (BuildFileParseException e) {
-              throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
-            } catch (BuildTargetException e) {
               throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
             } catch (HumanReadableException e) {
               throw ParserMessages.createReadableExceptionWithWhenSuffix(target, dep, e);
@@ -354,7 +366,7 @@ public class Parser {
       boolean enableProfiling,
       ListeningExecutorService executor,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs)
-      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
+      throws BuildFileParseException, IOException, InterruptedException {
     return buildTargetGraphForTargetNodeSpecs(
         eventBus,
         rootCell,
@@ -376,12 +388,15 @@ public class Parser {
       ListeningExecutorService executor,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
       ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
-      throws BuildFileParseException, BuildTargetException, IOException, InterruptedException {
+      throws BuildFileParseException, IOException, InterruptedException {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,
@@ -415,12 +430,15 @@ public class Parser {
       Iterable<? extends TargetNodeSpec> specs,
       PerBuildState.SpeculativeParsing speculativeParsing,
       ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
-      throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
+      throws BuildFileParseException, InterruptedException, IOException {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,
@@ -435,8 +453,8 @@ public class Parser {
       BuckEventBus eventBus,
       Cell rootCell,
       Iterable<? extends TargetNodeSpec> specs,
-      final ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
-      throws BuildFileParseException, BuildTargetException, InterruptedException, IOException {
+      ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
+      throws BuildFileParseException, InterruptedException, IOException {
 
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
 
@@ -453,7 +471,7 @@ public class Parser {
 
     // Convert the input spec iterable into a list so we have a fixed ordering, which we'll rely on
     // when returning results.
-    final ImmutableList<TargetNodeSpec> orderedSpecs = ImmutableList.copyOf(specs);
+    ImmutableList<TargetNodeSpec> orderedSpecs = ImmutableList.copyOf(specs);
 
     // Resolve all the build files from all the target specs.  We store these into a multi-map which
     // maps the path to the build file to the index of it's spec file in the ordered spec list.
@@ -477,7 +495,7 @@ public class Parser {
     ArrayList<ListenableFuture<Map.Entry<Integer, ImmutableSet<BuildTarget>>>> targetFutures =
         new ArrayList<>();
     for (Path buildFile : perBuildFileSpecs.keySet()) {
-      final Collection<Integer> buildFileSpecs = perBuildFileSpecs.get(buildFile);
+      Collection<Integer> buildFileSpecs = perBuildFileSpecs.get(buildFile);
       TargetNodeSpec firstSpec = orderedSpecs.get(Iterables.get(buildFileSpecs, 0));
       Cell cell = rootCell.getCell(firstSpec.getBuildFileSpec().getCellPath());
 
@@ -488,7 +506,7 @@ public class Parser {
       }
 
       for (int index : buildFileSpecs) {
-        final TargetNodeSpec spec = orderedSpecs.get(index);
+        TargetNodeSpec spec = orderedSpecs.get(index);
         if (spec instanceof BuildTargetSpec) {
           BuildTargetSpec buildTargetSpec = (BuildTargetSpec) spec;
           targetFutures.add(
@@ -503,7 +521,8 @@ public class Parser {
                         spec,
                         node.getBuildTarget());
                     return new AbstractMap.SimpleEntry<>(index, buildTargets);
-                  }));
+                  },
+                  MoreExecutors.directExecutor()));
         } else {
           // Build up a list of all target nodes from the build file.
           targetFutures.add(
@@ -511,7 +530,8 @@ public class Parser {
                   state.getAllTargetNodesJob(cell, buildFile),
                   nodes ->
                       new AbstractMap.SimpleEntry<>(
-                          index, applySpecFilter(spec, nodes, applyDefaultFlavorsMode))));
+                          index, applySpecFilter(spec, nodes, applyDefaultFlavorsMode)),
+                  MoreExecutors.directExecutor()));
         }
       }
     }
@@ -526,11 +546,12 @@ public class Parser {
         targetsMap.putAll(result.getKey(), result.getValue());
       }
     } catch (ExecutionException e) {
-      Throwables.throwIfInstanceOf(e.getCause(), BuildFileParseException.class);
-      Throwables.throwIfInstanceOf(e.getCause(), BuildTargetException.class);
-      Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
+      MoreThrowables.throwIfAnyCauseInstanceOf(e, BuildFileParseException.class);
+      MoreThrowables.throwIfAnyCauseInstanceOf(e, BuildTargetException.class);
+      MoreThrowables.throwIfAnyCauseInstanceOf(e, HumanReadableException.class);
+      MoreThrowables.throwIfAnyCauseInstanceOf(e, InterruptedException.class);
       Throwables.throwIfUnchecked(e.getCause());
-      throw new RuntimeException(e.getCause());
+      throw new RuntimeException(e);
     }
 
     // Finally, pull out the final build target results in input target spec order, and place them
@@ -591,8 +612,8 @@ public class Parser {
     return target.withFlavors(defaultFlavors);
   }
 
-  public RemoteDaemonicParserState storeParserState() throws IOException {
-    return getPermState().serialiseDaemonicParserState();
+  public RemoteDaemonicParserState storeParserState(Cell rootCell) throws IOException {
+    return getPermState().serializeDaemonicParserState(rootCell);
   }
 
   public void restoreParserState(RemoteDaemonicParserState state, Cell rootCell) {
@@ -610,6 +631,10 @@ public class Parser {
     LOG.verbose("Parser watched event %s %s", event.getKind(), event.getPath());
 
     permState.invalidateBasedOn(event);
+  }
+
+  public void invalidateBasedOnPath(Path fullPath, boolean isCreatedOrDeleted) {
+    permState.invalidateBasedOnPath(fullPath, isCreatedOrDeleted);
   }
 
   public void recordParseStartTime(BuckEventBus eventBus) {

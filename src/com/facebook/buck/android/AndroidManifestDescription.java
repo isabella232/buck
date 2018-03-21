@@ -16,23 +16,24 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
 public class AndroidManifestDescription implements Description<AndroidManifestDescriptionArg> {
+
+  private final AndroidManifestFactory androidManifestFactory;
+
+  public AndroidManifestDescription(AndroidManifestFactory androidManifestFactory) {
+    this.androidManifestFactory = androidManifestFactory;
+  }
 
   @Override
   public Class<AndroidManifestDescriptionArg> getConstructorArgType() {
@@ -41,21 +42,16 @@ public class AndroidManifestDescription implements Description<AndroidManifestDe
 
   @Override
   public AndroidManifest createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AndroidManifestDescriptionArg args) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-
-    AndroidTransitiveDependencyGraph transitiveDependencyGraph =
-        new AndroidTransitiveDependencyGraph(resolver.getAllRules(args.getDeps()));
-    ImmutableSet<SourcePath> manifestFiles = transitiveDependencyGraph.findManifestFiles();
-
-    return new AndroidManifest(
-        buildTarget, projectFilesystem, ruleFinder, args.getSkeleton(), manifestFiles);
+    return androidManifestFactory.createBuildRule(
+        buildTarget,
+        context.getProjectFilesystem(),
+        context.getBuildRuleResolver(),
+        args.getDeps(),
+        args.getSkeleton());
   }
 
   @BuckStyleImmutable

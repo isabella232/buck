@@ -22,7 +22,6 @@ import com.facebook.buck.util.exceptions.ExceptionWithContext;
 import com.facebook.buck.util.exceptions.WrapsException;
 import java.util.Optional;
 
-@SuppressWarnings("serial")
 public class StepFailedException extends Exception implements WrapsException, ExceptionWithContext {
   private final Step step;
   private final String description;
@@ -39,7 +38,8 @@ public class StepFailedException extends Exception implements WrapsException, Ex
     return getCause().getMessage() + "\n  " + getContext().get();
   }
 
-  static StepFailedException createForFailingStepWithExitCode(
+  /** Creates a StepFailedException based on a StepExecutionResult. */
+  public static StepFailedException createForFailingStepWithExitCode(
       Step step,
       ExecutionContext context,
       StepExecutionResult executionResult,

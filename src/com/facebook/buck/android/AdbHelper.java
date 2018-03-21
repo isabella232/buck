@@ -27,6 +27,7 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.RealAndroidDevice;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -39,6 +40,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -46,7 +48,6 @@ import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -95,7 +96,7 @@ public class AdbHelper implements AndroidDevicesHelper {
 
   private final AdbOptions options;
   private final TargetDeviceOptions deviceOptions;
-  private final AndroidLegacyToolchain androidLegacyToolchain;
+  private final ToolchainProvider toolchainProvider;
   private final Supplier<ExecutionContext> contextSupplier;
   private final boolean restartAdbOnFailure;
   private final ImmutableList<String> rapidInstallTypes;
@@ -106,13 +107,13 @@ public class AdbHelper implements AndroidDevicesHelper {
   public AdbHelper(
       AdbOptions adbOptions,
       TargetDeviceOptions deviceOptions,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      ToolchainProvider toolchainProvider,
       Supplier<ExecutionContext> contextSupplier,
       boolean restartAdbOnFailure,
       ImmutableList<String> rapidInstallTypes) {
     this.options = adbOptions;
     this.deviceOptions = deviceOptions;
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.toolchainProvider = toolchainProvider;
     this.contextSupplier = contextSupplier;
     this.restartAdbOnFailure = restartAdbOnFailure;
     this.rapidInstallTypes = rapidInstallTypes;
@@ -126,7 +127,7 @@ public class AdbHelper implements AndroidDevicesHelper {
   }
 
   @Override
-  public ImmutableList<AndroidDevice> getDevices(boolean quiet) throws InterruptedException {
+  public ImmutableList<AndroidDevice> getDevices(boolean quiet) {
     ImmutableList<AndroidDevice> devices = devicesSupplier.get();
     if (!quiet && devices.size() > 1) {
       // Report if multiple devices are matching the filter.
@@ -163,7 +164,7 @@ public class AdbHelper implements AndroidDevicesHelper {
 
     // Start executions on all matching devices.
     List<ListenableFuture<Boolean>> futures = new ArrayList<>();
-    for (final AndroidDevice device : devices) {
+    for (AndroidDevice device : devices) {
       futures.add(
           getExecutorService()
               .submit(
@@ -221,11 +222,7 @@ public class AdbHelper implements AndroidDevicesHelper {
       return executorService;
     }
     int deviceCount;
-    try {
-      deviceCount = getDevices(true).size();
-    } catch (InterruptedException e) {
-      throw new BuckUncheckedExecutionException(e);
-    }
+    deviceCount = getDevices(true).size();
     int adbThreadCount = options.getAdbThreadCount();
     if (adbThreadCount <= 0) {
       adbThreadCount = deviceCount;
@@ -297,7 +294,7 @@ public class AdbHelper implements AndroidDevicesHelper {
       HasInstallableApk hasInstallableApk,
       @Nullable String activity,
       boolean waitForDebugger)
-      throws IOException, InterruptedException {
+      throws IOException {
 
     // Might need the package name and activities from the AndroidManifest.
     Path pathToManifest =
@@ -324,7 +321,7 @@ public class AdbHelper implements AndroidDevicesHelper {
       activity = reader.getPackage() + "/" + activity;
     }
 
-    final String activityToRun = activity;
+    String activityToRun = activity;
 
     printMessage(String.format("Starting activity %s...", activityToRun));
 
@@ -351,7 +348,7 @@ public class AdbHelper implements AndroidDevicesHelper {
    * @see #installApk(SourcePathResolver, HasInstallableApk, boolean, boolean, String)
    */
   @Override
-  public boolean uninstallApp(final String packageName, final boolean shouldKeepUserData)
+  public boolean uninstallApp(String packageName, boolean shouldKeepUserData)
       throws InterruptedException {
     Preconditions.checkArgument(AdbHelper.PACKAGE_NAME_PATTERN.matcher(packageName).matches());
 
@@ -488,9 +485,9 @@ public class AdbHelper implements AndroidDevicesHelper {
   @Nullable
   @SuppressWarnings("PMD.EmptyCatchBlock")
   private static AndroidDebugBridge createAdb(
-      AndroidLegacyToolchain androidLegacyToolchain, ExecutionContext context)
+      AndroidPlatformTarget androidPlatformTarget, ExecutionContext context, int adbTimeout)
       throws InterruptedException {
-    DdmPreferences.setTimeOut(60000);
+    DdmPreferences.setTimeOut(adbTimeout);
 
     try {
       AndroidDebugBridge.init(/* clientSupport */ false);
@@ -499,8 +496,7 @@ public class AdbHelper implements AndroidDevicesHelper {
     }
 
     AndroidDebugBridge adb =
-        AndroidDebugBridge.createBridge(
-            androidLegacyToolchain.getAndroidPlatformTarget().getAdbExecutable().toString(), false);
+        AndroidDebugBridge.createBridge(androidPlatformTarget.getAdbExecutable().toString(), false);
     if (adb == null) {
       context
           .getConsole()
@@ -526,7 +522,12 @@ public class AdbHelper implements AndroidDevicesHelper {
     // Initialize adb connection.
     AndroidDebugBridge adb;
     try {
-      adb = createAdb(androidLegacyToolchain, contextSupplier.get());
+      adb =
+          createAdb(
+              toolchainProvider.getByName(
+                  AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
+              contextSupplier.get(),
+              options.getAdbTimeout());
     } catch (InterruptedException e) {
       throw new RuntimeException(e);
     }
@@ -582,7 +583,6 @@ public class AdbHelper implements AndroidDevicesHelper {
   }
 
   /** An exception that indicates that an executed command returned an unsuccessful exit code. */
-  @SuppressWarnings("serial")
   public static class CommandFailedException extends IOException {
     public final String command;
     public final int exitCode;
@@ -618,9 +618,9 @@ public class AdbHelper implements AndroidDevicesHelper {
 
   private boolean installApkDirectly(
       SourcePathResolver pathResolver,
-      final HasInstallableApk hasInstallableApk,
-      final boolean installViaSd,
-      final boolean quiet)
+      HasInstallableApk hasInstallableApk,
+      boolean installViaSd,
+      boolean quiet)
       throws InterruptedException {
     File apk = pathResolver.getAbsolutePath(hasInstallableApk.getApkInfo().getApkPath()).toFile();
     boolean success =

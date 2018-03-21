@@ -54,11 +54,11 @@ public enum CrateType {
   STATIC(
       "staticlib",
       CxxDescriptionEnhancer.STATIC_FLAVOR,
-      (target, n, p) -> String.format("lib%s.%s", n, p.getStaticLibraryExtension())),
+      (target, n, p) -> hashed_filename(target, n, p.getStaticLibraryExtension())),
   STATIC_PIC(
       "staticlib",
       CxxDescriptionEnhancer.STATIC_PIC_FLAVOR,
-      (target, n, p) -> String.format("lib%s.%s", n, p.getStaticLibraryExtension())),
+      (target, n, p) -> hashed_filename(target, n, p.getStaticLibraryExtension())),
   PROC_MACRO("proc-macro", RustDescriptionEnhancer.RFPROC_MACRO, CrateType::dylib_filename),
   ;
 
@@ -140,6 +140,11 @@ public enum CrateType {
         || this == STATIC_PIC
         || this == BIN
         || this == PROC_MACRO;
+  }
+
+  /** Create generates an executable */
+  public boolean isExecutable() {
+    return this == BIN;
   }
 
   /**

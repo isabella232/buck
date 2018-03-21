@@ -32,9 +32,10 @@ import com.facebook.buck.jvm.java.testutil.compiler.TestCompiler;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.timing.FakeClock;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.facebook.buck.util.zip.DeterministicManifest;
 import com.facebook.buck.util.zip.JarBuilder;
-import com.facebook.buck.util.zip.Unzip;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -101,7 +102,7 @@ public class StubJarTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void createTempFilesystem() throws InterruptedException, IOException {
+  public void createTempFilesystem() throws IOException {
     File out = temp.newFolder();
     filesystem = TestProjectFilesystems.createProjectFilesystem(out.toPath());
   }
@@ -1409,6 +1410,33 @@ public class StubJarTest {
             "",
             "",
             "  @Lcom/example/buck/Foo;(typeValue=com.example.buck.Dependency.class)",
+            "}")
+        .createAndCheckStubJar();
+  }
+
+  @Test
+  public void preservesAnnotationsWithConstrainedTypeValues() throws IOException {
+    createAnnotationFullJar()
+        .addFullJarToClasspathAlways()
+        .setSourceFile(
+            "Dependency.java",
+            "package com.example.buck;",
+            "public interface Dependency extends Runnable { }")
+        .createStubJar()
+        .addStubJarToClasspath()
+        .setSourceFile(
+            "A.java",
+            "package com.example.buck;",
+            "@Foo(runnableValues={Dependency.class})",
+            "public @interface A {}")
+        .addExpectedStub(
+            "com/example/buck/A",
+            "// class version 52.0 (52)",
+            "// access flags 0x2601",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "",
+            "",
+            "  @Lcom/example/buck/Foo;(runnableValues={com.example.buck.Dependency.class})",
             "}")
         .createAndCheckStubJar();
   }
@@ -4075,11 +4103,14 @@ public class StubJarTest {
             temp.newFolder());
 
     Path classDir = temp.newFolder().toPath();
-    Unzip.extractZipFile(
-        new DefaultProjectFilesystemFactory(),
-        fullJarPath,
-        classDir,
-        Unzip.ExistingFileMode.OVERWRITE);
+
+    ArchiveFormat.ZIP
+        .getUnarchiver()
+        .extractArchive(
+            new DefaultProjectFilesystemFactory(),
+            fullJarPath,
+            classDir,
+            ExistingFileMode.OVERWRITE);
 
     Path stubJarPath = createStubJar(classDir);
     tester
@@ -4478,7 +4509,7 @@ public class StubJarTest {
 
   public class Foo<T> implements Callable<T> {
     @Override
-    public T call() throws Exception {
+    public T call() {
       return null;
     }
   }
@@ -4812,6 +4843,7 @@ public class StubJarTest {
             "  Retention[] annotationArrayValue() default {};",
             "  RetentionPolicy enumValue () default RetentionPolicy.CLASS;",
             "  Class typeValue() default Foo.class;",
+            "  Class<? extends Runnable>[] runnableValues() default {};",
             "  @Target({TYPE_PARAMETER, TYPE_USE})",
             "  @interface TypeAnnotation { }",
             "}")
@@ -5025,7 +5057,7 @@ public class StubJarTest {
                   testCompiler.getMessager(),
                   jarBuilder,
                   new JavacEventSinkToBuckEventBusBridge(
-                      new DefaultBuckEventBus(FakeClock.DO_NOT_CARE, new BuildId())),
+                      new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId())),
                   AbiGenerationMode.CLASS,
                   additionalOptions.contains("-parameters"));
 
@@ -5075,21 +5107,21 @@ public class StubJarTest {
       return this;
     }
 
-    public Tester addStubJarToClasspath() throws IOException {
+    public Tester addStubJarToClasspath() {
       classpath =
           ImmutableSortedSet.<Path>naturalOrder().addAll(classpath).add(stubJarPath).build();
       resetActuals();
       return this;
     }
 
-    public Tester addFullJarToClasspath() throws IOException {
+    public Tester addFullJarToClasspath() {
       classpath =
           ImmutableSortedSet.<Path>naturalOrder().addAll(classpath).add(fullJarPath).build();
       resetActuals();
       return this;
     }
 
-    public Tester addFullJarToClasspathAlways() throws IOException {
+    public Tester addFullJarToClasspathAlways() {
       universalClasspath =
           ImmutableSortedSet.<Path>naturalOrder()
               .addAll(universalClasspath)
@@ -5177,7 +5209,7 @@ public class StubJarTest {
           result.append("        .addExpectedFullAbi(\n");
           result.append(indent);
           result.append('"');
-          result.append(fileName.substring(0, fileName.length() - ".class".length()));
+          result.append(fileName, 0, fileName.length() - ".class".length());
 
           for (String abiLine : actualFullAbis.get(fileName)) {
             result.append("\",\n");
@@ -5192,7 +5224,7 @@ public class StubJarTest {
           result.append("        .addExpectedStub(\n");
           result.append(indent);
           result.append('"');
-          result.append(fileName.substring(0, fileName.length() - ".class".length()));
+          result.append(fileName, 0, fileName.length() - ".class".length());
 
           for (String stubLine : actualStubs.get(fileName)) {
             result.append("\",\n");

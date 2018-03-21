@@ -27,7 +27,8 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.TestProcessExecutorFactory;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -167,8 +168,7 @@ public class HgCmdLineInterfaceIntegrationTest {
   }
 
   @Test
-  public void testHgRootSubdir()
-      throws VersionControlCommandFailedException, InterruptedException, IOException {
+  public void testHgRootSubdir() throws InterruptedException, IOException {
     // Use a subdir of the repository
     HgCmdLineInterface hgCmdLineInterface =
         makeHgCmdLine(reposPath.resolve(REPO_WITH_SUB_DIR + "/subdir"));
@@ -179,8 +179,7 @@ public class HgCmdLineInterfaceIntegrationTest {
   }
 
   @Test
-  public void testHgRootOutsideRepo()
-      throws VersionControlCommandFailedException, InterruptedException {
+  public void testHgRootOutsideRepo() throws InterruptedException {
     // Note: reposPath is not a hg repository, so we have to create a HgCmdLineInterface directly
     // here.
     HgCmdLineInterface hgCmdLineInterface =
@@ -206,17 +205,19 @@ public class HgCmdLineInterfaceIntegrationTest {
     Files.copy(hgRepoZipPath, hgRepoZipCopyPath, REPLACE_EXISTING);
 
     Path reposPath = destination.resolve(REPOS_DIR);
-    Unzip.extractZipFile(
-        new DefaultProjectFilesystemFactory(),
-        hgRepoZipCopyPath,
-        reposPath,
-        Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+
+    ArchiveFormat.ZIP
+        .getUnarchiver()
+        .extractArchive(
+            new DefaultProjectFilesystemFactory(),
+            hgRepoZipCopyPath,
+            reposPath,
+            ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
 
     return reposPath;
   }
 
-  private static VersionControlCmdLineInterface makeCmdLine(Path repoRootDir)
-      throws InterruptedException {
+  private static VersionControlCmdLineInterface makeCmdLine(Path repoRootDir) {
     return new DelegatingVersionControlCmdLineInterface(
         repoRootDir,
         new TestProcessExecutorFactory(),

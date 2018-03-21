@@ -31,6 +31,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.AsyncFunction;
@@ -108,7 +109,7 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
             COUNTER_CATEGORY, "second_level_hash_computation_time_ms", ImmutableMap.of());
     buckEventBus.post(
         new CounterRegistry.AsyncCounterRegistrationEvent(
-            ImmutableSet.of(
+            ImmutableList.of(
                 secondLevelCacheHitTypes,
                 secondLevelCacheHitBytes,
                 secondLevelCacheMisses,
@@ -180,7 +181,12 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
   }
 
   @Override
-  public ListenableFuture<Void> store(final ArtifactInfo info, final BorrowablePath output) {
+  public void skipPendingAndFutureAsyncFetches() {
+    delegate.skipPendingAndFutureAsyncFetches();
+  }
+
+  @Override
+  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
 
     return Futures.transformAsync(
         attemptTwoLevelStore(info, output),
@@ -213,8 +219,7 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
     return delegate;
   }
 
-  private ListenableFuture<Boolean> attemptTwoLevelStore(
-      final ArtifactInfo info, final BorrowablePath output) {
+  private ListenableFuture<Boolean> attemptTwoLevelStore(ArtifactInfo info, BorrowablePath output) {
 
     return Futures.transformAsync(
         Futures.immediateFuture(null),

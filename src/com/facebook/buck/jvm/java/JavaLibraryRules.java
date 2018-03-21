@@ -90,12 +90,13 @@ public class JavaLibraryRules {
    *     system-specific library names to their {@link SourcePath} objects.
    */
   public static ImmutableMap<String, SourcePath> getNativeLibraries(
-      Iterable<BuildRule> deps, final CxxPlatform cxxPlatform) {
+      Iterable<BuildRule> deps, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     // Allow the transitive walk to find NativeLinkables through the BuildRuleParams deps of a
     // JavaLibrary or CalculateAbi object. The deps may be either one depending if we're compiling
     // against ABI rules or full rules
     return NativeLinkables.getTransitiveSharedLibraries(
         cxxPlatform,
+        ruleResolver,
         deps,
         r ->
             r instanceof JavaLibrary || r instanceof CalculateAbi
@@ -117,6 +118,26 @@ public class JavaLibraryRules {
     return abiRules.build();
   }
 
+  public static ImmutableSortedSet<BuildRule> getSourceOnlyAbiRules(
+      BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
+    ImmutableSortedSet.Builder<BuildRule> abiRules = ImmutableSortedSet.naturalOrder();
+    for (BuildRule input : inputs) {
+      if (input instanceof HasJavaAbi) {
+        HasJavaAbi hasAbi = (HasJavaAbi) input;
+        Optional<BuildTarget> abiJarTarget = hasAbi.getSourceOnlyAbiJar();
+        if (!abiJarTarget.isPresent()) {
+          abiJarTarget = hasAbi.getAbiJar();
+        }
+
+        if (abiJarTarget.isPresent()) {
+          BuildRule abiJarRule = resolver.requireRule(abiJarTarget.get());
+          abiRules.add(abiJarRule);
+        }
+      }
+    }
+    return abiRules.build();
+  }
+
   public static ZipArchiveDependencySupplier getAbiClasspath(
       BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
     return new ZipArchiveDependencySupplier(
@@ -125,27 +146,5 @@ public class JavaLibraryRules {
             .stream()
             .map(BuildRule::getSourcePathToOutput)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
-  }
-
-  /**
-   * Iterates the input BuildRules and translates them to their ABI rules when possible. This is
-   * necessary when constructing a BuildRuleParams object, for example, where we want to translate
-   * rules to their ABI rules, but not skip over BuildRules such as GenAidl, CxxLibrary, NdkLibrary,
-   * AndroidResource, etc. These should still be returned from this method, but without translation.
-   */
-  public static ImmutableSortedSet<BuildRule> getAbiRulesWherePossible(
-      BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
-    ImmutableSortedSet.Builder<BuildRule> abiRules = ImmutableSortedSet.naturalOrder();
-    for (BuildRule dep : inputs) {
-      if (dep instanceof HasJavaAbi) {
-        Optional<BuildTarget> abiJarTarget = ((HasJavaAbi) dep).getAbiJar();
-        if (abiJarTarget.isPresent()) {
-          abiRules.add(resolver.requireRule(abiJarTarget.get()));
-        }
-      } else {
-        abiRules.add(dep);
-      }
-    }
-    return abiRules.build();
   }
 }

@@ -122,8 +122,8 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
    * @return A subgraph of the current graph.
    */
   public <T> TargetGraph getSubgraph(Iterable<? extends TargetNode<? extends T, ?>> roots) {
-    final MutableDirectedGraph<TargetNode<?, ?>> subgraph = new MutableDirectedGraph<>();
-    final Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
+    MutableDirectedGraph<TargetNode<?, ?>> subgraph = new MutableDirectedGraph<>();
+    Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
 
     new AbstractBreadthFirstTraversal<TargetNode<?, ?>>(roots) {
       @Override
@@ -152,7 +152,6 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
     return getNodes().size();
   }
 
-  @SuppressWarnings("serial")
   public static class NoSuchNodeException extends RuntimeException
       implements ExceptionWithHumanReadableMessage {
 

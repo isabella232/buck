@@ -23,15 +23,14 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.function.BiFunction;
@@ -77,9 +76,7 @@ public class WorkerToolDescriptionTest {
       int maxWorkers, BiFunction<BuildRuleResolver, BuildRule, BuildTarget> getExe)
       throws NoSuchBuildTargetException {
     TargetGraph targetGraph = TargetGraph.EMPTY;
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
 
     BuildRule shBinaryRule =
         new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
@@ -105,12 +102,9 @@ public class WorkerToolDescriptionTest {
             ImmutableSortedSet.of());
     return (WorkerTool)
         workerToolDescription.createBuildRule(
-            targetGraph,
+            TestBuildRuleCreationContextFactory.create(targetGraph, resolver, projectFilesystem),
             buildTarget,
-            projectFilesystem,
             params,
-            resolver,
-            TestCellBuilder.createCellRoots(projectFilesystem),
             args);
   }
 }

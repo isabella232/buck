@@ -16,18 +16,22 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.config.ActionGraphParallelizationMode;
+import com.facebook.buck.config.IncrementalActionGraphMode;
+import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
+import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.versions.VersionedTargetGraphCache;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.Map;
 import org.immutables.value.Value;
@@ -40,7 +44,7 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
 
   public abstract BuildSlaveTimingStatsTracker getTimingStatsTracker();
 
-  public abstract VersionedTargetGraphCache getVersionedTargetGraphCache();
+  public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
 
   public abstract ActionGraphCache getActionGraphCache();
 
@@ -61,4 +65,14 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
   public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
   public abstract boolean getShouldInstrumentActionGraph();
+
+  public abstract IncrementalActionGraphMode getIncrementalActionGraphMode();
+
+  public abstract DistBuildConfig getDistBuildConfig();
+
+  public abstract int getMaxActionGraphParallelism();
+
+  public abstract ActionGraphParallelizationMode getActionGraphParallelizationMode();
+
+  public abstract CellProvider getCellProvider();
 }

@@ -123,7 +123,7 @@ public class PackageStringAssets extends AbstractBuildRule {
                 context.getBuildCellRootPath(),
                 getProjectFilesystem(),
                 pathToDirContainingAssetsDir)));
-    final Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
+    Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
     Function<String, Path> assetPathBuilder =
         locale -> pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
@@ -145,7 +145,7 @@ public class PackageStringAssets extends AbstractBuildRule {
             pathToAllLocalesStringAssetsZip,
             ImmutableSet.of(),
             false,
-            ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
+            ZipCompressionLevel.MAX,
             pathToDirContainingAssetsDir));
     steps.add(
         new ZipStep(
@@ -153,7 +153,7 @@ public class PackageStringAssets extends AbstractBuildRule {
             pathToStringAssetsZip,
             locales.stream().map(assetPathBuilder).collect(ImmutableSet.toImmutableSet()),
             false,
-            ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
+            ZipCompressionLevel.MAX,
             pathToDirContainingAssetsDir));
 
     buildableContext.recordArtifact(pathToAllLocalesStringAssetsZip);

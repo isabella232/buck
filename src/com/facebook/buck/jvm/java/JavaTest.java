@@ -26,11 +26,9 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -51,6 +49,7 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -62,6 +61,7 @@ import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.ZipFileTraversal;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -111,9 +111,9 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final JavaLibrary compiledTestsLibrary;
 
   private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
-  @AddToRuleKey private final Tool javaRuntimeLauncher;
+  private final Tool javaRuntimeLauncher;
 
-  @AddToRuleKey private final ImmutableList<String> vmArgs;
+  private final ImmutableList<String> vmArgs;
 
   private final ImmutableMap<String, String> nativeLibsEnvironment;
 
@@ -126,13 +126,13 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final Optional<Level> stdOutLogLevel;
   private final Optional<Level> stdErrLogLevel;
 
-  @AddToRuleKey private final TestType testType;
+  private final TestType testType;
 
-  @AddToRuleKey private final Optional<Long> testRuleTimeoutMs;
+  private final Optional<Long> testRuleTimeoutMs;
 
-  @AddToRuleKey private final Optional<Long> testCaseTimeoutMs;
+  private final Optional<Long> testCaseTimeoutMs;
 
-  @AddToRuleKey private final ImmutableMap<String, Arg> env;
+  private final ImmutableMap<String, Arg> env;
 
   private final Path pathToTestLogs;
 
@@ -142,11 +142,11 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Nullable private ImmutableList<JUnitStep> junits;
 
-  @AddToRuleKey private final boolean runTestSeparately;
+  private final boolean runTestSeparately;
 
-  @AddToRuleKey private final ForkMode forkMode;
+  private final ForkMode forkMode;
 
-  @AddToRuleKey private final Optional<SourcePath> unbundledResourcesRoot;
+  private final Optional<SourcePath> unbundledResourcesRoot;
 
   public JavaTest(
       BuildTarget buildTarget,
@@ -397,10 +397,8 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext context,
-      SourcePathResolver pathResolver,
-      final boolean isUsingTestSelectors) {
-    final ImmutableSet<String> contacts = getContacts();
+      ExecutionContext context, SourcePathResolver pathResolver, boolean isUsingTestSelectors) {
+    ImmutableSet<String> contacts = getContacts();
     return () -> {
       // It is possible that this rule was not responsible for running any tests because all tests
       // were run by its deps. In this case, return an empty TestResults.
@@ -555,21 +553,21 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
         return ImmutableSet.of();
       }
 
-      final Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
+      Set<String> sourceClassNames = Sets.newHashSetWithExpectedSize(sources.size());
       for (SourcePath path : sources) {
         // We support multiple languages in this rule - the file extension doesn't matter so long
         // as the language supports filename == classname.
         sourceClassNames.add(MorePaths.getNameWithoutExtension(resolver.getRelativePath(path)));
       }
 
-      final ImmutableSet.Builder<String> testClassNames = ImmutableSet.builder();
+      ImmutableSet.Builder<String> testClassNames = ImmutableSet.builder();
       Path jarFile = projectFilesystem.getPathForRelativePath(jarFilePath);
       ZipFileTraversal traversal =
           new ZipFileTraversal(jarFile) {
 
             @Override
             public void visit(ZipFile zipFile, ZipEntry zipEntry) {
-              final String name = new File(zipEntry.getName()).getName();
+              String name = new File(zipEntry.getName()).getName();
 
               // Ignore non-.class files.
               if (!name.endsWith(".class")) {
@@ -621,10 +619,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             // By the end of the build, all the transitive Java library dependencies *must* be
             // available on disk, so signal this requirement via the {@link HasRuntimeDeps}
             // interface.
-            compiledTestsLibrary
-                .getTransitiveClasspathDeps()
-                .stream()
-                .filter(rule -> !this.equals(rule)),
+            compiledTestsLibrary.getTransitiveClasspathDeps().stream(),
             // It's possible that the user added some tool as a dependency, so make sure we promote
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.
@@ -670,9 +665,8 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
         .add(
             new AbstractExecutionStep("write classpath file") {
               @Override
-              public StepExecutionResult execute(ExecutionContext context)
-                  throws IOException, InterruptedException {
-                ImmutableSet.Builder<Path> builder = ImmutableSet.<Path>builder();
+              public StepExecutionResult execute(ExecutionContext context) throws IOException {
+                ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
                 if (unbundledResourcesRoot.isPresent()) {
                   builder.add(
                       buildContext
@@ -704,7 +698,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                     .writeLinesToPath(
                         Iterables.transform(classpathEntries, Object::toString),
                         getClassPathFile());
-                return StepExecutionResult.SUCCESS;
+                return StepExecutionResults.SUCCESS;
               }
             })
         .build();

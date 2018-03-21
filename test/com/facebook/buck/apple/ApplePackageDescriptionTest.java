@@ -25,30 +25,29 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
 
 public class ApplePackageDescriptionTest {
 
   @Test
-  public void descriptionCreatesExternallyBuiltPackageRuleIfConfigExists() throws Exception {
+  public void descriptionCreatesExternallyBuiltPackageRuleIfConfigExists() {
     ApplePackageDescription description = descriptionWithCommand("echo");
     BuildTarget binaryBuildTarget = BuildTargetFactory.newInstance("//foo:binary");
     BuildTarget bundleBuildTarget = BuildTargetFactory.newInstance("//foo:bundle");
@@ -69,8 +68,7 @@ public class ApplePackageDescriptionTest {
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(graph);
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
@@ -83,12 +81,9 @@ public class ApplePackageDescriptionTest {
     resolver.requireAllRules(implicitDeps.build());
     BuildRule rule =
         description.createBuildRule(
-            graph,
+            TestBuildRuleCreationContextFactory.create(graph, resolver, projectFilesystem),
             packageBuildTarget,
-            projectFilesystem,
             TestBuildRuleParams.create(),
-            resolver,
-            TestCellBuilder.createCellRoots(projectFilesystem),
             arg);
 
     assertThat(rule, instanceOf(ExternallyBuiltApplePackage.class));
@@ -99,7 +94,7 @@ public class ApplePackageDescriptionTest {
   }
 
   @Test
-  public void descriptionExpandsLocationMacrosAndTracksDependencies() throws Exception {
+  public void descriptionExpandsLocationMacrosAndTracksDependencies() {
     ApplePackageDescription description = descriptionWithCommand("echo $(location :exportfile)");
     BuildTarget binaryBuildTarget = BuildTargetFactory.newInstance("//foo:binary");
     BuildTarget bundleBuildTarget = BuildTargetFactory.newInstance("//foo:bundle");
@@ -122,8 +117,7 @@ public class ApplePackageDescriptionTest {
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(graph);
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
@@ -137,12 +131,9 @@ public class ApplePackageDescriptionTest {
     resolver.requireAllRules(implicitDeps.build());
     BuildRule rule =
         description.createBuildRule(
-            graph,
+            TestBuildRuleCreationContextFactory.create(graph, resolver, projectFilesystem),
             packageBuildTarget,
-            projectFilesystem,
             params,
-            resolver,
-            TestCellBuilder.createCellRoots(projectFilesystem),
             arg);
 
     assertThat(rule.getBuildDeps(), hasItem(resolver.getRule(exportFileBuildTarget)));

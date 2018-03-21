@@ -31,9 +31,9 @@ import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,10 +60,7 @@ public class MacroHandlerTest {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.newFolder().toPath());
     target = BuildTargetFactory.newInstance("//:test");
     JavaLibraryBuilder builder = JavaLibraryBuilder.createBuilder(target);
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(builder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+    resolver = new TestBuildRuleResolver(TargetGraphFactory.newInstance(builder.build()));
     builder.build(resolver, filesystem);
   }
 
@@ -97,7 +94,9 @@ public class MacroHandlerTest {
 
   @Test
   public void automaticallyAddsOutputToFileVariant() throws MacroException {
-    MacroHandler handler = new MacroHandler(ImmutableMap.of("foo", new StringExpander("cake")));
+    MacroHandler handler =
+        new MacroHandler(
+            ImmutableMap.of("foo", new StringExpander<>(Macro.class, StringArg.of("cake"))));
     String expanded =
         handler.expand(target, createCellRoots(filesystem), resolver, "Hello $(@foo //:test)");
 
@@ -122,7 +121,7 @@ public class MacroHandlerTest {
 
   @Test
   public void testHandlingMacroExpanderWithPrecomputedWork() throws Exception {
-    final AtomicInteger expansionCount = new AtomicInteger(0);
+    AtomicInteger expansionCount = new AtomicInteger(0);
     AbstractMacroExpander<String, String> expander =
         new AbstractMacroExpander<String, String>() {
           @Override
@@ -137,8 +136,7 @@ public class MacroHandlerTest {
 
           @Override
           protected String parse(
-              BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-              throws MacroException {
+              BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input) {
             return "Parsed Result";
           }
 
@@ -147,21 +145,19 @@ public class MacroHandlerTest {
               BuildTarget target,
               CellPathResolver cellNames,
               BuildRuleResolver resolver,
-              String input)
-              throws MacroException {
+              String input) {
             expansionCount.incrementAndGet();
             return "Precomputed Work";
           }
 
           @Override
-          public String expandFrom(
+          public Arg expandFrom(
               BuildTarget target,
               CellPathResolver cellNames,
               BuildRuleResolver resolver,
               String input,
-              String precomputedWork)
-              throws MacroException {
-            return precomputedWork;
+              String precomputedWork) {
+            return StringArg.of(precomputedWork);
           }
         };
     MacroHandler handler = new MacroHandler(ImmutableMap.of("e", expander));

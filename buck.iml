@@ -11,6 +11,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src-gen" isTestSource="false" generated="true" />
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/config/testdata" type="java-resource" />
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/toolchain/impl/testdata" type="java-test-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/toolchain/ndk/impl/testdata" type="java-test-resource" />
       <excludeFolder url="file://$MODULE_DIR$/.buckd" />
       <excludeFolder url="file://$MODULE_DIR$/buck-out" />
       <excludeFolder url="file://$MODULE_DIR$/build" />
@@ -24,7 +25,6 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/xcspec/testdata" />
-      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/autodeps/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/bootstrapper/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/crosscell/testdata" />
@@ -58,13 +58,16 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/parser/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/python/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rage/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rules/modern/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rules/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rust/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/filegroup/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/step/fs/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/swift/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/labels/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testrunner/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/endtoend/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/integration/testlibs" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/packaged_resource/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/util/versioncontrol/testdata" />
@@ -111,5 +114,6 @@
     <orderEntry type="library" name="jopt-simple" level="project" />
     <orderEntry type="library" name="json-simple" level="project" />
     <orderEntry type="library" name="d8" level="project" />
+    <orderEntry type="library" name="objenesis-1.2" level="project" />
   </component>
 </module>

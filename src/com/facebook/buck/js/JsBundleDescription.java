@@ -17,25 +17,23 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.android.Aapt2Compile;
-import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResource;
 import com.facebook.buck.android.AndroidResourceDescription;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.apple.AppleBundleResources;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
@@ -45,10 +43,13 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDirectoryAction;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -99,15 +100,13 @@ public class JsBundleDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       JsBundleDescriptionArg args) {
-
-    final ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
 
     // Source maps are exposed individually using a special flavor
     if (flavors.contains(JsFlavors.SOURCE_MAP)) {
@@ -121,7 +120,8 @@ public class JsBundleDescription
           new SourcePathRuleFinder(resolver),
           bundleOutputs.getBundleName() + ".map",
           ExportFileDescription.Mode.REFERENCE,
-          bundleOutputs.getSourcePathToSourceMap());
+          bundleOutputs.getSourcePathToSourceMap(),
+          ExportFileDirectoryAction.FAIL);
     }
 
     if (flavors.contains(JsFlavors.MISC)) {
@@ -135,7 +135,9 @@ public class JsBundleDescription
           new SourcePathRuleFinder(resolver),
           bundleOutputs.getBundleName() + "-misc",
           ExportFileDescription.Mode.REFERENCE,
-          bundleOutputs.getSourcePathToMisc());
+          bundleOutputs.getSourcePathToMisc(),
+          // TODO(27131551): temporary allow directory export until a proper fix is implemented
+          ExportFileDirectoryAction.ALLOW);
     }
 
     // For Android, we bundle JS output as assets, and images etc. as resources.
@@ -154,9 +156,9 @@ public class JsBundleDescription
     // all dependencies to libraries are removed
     params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
 
-    final Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
+    Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
     TransitiveLibraryDependencies libsResolver =
-        new TransitiveLibraryDependencies(buildTarget, targetGraph, resolver);
+        new TransitiveLibraryDependencies(buildTarget, context.getTargetGraph(), resolver);
     ImmutableSortedSet<JsLibrary> libraryDeps = libsResolver.collect(args.getDeps());
 
     BuildRuleParams paramsWithLibraries = params.copyAppendingExtraDeps(libraryDeps);
@@ -202,6 +204,7 @@ public class JsBundleDescription
         paramsWithLibraries,
         libraries,
         entryPoints,
+        JsUtil.getExtraJson(args, buildTarget, resolver, context.getCellPathResolver()),
         libraryPathGroups,
         bundleName,
         resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
@@ -213,16 +216,16 @@ public class JsBundleDescription
       ProjectFilesystem projectFilesystem,
       BuildRuleResolver resolver,
       Optional<String> rDotJavaPackage) {
-    final BuildTarget bundleTarget =
+    BuildTarget bundleTarget =
         buildTarget
             .withAppendedFlavors(JsFlavors.FORCE_JS_BUNDLE)
             .withoutFlavors(JsFlavors.ANDROID_RESOURCES)
             .withoutFlavors(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR);
     resolver.requireRule(bundleTarget);
 
-    final JsBundle jsBundle = resolver.getRuleWithType(bundleTarget, JsBundle.class);
+    JsBundle jsBundle = resolver.getRuleWithType(bundleTarget, JsBundle.class);
     if (buildTarget.getFlavors().contains(JsFlavors.ANDROID_RESOURCES)) {
-      final String rDot =
+      String rDot =
           rDotJavaPackage.orElseThrow(
               () ->
                   new HumanReadableException(
@@ -241,8 +244,8 @@ public class JsBundleDescription
       BuildRuleResolver resolver,
       JsBundle jsBundle) {
 
-    final BuildTarget resourceTarget = buildTarget.withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
-    final BuildRule resource = resolver.requireRule(resourceTarget);
+    BuildTarget resourceTarget = buildTarget.withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
+    BuildRule resource = resolver.requireRule(resourceTarget);
 
     return new JsBundleAndroid(
         buildTarget,
@@ -263,13 +266,13 @@ public class JsBundleDescription
       JsBundle jsBundle,
       String rDotJavaPackage) {
     if (buildTarget.getFlavors().contains(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR)) {
-      AndroidLegacyToolchain androidLegacyToolchain =
+      AndroidPlatformTarget androidPlatformTarget =
           toolchainProvider.getByName(
-              AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+              AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
       return new Aapt2Compile(
           buildTarget,
           projectFilesystem,
-          androidLegacyToolchain,
+          androidPlatformTarget,
           ImmutableSortedSet.of(jsBundle),
           jsBundle.getSourcePathToResources());
     }
@@ -314,7 +317,8 @@ public class JsBundleDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractJsBundleDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+  interface AbstractJsBundleDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps, HasExtraJson {
 
     Either<ImmutableSet<String>, String> getEntry();
 
@@ -358,7 +362,7 @@ public class JsBundleDescription
       this.targetGraph = targetGraph;
       this.resolver = resolver;
 
-      final ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
+      ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
       extraFlavors =
           bundleFlavors
               .stream()
@@ -377,11 +381,11 @@ public class JsBundleDescription
       new AbstractBreadthFirstTraversal<BuildTarget>(deps) {
         @Override
         public Iterable<BuildTarget> visit(BuildTarget target) throws RuntimeException {
-          final TargetNode<?, ?> targetNode = targetGraph.get(target);
-          final Description<?> description = targetNode.getDescription();
+          TargetNode<?, ?> targetNode = targetGraph.get(target);
+          Description<?> description = targetNode.getDescription();
 
           if (description instanceof JsLibraryDescription) {
-            final JsLibrary library = requireLibrary(target);
+            JsLibrary library = requireLibrary(target);
             jsLibraries.add(library);
             return getLibraryDependencies(library);
           } else if (description instanceof AndroidLibraryDescription

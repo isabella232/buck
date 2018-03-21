@@ -19,10 +19,10 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
-import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.PreprocessorFlags;
+import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
@@ -101,15 +101,20 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         preprocessorFlags);
   }
 
+  /**
+   * Returns transitive preprocessor inputs excluding those from the swift delegate of the given
+   * CxxLibrary.
+   */
   public static ImmutableSet<CxxPreprocessorInput> getPreprocessorInputsForAppleLibrary(
       BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform) {
     CxxLibrary lib = (CxxLibrary) resolver.requireRule(target.withFlavors());
     ImmutableMap<BuildTarget, CxxPreprocessorInput> transitiveMap =
-        CxxPreprocessables.computeTransitiveCxxToPreprocessorInputMap(platform, lib, false);
+        TransitiveCxxPreprocessorInputCache.computeTransitiveCxxToPreprocessorInputMap(
+            platform, lib, false, resolver);
 
     ImmutableSet.Builder<CxxPreprocessorInput> builder = ImmutableSet.builder();
     builder.addAll(transitiveMap.values());
-    builder.add(lib.getPublicCxxPreprocessorInput(platform));
+    builder.add(lib.getPublicCxxPreprocessorInputExcludingDelegate(platform, resolver));
 
     return builder.build();
   }
@@ -117,6 +122,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
   public static BuildRule createObjCGeneratedHeaderBuildRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       HeaderVisibility headerVisibility) {
@@ -132,7 +138,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
     Path outputPath = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s");
     HeaderSymlinkTreeWithHeaderMap headerMapRule =
         HeaderSymlinkTreeWithHeaderMap.create(
-            buildTarget, projectFilesystem, outputPath, headerLinks.build());
+            buildTarget, projectFilesystem, outputPath, headerLinks.build(), ruleFinder);
 
     return headerMapRule;
   }

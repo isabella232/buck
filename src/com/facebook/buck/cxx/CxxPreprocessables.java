@@ -27,12 +27,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -44,7 +42,6 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Predicate;
-import javax.annotation.Nonnull;
 
 public class CxxPreprocessables {
 
@@ -113,14 +110,15 @@ public class CxxPreprocessables {
    * while traversing the dependencies starting from the {@link BuildRule} objects given.
    */
   public static Collection<CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      final CxxPlatform cxxPlatform,
+      CxxPlatform cxxPlatform,
+      BuildRuleResolver ruleResolver,
       Iterable<? extends BuildRule> inputs,
-      final Predicate<Object> traverse) {
+      Predicate<Object> traverse) {
 
     // We don't really care about the order we get back here, since headers shouldn't
     // conflict.  However, we want something that's deterministic, so sort by build
     // target.
-    final Map<BuildTarget, CxxPreprocessorInput> deps = new LinkedHashMap<>();
+    Map<BuildTarget, CxxPreprocessorInput> deps = new LinkedHashMap<>();
 
     // Build up the map of all C/C++ preprocessable dependencies.
     new AbstractBreadthFirstTraversal<BuildRule>(inputs) {
@@ -128,7 +126,7 @@ public class CxxPreprocessables {
       public Iterable<BuildRule> visit(BuildRule rule) {
         if (rule instanceof CxxPreprocessorDep) {
           CxxPreprocessorDep dep = (CxxPreprocessorDep) rule;
-          deps.putAll(dep.getTransitiveCxxPreprocessorInput(cxxPlatform));
+          deps.putAll(dep.getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver));
           return ImmutableSet.of();
         }
         return traverse.test(rule) ? rule.getBuildDeps() : ImmutableSet.of();
@@ -140,8 +138,10 @@ public class CxxPreprocessables {
   }
 
   public static Collection<CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      final CxxPlatform cxxPlatform, Iterable<? extends BuildRule> inputs) {
-    return getTransitiveCxxPreprocessorInput(cxxPlatform, inputs, x -> true);
+      CxxPlatform cxxPlatform,
+      BuildRuleResolver ruleResolver,
+      Iterable<? extends BuildRule> inputs) {
+    return getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver, inputs, x -> true);
   }
 
   /**
@@ -152,17 +152,18 @@ public class CxxPreprocessables {
   public static HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
       BuildTarget target,
       ProjectFilesystem filesystem,
+      SourcePathRuleFinder ruleFinder,
       Path root,
       ImmutableMap<Path, SourcePath> links,
       HeaderMode headerMode) {
     switch (headerMode) {
       case SYMLINK_TREE_WITH_HEADER_MAP:
-        return HeaderSymlinkTreeWithHeaderMap.create(target, filesystem, root, links);
+        return HeaderSymlinkTreeWithHeaderMap.create(target, filesystem, root, links, ruleFinder);
       case HEADER_MAP_ONLY:
-        return new DirectHeaderMap(target, filesystem, root, links);
+        return new DirectHeaderMap(target, filesystem, root, links, ruleFinder);
       default:
       case SYMLINK_TREE_ONLY:
-        return new HeaderSymlinkTree(target, filesystem, root, links);
+        return new HeaderSymlinkTree(target, filesystem, root, links, ruleFinder);
     }
   }
 
@@ -215,31 +216,5 @@ public class CxxPreprocessables {
                 Multimaps.transformValues(exportedPreprocessorFlags, StringArg::of)))
         .addAllFrameworks(frameworks)
         .build();
-  }
-
-  public static LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
-      getTransitiveCxxPreprocessorInputCache(final CxxPreprocessorDep preprocessorDep) {
-    return CacheBuilder.newBuilder()
-        .build(
-            new CacheLoader<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>() {
-              @Override
-              public ImmutableMap<BuildTarget, CxxPreprocessorInput> load(
-                  @Nonnull CxxPlatform key) {
-                return computeTransitiveCxxToPreprocessorInputMap(key, preprocessorDep, true);
-              }
-            });
-  }
-
-  public static ImmutableMap<BuildTarget, CxxPreprocessorInput>
-      computeTransitiveCxxToPreprocessorInputMap(
-          @Nonnull CxxPlatform key, CxxPreprocessorDep preprocessorDep, boolean includeDep) {
-    Map<BuildTarget, CxxPreprocessorInput> builder = new LinkedHashMap<>();
-    if (includeDep) {
-      builder.put(preprocessorDep.getBuildTarget(), preprocessorDep.getCxxPreprocessorInput(key));
-    }
-    for (CxxPreprocessorDep dep : preprocessorDep.getCxxPreprocessorDeps(key)) {
-      builder.putAll(dep.getTransitiveCxxPreprocessorInput(key));
-    }
-    return ImmutableMap.copyOf(builder);
   }
 }

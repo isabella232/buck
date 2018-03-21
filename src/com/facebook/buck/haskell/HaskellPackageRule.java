@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -105,20 +106,20 @@ public class HaskellPackageRule extends AbstractBuildRuleWithDeclaredAndExtraDep
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       SourcePathRuleFinder ruleFinder,
-      final Tool ghcPkg,
+      Tool ghcPkg,
       HaskellVersion haskellVersion,
       Linker.LinkableDepType depType,
       HaskellPackageInfo packageInfo,
-      final ImmutableSortedMap<String, HaskellPackage> depPackages,
+      ImmutableSortedMap<String, HaskellPackage> depPackages,
       ImmutableSortedSet<String> modules,
-      final ImmutableSortedSet<SourcePath> libraries,
-      final ImmutableSortedSet<SourcePath> interfaces,
+      ImmutableSortedSet<SourcePath> libraries,
+      ImmutableSortedSet<SourcePath> interfaces,
       ImmutableSortedSet<SourcePath> objects) {
     Supplier<ImmutableSortedSet<BuildRule>> declaredDeps =
         MoreSuppliers.memoize(
             () ->
                 ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(ghcPkg.getDeps(ruleFinder))
+                    .addAll(BuildableSupport.getDepsCollection(ghcPkg, ruleFinder))
                     .addAll(
                         depPackages
                             .values()
@@ -221,7 +222,7 @@ public class HaskellPackageRule extends AbstractBuildRuleWithDeclaredAndExtraDep
                 context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)));
 
     // Setup the package DB directory.
-    final Path packageDb = getPackageDb();
+    Path packageDb = getPackageDb();
     steps.add(
         RmStep.of(
                 BuildCellRelativePath.fromCellRelativePath(

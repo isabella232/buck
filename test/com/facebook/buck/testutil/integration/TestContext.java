@@ -20,6 +20,7 @@ import com.facebook.buck.util.CapturingPrintStream;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.martiansoftware.nailgun.NGClientListener;
+import com.martiansoftware.nailgun.NGCommunicator;
 import com.martiansoftware.nailgun.NGConstants;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGInputStream;
@@ -38,7 +39,6 @@ public class TestContext extends NGContext implements Closeable {
 
   private Properties properties;
   private Set<NGClientListener> listeners;
-  private CapturingPrintStream serverLog;
   private boolean addListeners;
 
   /** Simulates client that never disconnects, with normal system environment. */
@@ -60,16 +60,17 @@ public class TestContext extends NGContext implements Closeable {
    */
   public TestContext(
       ImmutableMap<String, String> environment, InputStream clientStream, long timeoutMillis) {
-    serverLog = new CapturingPrintStream();
-    in =
-        new NGInputStream(
+
+    NGCommunicator comm =
+        new NGCommunicator(
             new DataInputStream(Preconditions.checkNotNull(clientStream)),
             new DataOutputStream(new ByteArrayOutputStream(0)),
-            serverLog,
             (int) timeoutMillis);
+    in = new NGInputStream(comm);
     out = new CapturingPrintStream();
     err = new CapturingPrintStream();
     setExitStream(new CapturingPrintStream());
+    setCommunicator(comm);
     properties = new Properties();
     for (String key : environment.keySet()) {
       properties.setProperty(key, environment.get(key));
@@ -100,7 +101,7 @@ public class TestContext extends NGContext implements Closeable {
   }
 
   /** Generates heartbeat chunks at a given interval. */
-  public static InputStream createHeartBeatStream(final long heartbeatIntervalMillis) {
+  public static InputStream createHeartBeatStream(long heartbeatIntervalMillis) {
     return new InputStream() {
       private final int bytesPerHeartbeat = 5;
       private final long byteInterval = heartbeatIntervalMillis / bytesPerHeartbeat;
@@ -121,7 +122,7 @@ public class TestContext extends NGContext implements Closeable {
    * @param disconnectMillis duration to wait before generating IOException.
    * @return an InputStream which will wait and then simulate a client disconnection.
    */
-  public static InputStream createDisconnectionStream(final long disconnectMillis) {
+  public static InputStream createDisconnectionStream(long disconnectMillis) {
     return new InputStream() {
       @Override
       public int read() throws IOException {
@@ -137,6 +138,6 @@ public class TestContext extends NGContext implements Closeable {
 
   @Override
   public void close() throws IOException {
-    in.close();
+    getCommunicator().close();
   }
 }

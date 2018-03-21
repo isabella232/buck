@@ -22,22 +22,21 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidNdkHelper.SymbolGetter;
-import com.facebook.buck.android.AndroidNdkHelper.SymbolsAndDtNeeded;
 import com.facebook.buck.android.relinker.Symbols;
-import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolGetter;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolsAndDtNeeded;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -189,7 +188,7 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testNativeLibraryMergeErrors() throws IOException, InterruptedException {
+  public void testNativeLibraryMergeErrors() throws IOException {
     try {
       workspace.runBuckBuild("//apps/sample:app_with_merge_lib_into_two_targets");
       Assert.fail("No exception from trying to merge lib into two targets.");
@@ -341,7 +340,7 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
         syms.getNormalSymbols(outputs.get(app), "lib/x86/libnative_cxx_symbols.so");
     assertThat(strippedSyms.all, Matchers.empty());
 
-    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckBuild(usnl);
 
     String unstrippedPath = null;
@@ -359,13 +358,26 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
     assertThat(unstrippedSyms.all, hasItem("supply_value"));
   }
 
+  @Test
+  public void testMergeAndSupportedPlatforms() throws IOException, InterruptedException {
+    Path output =
+        workspace.buildAndReturnOutput("//apps/sample:app_with_merge_and_supported_platforms");
+
+    SymbolGetter symGetter = getSymbolGetter();
+    Symbols syms;
+
+    syms = symGetter.getDynamicSymbols(output, "lib/x86/liball.so");
+    assertThat(syms.global, hasItem("_Z3foov"));
+    assertThat(syms.global, hasItem("x86_only_function"));
+    syms = symGetter.getDynamicSymbols(output, "lib/armeabi-v7a/liball.so");
+    assertThat(syms.global, hasItem("_Z3foov"));
+    assertThat(syms.global, not(hasItem("x86_only_function")));
+  }
+
   private SymbolGetter getSymbolGetter() throws IOException, InterruptedException {
-    NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(workspace, filesystem);
+    NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(filesystem);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
     Path tmpDir = tmpFolder.newFolder("symbols_tmp");
     return new SymbolGetter(
         new DefaultProcessExecutor(new TestConsole()), tmpDir, platform.getObjdump(), pathResolver);

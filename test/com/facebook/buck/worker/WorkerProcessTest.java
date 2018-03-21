@@ -26,8 +26,8 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -107,7 +107,7 @@ public class WorkerProcessTest {
   }
 
   @Test(timeout = 20 * 1000)
-  public void testDoesNotBlockOnLargeStderr() throws InterruptedException, IOException {
+  public void testDoesNotBlockOnLargeStderr() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "worker_process", temporaryPaths);
     workspace.setUp();

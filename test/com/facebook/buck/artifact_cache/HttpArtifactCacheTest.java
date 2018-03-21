@@ -77,6 +77,7 @@ public class HttpArtifactCacheTest {
       MoreExecutors.newDirectExecutorService();
   private static final String ERROR_TEXT_TEMPLATE =
       "{cache_name} encountered an error: {error_message}";
+  private static final int ERROR_TEXT_LIMIT = 100;
 
   private NetworkCacheArgs.Builder argsBuilder;
 
@@ -136,12 +137,13 @@ public class HttpArtifactCacheTest {
             .setBuckEventBus(BUCK_EVENT_BUS)
             .setHttpWriteExecutorService(DIRECT_EXECUTOR_SERVICE)
             .setHttpFetchExecutorService(DIRECT_EXECUTOR_SERVICE)
-            .setErrorTextTemplate(ERROR_TEXT_TEMPLATE);
+            .setErrorTextTemplate(ERROR_TEXT_TEMPLATE)
+            .setErrorTextLimit(ERROR_TEXT_LIMIT);
   }
 
   @Test
   public void testFetchNotFound() throws Exception {
-    final List<Response> responseList = new ArrayList<>();
+    List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(
         withMakeRequest(
             (path, requestBuilder) -> {
@@ -172,10 +174,10 @@ public class HttpArtifactCacheTest {
   @Test
   public void testFetchOK() throws Exception {
     Path output = Paths.get("output/file");
-    final String data = "test";
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    String data = "test";
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final List<Response> responseList = new ArrayList<>();
+    List<Response> responseList = new ArrayList<>();
     argsBuilder.setProjectFilesystem(filesystem);
     argsBuilder.setFetchClient(
         withMakeRequest(
@@ -209,9 +211,9 @@ public class HttpArtifactCacheTest {
   }
 
   @Test
-  public void testFetchUrl() throws Exception {
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final String expectedUri = "/artifacts/key/00000000000000000000000000000000";
+  public void testFetchUrl() {
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    String expectedUri = "/artifacts/key/00000000000000000000000000000000";
 
     argsBuilder.setFetchClient(
         withMakeRequest(
@@ -240,8 +242,8 @@ public class HttpArtifactCacheTest {
   @Test
   public void testFetchBadChecksum() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final List<Response> responseList = new ArrayList<>();
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(
         withMakeRequest(
             (path, requestBuilder) -> {
@@ -275,8 +277,8 @@ public class HttpArtifactCacheTest {
   @Test
   public void testFetchExtraPayload() throws Exception {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final List<Response> responseList = new ArrayList<>();
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    List<Response> responseList = new ArrayList<>();
     argsBuilder.setFetchClient(
         withMakeRequest(
             (path, requestBuilder) -> {
@@ -308,7 +310,7 @@ public class HttpArtifactCacheTest {
   }
 
   @Test
-  public void testFetchIOException() throws Exception {
+  public void testFetchIOException() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     argsBuilder.setFetchClient(
         withMakeRequest(
@@ -328,12 +330,12 @@ public class HttpArtifactCacheTest {
 
   @Test
   public void testStore() throws Exception {
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final String data = "data";
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    String data = "data";
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path output = Paths.get("output/file");
     filesystem.writeContentsToPath(data, output);
-    final AtomicBoolean hasCalled = new AtomicBoolean(false);
+    AtomicBoolean hasCalled = new AtomicBoolean(false);
     argsBuilder.setProjectFilesystem(filesystem);
     argsBuilder.setStoreClient(
         withMakeRequest(
@@ -398,13 +400,13 @@ public class HttpArtifactCacheTest {
 
   @Test
   public void testStoreMultipleKeys() throws Exception {
-    final RuleKey ruleKey1 = new RuleKey("00000000000000000000000000000000");
-    final RuleKey ruleKey2 = new RuleKey("11111111111111111111111111111111");
-    final String data = "data";
+    RuleKey ruleKey1 = new RuleKey("00000000000000000000000000000000");
+    RuleKey ruleKey2 = new RuleKey("11111111111111111111111111111111");
+    String data = "data";
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path output = Paths.get("output/file");
     filesystem.writeContentsToPath(data, output);
-    final Set<RuleKey> stored = new HashSet<>();
+    Set<RuleKey> stored = new HashSet<>();
     argsBuilder.setProjectFilesystem(filesystem);
     argsBuilder.setStoreClient(
         withMakeRequest(
@@ -436,11 +438,11 @@ public class HttpArtifactCacheTest {
   }
 
   @Test
-  public void testFetchWrongKey() throws Exception {
+  public void testFetchWrongKey() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final RuleKey otherRuleKey = new RuleKey("11111111111111111111111111111111");
-    final String data = "data";
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    RuleKey otherRuleKey = new RuleKey("11111111111111111111111111111111");
+    String data = "data";
 
     argsBuilder.setFetchClient(
         withMakeRequest(
@@ -471,11 +473,11 @@ public class HttpArtifactCacheTest {
   }
 
   @Test
-  public void testFetchMetadata() throws Exception {
+  public void testFetchMetadata() {
     Path output = Paths.get("output/file");
-    final String data = "test";
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final ImmutableMap<String, String> metadata = ImmutableMap.of("some", "metadata");
+    String data = "test";
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    ImmutableMap<String, String> metadata = ImmutableMap.of("some", "metadata");
     argsBuilder.setFetchClient(
         withMakeRequest(
             ((path, requestBuilder) -> {
@@ -504,13 +506,13 @@ public class HttpArtifactCacheTest {
   }
 
   @Test
-  public void errorTextReplaced() throws InterruptedException {
+  public void errorTextReplaced() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    final String cacheName = "http cache";
-    final RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
-    final RuleKey otherRuleKey = new RuleKey("11111111111111111111111111111111");
-    final String data = "data";
-    final AtomicBoolean consoleEventReceived = new AtomicBoolean(false);
+    String cacheName = "http cache";
+    RuleKey ruleKey = new RuleKey("00000000000000000000000000000000");
+    RuleKey otherRuleKey = new RuleKey("11111111111111111111111111111111");
+    String data = "data";
+    AtomicBoolean consoleEventReceived = new AtomicBoolean(false);
     argsBuilder
         .setCacheName(cacheName)
         .setProjectFilesystem(filesystem)
@@ -548,11 +550,15 @@ public class HttpArtifactCacheTest {
                 }));
     HttpArtifactCache cache = new HttpArtifactCache(argsBuilder.build());
     Path output = Paths.get("output/file");
-    CacheResult result =
-        Futures.getUnchecked(cache.fetchAsync(ruleKey, LazyPath.ofInstance(output)));
-    assertEquals(CacheResultType.ERROR, result.getType());
-    assertEquals(Optional.empty(), filesystem.readFileIfItExists(output));
+
+    for (int i = 0; i < ERROR_TEXT_LIMIT + 1; ++i) {
+      CacheResult result =
+          Futures.getUnchecked(cache.fetchAsync(ruleKey, LazyPath.ofInstance(output)));
+      assertEquals(CacheResultType.ERROR, result.getType());
+      assertEquals(Optional.empty(), filesystem.readFileIfItExists(output));
+    }
     assertTrue(consoleEventReceived.get());
+
     cache.close();
   }
 

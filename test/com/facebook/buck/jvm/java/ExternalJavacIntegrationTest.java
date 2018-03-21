@@ -19,9 +19,10 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
@@ -37,16 +38,16 @@ public class ExternalJavacIntegrationTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
-  public void whenExternalJavacIsSetCompilationSucceeds() throws IOException, InterruptedException {
+  public void whenExternalJavacIsSetCompilationSucceeds() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-    final ProjectWorkspace workspace =
+    ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "external_javac", tmp);
 
     workspace.setUp();
 
     Path javac = workspace.getPath("javac.sh");
-    MoreFiles.makeExecutable(javac);
+    MostFiles.makeExecutable(javac);
 
     workspace.replaceFileContents(".buckconfig", "@JAVAC@", javac.toAbsolutePath().toString());
     workspace.runBuckCommand("build", "example").assertSuccess();
@@ -54,16 +55,16 @@ public class ExternalJavacIntegrationTest {
 
   @Test
   @Ignore("Disabled due to badness t4689997")
-  public void whenExternalSrcZipUsedCompilationSucceeds() throws IOException, InterruptedException {
+  public void whenExternalSrcZipUsedCompilationSucceeds() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-    final ProjectWorkspace workspace =
+    ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "external_javac_src_zip", tmp);
 
     workspace.setUp();
 
     Path javac = workspace.getPath("javac.sh");
-    MoreFiles.makeExecutable(javac);
+    MostFiles.makeExecutable(javac);
 
     workspace.replaceFileContents(".buckconfig", "@JAVAC@", javac.toAbsolutePath().toString());
 
@@ -71,19 +72,18 @@ public class ExternalJavacIntegrationTest {
   }
 
   @Test
-  public void whenExternalJavacFailsOutputIsInFailureMessage()
-      throws IOException, InterruptedException {
+  public void whenExternalJavacFailsOutputIsInFailureMessage() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-    final ProjectWorkspace workspace =
+    ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "external_javac", tmp);
     workspace.setUp();
 
     Path error = workspace.getPath("error.sh");
-    MoreFiles.makeExecutable(error);
+    MostFiles.makeExecutable(error);
 
     workspace.replaceFileContents(".buckconfig", "@JAVAC@", error.toAbsolutePath().toString());
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", "example");
+    ProcessResult result = workspace.runBuckCommand("build", "example");
 
     assertThat(
         "Failure should have been due to external javac.",
@@ -97,12 +97,12 @@ public class ExternalJavacIntegrationTest {
 
   @Test
   public void whenBuckdUsesExternalJavacThenClientEnvironmentUsed() throws IOException {
-    final ProjectWorkspace workspace =
+    ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "external_javac", tmp);
     workspace.setUp();
 
     Path javac = workspace.getPath("check_env.sh");
-    MoreFiles.makeExecutable(javac);
+    MostFiles.makeExecutable(javac);
 
     workspace.replaceFileContents(".buckconfig", "@JAVAC@", javac.toAbsolutePath().toString());
     workspace

@@ -24,6 +24,7 @@ import com.facebook.buck.jvm.java.classes.FileLikes;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSortedMap;
@@ -86,7 +87,7 @@ public class AccumulateClassNamesStep implements Step {
       if (classNamesOptional.isPresent()) {
         classNames = classNamesOptional.get();
       } else {
-        return StepExecutionResult.ERROR;
+        return StepExecutionResults.ERROR;
       }
     } else {
       classNames = ImmutableSortedMap.of();
@@ -98,7 +99,7 @@ public class AccumulateClassNamesStep implements Step {
             entry -> entry.getKey() + CLASS_NAME_HASH_CODE_SEPARATOR + entry.getValue()),
         whereClassNamesShouldBeWritten);
 
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override
@@ -115,12 +116,12 @@ public class AccumulateClassNamesStep implements Step {
   /** @return an Optional that will be absent if there was an error. */
   public static Optional<ImmutableSortedMap<String, HashCode>> calculateClassHashes(
       ExecutionContext context, ProjectFilesystem filesystem, Path path) {
-    final Map<String, HashCode> classNames = new HashMap<>();
+    Map<String, HashCode> classNames = new HashMap<>();
 
     ClasspathTraversal traversal =
         new ClasspathTraversal(Collections.singleton(path), filesystem) {
           @Override
-          public void visit(final FileLike fileLike) throws IOException {
+          public void visit(FileLike fileLike) throws IOException {
             // When traversing a JAR file, it may have resources or directory entries that do not
             // end in .class, which should be ignored.
             if (!FileLikes.isClassFile(fileLike)) {
@@ -160,7 +161,7 @@ public class AccumulateClassNamesStep implements Step {
    * @param lines that were written in the same format output by {@link #execute(ExecutionContext)}.
    */
   public static ImmutableSortedMap<String, HashCode> parseClassHashes(List<String> lines) {
-    final Map<String, HashCode> classNames = new HashMap<>();
+    Map<String, HashCode> classNames = new HashMap<>();
 
     for (String line : lines) {
       List<String> parts = CLASS_NAME_AND_HASH_SPLITTER.splitToList(line);

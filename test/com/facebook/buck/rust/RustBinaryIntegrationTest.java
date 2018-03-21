@@ -18,9 +18,9 @@ package com.facebook.buck.rust;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -38,7 +38,7 @@ public class RustBinaryIntegrationTest {
 
   @Before
   public void ensureRustIsAvailable() throws IOException, InterruptedException {
-    RustAssumptions.assumeRustCompilerAvailable();
+    RustAssumptions.assumeRustIsConfigured();
   }
 
   @Test
@@ -119,7 +119,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void simpleBinaryWarnings() throws IOException, InterruptedException {
+  public void simpleBinaryWarnings() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -197,7 +197,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void rustBinaryCompilerArgs() throws IOException, InterruptedException {
+  public void rustBinaryCompilerArgs() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -211,7 +211,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void rustBinaryCompilerBinaryArgs() throws IOException, InterruptedException {
+  public void rustBinaryCompilerBinaryArgs() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -225,7 +225,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void rustBinaryCompilerLibraryArgs() throws IOException, InterruptedException {
+  public void rustBinaryCompilerLibraryArgs() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -237,7 +237,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void rustBinaryCompilerArgs2() throws IOException, InterruptedException {
+  public void rustBinaryCompilerArgs2() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -251,7 +251,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void rustBinaryRuleCompilerArgs() throws IOException, InterruptedException {
+  public void rustBinaryRuleCompilerArgs() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -262,7 +262,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void buildAfterChangeWorks() throws IOException, InterruptedException {
+  public void buildAfterChangeWorks() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -273,7 +273,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithLibrary() throws IOException, InterruptedException {
+  public void binaryWithLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
@@ -306,7 +306,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithSharedLibrary() throws IOException, InterruptedException {
+  public void binaryWithSharedLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
@@ -319,7 +319,23 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithHyphenatedLibrary() throws IOException, InterruptedException {
+  public void binaryWithSharedLibraryForceRlib() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckCommand("run", "-c", "rust.force_rlib=true", "//:hello-shared")
+            .assertSuccess()
+            .getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Hello, world!"),
+            Matchers.containsString("I have a message to deliver to you")));
+  }
+
+  @Test
+  public void binaryWithHyphenatedLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
@@ -330,7 +346,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithAliasedLibrary() throws IOException, InterruptedException {
+  public void binaryWithAliasedLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
@@ -343,7 +359,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithStaticCxxDep() throws IOException, InterruptedException {
+  public void binaryWithStaticCxxDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_cxx_dep", tmp);
     workspace.setUp();
@@ -354,7 +370,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithSharedCxxDep() throws IOException, InterruptedException {
+  public void binaryWithSharedCxxDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_cxx_dep", tmp);
     workspace.setUp();
@@ -365,7 +381,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithPrebuiltStaticCxxDep() throws IOException, InterruptedException {
+  public void binaryWithPrebuiltStaticCxxDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_cxx_dep", tmp);
     workspace.setUp();
@@ -376,7 +392,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithPrebuiltSharedCxxDep() throws IOException, InterruptedException {
+  public void binaryWithPrebuiltSharedCxxDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_cxx_dep", tmp);
     workspace.setUp();
@@ -387,7 +403,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithLibraryWithDep() throws IOException, InterruptedException {
+  public void binaryWithLibraryWithDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library_with_dep", tmp);
     workspace.setUp();
@@ -401,7 +417,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithLibraryWithTriangleDep() throws IOException, InterruptedException {
+  public void binaryWithLibraryWithTriangleDep() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library_with_dep", tmp);
     workspace.setUp();
@@ -415,7 +431,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void featureProvidedWorks() throws IOException, InterruptedException {
+  public void featureProvidedWorks() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "feature_test", tmp);
     workspace.setUp();
@@ -426,7 +442,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void featureNotProvidedFails() throws IOException, InterruptedException {
+  public void featureNotProvidedFails() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "feature_test", tmp);
     workspace.setUp();
@@ -435,7 +451,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void featureWithDoubleQuoteErrors() throws IOException, InterruptedException {
+  public void featureWithDoubleQuoteErrors() throws IOException {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(Matchers.containsString("contains an invalid feature name"));
     ProjectWorkspace workspace =
@@ -446,7 +462,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void moduleImportsSuccessfully() throws IOException, InterruptedException {
+  public void moduleImportsSuccessfully() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "module_import", tmp);
     workspace.setUp();
@@ -459,7 +475,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void underspecifiedSrcsErrors() throws IOException, InterruptedException {
+  public void underspecifiedSrcsErrors() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "module_import", tmp);
     workspace.setUp();
@@ -470,7 +486,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithPrebuiltLibrary() throws IOException, InterruptedException {
+  public void binaryWithPrebuiltLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_prebuilt", tmp);
     workspace.setUp();
@@ -482,7 +498,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithAliasedPrebuiltLibrary() throws IOException, InterruptedException {
+  public void binaryWithAliasedPrebuiltLibrary() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_prebuilt", tmp);
     workspace.setUp();
@@ -494,7 +510,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void binaryWithPrebuiltLibraryWithDependency() throws IOException, InterruptedException {
+  public void binaryWithPrebuiltLibraryWithDependency() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_prebuilt", tmp);
     workspace.setUp();
@@ -508,7 +524,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void cxxWithRustDependency() throws IOException, InterruptedException {
+  public void cxxWithRustDependencyStatic() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_with_rust_dep", tmp);
     workspace.setUp();
@@ -522,7 +538,38 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void duplicateCrateName() throws IOException, InterruptedException {
+  public void cxxWithRustDependencyShared() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_with_rust_dep", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace.runBuckCommand("run", "//:hello-shared").assertSuccess().getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Calling helloer"),
+            Matchers.containsString("I'm printing hello!"),
+            Matchers.containsString("Helloer called")));
+  }
+
+  @Test
+  public void cxxWithRustDependencySharedForceRlib() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_with_rust_dep", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckCommand("run", "-c", "rust.force_rlib=true", "//:hello-shared")
+            .assertSuccess()
+            .getStdout(),
+        Matchers.allOf(
+            Matchers.containsString("Calling helloer"),
+            Matchers.containsString("I'm printing hello!"),
+            Matchers.containsString("Helloer called")));
+  }
+
+  @Test
+  public void duplicateCrateName() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "duplicate_crate", tmp);
     workspace.setUp();
@@ -541,7 +588,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void duplicateSharedCrateName() throws IOException, InterruptedException {
+  public void duplicateSharedCrateName() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "duplicate_crate", tmp);
     workspace.setUp();
@@ -555,7 +602,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void includeFileIncluded() throws IOException, InterruptedException {
+  public void includeFileIncluded() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "build_include", tmp);
     workspace.setUp();
@@ -568,7 +615,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void includeFileMissing() throws IOException, InterruptedException {
+  public void includeFileMissing() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "build_include", tmp);
     workspace.setUp();
@@ -577,7 +624,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void procmacroCompile() throws IOException, InterruptedException {
+  public void procmacroCompile() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "procmacro", tmp);
     workspace.setUp();
@@ -590,7 +637,7 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
-  public void procmacroCompileShared() throws IOException, InterruptedException {
+  public void procmacroCompileShared() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "procmacro", tmp);
     workspace.setUp();
@@ -599,6 +646,22 @@ public class RustBinaryIntegrationTest {
         // Check that we can build a procmacro crate
         workspace
             .runBuckCommand("run", "//:test_shared")
+            .assertSuccess("link with procmacro")
+            .getStdout(),
+        // Make sure we get a working executable
+        Matchers.containsString("Hello"));
+  }
+
+  @Test
+  public void procmacroCompileSharedForceRlib() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "procmacro", tmp);
+    workspace.setUp();
+
+    assertThat(
+        // Check that we can build a procmacro crate
+        workspace
+            .runBuckCommand("run", "-c", "rust.force_rlib=true", "//:test_shared")
             .assertSuccess("link with procmacro")
             .getStdout(),
         // Make sure we get a working executable

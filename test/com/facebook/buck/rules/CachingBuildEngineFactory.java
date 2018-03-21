@@ -17,13 +17,14 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
+import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.testutil.DummyFileHashCache;
-import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
-import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
-import com.facebook.buck.util.concurrent.ResourceAmounts;
+import com.facebook.buck.util.cache.NoOpCacheStatsTracker;
+import com.facebook.buck.util.concurrent.FakeWeightedListeningExecutorService;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -48,6 +49,7 @@ public class CachingBuildEngineFactory {
   private boolean logBuildRuleFailuresInline = true;
   private BuildInfoStoreManager buildInfoStoreManager;
   private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
+  private Optional<BuildRuleStrategy> customBuildRuleStrategy = Optional.empty();
 
   public CachingBuildEngineFactory(
       BuildRuleResolver buildRuleResolver,
@@ -109,11 +111,24 @@ public class CachingBuildEngineFactory {
     return this;
   }
 
+  public CachingBuildEngineFactory setCustomBuildRuleStrategy(BuildRuleStrategy strategy) {
+    this.customBuildRuleStrategy = Optional.of(strategy);
+    return this;
+  }
+
+  public CachingBuildEngineFactory setCustomBuildRuleStrategy(
+      Optional<BuildRuleStrategy> strategy) {
+    this.customBuildRuleStrategy = strategy;
+    return this;
+  }
+
   public CachingBuildEngine build() {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     if (ruleKeyFactories.isPresent()) {
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
       return new CachingBuildEngine(
           cachingBuildEngineDelegate,
+          customBuildRuleStrategy,
           executorService,
           new DefaultStepRunner(),
           buildMode,
@@ -124,15 +139,17 @@ public class CachingBuildEngineFactory {
           buildRuleResolver,
           buildInfoStoreManager,
           ruleFinder,
-          DefaultSourcePathResolver.from(ruleFinder),
+          sourcePathResolver,
           ruleKeyFactories.get(),
           remoteBuildRuleCompletionWaiter,
           resourceAwareSchedulingInfo,
+          RuleKeyDiagnostics.nop(),
           logBuildRuleFailuresInline);
     }
 
     return new CachingBuildEngine(
         cachingBuildEngineDelegate,
+        customBuildRuleStrategy,
         executorService,
         new DefaultStepRunner(),
         buildMode,
@@ -141,6 +158,8 @@ public class CachingBuildEngineFactory {
         maxDepFileCacheEntries,
         artifactCacheSizeLimit,
         buildRuleResolver,
+        ruleFinder,
+        sourcePathResolver,
         buildInfoStoreManager,
         resourceAwareSchedulingInfo,
         logBuildRuleFailuresInline,
@@ -149,15 +168,11 @@ public class CachingBuildEngineFactory {
             cachingBuildEngineDelegate.getFileHashCache(),
             buildRuleResolver,
             inputFileSizeLimit,
-            new DefaultRuleKeyCache<>()),
+            new TrackedRuleKeyCache<>(new DefaultRuleKeyCache<>(), new NoOpCacheStatsTracker())),
         remoteBuildRuleCompletionWaiter);
   }
 
   private static WeightedListeningExecutorService toWeighted(ListeningExecutorService service) {
-    return new WeightedListeningExecutorService(
-        new ListeningMultiSemaphore(
-            ResourceAmounts.of(Integer.MAX_VALUE, 0, 0, 0), ResourceAllocationFairness.FAIR),
-        /* defaultPermits */ ResourceAmounts.of(1, 0, 0, 0),
-        service);
+    return new FakeWeightedListeningExecutorService(service);
   }
 }

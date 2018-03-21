@@ -25,6 +25,7 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.model.ImmediateDirectoryBuildTargetPattern;
 import com.facebook.buck.model.SingletonBuildTargetPattern;
 import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CellPathResolverView;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -102,11 +103,11 @@ public class BuildTargetPatternParserTest {
   }
 
   @Test
-  public void visibilityCanContainCrossCellReference() throws InterruptedException {
+  public void visibilityCanContainCrossCellReference() {
     BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser =
         BuildTargetPatternParser.forVisibilityArgument();
 
-    final ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     CellPathResolver cellNames =
         DefaultCellPathResolver.of(
             filesystem.getPath("foo/root"),
@@ -122,7 +123,7 @@ public class BuildTargetPatternParserTest {
   }
 
   @Test
-  public void visibilityCanMatchCrossCellTargets() throws Exception {
+  public void visibilityCanMatchCrossCellTargets() {
     BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser =
         BuildTargetPatternParser.forVisibilityArgument();
 

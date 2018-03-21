@@ -21,6 +21,7 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.HumanReadableException;
@@ -120,7 +121,7 @@ public class PythonRunTestsStep implements Step {
                 Optional.of(timeoutHandler));
 
     if (timedOut) {
-      return StepExecutionResult.ERROR;
+      return StepExecutionResults.ERROR;
     } else if (result.getExitCode() != 0) {
       return StepExecutionResult.of(result);
     }
@@ -181,7 +182,7 @@ public class PythonRunTestsStep implements Step {
         .getDescription(context);
   }
 
-  private ShellStep getShellStepWithArgs(final String... args) {
+  private ShellStep getShellStepWithArgs(String... args) {
     return new ShellStep(Optional.of(buildTarget), workingDirectory) {
       @Override
       public StepExecutionResult execute(ExecutionContext context)
@@ -192,7 +193,7 @@ public class PythonRunTestsStep implements Step {
         // return codes indicates that we succeeded in running the tests.
         if (executionResult.getExitCode() == 0
             || executionResult.getExitCode() == TEST_FAILURES_EXIT_CODE) {
-          return StepExecutionResult.SUCCESS;
+          return StepExecutionResults.SUCCESS;
         }
         return executionResult;
       }

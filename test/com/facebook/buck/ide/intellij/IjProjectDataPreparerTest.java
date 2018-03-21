@@ -25,6 +25,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.ide.intellij.lang.android.AndroidManifestParser;
 import com.facebook.buck.ide.intellij.model.ContentRoot;
 import com.facebook.buck.ide.intellij.model.IjLibrary;
 import com.facebook.buck.ide.intellij.model.IjModule;
@@ -62,6 +63,7 @@ public class IjProjectDataPreparerTest {
 
   private FakeProjectFilesystem filesystem;
   private JavaPackageFinder javaPackageFinder;
+  private AndroidManifestParser androidManifestParser;
 
   @Before
   public void setUp() {
@@ -69,6 +71,7 @@ public class IjProjectDataPreparerTest {
     javaPackageFinder =
         DefaultJavaPackageFinder.createDefaultJavaPackageFinder(
             ImmutableSet.of("/java/", "/javatests/"));
+    androidManifestParser = new AndroidManifestParser(new FakeProjectFilesystem());
   }
 
   @Test
@@ -92,7 +95,11 @@ public class IjProjectDataPreparerTest {
 
     IjProjectTemplateDataPreparer dataPreparer =
         new IjProjectTemplateDataPreparer(
-            javaPackageFinder, moduleGraph, filesystem, IjTestProjectConfig.create());
+            javaPackageFinder,
+            moduleGraph,
+            filesystem,
+            IjTestProjectConfig.create(),
+            androidManifestParser);
 
     ContentRoot contentRoot = dataPreparer.getContentRoots(baseModule).asList().get(0);
     assertEquals("file://$MODULE_DIR$", contentRoot.getUrl());
@@ -121,7 +128,7 @@ public class IjProjectDataPreparerTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  public void testDependencies() throws Exception {
+  public void testDependencies() {
     TargetNode<?, ?> hamcrestTargetNode =
         PrebuiltJarBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//third-party/hamcrest:hamcrest"))
@@ -184,7 +191,11 @@ public class IjProjectDataPreparerTest {
 
     IjProjectTemplateDataPreparer dataPreparer =
         new IjProjectTemplateDataPreparer(
-            javaPackageFinder, moduleGraph, filesystem, IjTestProjectConfig.create());
+            javaPackageFinder,
+            moduleGraph,
+            filesystem,
+            IjTestProjectConfig.create(),
+            androidManifestParser);
 
     assertEquals(
         IjModuleGraphTest.getModuleForTarget(moduleGraph, baseInlineTestsTargetNode),
@@ -254,7 +265,7 @@ public class IjProjectDataPreparerTest {
   }
 
   @Test
-  public void testEmptyRootModule() throws Exception {
+  public void testEmptyRootModule() {
 
     Path baseTargetSrcFilePath = Paths.get("java/com/example/base/Base.java");
     TargetNode<?, ?> baseTargetNode =
@@ -267,7 +278,11 @@ public class IjProjectDataPreparerTest {
         IjModuleGraphTest.createModuleGraph(ImmutableSet.of(baseTargetNode));
     IjProjectTemplateDataPreparer dataPreparer =
         new IjProjectTemplateDataPreparer(
-            javaPackageFinder, moduleGraph, filesystem, IjTestProjectConfig.create());
+            javaPackageFinder,
+            moduleGraph,
+            filesystem,
+            IjTestProjectConfig.create(),
+            androidManifestParser);
 
     assertThat(
         dataPreparer.getModulesToBeWritten(),
@@ -290,7 +305,7 @@ public class IjProjectDataPreparerTest {
   }
 
   @Test
-  public void testModuleIndex() throws Exception {
+  public void testModuleIndex() {
     TargetNode<?, ?> guavaTargetNode =
         PrebuiltJarBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//third-party/guava:guava"))
@@ -316,7 +331,11 @@ public class IjProjectDataPreparerTest {
             ImmutableSet.of(guavaTargetNode, baseTargetNode, baseTestsTargetNode));
     IjProjectTemplateDataPreparer dataPreparer =
         new IjProjectTemplateDataPreparer(
-            javaPackageFinder, moduleGraph, filesystem, IjTestProjectConfig.create());
+            javaPackageFinder,
+            moduleGraph,
+            filesystem,
+            IjTestProjectConfig.create(),
+            androidManifestParser);
 
     // Libraries don't go into the index.
     assertEquals(
@@ -360,7 +379,7 @@ public class IjProjectDataPreparerTest {
             Paths.get("lib/guava.jar"));
 
     FakeProjectFilesystem filesystemForExcludesTest =
-        new FakeProjectFilesystem(FakeClock.DO_NOT_CARE, Paths.get(".").toAbsolutePath(), paths);
+        new FakeProjectFilesystem(FakeClock.doNotCare(), Paths.get(".").toAbsolutePath(), paths);
 
     TargetNode<?, ?> guavaTargetNode =
         PrebuiltJarBuilder.createBuilder(BuildTargetFactory.newInstance("//lib:guava"))
@@ -394,7 +413,8 @@ public class IjProjectDataPreparerTest {
             javaPackageFinder,
             moduleGraph,
             filesystemForExcludesTest,
-            IjTestProjectConfig.create());
+            IjTestProjectConfig.create(),
+            androidManifestParser);
 
     assertEquals(
         ImmutableSet.of(Paths.get("java/com/src/foo")),

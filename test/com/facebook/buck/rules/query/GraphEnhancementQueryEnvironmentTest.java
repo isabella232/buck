@@ -32,10 +32,11 @@ import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -52,6 +53,7 @@ import org.junit.Test;
 public class GraphEnhancementQueryEnvironmentTest {
 
   private CellPathResolver cellRoots;
+  private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
   private static final Path ROOT = Paths.get("/fake/cell/root");
 
   @Before
@@ -60,12 +62,13 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getTargetsMatchingPatternThrowsInformativeException() throws Exception {
+  public void getTargetsMatchingPatternThrowsInformativeException() {
     BuildTarget target = BuildTargetFactory.newInstance(ROOT, "//foo/bar:bar");
     GraphEnhancementQueryEnvironment envWithoutDeps =
         new GraphEnhancementQueryEnvironment(
             Optional.of(createMock(BuildRuleResolver.class)),
             Optional.of(createMock(TargetGraph.class)),
+            TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             ImmutableSet.of());
@@ -84,6 +87,7 @@ public class GraphEnhancementQueryEnvironmentTest {
         new GraphEnhancementQueryEnvironment(
             Optional.of(createMock(BuildRuleResolver.class)),
             Optional.of(createMock(TargetGraph.class)),
+            TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             ImmutableSet.of());
@@ -112,6 +116,7 @@ public class GraphEnhancementQueryEnvironmentTest {
         new GraphEnhancementQueryEnvironment(
             Optional.of(createMock(BuildRuleResolver.class)),
             Optional.of(createMock(TargetGraph.class)),
+            TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             ImmutableSet.of(dep1, dep2));
@@ -135,9 +140,7 @@ public class GraphEnhancementQueryEnvironmentTest {
             .addDep(sublibNode.getBuildTarget())
             .build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode);
-    BuildRuleResolver realResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver realResolver = new TestBuildRuleResolver(targetGraph);
 
     FakeJavaLibrary bottomRule =
         realResolver.addToIndex(new FakeJavaLibrary(bottomNode.getBuildTarget()));
@@ -154,6 +157,7 @@ public class GraphEnhancementQueryEnvironmentTest {
     return new GraphEnhancementQueryEnvironment(
         Optional.of(realResolver),
         Optional.of(targetGraph),
+        TYPE_COERCER_FACTORY,
         cellRoots,
         BuildTargetPatternParser.forBaseName(libNode.getBuildTarget().getBaseName()),
         ImmutableSet.of(sublibNode.getBuildTarget()));
@@ -164,7 +168,7 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getFwdDeps() throws Exception {
+  public void getFwdDeps() {
     GraphEnhancementQueryEnvironment env = buildQueryEnvironmentWithGraph();
     // lib -> sublib
     assertThat(
@@ -190,7 +194,7 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getClasspath() throws Exception {
+  public void getClasspath() {
     GraphEnhancementQueryEnvironment env = buildQueryEnvironmentWithGraph();
     ImmutableSet<QueryTarget> classpath =
         env.getFirstOrderClasspath(ImmutableSet.of(getQueryTarget("//:lib")))

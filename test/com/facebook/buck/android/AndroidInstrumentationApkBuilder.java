@@ -20,12 +20,15 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 
 import com.facebook.buck.android.toolchain.DxToolchain;
+import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.util.concurrent.MoreExecutors;
 
@@ -37,20 +40,25 @@ public class AndroidInstrumentationApkBuilder
   private AndroidInstrumentationApkBuilder(BuildTarget target) {
     super(
         new AndroidInstrumentationApkDescription(
-            new ToolchainProviderBuilder()
-                .withDefaultNdkCxxPlatforms()
-                .withToolchain(
-                    DxToolchain.DEFAULT_NAME,
-                    DxToolchain.of(MoreExecutors.newDirectExecutorService()))
-                .withToolchain(
-                    JavacOptionsProvider.DEFAULT_NAME,
-                    JavacOptionsProvider.of(ANDROID_JAVAC_OPTIONS))
-                .build(),
             DEFAULT_JAVA_CONFIG,
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             new CxxBuckConfig(new FakeBuckConfig.Builder().build()),
-            new DxConfig(FakeBuckConfig.builder().build())),
-        target);
+            new DxConfig(FakeBuckConfig.builder().build()),
+            new ApkConfig(FakeBuckConfig.builder().build())),
+        target,
+        new FakeProjectFilesystem(),
+        createToolchainProviderForAndroidInstrumentationApk(),
+        null);
+  }
+
+  public static ToolchainProvider createToolchainProviderForAndroidInstrumentationApk() {
+    return new ToolchainProviderBuilder()
+        .withToolchain(TestNdkCxxPlatformsProviderFactory.createDefaultNdkPlatformsProvider())
+        .withToolchain(
+            DxToolchain.DEFAULT_NAME, DxToolchain.of(MoreExecutors.newDirectExecutorService()))
+        .withToolchain(
+            JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(ANDROID_JAVAC_OPTIONS))
+        .build();
   }
 
   public static AndroidInstrumentationApkBuilder createBuilder(BuildTarget buildTarget) {

@@ -18,13 +18,13 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.concurrent.Parallelizer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -33,8 +33,10 @@ import javax.annotation.Nullable;
  */
 public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
 
+  private boolean isValid = true;
   private final TargetGraph targetGraph;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
+  private final CellProvider cellProvider;
 
   /** Event bus for reporting performance information. Will likely be null in unit tests. */
   @Nullable private final BuckEventBus eventBus;
@@ -42,22 +44,18 @@ public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
   private final ConcurrentHashMap<BuildTarget, BuildRule> buildRuleIndex;
   private final BuildRuleResolverMetadataCache metadataCache;
 
-  @VisibleForTesting
-  public SingleThreadedBuildRuleResolver(
-      TargetGraph targetGraph, TargetNodeToBuildRuleTransformer buildRuleGenerator) {
-    this(targetGraph, buildRuleGenerator, null);
-  }
-
   public SingleThreadedBuildRuleResolver(
       TargetGraph targetGraph,
       TargetNodeToBuildRuleTransformer buildRuleGenerator,
+      CellProvider cellProvider,
       @Nullable BuckEventBus eventBus) {
     this.targetGraph = targetGraph;
     this.buildRuleGenerator = buildRuleGenerator;
+    this.cellProvider = cellProvider;
     this.eventBus = eventBus;
 
     // We preallocate our maps to have this amount of slots to get rid of re-allocations
-    final int initialCapacity = (int) (targetGraph.getNodes().size() * 5 * 1.1);
+    int initialCapacity = (int) (targetGraph.getNodes().size() * 5 * 1.1);
 
     this.buildRuleIndex = new ConcurrentHashMap<>(initialCapacity);
     this.metadataCache =
@@ -66,17 +64,20 @@ public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public Iterable<BuildRule> getBuildRules() {
+    Preconditions.checkState(isValid);
     return Iterables.unmodifiableIterable(buildRuleIndex.values());
   }
 
   @Override
   public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+    Preconditions.checkState(isValid);
     return Optional.ofNullable(buildRuleIndex.get(buildTarget));
   }
 
   @Override
   public BuildRule computeIfAbsent(
       BuildTarget target, Function<BuildTarget, BuildRule> mappingFunction) {
+    Preconditions.checkState(isValid);
     BuildRule rule = buildRuleIndex.get(target);
     if (rule != null) {
       return rule;
@@ -104,11 +105,12 @@ public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public BuildRule requireRule(BuildTarget target) {
+    Preconditions.checkState(isValid);
     return computeIfAbsent(
         target,
         (ignored) -> {
           TargetNode<?, ?> node = targetGraph.get(target);
-          BuildRule rule = buildRuleGenerator.transform(targetGraph, this, node);
+          BuildRule rule = buildRuleGenerator.transform(cellProvider, targetGraph, this, node);
           Preconditions.checkState(
               // TODO(jakubzika): This should hold for flavored build targets as well.
               rule.getBuildTarget()
@@ -123,12 +125,16 @@ public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
 
   @Override
   public <T> Optional<T> requireMetadata(BuildTarget target, Class<T> metadataClass) {
+    Preconditions.checkState(isValid);
     return metadataCache.requireMetadata(target, metadataClass);
   }
 
+  /** Please use {@code computeIfAbsent} instead */
+  @Deprecated
   @Override
   @VisibleForTesting
   public <T extends BuildRule> T addToIndex(T buildRule) {
+    Preconditions.checkState(isValid);
     BuildRule oldValue = buildRuleIndex.put(buildRule.getBuildTarget(), buildRule);
     // Yuck! This is here to make it possible for a rule to depend on a flavor of itself but it
     // would be much much better if we just got rid of the BuildRuleResolver entirely.
@@ -142,11 +148,19 @@ public class SingleThreadedBuildRuleResolver implements BuildRuleResolver {
   @Override
   @Nullable
   public BuckEventBus getEventBus() {
+    Preconditions.checkState(isValid);
     return eventBus;
   }
 
   @Override
-  public <T> Stream<T> maybeParallelize(Stream<T> stream) {
-    return stream;
+  public Parallelizer getParallelizer() {
+    Preconditions.checkState(isValid);
+    return Parallelizer.SERIAL;
+  }
+
+  @Override
+  public void invalidate() {
+    isValid = false;
+    buildRuleIndex.clear();
   }
 }

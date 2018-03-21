@@ -46,7 +46,7 @@ import com.facebook.buck.slb.HttpResponse;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.slb.ThriftUtil;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -114,8 +114,7 @@ public class ThriftArtifactCacheTest {
   }
 
   private void testWithMetadataAndPayloadInfo(
-      @Nullable ArtifactMetadata artifactMetadata, boolean setPayloadInfo)
-      throws InterruptedException, IOException {
+      @Nullable ArtifactMetadata artifactMetadata, boolean setPayloadInfo) throws IOException {
     HttpService storeClient = EasyMock.createNiceMock(HttpService.class);
     HttpService fetchClient = EasyMock.createMock(HttpService.class);
     BuckEventBus eventBus = EasyMock.createNiceMock(BuckEventBus.class);
@@ -136,6 +135,7 @@ public class ThriftArtifactCacheTest {
             .setHttpWriteExecutorService(service)
             .setHttpFetchExecutorService(service)
             .setErrorTextTemplate("my super error msg")
+            .setErrorTextLimit(100)
             .build();
 
     EasyMock.expect(fetchClient.makeRequest(EasyMock.anyString(), EasyMock.anyObject()))
@@ -215,7 +215,7 @@ public class ThriftArtifactCacheTest {
     }
 
     @Override
-    public long contentLength() throws IOException {
+    public long contentLength() {
       return response.length;
     }
 
@@ -234,7 +234,7 @@ public class ThriftArtifactCacheTest {
   }
 
   @Test
-  public void testMultiFetch() throws InterruptedException, IOException {
+  public void testMultiFetch() throws IOException {
     HttpService storeClient = EasyMock.createNiceMock(HttpService.class);
     HttpService fetchClient = EasyMock.createMock(HttpService.class);
     BuckEventBus eventBus = EasyMock.createNiceMock(BuckEventBus.class);
@@ -255,6 +255,7 @@ public class ThriftArtifactCacheTest {
             .setHttpWriteExecutorService(service)
             .setHttpFetchExecutorService(service)
             .setErrorTextTemplate("my super error msg")
+            .setErrorTextLimit(100)
             .build();
 
     // 0 -> Miss, 1 -> Hit, 2 -> Skip, 3 -> Hit.
@@ -343,7 +344,7 @@ public class ThriftArtifactCacheTest {
   }
 
   @Test
-  public void testMultiContains() throws InterruptedException, IOException {
+  public void testMultiContains() throws IOException {
     HttpService storeClient = EasyMock.createNiceMock(HttpService.class);
     HttpService fetchClient = EasyMock.createMock(HttpService.class);
     BuckEventBus eventBus = EasyMock.createNiceMock(BuckEventBus.class);
@@ -364,6 +365,7 @@ public class ThriftArtifactCacheTest {
             .setHttpWriteExecutorService(service)
             .setHttpFetchExecutorService(service)
             .setErrorTextTemplate("my super error msg")
+            .setErrorTextLimit(100)
             .build();
 
     com.facebook.buck.rules.RuleKey key0 = new com.facebook.buck.rules.RuleKey(HashCode.fromInt(0));
@@ -445,6 +447,7 @@ public class ThriftArtifactCacheTest {
             .setHttpWriteExecutorService(service)
             .setHttpFetchExecutorService(service)
             .setErrorTextTemplate("unused test error message")
+            .setErrorTextLimit(100)
             .build();
 
     EasyMock.expect(storeClient.makeRequest(EasyMock.anyString(), EasyMock.anyObject()))

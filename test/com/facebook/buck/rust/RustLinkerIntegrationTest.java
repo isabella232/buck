@@ -18,8 +18,8 @@ package com.facebook.buck.rust;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
@@ -36,11 +36,11 @@ public class RustLinkerIntegrationTest {
 
   @Before
   public void ensureRustIsAvailable() throws IOException, InterruptedException {
-    RustAssumptions.assumeRustCompilerAvailable();
+    RustAssumptions.assumeRustIsConfigured();
   }
 
   @Test
-  public void rustLinkerOverride() throws IOException, InterruptedException {
+  public void rustLinkerOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -55,7 +55,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void rustLinkerCxxArgsOverride() throws IOException, InterruptedException {
+  public void rustLinkerCxxArgsOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -69,7 +69,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void rustLinkerRustArgsOverride() throws IOException, InterruptedException {
+  public void rustLinkerRustArgsOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -89,7 +89,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void rustRuleLinkerFlagsOverride() throws IOException, InterruptedException {
+  public void rustRuleLinkerFlagsOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -100,7 +100,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void rustTestRuleLinkerFlagsOverride() throws IOException, InterruptedException {
+  public void rustTestRuleLinkerFlagsOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_tests", tmp);
     workspace.setUp();
@@ -111,19 +111,18 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void cxxLinkerOverride() throws IOException, InterruptedException {
+  public void cxxLinkerOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
 
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(Matchers.containsString("Overridden cxx:ld path not found: bad-linker"));
+    thrown.expectMessage(Matchers.containsString("bad-linker"));
 
     workspace.runBuckCommand("run", "--config", "cxx.ld=bad-linker", "//:xyzzy").assertFailure();
   }
 
   @Test
-  public void cxxLinkerArgsOverride() throws IOException, InterruptedException {
+  public void cxxLinkerArgsOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -138,7 +137,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void cxxLinkerArgsNoOverride() throws IOException, InterruptedException {
+  public void cxxLinkerArgsNoOverride() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();
@@ -156,7 +155,7 @@ public class RustLinkerIntegrationTest {
   }
 
   @Test
-  public void cxxLinkerDependency() throws IOException, InterruptedException {
+  public void cxxLinkerDependency() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
     workspace.setUp();

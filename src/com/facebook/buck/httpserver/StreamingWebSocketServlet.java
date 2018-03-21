@@ -17,7 +17,7 @@
 package com.facebook.buck.httpserver;
 
 import com.facebook.buck.event.external.events.BuckEventExternalInterface;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.util.Collections;
@@ -28,14 +28,13 @@ import org.eclipse.jetty.websocket.servlet.WebSocketCreator;
 import org.eclipse.jetty.websocket.servlet.WebSocketServlet;
 import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
 
-@SuppressWarnings("serial")
 public class StreamingWebSocketServlet extends WebSocketServlet {
 
   // This is threadsafe
   private final Set<MyWebSocket> connections;
 
   public StreamingWebSocketServlet() {
-    this.connections = Collections.newSetFromMap(Maps.<MyWebSocket, Boolean>newConcurrentMap());
+    this.connections = Collections.newSetFromMap(Maps.newConcurrentMap());
   }
 
   @Override

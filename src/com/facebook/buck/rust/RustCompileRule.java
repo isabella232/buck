@@ -28,6 +28,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -140,13 +141,18 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
             MoreSuppliers.memoize(
                 () ->
                     ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(compiler.getDeps(ruleFinder))
-                        .addAll(linker.getDeps(ruleFinder))
+                        .addAll(BuildableSupport.getDepsCollection(compiler, ruleFinder))
+                        .addAll(BuildableSupport.getDepsCollection(linker, ruleFinder))
                         .addAll(
                             Stream.of(args, depArgs, linkerArgs)
                                 .flatMap(
                                     a ->
-                                        a.stream().flatMap(arg -> arg.getDeps(ruleFinder).stream()))
+                                        a.stream()
+                                            .flatMap(
+                                                arg ->
+                                                    BuildableSupport.getDepsCollection(
+                                                            arg, ruleFinder)
+                                                        .stream()))
                                 .iterator())
                         .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(rootModule)))
                         .addAll(ruleFinder.filterBuildRuleInputs(sources))
@@ -249,8 +255,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                   cmd.add("--color=always");
                 }
 
-                remapSrcPaths.addRemapOption(
-                    cmd, workingDirectory.toString(), scratchDir.toString() + "/");
+                remapSrcPaths.addRemapOption(cmd, workingDirectory.toString(), scratchDir + "/");
 
                 // Generate a target-unique string to distinguish distinct crates with the same
                 // name.
@@ -293,10 +298,10 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 // invocation in Rust source, and if the path isn't absolute
                 // it will be treated as relative to the current file including
                 // it. The trailing '/' is also to assist this use-case.
-                env.put("RUSTC_BUILD_CONTAINER", root.resolve(scratchDir).toString() + "/");
+                env.put("RUSTC_BUILD_CONTAINER", root.resolve(scratchDir) + "/");
                 env.put(
                     "RUSTC_BUILD_CONTAINER_BASE_PATH",
-                    root.resolve(scratchDir.resolve(basePath)).toString() + "/");
+                    root.resolve(scratchDir.resolve(basePath)) + "/");
 
                 return env.build();
               }

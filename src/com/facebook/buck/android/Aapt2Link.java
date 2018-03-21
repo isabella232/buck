@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -33,7 +34,6 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
@@ -57,21 +57,21 @@ public class Aapt2Link extends AbstractBuildRule {
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
 
-  private final AndroidLegacyToolchain androidLegacyToolchain;
+  private final AndroidPlatformTarget androidPlatformTarget;
   private final Supplier<ImmutableSortedSet<BuildRule>> buildDepsSupplier;
 
   Aapt2Link(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<Aapt2Compile> compileRules,
       ImmutableList<HasAndroidResourceDeps> resourceRules,
       SourcePath manifest,
       ManifestEntries manifestEntries,
-      boolean noAutoVersion) {
+      boolean noAutoVersion,
+      AndroidPlatformTarget androidPlatformTarget) {
     super(buildTarget, projectFilesystem);
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.androidPlatformTarget = androidPlatformTarget;
     this.compileRules = compileRules;
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
@@ -133,12 +133,12 @@ public class Aapt2Link extends AbstractBuildRule {
       symlinkMap.put(linkPath, flata);
     }
 
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), linkTreePath)));
     steps.add(
-        RmStep.of(
-                BuildCellRelativePath.fromCellRelativePath(
-                    context.getBuildCellRootPath(), getProjectFilesystem(), linkTreePath))
-            .withRecursive(true));
-    steps.add(new SymlinkTreeStep(getProjectFilesystem(), linkTreePath, symlinkMap.build()));
+        new SymlinkTreeStep("aapt", getProjectFilesystem(), linkTreePath, symlinkMap.build()));
 
     steps.add(
         new Aapt2LinkStep(
@@ -212,9 +212,6 @@ public class Aapt2Link extends AbstractBuildRule {
 
     @Override
     protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-      AndroidPlatformTarget androidPlatformTarget =
-          androidLegacyToolchain.getAndroidPlatformTarget();
-
       ImmutableList.Builder<String> builder = ImmutableList.builder();
 
       builder.add(androidPlatformTarget.getAapt2Executable().toString());

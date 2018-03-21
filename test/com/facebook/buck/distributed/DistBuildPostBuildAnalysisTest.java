@@ -32,13 +32,13 @@ import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
@@ -124,7 +124,7 @@ public class DistBuildPostBuildAnalysisTest {
   }
 
   @Test
-  public void testExtractBuildRules() throws IOException, InterruptedException {
+  public void testExtractBuildRules() throws IOException {
     List<BuildRuleEvent.Finished> ruleEvents = new ArrayList<>();
     ruleEvents.add(
         finishedEvent(

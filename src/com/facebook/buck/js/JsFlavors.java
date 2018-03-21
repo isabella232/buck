@@ -17,14 +17,14 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UserFlavor;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
@@ -80,7 +80,7 @@ public class JsFlavors {
   public static boolean validateFlavors(
       ImmutableSet<Flavor> flavors, Iterable<FlavorDomain<?>> allowableDomains) {
 
-    final ImmutableSet.Builder<Flavor> allowableFlavors = ImmutableSet.builder();
+    ImmutableSet.Builder<Flavor> allowableFlavors = ImmutableSet.builder();
     for (FlavorDomain<?> domain : allowableDomains) {
       // verify only one flavor of each domain is present
       domain.getFlavor(flavors);
@@ -90,13 +90,13 @@ public class JsFlavors {
     return allowableFlavors.build().containsAll(flavors);
   }
 
-  public static Flavor fileFlavorForSourcePath(final Path path) {
-    final String hash =
+  public static Flavor fileFlavorForSourcePath(Path path) {
+    String hash =
         Hashing.sha1()
             .hashString(MorePaths.pathWithUnixSeparators(path), Charsets.UTF_8)
             .toString()
             .substring(0, 10);
-    final String safeFileName = Flavor.replaceInvalidCharacters(path.getFileName().toString());
+    String safeFileName = Flavor.replaceInvalidCharacters(path.getFileName().toString());
     return InternalFlavor.of(fileFlavorPrefix + safeFileName + "-" + hash);
   }
 

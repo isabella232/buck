@@ -206,18 +206,6 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   }
 
   /**
-   * Indicates whether globals imported by {@code include_defs} should be "frozen", which means they
-   * will be converted into their read-only counterparts. This can be used to detect accidental
-   * attempts to modify global variables causing non-determinism and hard to debug bugs.
-   *
-   * @return boolean flag indicating whether globals must be "frozen".
-   */
-  @Value.Lazy
-  public boolean getFreezeGlobals() {
-    return getDelegate().getBooleanValue("parser", "freeze_globals", false);
-  }
-
-  /**
    * @return boolean flag indicating whether support for parsing build files using non default
    *     syntax (currently Python DSL).
    *     <p>For a list of supported syntax see {@link Syntax}.
@@ -236,5 +224,39 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
     return getDelegate()
         .getEnum("parser", "default_build_file_syntax", Syntax.class)
         .orElse(Syntax.PYTHON_DSL);
+  }
+
+  /**
+   * Returns a whether we should show the warning for parser cache mutation when using buck
+   * parser-cache --load
+   */
+  @Value.Lazy
+  public boolean isParserCacheMutationWarningEnabled() {
+    return getDelegate().getBooleanValue("parser", "parser_cache_mutation_warning_enabled", true);
+  }
+
+  /**
+   * @return whether native build rules are available for users in build files. If not, they are
+   *     only accessible in extension files under the 'native' object
+   */
+  @Value.Lazy
+  public boolean getDisableImplicitNativeRules() {
+    return getDelegate().getBooleanValue("parser", "disable_implicit_native_rules", false);
+  }
+
+  /** @return whether Buck should warn about deprecated syntax. */
+  @Value.Lazy
+  public boolean isWarnAboutDeprecatedSyntax() {
+    return getDelegate().getBooleanValue("parser", "warn_about_deprecated_syntax", true);
+  }
+
+  /**
+   * @return whether Buck should invalidate the parser state based on environment variables.
+   *     <p>WARNING: Environment variable changes won't discard the parser state. This setting
+   *     should be used with caution since it can lead to wrong parser results.
+   */
+  @Value.Lazy
+  public boolean shouldIgnoreEnvironmentVariablesChanges() {
+    return getDelegate().getBooleanValue("parser", "ignore_environment_variables_changes", false);
   }
 }

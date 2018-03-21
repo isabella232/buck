@@ -19,13 +19,13 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -153,7 +153,7 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       return false;
     }
 
-    final Javac.Source javacSource = getJavacSpec().getJavacSource();
+    Javac.Source javacSource = getJavacSpec().getJavacSource();
     return (javacSource == Javac.Source.JAR || javacSource == Javac.Source.JDK);
   }
 
@@ -234,6 +234,12 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return delegate.getValue(SECTION, "default_cxx_platform");
   }
 
+  public UnusedDependenciesAction getUnusedDependenciesAction() {
+    return delegate
+        .getEnum(SECTION, "unused_dependencies_action", UnusedDependenciesAction.class)
+        .orElse(UnusedDependenciesAction.IGNORE);
+  }
+
   public enum SourceAbiVerificationMode {
     /** Don't verify ABI jars. */
     OFF,
@@ -241,5 +247,12 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     LOG,
     /** Generate ABI jars from classes and from source. Fail on differences. */
     FAIL,
+  }
+
+  /** An action that is executed when a rule that compiles Java code has unused dependencies. */
+  public enum UnusedDependenciesAction {
+    FAIL,
+    WARN,
+    IGNORE
   }
 }

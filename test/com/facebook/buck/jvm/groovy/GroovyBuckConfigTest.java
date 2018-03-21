@@ -24,7 +24,7 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.RawConfig;
 import com.facebook.buck.util.environment.Architecture;
@@ -50,7 +50,7 @@ public class GroovyBuckConfigTest {
 
     ImmutableMap<String, String> environment = ImmutableMap.of();
     ImmutableMap<String, ImmutableMap<String, String>> rawConfig = ImmutableMap.of();
-    final GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
+    GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
 
     groovyBuckConfig.getGroovyCompiler();
   }
@@ -65,7 +65,7 @@ public class GroovyBuckConfigTest {
 
     ImmutableMap<String, String> environment = ImmutableMap.of("GROOVY_HOME", invalidPath);
     ImmutableMap<String, ImmutableMap<String, String>> rawConfig = ImmutableMap.of();
-    final GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
+    GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
 
     groovyBuckConfig.getGroovyCompiler();
   }
@@ -78,7 +78,7 @@ public class GroovyBuckConfigTest {
     //noinspection ConstantConditions
     ImmutableMap<String, String> environment = ImmutableMap.of("GROOVY_HOME", systemGroovyHome);
     ImmutableMap<String, ImmutableMap<String, String>> rawConfig = ImmutableMap.of();
-    final GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
+    GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
 
     // it's enough that this doesn't throw.
     groovyBuckConfig.getGroovyCompiler();
@@ -94,7 +94,7 @@ public class GroovyBuckConfigTest {
     //noinspection ConstantConditions
     ImmutableMap<String, ImmutableMap<String, String>> rawConfig =
         ImmutableMap.of("groovy", ImmutableMap.of("groovy_home", systemGroovyHome));
-    final GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
+    GroovyBuckConfig groovyBuckConfig = createGroovyConfig(environment, rawConfig);
 
     // it's enough that this doesn't throw.
     groovyBuckConfig.getGroovyCompiler();
@@ -102,8 +102,7 @@ public class GroovyBuckConfigTest {
 
   private GroovyBuckConfig createGroovyConfig(
       ImmutableMap<String, String> environment,
-      ImmutableMap<String, ImmutableMap<String, String>> rawConfig)
-      throws InterruptedException {
+      ImmutableMap<String, ImmutableMap<String, String>> rawConfig) {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     Config config = new Config(RawConfig.of(rawConfig));

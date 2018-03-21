@@ -28,6 +28,7 @@ import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -39,7 +40,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.FlavorDomainException;
@@ -48,6 +48,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
@@ -60,17 +61,19 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftLibraryDescription;
+import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
-import com.facebook.buck.zip.UnzipStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -147,17 +150,23 @@ public class AppleTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AppleTestDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     if (!appleConfig.shouldUseSwiftDelegate()) {
       Optional<BuildRule> buildRule =
           appleLibraryDescription.createSwiftBuildRule(
-              buildTarget, projectFilesystem, params, resolver, cellRoots, args, Optional.of(this));
+              buildTarget,
+              projectFilesystem,
+              params,
+              resolver,
+              new SourcePathRuleFinder(resolver),
+              context.getCellPathResolver(),
+              args,
+              Optional.of(this));
 
       if (buildRule.isPresent()) {
         return buildRule.get();
@@ -253,11 +262,9 @@ public class AppleTestDescription
             .withAppendedFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     BuildRule library =
         createTestLibraryRule(
-            targetGraph,
-            projectFilesystem,
+            context,
             params,
             resolver,
-            cellRoots,
             args,
             testHostWithTargetApp.flatMap(TestHostInfo::getTestHostAppBinarySourcePath),
             testHostWithTargetApp.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
@@ -274,7 +281,7 @@ public class AppleTestDescription
             cxxPlatformFlavorDomain,
             defaultCxxFlavor,
             appleCxxPlatformFlavorDomain,
-            targetGraph,
+            context.getTargetGraph(),
             buildTarget.withAppendedFlavors(
                 BUNDLE_FLAVOR,
                 debugFormat.getFlavor(),
@@ -291,7 +298,8 @@ public class AppleTestDescription
                 CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
             toolchainProvider.getByName(
                 ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
-            library.getBuildTarget(),
+            Optional.of(library.getBuildTarget()),
+            Optional.empty(),
             args.getExtension(),
             Optional.empty(),
             args.getInfoPlist(),
@@ -301,7 +309,9 @@ public class AppleTestDescription
             debugFormat,
             appleConfig.useDryRunCodeSigning(),
             appleConfig.cacheBundlesAndPackages(),
+            appleConfig.shouldVerifyBundleResources(),
             appleConfig.assetCatalogValidation(),
+            args.getAssetCatalogsCompilationOptions(),
             args.getCodesignFlags(),
             args.getCodesignIdentity(),
             Optional.empty());
@@ -345,12 +355,12 @@ public class AppleTestDescription
     // we need to unpack to get at the actual binary.  Otherwise, if it's specified as a path, we
     // can use that directly.
     if (appleConfig.getXctoolZipTarget().isPresent()) {
-      final BuildRule xctoolZipBuildRule = resolver.getRule(appleConfig.getXctoolZipTarget().get());
+      BuildRule xctoolZipBuildRule = resolver.getRule(appleConfig.getXctoolZipTarget().get());
 
       // Since the content is unzipped in a directory that might differ for each cell the tests are
       // from, we append a flavor that depends on the root path of the projectFilesystem
       // in order to get a different rule for each cell the tests are from.
-      final String relativeRootPathString =
+      String relativeRootPathString =
           xctoolZipBuildRule
               .getBuildTarget()
               .getCellPath()
@@ -365,7 +375,7 @@ public class AppleTestDescription
               .getBuildTarget()
               .withAppendedFlavors(UNZIP_XCTOOL_FLAVOR)
               .withAppendedFlavors(InternalFlavor.of(sha1Hash));
-      final Path outputDirectory =
+      Path outputDirectory =
           BuildTargets.getGenPath(projectFilesystem, unzipXctoolTarget, "%s/unzipped");
       resolver.computeIfAbsent(
           unzipXctoolTarget,
@@ -395,7 +405,8 @@ public class AppleTestDescription
                                 .getAbsolutePath(
                                     Preconditions.checkNotNull(
                                         xctoolZipBuildRule.getSourcePathToOutput())),
-                            outputDirectory))
+                            outputDirectory,
+                            Optional.empty()))
                     .build();
               }
 
@@ -416,11 +427,9 @@ public class AppleTestDescription
   }
 
   private BuildRule createTestLibraryRule(
-      TargetGraph targetGraph,
-      ProjectFilesystem projectFilesystem,
+      BuildRuleCreationContext context,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AppleTestDescriptionArg args,
       Optional<SourcePath> testHostAppBinarySourcePath,
       ImmutableSet<BuildTarget> blacklist,
@@ -437,12 +446,10 @@ public class AppleTestDescription
     } else {
       library =
           appleLibraryDescription.createLibraryBuildRule(
-              targetGraph,
+              context,
               libraryTarget,
-              projectFilesystem,
               params,
               resolver,
-              cellRoots,
               args,
               // For now, instead of building all deps as dylibs and fixing up their install_names,
               // we'll just link them statically.
@@ -471,8 +478,8 @@ public class AppleTestDescription
       extraDepsBuilder.add(xctoolZipTarget.get());
     }
     extraDepsBuilder.addAll(appleConfig.getCodesignProvider().getParseTimeDeps());
-    appleLibraryDescription.findDepsForTargetFromConstructorArgs(
-        buildTarget, cellRoots, constructorArg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(getCxxPlatformsProvider().getCxxPlatforms().getValues()));
   }
 
   private AppleBundle getBuildRuleForTestHostAppTarget(
@@ -534,8 +541,14 @@ public class AppleTestDescription
     // ignored.
     ImmutableSet.Builder<BuildTarget> blacklistBuilder = ImmutableSet.builder();
     for (CxxPlatform platform : cxxPlatforms) {
-      blacklistBuilder.addAll(
-          NativeLinkables.getTransitiveNativeLinkables(platform, roots.values()).keySet());
+      ImmutableSet<BuildTarget> blacklistables =
+          NativeLinkables.getTransitiveNativeLinkables(platform, resolver, roots.values())
+              .entrySet()
+              .stream()
+              .filter(x -> !(x.getValue() instanceof SwiftRuntimeNativeLinkable))
+              .map(x -> x.getKey())
+              .collect(ImmutableSet.toImmutableSet());
+      blacklistBuilder.addAll(blacklistables);
     }
 
     if (!uiTestTargetAppBuildTarget.isPresent()) {
@@ -583,7 +596,7 @@ public class AppleTestDescription
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) {
     return appleLibraryDescription.createMetadataForLibrary(
-        buildTarget, resolver, cellRoots, selectedVersions, args, metadataClass);
+        buildTarget, resolver, cellRoots, args, metadataClass);
   }
 
   private CxxPlatformsProvider getCxxPlatformsProvider() {
@@ -620,6 +633,7 @@ public class AppleTestDescription
           HasAppleBundleFields,
           HasAppleCodesignFields,
           HasContacts,
+          HasEntitlementsFile,
           HasTestTimeout {
     @Value.Default
     default boolean getRunTestSeparately() {
@@ -669,7 +683,7 @@ public class AppleTestDescription
         CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
             ruleResolver, baseTarget, cxxPlatform, HeaderVisibility.PUBLIC);
     Collection<CxxPreprocessorInput> depsInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps);
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver, deps);
 
     ImmutableSet.Builder<CxxPreprocessorInput> inputsBuilder = ImmutableSet.builder();
     inputsBuilder.addAll(depsInputs);

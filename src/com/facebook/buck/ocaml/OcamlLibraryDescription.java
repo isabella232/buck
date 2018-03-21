@@ -18,17 +18,16 @@ package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.OcamlSource;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -66,19 +65,19 @@ public class OcamlLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       OcamlLibraryDescriptionArg args) {
 
     ImmutableList<OcamlSource> srcs = args.getSrcs();
-    ImmutableList.Builder<com.facebook.buck.rules.args.Arg> flags = ImmutableList.builder();
+    ImmutableList.Builder<Arg> flags = ImmutableList.builder();
     flags.addAll(
         OcamlDescriptionEnhancer.toStringWithMacrosArgs(
-            buildTarget, cellRoots, resolver, args.getCompilerFlags()));
+            buildTarget,
+            context.getCellPathResolver(),
+            context.getBuildRuleResolver(),
+            args.getCompilerFlags()));
     if (ocamlBuckConfig.getWarningsFlags().isPresent() || args.getWarningsFlags().isPresent()) {
       flags.addAll(
           StringArg.from(
@@ -94,14 +93,15 @@ public class OcamlLibraryDescription
         toolchainProvider,
         ocamlBuckConfig,
         buildTarget,
-        projectFilesystem,
+        context.getProjectFilesystem(),
         params,
-        resolver,
+        context.getBuildRuleResolver(),
         srcs,
         /*isLibrary*/ true,
         bytecodeOnly,
         flags.build(),
         linkerflags,
+        args.getOcamldepFlags(),
         nativePlugin);
   }
 
@@ -112,7 +112,7 @@ public class OcamlLibraryDescription
       AbstractOcamlLibraryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder.addAll(
+    targetGraphOnlyDepsBuilder.addAll(
         CxxPlatforms.getParseTimeDeps(
             toolchainProvider
                 .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
@@ -125,6 +125,8 @@ public class OcamlLibraryDescription
     ImmutableList<OcamlSource> getSrcs();
 
     ImmutableList<StringWithMacros> getCompilerFlags();
+
+    ImmutableList<String> getOcamldepFlags();
 
     ImmutableList<String> getLinkerFlags();
 

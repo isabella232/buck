@@ -20,8 +20,10 @@ import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
 import com.facebook.buck.cli.parameter_extractors.ProjectViewParameters;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
+import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.projectview.ProjectView;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -31,7 +33,6 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -48,12 +49,15 @@ import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
+import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.concurrent.MostExecutors;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionException;
-import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -63,6 +67,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 
 public class IjProjectCommandHelper {
@@ -73,7 +78,7 @@ public class IjProjectCommandHelper {
   private final Parser parser;
   private final BuckConfig buckConfig;
   private final ActionGraphCache actionGraphCache;
-  private final VersionedTargetGraphCache versionedTargetGraphCache;
+  private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
   private final RuleKeyConfiguration ruleKeyConfiguration;
@@ -90,7 +95,7 @@ public class IjProjectCommandHelper {
       ListeningExecutorService executor,
       BuckConfig buckConfig,
       ActionGraphCache actionGraphCache,
-      VersionedTargetGraphCache versionedTargetGraphCache,
+      InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
       Cell cell,
       RuleKeyConfiguration ruleKeyConfiguration,
@@ -121,11 +126,19 @@ public class IjProjectCommandHelper {
   public ExitCode parseTargetsAndRunProjectGenerator(List<String> arguments)
       throws IOException, InterruptedException {
     if (projectViewParameters.hasViewPath() && arguments.isEmpty()) {
-      console
-          .getStdErr()
-          .println("\nParams are view_path target(s), but you didn't supply any targets");
+      throw new CommandLineException(
+          "params are view_path target(s), but you didn't supply any targets");
+    }
 
-      return ExitCode.COMMANDLINE_ERROR;
+    if (projectViewParameters.hasViewPath()) {
+      console.printErrorText("`--view` option is deprecated and will be removed soon.");
+    }
+
+    if (projectGeneratorParameters.isUpdateOnly()
+        && projectConfig.getAggregationMode() != AggregationMode.NONE) {
+      throw new CommandLineException(
+          "`--regenerate` option is incompatible with IntelliJ"
+              + " module aggregation. In order to use `--regenerate` set `--intellij-aggregation-mode=none`");
     }
 
     List<String> targets = arguments;
@@ -150,7 +163,7 @@ public class IjProjectCommandHelper {
                       PerBuildState.SpeculativeParsing.ENABLED,
                       parserConfig.getDefaultFlavorsMode())));
       projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
-    } catch (BuildTargetException | BuildFileParseException e) {
+    } catch (BuildFileParseException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -174,10 +187,7 @@ public class IjProjectCommandHelper {
     try {
       targetGraphAndTargets =
           createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty(), executor);
-    } catch (BuildFileParseException
-        | TargetGraph.NoSuchNodeException
-        | BuildTargetException
-        | VersionException e) {
+    } catch (BuildFileParseException | TargetGraph.NoSuchNodeException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -210,13 +220,26 @@ public class IjProjectCommandHelper {
   }
 
   private ActionGraphAndResolver getActionGraph(TargetGraph targetGraph) {
-    return actionGraphCache.getActionGraph(
-        buckEventBus, targetGraph, buckConfig, ruleKeyConfiguration);
+    try (CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier =
+        CloseableMemoizedSupplier.of(
+            () ->
+                MostExecutors.forkJoinPoolWithThreadLimit(
+                    buckConfig.getView(ResourcesConfig.class).getMaximumResourceAmounts().getCpu(),
+                    16),
+            ForkJoinPool::shutdownNow)) {
+      return actionGraphCache.getActionGraph(
+          buckEventBus,
+          targetGraph,
+          cell.getCellProvider(),
+          buckConfig,
+          ruleKeyConfiguration,
+          forkJoinPoolSupplier);
+    }
   }
 
   private TargetGraph getProjectGraphForIde(
       ListeningExecutorService executor, ImmutableSet<BuildTarget> passedInTargets)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
 
     if (passedInTargets.isEmpty()) {
       return parser
@@ -236,7 +259,7 @@ public class IjProjectCommandHelper {
   }
 
   /** Run intellij specific project generation actions. */
-  private ExitCode runIntellijProjectGenerator(final TargetGraphAndTargets targetGraphAndTargets)
+  private ExitCode runIntellijProjectGenerator(TargetGraphAndTargets targetGraphAndTargets)
       throws IOException, InterruptedException {
     ImmutableSet<BuildTarget> requiredBuildTargets =
         writeProjectAndGetRequiredBuildTargets(targetGraphAndTargets);
@@ -275,7 +298,13 @@ public class IjProjectCommandHelper {
             cell.getFilesystem(),
             projectConfig);
 
-    return project.write();
+    final ImmutableSet<BuildTarget> buildTargets;
+    if (projectGeneratorParameters.isUpdateOnly()) {
+      buildTargets = project.update();
+    } else {
+      buildTargets = project.write();
+    }
+    return buildTargets;
   }
 
   private ExitCode buildRequiredTargetsWithoutUsingCacheForAnnotatedTargets(
@@ -310,7 +339,7 @@ public class IjProjectCommandHelper {
   }
 
   private ImmutableSet<BuildTarget> getTargetsWithAnnotations(
-      final TargetGraph targetGraph, ImmutableSet<BuildTarget> buildTargets) {
+      TargetGraph targetGraph, ImmutableSet<BuildTarget> buildTargets) {
     return buildTargets
         .stream()
         .filter(
@@ -370,8 +399,7 @@ public class IjProjectCommandHelper {
       ImmutableSet<BuildTarget> graphRoots,
       boolean needsFullRecursiveParse,
       ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
-          VersionException {
+      throws IOException, InterruptedException, BuildFileParseException, VersionException {
 
     boolean isWithTests = isWithTests();
     ImmutableSet<BuildTarget> explicitTestTargets = ImmutableSet.of();

@@ -26,20 +26,17 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PicType;
-import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
@@ -96,10 +93,8 @@ public class PrecompiledHeaderFeatureTest {
 
     @Test
     public void test() {
-      final String headerFilename = "foo.h";
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      String headerFilename = "foo.h";
+      BuildRuleResolver resolver = new TestBuildRuleResolver();
       CxxPreprocessAndCompile rule =
           preconfiguredSourceRuleFactoryBuilder(resolver)
               .setCxxPlatform(getPlatform())
@@ -122,7 +117,7 @@ public class PrecompiledHeaderFeatureTest {
               toolType,
               headerFilename);
       assertNotEquals(
-          "should use either prefix header flag, or precompiled header flag, but never both:"
+          "should use either prefix header flag OR precompiled header flag; one but not both:"
               + " toolType:"
               + toolType
               + " pchEnabled:"
@@ -151,9 +146,7 @@ public class PrecompiledHeaderFeatureTest {
   public static class TestSupportConditions {
     @Test
     public void rejectPchParameterIfSourceTypeDoesntSupportPch() {
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      BuildRuleResolver resolver = new TestBuildRuleResolver();
       CxxPlatform platform =
           PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
               new MungingDebugPathSanitizer(
@@ -181,12 +174,9 @@ public class PrecompiledHeaderFeatureTest {
 
             // $CASES-OMITTED$
           default:
-            Preprocessor preprocessor =
-                CxxSourceTypes.getPreprocessor(platform, sourceType).resolve(resolver);
-
             assertEquals(
                 sourceType.getPrecompiledHeaderLanguage().isPresent(),
-                factory.canUsePrecompiledHeaders(config, preprocessor, sourceType));
+                factory.canUsePrecompiledHeaders(sourceType));
         }
       }
     }
@@ -197,9 +187,7 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldDeriveFromSanitizedFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Path from) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          BuildRuleResolver resolver = new TestBuildRuleResolver();
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)
                   .setCxxPlatform(
@@ -239,9 +227,7 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithCompilerFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Iterable<String> flags) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          BuildRuleResolver resolver = new TestBuildRuleResolver();
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)
                   .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
@@ -274,9 +260,7 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithPreprocessorFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(String flags) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          BuildRuleResolver resolver = new TestBuildRuleResolver();
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)
                   .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
@@ -349,10 +333,6 @@ public class PrecompiledHeaderFeatureTest {
         // TODO(steveo): windows support in the near future.
         // (This case is not hit; parameters at top of this test class don't include WINDOWS.)
         throw new IllegalStateException();
-
-      case DEFAULT:
-        // default not used in test.
-        throw new IllegalStateException();
     }
 
     return false;
@@ -384,10 +364,6 @@ public class PrecompiledHeaderFeatureTest {
       case WINDOWS:
         // TODO(steveo): windows support in the near future.
         // (This case is not hit; parameters at top of this test class don't include WINDOWS.)
-        throw new IllegalStateException();
-
-      case DEFAULT:
-        // default not used in test.
         throw new IllegalStateException();
     }
 

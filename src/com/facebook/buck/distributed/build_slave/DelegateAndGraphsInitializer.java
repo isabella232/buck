@@ -16,7 +16,6 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.distributed.DistBuildCachingEngineDelegate;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
@@ -40,19 +39,23 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 
 /** Initializes the build engine delegate, the target graph and the action graph. */
 public class DelegateAndGraphsInitializer {
@@ -83,13 +86,20 @@ public class DelegateAndGraphsInitializer {
   }
 
   public ListenableFuture<ActionGraphAndResolver> getActionGraphAndResolver() {
-    return Futures.transform(delegateAndGraphs, x -> x.getActionGraphAndResolver());
+    return Futures.transform(
+        delegateAndGraphs, x -> x.getActionGraphAndResolver(), MoreExecutors.directExecutor());
   }
 
   private DelegateAndGraphs createDelegateAndGraphs() throws IOException, InterruptedException {
+    LOG.info("Starting to preload source files.");
     StackedFileHashCaches stackedCaches = createStackedFileHashesAndPreload();
+    LOG.info("Finished pre-loading source files.");
+    LOG.info("Starting to create the target graph.");
     TargetGraph targetGraph = createTargetGraph();
+    LOG.info("Finished creating the target graph.");
+    LOG.info("Starting to create the action graph.");
     ActionGraphAndResolver actionGraphAndResolver = createActionGraphAndResolver(targetGraph);
+    LOG.info("Finished creating the action graph.");
     CachingBuildEngineDelegate engineDelegate =
         createBuildEngineDelegate(stackedCaches, actionGraphAndResolver);
     return DelegateAndGraphs.builder()
@@ -99,7 +109,7 @@ public class DelegateAndGraphsInitializer {
         .build();
   }
 
-  private TargetGraph createTargetGraph() throws IOException, InterruptedException {
+  private TargetGraph createTargetGraph() throws InterruptedException {
     args.getTimingStatsTracker().startTimer(SlaveEvents.TARGET_GRAPH_DESERIALIZATION_TIME);
     try {
       TargetGraph targetGraph = null;
@@ -137,10 +147,13 @@ public class DelegateAndGraphsInitializer {
   }
 
   // TODO(ruibm): This thing is time consuming and should execute in the background.
-  private ActionGraphAndResolver createActionGraphAndResolver(TargetGraph targetGraph)
-      throws IOException, InterruptedException {
+  private ActionGraphAndResolver createActionGraphAndResolver(TargetGraph targetGraph) {
     args.getTimingStatsTracker().startTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     try {
+      LOG.info(
+          String.format(
+              "Parallel action graph mode: [%s]. Parallel action graph threads [%d]",
+              args.getActionGraphParallelizationMode(), args.getMaxActionGraphParallelism()));
       ActionGraphAndResolver actionGraphAndResolver =
           args.getActionGraphCache()
               .getActionGraph(
@@ -148,10 +161,22 @@ public class DelegateAndGraphsInitializer {
                   /* checkActionGraphs */ false,
                   /* skipActionGraphCache */ false,
                   Preconditions.checkNotNull(targetGraph),
+                  args.getCellProvider(),
                   args.getRuleKeyConfiguration(),
-                  ActionGraphParallelizationMode.DISABLED,
+                  args.getActionGraphParallelizationMode(),
                   Optional.empty(),
-                  args.getShouldInstrumentActionGraph());
+                  args.getShouldInstrumentActionGraph(),
+                  args.getIncrementalActionGraphMode(),
+                  CloseableMemoizedSupplier.of(
+                      () -> {
+                        int threadCount = args.getMaxActionGraphParallelism();
+                        LOG.info(
+                            String.format(
+                                "Creating parallel action graph construction pool with [%d] threads.",
+                                threadCount));
+                        return MostExecutors.forkJoinPoolWithThreadLimit(threadCount, 16);
+                      },
+                      ForkJoinPool::shutdownNow));
       return actionGraphAndResolver;
     } finally {
       args.getTimingStatsTracker().stopTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
@@ -160,8 +185,7 @@ public class DelegateAndGraphsInitializer {
 
   /** Creates the delegate for the distributed build. */
   private CachingBuildEngineDelegate createBuildEngineDelegate(
-      StackedFileHashCaches caches, ActionGraphAndResolver actionGraphAndResolver)
-      throws IOException, InterruptedException {
+      StackedFileHashCaches caches, ActionGraphAndResolver actionGraphAndResolver) {
     CachingBuildEngineDelegate cachingBuildEngineDelegate = null;
     DistBuildConfig remoteConfig = new DistBuildConfig(args.getState().getRemoteRootCellConfig());
     if (remoteConfig.materializeSourceFilesOnDemand()) {
@@ -173,7 +197,9 @@ public class DelegateAndGraphsInitializer {
               DefaultSourcePathResolver.from(ruleFinder),
               ruleFinder,
               caches.remoteStateCache,
-              caches.materializingCache);
+              caches.materializingCache,
+              this.args.getRuleKeyConfiguration(),
+              this.args.getDistBuildConfig().getFileMaterializationTimeoutSecs());
     } else {
       cachingBuildEngineDelegate = new LocalCachingBuildEngineDelegate(caches.remoteStateCache);
     }
@@ -220,6 +246,7 @@ public class DelegateAndGraphsInitializer {
             args.getRuleKeyConfiguration());
 
     return new DistBuildTargetGraphCodec(
+        Preconditions.checkNotNull(args.getExecutorService()),
         parserTargetNodeFactory,
         input -> {
           try {
@@ -249,8 +276,7 @@ public class DelegateAndGraphsInitializer {
     }
   }
 
-  private StackedFileHashCaches createStackedFileHashesAndPreload()
-      throws InterruptedException, IOException {
+  private StackedFileHashCaches createStackedFileHashesAndPreload() throws InterruptedException {
     args.getTimingStatsTracker().startTimer(SlaveEvents.SOURCE_FILE_PRELOAD_TIME);
     try {
       StackedFileHashCache stackedFileHashCache = createStackOfDefaultFileHashCache();

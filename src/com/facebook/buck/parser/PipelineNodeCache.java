@@ -15,10 +15,11 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.model.BuildTargetException;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.rules.Cell;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,7 +42,7 @@ class PipelineNodeCache<K, T> {
    *     ongoing job (job cache hit) or a new job (miss).
    */
   protected final ListenableFuture<T> getJobWithCacheLookup(
-      final Cell cell, final K key, JobSupplier<T> jobSupplier) throws BuildTargetException {
+      Cell cell, K key, JobSupplier<T> jobSupplier) throws BuildTargetException {
     Optional<T> cacheLookupResult = cache.lookupComputedNode(cell, key);
     if (cacheLookupResult.isPresent()) {
       return Futures.immediateFuture(cacheLookupResult.get());
@@ -63,13 +64,13 @@ class PipelineNodeCache<K, T> {
     }
     // Ok, "our" candidate future went into the jobsCache, schedule the job and 'chain' the result
     // to the SettableFuture, so that anyone else waiting on it will get the same result.
-    final SettableFuture<T> resultFuture = resultFutureCandidate;
+    SettableFuture<T> resultFuture = resultFutureCandidate;
     try {
       ListenableFuture<T> nodeJob =
           Futures.transformAsync(
               jobSupplier.get(),
-              input ->
-                  Futures.immediateFuture(cache.putComputedNodeIfNotPresent(cell, key, input)));
+              input -> Futures.immediateFuture(cache.putComputedNodeIfNotPresent(cell, key, input)),
+              MoreExecutors.directExecutor());
       resultFuture.setFuture(nodeJob);
     } catch (Throwable t) {
       resultFuture.setException(t);

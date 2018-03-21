@@ -20,17 +20,17 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.util.PathFragments;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
+import com.facebook.buck.util.cache.JarHashCodeAndFileType;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
+import com.facebook.buck.util.filesystem.PathFragments;
 import com.facebook.buck.util.hashing.PathHashing;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -80,7 +80,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
           }
         };
 
-    final FileHashCacheEngine.ValueLoader<HashCode> fileHashLoader =
+    FileHashCacheEngine.ValueLoader<HashCode> fileHashLoader =
         (path) -> {
           try {
             return getFileHashCode(path);
@@ -89,7 +89,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
           }
         };
 
-    final FileHashCacheEngine.ValueLoader<HashCodeAndFileType> dirHashLoader =
+    FileHashCacheEngine.ValueLoader<HashCodeAndFileType> dirHashLoader =
         (path) -> {
           try {
             return getDirHashCode(path);
@@ -124,17 +124,14 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
                     "limited"));
         break;
       default:
-        throw new RuntimeException(
-            "Unsupported file hash cache engine: " + fileHashCacheMode.toString());
+        throw new RuntimeException("Unsupported file hash cache engine: " + fileHashCacheMode);
     }
   }
 
   public static DefaultFileHashCache createBuckOutFileHashCache(
       ProjectFilesystem projectFilesystem, FileHashCacheMode fileHashCacheMode) {
     return new DefaultFileHashCache(
-        projectFilesystem,
-        (path) -> !(path.startsWith(projectFilesystem.getBuckPaths().getBuckOut())),
-        fileHashCacheMode);
+        projectFilesystem, (path) -> !isInBuckOut(projectFilesystem, path), fileHashCacheMode);
   }
 
   public static DefaultFileHashCache createDefaultFileHashCache(
@@ -143,10 +140,26 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
         projectFilesystem, getDefaultPathPredicate(projectFilesystem), fileHashCacheMode);
   }
 
+  /**
+   * This predicate matches files that might be result of builds or files that are explicitly
+   * ignored.
+   */
   protected static Predicate<Path> getDefaultPathPredicate(ProjectFilesystem projectFilesystem) {
     return path ->
-        path.startsWith(projectFilesystem.getBuckPaths().getBuckOut())
+        isInBuckOut(projectFilesystem, path)
+            || isInEmbeddedCellBuckOut(projectFilesystem, path)
             || projectFilesystem.isIgnored(path);
+  }
+
+  /** Check that the file is in the buck-out of the cell that's related to the project filesystem */
+  private static boolean isInBuckOut(ProjectFilesystem projectFilesystem, Path path) {
+    return path.startsWith(projectFilesystem.getBuckPaths().getConfiguredBuckOut())
+        && !isInEmbeddedCellBuckOut(projectFilesystem, path);
+  }
+
+  /** Return true if file is the buck-out of a different cell when embedded buck-out is enabled */
+  private static boolean isInEmbeddedCellBuckOut(ProjectFilesystem projectFilesystem, Path path) {
+    return path.startsWith(projectFilesystem.getBuckPaths().getEmbeddedCellsBuckOutBaseDir());
   }
 
   public static ImmutableList<? extends ProjectFileHashCache> createOsRootDirectoriesCaches(
@@ -184,7 +197,7 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     if (projectFilesystem.isDirectory(path)) {
       return getDirHashCode(path);
     } else if (path.toString().endsWith(".jar")) {
-      return HashCodeAndFileType.ofArchive(
+      return JarHashCodeAndFileType.ofArchive(
           getFileHashCode(path),
           new DefaultJarContentHasher(projectFilesystem, PathFragments.pathToFragment(path)));
     }
@@ -206,8 +219,8 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
 
   private HashCodeAndFileType getDirHashCode(Path path) throws IOException {
     Hasher hasher = Hashing.sha1().newHasher();
-    ImmutableSet<Path> children = PathHashing.hashPath(hasher, this, projectFilesystem, path);
-    return HashCodeAndFileType.ofDirectory(hasher.hash(), children);
+    PathHashing.hashPath(hasher, this, projectFilesystem, path);
+    return HashCodeAndFileType.ofDirectory(hasher.hash());
   }
 
   @Override
@@ -283,17 +296,10 @@ public class DefaultFileHashCache implements ProjectFileHashCache {
     HashCodeAndFileType value;
 
     if (projectFilesystem.isDirectory(relativePath)) {
-      value =
-          HashCodeAndFileType.ofDirectory(
-              hashCode,
-              projectFilesystem
-                  .getFilesUnderPath(relativePath)
-                  .stream()
-                  .map(relativePath::relativize)
-                  .collect(ImmutableSet.toImmutableSet()));
+      value = HashCodeAndFileType.ofDirectory(hashCode);
     } else if (relativePath.toString().endsWith(".jar")) {
       value =
-          HashCodeAndFileType.ofArchive(
+          JarHashCodeAndFileType.ofArchive(
               hashCode,
               new DefaultJarContentHasher(
                   projectFilesystem,

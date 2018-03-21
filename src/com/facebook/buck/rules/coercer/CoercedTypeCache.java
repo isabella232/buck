@@ -17,10 +17,10 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Types;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
@@ -119,13 +119,12 @@ public class CoercedTypeCache {
                     TypeCoercerFactory, LoadingCache<Class<?>, ImmutableMap<String, ParamInfo>>>() {
                   @Override
                   public LoadingCache<Class<?>, ImmutableMap<String, ParamInfo>> load(
-                      TypeCoercerFactory typeCoercerFactory) throws Exception {
+                      TypeCoercerFactory typeCoercerFactory) {
                     return CacheBuilder.newBuilder()
                         .build(
                             new CacheLoader<Class<?>, ImmutableMap<String, ParamInfo>>() {
                               @Override
-                              public ImmutableMap<String, ParamInfo> load(Class<?> coercableType)
-                                  throws Exception {
+                              public ImmutableMap<String, ParamInfo> load(Class<?> coercableType) {
 
                                 if (Types.getSupertypes(coercableType)
                                     .stream()

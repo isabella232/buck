@@ -28,6 +28,7 @@ import com.facebook.buck.cxx.CxxSourceTypes;
 import com.facebook.buck.cxx.CxxToolFlags;
 import com.facebook.buck.cxx.ExplicitCxxToolFlags;
 import com.facebook.buck.cxx.PreprocessorFlags;
+import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -45,6 +46,7 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -56,7 +58,7 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -67,7 +69,6 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -194,6 +195,7 @@ public class HaskellLibraryDescription
             target.withoutFlavors(HaskellDescriptionUtils.PROF),
             platform.getFlavor(),
             depType == Linker.LinkableDepType.STATIC ? PicType.PDC : PicType.PIC,
+            Optional.empty(),
             platform.getCxxPlatform().getStaticLibraryExtension(),
             hsProfile ? "_p" : "",
             cxxBuckConfig.isUniqueLibraryNameEnabled()),
@@ -488,9 +490,9 @@ public class HaskellLibraryDescription
 
     // Collect all Haskell deps
     ImmutableSet.Builder<SourcePath> haddockInterfaces = ImmutableSet.builder();
-    final ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
+    ImmutableSortedMap.Builder<String, HaskellPackage> packagesBuilder =
         ImmutableSortedMap.naturalOrder();
-    final ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
+    ImmutableSortedMap.Builder<String, HaskellPackage> exposedPackagesBuilder =
         ImmutableSortedMap.naturalOrder();
 
     // Traverse all deps to pull interfaces
@@ -523,7 +525,7 @@ public class HaskellLibraryDescription
     }.start();
 
     Collection<CxxPreprocessorInput> cxxPreprocessorInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps);
+        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, resolver, deps);
     ExplicitCxxToolFlags.Builder toolFlagsBuilder = CxxToolFlags.explicitBuilder();
     PreprocessorFlags.Builder ppFlagsBuilder = PreprocessorFlags.builder();
     toolFlagsBuilder.setPlatformFlags(
@@ -654,19 +656,17 @@ public class HaskellLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
-      final HaskellLibraryDescriptionArg args) {
-
+      HaskellLibraryDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     HaskellPlatformsProvider haskellPlatformsProvider = getHaskellPlatformsProvider();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     FlavorDomain<HaskellPlatform> platforms = haskellPlatformsProvider.getHaskellPlatforms();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();
 
@@ -753,6 +753,7 @@ public class HaskellLibraryDescription
               buildTarget,
               projectFilesystem,
               params,
+              context.getCellPathResolver(),
               resolver,
               platform,
               cxxBuckConfig,
@@ -811,7 +812,8 @@ public class HaskellLibraryDescription
       }
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+      public CxxPreprocessorInput getCxxPreprocessorInput(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
         Optional<Linker.LinkableDepType> depType =
@@ -838,7 +840,8 @@ public class HaskellLibraryDescription
       }
 
       @Override
-      public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+      public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return RichStream.from(allDeps.get(resolver, cxxPlatform))
             .filter(CxxPreprocessorDep.class)
             .toImmutableList();
@@ -846,29 +849,30 @@ public class HaskellLibraryDescription
 
       @Override
       public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-          CxxPlatform cxxPlatform) {
-        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
+      public Iterable<? extends NativeLinkable> getNativeLinkableDeps(
+          BuildRuleResolver ruleResolver) {
         return ImmutableList.of();
       }
 
-      private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
-          transitiveCxxPreprocessorInputCache =
-              CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+      private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache =
+          new TransitiveCxxPreprocessorInputCache(this);
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-          CxxPlatform cxxPlatform) {
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return RichStream.from(allDeps.get(resolver, cxxPlatform))
             .filter(NativeLinkable.class)
             .toImmutableList();
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
+      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+          BuildRuleResolver ruleResolver) {
         return RichStream.from(allDeps.getForAllPlatforms(resolver))
             .filter(NativeLinkable.class)
             .toImmutableList();
@@ -879,8 +883,9 @@ public class HaskellLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions) {
-        Iterable<com.facebook.buck.rules.args.Arg> linkArgs;
+          ImmutableSet<LanguageExtensions> languageExtensions,
+          BuildRuleResolver ruleResolver) {
+        Iterable<Arg> linkArgs;
         switch (type) {
           case STATIC:
           case STATIC_PIC:
@@ -926,12 +931,13 @@ public class HaskellLibraryDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return args.getPreferredLinkage();
       }
 
       @Override
-      public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+      public ImmutableMap<String, SourcePath> getSharedLibraries(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
             CxxDescriptionEnhancer.getSharedLibrarySoname(
@@ -978,7 +984,8 @@ public class HaskellLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     HaskellDescriptionUtils.getParseTimeDeps(
-        getHaskellPlatformsProvider().getHaskellPlatforms().getValues(), extraDepsBuilder);
+        getHaskellPlatformsProvider().getHaskellPlatforms().getValues(),
+        targetGraphOnlyDepsBuilder);
   }
 
   private HaskellPlatformsProvider getHaskellPlatformsProvider() {

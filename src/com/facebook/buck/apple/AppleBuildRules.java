@@ -16,18 +16,19 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.RichStream;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -114,11 +115,11 @@ public final class AppleBuildRules {
   }
 
   public static ImmutableSet<TargetNode<?, ?>> getRecursiveTargetNodeDependenciesOfTypes(
-      final TargetGraph targetGraph,
-      final Optional<AppleDependenciesCache> cache,
-      final RecursiveDependenciesMode mode,
-      final TargetNode<?, ?> targetNode,
-      final Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses) {
+      TargetGraph targetGraph,
+      Optional<AppleDependenciesCache> cache,
+      RecursiveDependenciesMode mode,
+      TargetNode<?, ?> targetNode,
+      Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses) {
     LOG.verbose(
         "Getting recursive dependencies of node %s, mode %s, including only types %s\n",
         targetNode, mode, descriptionClasses);
@@ -132,7 +133,7 @@ public final class AppleBuildRules {
 
     ImmutableSet<TargetNode<?, ?>> result =
         getRecursiveTargetNodeDependenciesOfTypes(
-            targetGraph, cache, mode, targetNode, isDependencyNode);
+            targetGraph, cache, mode, targetNode, isDependencyNode, Optional.empty());
 
     LOG.verbose(
         "Got recursive dependencies of node %s mode %s types %s: %s\n",
@@ -146,7 +147,8 @@ public final class AppleBuildRules {
       Optional<AppleDependenciesCache> cache,
       RecursiveDependenciesMode mode,
       TargetNode<?, ?> targetNode,
-      Predicate<TargetNode<?, ?>> isDependencyNode) {
+      Predicate<TargetNode<?, ?>> isDependencyNode,
+      Optional<AppleCxxPlatform> appleCxxPlatform) {
 
     @SuppressWarnings("unchecked")
     GraphTraversable<TargetNode<?, ?>> graphTraversable =
@@ -174,7 +176,8 @@ public final class AppleBuildRules {
                 ImmutableSortedSet.naturalOrder();
             ImmutableSortedSet.Builder<TargetNode<?, ?>> exportedDepsBuilder =
                 ImmutableSortedSet.naturalOrder();
-            addDirectAndExportedDeps(targetGraph, node, defaultDepsBuilder, exportedDepsBuilder);
+            addDirectAndExportedDeps(
+                targetGraph, node, defaultDepsBuilder, exportedDepsBuilder, appleCxxPlatform);
             defaultDeps = defaultDepsBuilder.build();
             exportedDeps = exportedDepsBuilder.build();
           } else {
@@ -189,12 +192,17 @@ public final class AppleBuildRules {
                 ImmutableSortedSet.naturalOrder();
             ImmutableSortedSet.Builder<TargetNode<?, ?>> editedExportedDeps =
                 ImmutableSortedSet.naturalOrder();
+            ImmutableSortedSet<BuildTarget> binaryTargets = arg.getBinaryTargets();
             for (TargetNode<?, ?> rule : defaultDeps) {
-              if (!rule.getBuildTarget().equals(arg.getBinary())) {
-                editedDeps.add(rule);
-              } else {
+              if (binaryTargets.contains(rule.getBuildTarget())) {
                 addDirectAndExportedDeps(
-                    targetGraph, targetGraph.get(arg.getBinary()), editedDeps, editedExportedDeps);
+                    targetGraph,
+                    targetGraph.get(rule.getBuildTarget()),
+                    editedDeps,
+                    editedExportedDeps,
+                    appleCxxPlatform);
+              } else {
+                editedDeps.add(rule);
               }
             }
 
@@ -247,7 +255,7 @@ public final class AppleBuildRules {
           return deps.iterator();
         };
 
-    final ImmutableSet.Builder<TargetNode<?, ?>> filteredRules = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?, ?>> filteredRules = ImmutableSet.builder();
     AcyclicDepthFirstPostOrderTraversal<TargetNode<?, ?>> traversal =
         new AcyclicDepthFirstPostOrderTraversal<>(graphTraversable);
     try {
@@ -278,7 +286,8 @@ public final class AppleBuildRules {
       TargetGraph targetGraph,
       TargetNode<?, ?> targetNode,
       ImmutableSortedSet.Builder<TargetNode<?, ?>> directDepsBuilder,
-      ImmutableSortedSet.Builder<TargetNode<?, ?>> exportedDepsBuilder) {
+      ImmutableSortedSet.Builder<TargetNode<?, ?>> exportedDepsBuilder,
+      Optional<AppleCxxPlatform> appleCxxPlatform) {
     directDepsBuilder.addAll(targetGraph.getAll(targetNode.getBuildDepsStream()::iterator));
     if (targetNode.getDescription() instanceof AppleLibraryDescription
         || targetNode.getDescription() instanceof CxxLibraryDescription) {
@@ -288,6 +297,23 @@ public final class AppleBuildRules {
       Iterable<TargetNode<?, ?>> exportedNodes = targetGraph.getAll(arg.getExportedDeps());
       directDepsBuilder.addAll(exportedNodes);
       exportedDepsBuilder.addAll(exportedNodes);
+    }
+    // apple bundle targets have target only dependencies on binary/platform_binary one of which
+    // will end up being a build time dependency. Since at target graph construction time it's not
+    // clear which one will end up being a build dependency, include both.
+    if (targetNode.getDescription() instanceof AppleBundleDescription) {
+      AppleBundleDescriptionArg arg = (AppleBundleDescriptionArg) targetNode.getConstructorArg();
+      directDepsBuilder.addAll(targetGraph.getAll(arg.getBinaryTargets()));
+    }
+    // if target platform is known, we should discover targets that match it to make sure that
+    // all resources are properly discovered and added to the final apple_bundle
+    if (appleCxxPlatform.isPresent()
+        && targetNode.getDescription() instanceof AppleLibraryDescription) {
+      AppleLibraryDescriptionArg arg = (AppleLibraryDescriptionArg) targetNode.getConstructorArg();
+      for (ImmutableSortedSet<BuildTarget> deps :
+          arg.getPlatformDeps().getMatchingValues(appleCxxPlatform.get().getFlavor().toString())) {
+        directDepsBuilder.addAll(targetGraph.getAll(deps));
+      }
     }
   }
 
@@ -305,42 +331,45 @@ public final class AppleBuildRules {
                 Optional.empty()),
             ImmutableSet.of(targetNode));
 
-    return ImmutableSet.copyOf(
-        Iterables.filter(targetNodes, input -> isXcodeTargetDescription(input.getDescription())));
+    return RichStream.from(targetNodes)
+        .filter(input -> isXcodeTargetDescription(input.getDescription()))
+        .toImmutableSet();
   }
 
   public static <T> ImmutableSet<AppleAssetCatalogDescriptionArg> collectRecursiveAssetCatalogs(
       TargetGraph targetGraph,
       Optional<AppleDependenciesCache> cache,
       Iterable<TargetNode<T, ?>> targetNodes) {
-    return FluentIterable.from(targetNodes)
-        .transformAndConcat(
+    return RichStream.from(targetNodes)
+        .flatMap(
             input ->
                 getRecursiveTargetNodeDependenciesOfTypes(
-                    targetGraph,
-                    cache,
-                    RecursiveDependenciesMode.COPYING,
-                    input,
-                    APPLE_ASSET_CATALOG_DESCRIPTION_CLASSES))
-        .transform(input -> (AppleAssetCatalogDescriptionArg) input.getConstructorArg())
-        .toSet();
+                        targetGraph,
+                        cache,
+                        RecursiveDependenciesMode.COPYING,
+                        input,
+                        APPLE_ASSET_CATALOG_DESCRIPTION_CLASSES)
+                    .stream())
+        .map(input -> (AppleAssetCatalogDescriptionArg) input.getConstructorArg())
+        .toImmutableSet();
   }
 
   public static <T> ImmutableSet<AppleWrapperResourceArg> collectRecursiveWrapperResources(
       TargetGraph targetGraph,
       Optional<AppleDependenciesCache> cache,
       Iterable<TargetNode<T, ?>> targetNodes) {
-    return FluentIterable.from(targetNodes)
-        .transformAndConcat(
+    return RichStream.from(targetNodes)
+        .flatMap(
             input ->
                 getRecursiveTargetNodeDependenciesOfTypes(
-                    targetGraph,
-                    cache,
-                    RecursiveDependenciesMode.COPYING,
-                    input,
-                    WRAPPER_RESOURCE_DESCRIPTION_CLASSES))
-        .transform(input -> (AppleWrapperResourceArg) input.getConstructorArg())
-        .toSet();
+                        targetGraph,
+                        cache,
+                        RecursiveDependenciesMode.COPYING,
+                        input,
+                        WRAPPER_RESOURCE_DESCRIPTION_CLASSES)
+                    .stream())
+        .map(input -> (AppleWrapperResourceArg) input.getConstructorArg())
+        .toImmutableSet();
   }
 
   @SuppressWarnings("unchecked")
@@ -365,13 +394,9 @@ public final class AppleBuildRules {
 
   public static ImmutableSet<AppleAssetCatalogDescriptionArg> collectDirectAssetCatalogs(
       TargetGraph targetGraph, TargetNode<?, ?> targetNode) {
-    ImmutableSet.Builder<AppleAssetCatalogDescriptionArg> builder = ImmutableSet.builder();
-    Iterable<TargetNode<?, ?>> deps = targetGraph.getAll(targetNode.getBuildDeps());
-    for (TargetNode<?, ?> node : deps) {
-      if (node.getDescription() instanceof AppleAssetCatalogDescription) {
-        builder.add((AppleAssetCatalogDescriptionArg) node.getConstructorArg());
-      }
-    }
-    return builder.build();
+    return RichStream.from(targetGraph.getAll(targetNode.getBuildDeps()))
+        .filter(node -> node.getDescription() instanceof AppleAssetCatalogDescription)
+        .map(node -> (AppleAssetCatalogDescriptionArg) node.getConstructorArg())
+        .toImmutableSet();
   }
 }

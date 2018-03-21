@@ -26,17 +26,17 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.HashMapWithStats;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -81,9 +81,7 @@ public class QueryPathsMacroExpanderTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(depNode, targetNode);
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph, filesystem);
 
     // Ensure that the root rule is in the resolver
     resolver.requireRule(targetNode.getBuildTarget());
@@ -125,9 +123,7 @@ public class QueryPathsMacroExpanderTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph, filesystem);
     BuildRule rule = resolver.requireRule(node.getBuildTarget());
 
     ImmutableSet<Path> inputs = node.getInputs();
@@ -155,16 +151,18 @@ public class QueryPathsMacroExpanderTest {
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
                 filesystem)
             .setOut("foo.txt")
-            .setCmd("$(query_paths 'inputs(:dep)')")
+            .setCmd(
+                StringWithMacrosUtils.format(
+                    "%s",
+                    QueryPathsMacro.of(Query.of(dep.getBuildTarget().getFullyQualifiedName()))))
             .build();
 
     TargetGraph graph = TargetGraphFactory.newInstance(dep, target);
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(graph, filesystem);
+    BuildRule depRule = resolver.requireRule(dep.getBuildTarget());
     BuildRule rule = resolver.requireRule(target.getBuildTarget());
 
-    assertEquals(
-        ImmutableSortedSet.of(resolver.requireRule(dep.getBuildTarget())), rule.getBuildDeps());
+    assertEquals(ImmutableSortedSet.of(depRule), rule.getBuildDeps());
   }
 }

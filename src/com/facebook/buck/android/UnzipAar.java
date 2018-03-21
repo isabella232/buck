@@ -37,12 +37,13 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
+import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.zip.JarBuilder;
-import com.facebook.buck.zip.UnzipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
@@ -94,8 +95,16 @@ public class UnzipAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         new UnzipStep(
             getProjectFilesystem(),
             context.getSourcePathResolver().getAbsolutePath(aarFile),
-            unpackDirectory));
+            unpackDirectory,
+            Optional.empty()));
+
     steps.add(new TouchStep(getProjectFilesystem(), getProguardConfig()));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                context.getSourcePathResolver().getRelativePath(getResDirectory()))));
     steps.add(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
@@ -123,8 +132,7 @@ public class UnzipAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     steps.add(
         new AbstractExecutionStep("create_uber_classes_jar") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context)
-              throws IOException, InterruptedException {
+          public StepExecutionResult execute(ExecutionContext context) throws IOException {
             Path libsDirectory = unpackDirectory.resolve("libs");
             boolean dirDoesNotExistOrIsEmpty;
             ProjectFilesystem filesystem = getProjectFilesystem();
@@ -165,7 +173,7 @@ public class UnzipAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
                   .setRemoveEntryPredicate(RemoveClassesPatternsMatcher.EMPTY)
                   .createJarFile(filesystem.resolve(uberClassesJar));
             }
-            return StepExecutionResult.SUCCESS;
+            return StepExecutionResults.SUCCESS;
           }
         });
 
@@ -187,7 +195,7 @@ public class UnzipAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public BuildOutput initializeFromDisk() throws IOException {
+  public BuildOutput initializeFromDisk() {
     String rDotJavaPackageFromFile =
         getProjectFilesystem().readFirstLine(pathToRDotJavaPackageFile).get();
     return new BuildOutput(rDotJavaPackageFromFile);

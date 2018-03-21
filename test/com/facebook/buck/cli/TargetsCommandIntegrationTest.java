@@ -31,15 +31,14 @@ import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
-import com.facebook.buck.testutil.integration.PropertySaver;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ThriftRuleKeyDeserializer;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
@@ -49,9 +48,8 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.thrift.TException;
@@ -72,30 +70,6 @@ public class TargetsCommandIntegrationTest {
       "option \"--show-target-hash\" cannot be used with the option(s) [--show-rulekey]";
   private static final String INCOMPATIBLE_OPTIONS_MSG2 =
       "option \"--show-rulekey (--show_rulekey)\" cannot be used with the option(s) [--show-target-hash]";
-
-  private static final Path CODE_COVERAGE_SUBPATH =
-      Paths.get("buck-out", "gen", "jacoco", "code-coverage");
-
-  private static Map<String, String> getCodeCoverageProperties() {
-    Path genDir = Paths.get("buck-out", "gen").toAbsolutePath();
-    Path jacocoJar =
-        genDir.resolve(Paths.get("third-party", "java", "jacoco", "__agent__", "jacocoagent.jar"));
-    Path reportGenJar =
-        genDir.resolve(
-            Paths.get(
-                "src",
-                "com",
-                "facebook",
-                "buck",
-                "jvm",
-                "java",
-                "coverage",
-                "report-generator.jar"));
-
-    return ImmutableMap.of(
-        "buck.jacoco_agent_jar", genDir.resolve(jacocoJar).toString(),
-        "buck.report_generator_jar", genDir.resolve(reportGenJar).toString());
-  }
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -591,7 +565,7 @@ public class TargetsCommandIntegrationTest {
     JsonNode observed =
         ObjectMappers.READER.readTree(ObjectMappers.createParser(result.getStdout()));
 
-    System.out.println(observed.toString());
+    System.out.println(observed);
 
     String expectedJson = workspace.getFileContents("output_path_json.js");
     JsonNode expected =
@@ -762,7 +736,7 @@ public class TargetsCommandIntegrationTest {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult runBuckResult =
+    ProcessResult runBuckResult =
         workspace.runBuckBuild(
             "--show-rulekey", "--rulekeys-log-path", logFile.toAbsolutePath().toString(), "//:bar");
     runBuckResult.assertSuccess();
@@ -791,61 +765,61 @@ public class TargetsCommandIntegrationTest {
         .assertSuccess();
   }
 
-  /*
-   * We spoof system properties in the --code-coverage integration tests so that buck will look for
-   * jacoco and the report generator in the correct locations in the buck repo rather than in the
-   * temporary workspace. Output should still be written to the workspace's buck-out.
-   */
-
   @Test
-  public void testCsvCodeCoverage() throws Exception {
+  public void printsTransitiveTargetHashes() throws Exception {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "print_recursive_target_hashes", tmp);
     workspace.setUp();
 
-    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
-      ProcessResult result =
-          workspace.runBuckCommand(
-              "test", "--code-coverage", "--code-coverage-format", "CSV", "//test:simple_test");
-      result.assertSuccess();
-    }
+    ProcessResult nontransitiveResult =
+        workspace.runBuckCommand("targets", "--show-target-hash", "//foo:main", "//bar:main");
+    ProcessResult transitiveResult =
+        workspace.runBuckCommand(
+            "targets",
+            "--show-target-hash",
+            "--show-transitive-target-hashes",
+            "//foo:main",
+            "//bar:main");
 
-    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("coverage.csv")));
-  }
+    nontransitiveResult.assertSuccess();
+    transitiveResult.assertSuccess();
 
-  @Test
-  public void testHtmlCodeCoverage() throws Exception {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
-    workspace.setUp();
+    ImmutableList<String> foundNonTransitiveTargets =
+        Arrays.stream(nontransitiveResult.getStdout().split(System.lineSeparator()))
+            .map(line -> line.split("\\s+")[0])
+            .collect(ImmutableList.toImmutableList());
+    ImmutableList<String> foundTransitiveTargets =
+        Arrays.stream(transitiveResult.getStdout().split(System.lineSeparator()))
+            .map(line -> line.split("\\s+")[0])
+            .collect(ImmutableList.toImmutableList());
 
-    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
-      ProcessResult result =
-          workspace.runBuckCommand(
-              "test", "--code-coverage", "--code-coverage-format", "HTML", "//test:simple_test");
+    ImmutableMap<String, String> foundNonTransitiveTargetsAndHashes =
+        Arrays.stream(nontransitiveResult.getStdout().split(System.lineSeparator()))
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    line -> line.split("\\s+")[0], line -> line.split("\\s+")[1]));
+    ImmutableMap<String, String> foundTransitiveTargetsAndHashes =
+        Arrays.stream(transitiveResult.getStdout().split(System.lineSeparator()))
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    line -> line.split("\\s+")[0], line -> line.split("\\s+")[1]));
 
-      result.assertSuccess();
-    }
-
-    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("index.html")));
-    assertTrue(
-        Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("jacoco-sessions.html")));
-  }
-
-  @Test
-  public void testXmlCodeCoverage() throws Exception {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "buck_events", tmp, true);
-    workspace.setUp();
-
-    try (PropertySaver saver = new PropertySaver(getCodeCoverageProperties())) {
-      ProcessResult result =
-          workspace.runBuckCommand(
-              "test", "--code-coverage", "--code-coverage-format", "XML", "//test:simple_test");
-
-      result.assertSuccess();
-    }
-
-    assertTrue(Files.exists(workspace.getPath(CODE_COVERAGE_SUBPATH).resolve("coverage.xml")));
+    assertThat(foundNonTransitiveTargets, Matchers.containsInAnyOrder("//foo:main", "//bar:main"));
+    assertThat(
+        foundTransitiveTargets,
+        Matchers.containsInAnyOrder(
+            "//foo:main",
+            "//deps:dep3",
+            "//deps:dep2",
+            "//deps:dep1",
+            "//bar:main",
+            "//deps:dep4"));
+    assertEquals(
+        foundNonTransitiveTargetsAndHashes.get("//foo:main"),
+        foundTransitiveTargetsAndHashes.get("//foo:main"));
+    assertEquals(
+        foundNonTransitiveTargetsAndHashes.get("//bar:main"),
+        foundTransitiveTargetsAndHashes.get("//bar:main"));
   }
 }

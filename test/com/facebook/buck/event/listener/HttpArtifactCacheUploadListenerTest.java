@@ -44,7 +44,7 @@ public class HttpArtifactCacheUploadListenerTest {
   @Before
   public void setUp() {
     buildId = new BuildId();
-    clock = FakeClock.DO_NOT_CARE;
+    clock = FakeClock.doNotCare();
     events = new ArrayList<>();
     eventBus = new DefaultBuckEventBus(clock, /* async */ false, buildId, 1000);
     eventBus.register(this);
@@ -56,7 +56,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testEventGetsSentWhenBuildIsFinishedWithoutOutstandingUploads() throws IOException {
+  public void testEventGetsSentWhenBuildIsFinishedWithoutOutstandingUploads() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     HttpArtifactCacheEvent.Started started =
@@ -70,7 +70,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testEventGetsSentOnLastUploadAfterBuildFinished() throws IOException {
+  public void testEventGetsSentOnLastUploadAfterBuildFinished() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(0));
@@ -84,7 +84,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testNothingGetsSentWhenThereAreNoUploads() throws IOException {
+  public void testNothingGetsSentWhenThereAreNoUploads() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(2));

@@ -22,14 +22,13 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.network.ScribeLogger;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
@@ -135,11 +134,11 @@ public class OfflineScribeLogger extends ScribeLogger {
         new IntegerCounter(COUNTERS_CATEGORY, "logfiles_resent", ImmutableMap.of());
     buckEventBus.post(
         new CounterRegistry.AsyncCounterRegistrationEvent(
-            ImmutableSet.of(totalLinesResent, totalBytesResent, logfilesResent)));
+            ImmutableList.of(totalLinesResent, totalBytesResent, logfilesResent)));
   }
 
   @Override
-  public ListenableFuture<Void> log(final String category, final Iterable<String> lines) {
+  public ListenableFuture<Void> log(String category, Iterable<String> lines) {
     ListenableFuture<Void> upload = scribeLogger.log(category, lines);
     Futures.addCallback(
         upload,

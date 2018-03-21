@@ -24,9 +24,9 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -75,8 +75,7 @@ public class DaemonicCellStateTest {
   }
 
   @Test
-  public void testPutComputedNodeIfNotPresent()
-      throws BuildTargetException, IOException, InterruptedException {
+  public void testPutComputedNodeIfNotPresent() throws BuildTargetException {
     Cache<BuildTarget, Boolean> cache = state.getOrCreateCache(Boolean.class);
     BuildTarget target =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//path/to:target");
@@ -98,8 +97,7 @@ public class DaemonicCellStateTest {
   }
 
   @Test
-  public void testCellNameDoesNotAffectInvalidation()
-      throws BuildTargetException, IOException, InterruptedException {
+  public void testCellNameDoesNotAffectInvalidation() throws BuildTargetException {
     Cache<BuildTarget, Boolean> cache = childState.getOrCreateCache(Boolean.class);
 
     Path targetPath = childCell.getRoot().resolve("path/to/BUCK");

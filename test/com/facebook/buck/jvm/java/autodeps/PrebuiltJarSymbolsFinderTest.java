@@ -37,7 +37,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.FakeClock;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
@@ -99,15 +99,15 @@ public class PrebuiltJarSymbolsFinderTest {
   }
 
   @Test
-  public void contentsOfBinaryJarShouldAffectRuleKey() throws InterruptedException, IOException {
+  public void contentsOfBinaryJarShouldAffectRuleKey() {
     // The path to the JAR file to use as the binaryJar of the PrebuiltJarSymbolsFinder.
-    final Path relativePathToJar = Paths.get("common.jar");
-    final Path absolutePathToJar = tmp.getRoot().resolve(relativePathToJar);
+    Path relativePathToJar = Paths.get("common.jar");
+    Path absolutePathToJar = tmp.getRoot().resolve(relativePathToJar);
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
     // DefaultRuleKeyFactory.
-    final SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
-    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     createMock(SourcePathResolver.class);
     expect(ruleFinder.getRule(anyObject(SourcePath.class))).andReturn(Optional.empty()).anyTimes();
 
@@ -131,7 +131,7 @@ public class PrebuiltJarSymbolsFinderTest {
                     BuildTargetFactory.newInstance("//foo:rule"),
                     finder,
                     TestProjectFilesystems.createProjectFilesystem(tmp.getRoot()));
-          } catch (InterruptedException | IOException e) {
+          } catch (IOException e) {
             throw new RuntimeException(e);
           }
           RuleKey ruleKey =
@@ -162,7 +162,7 @@ public class PrebuiltJarSymbolsFinderTest {
   }
 
   @Test
-  public void generatedBinaryJarShouldNotAffectRuleKey() throws InterruptedException {
+  public void generatedBinaryJarShouldNotAffectRuleKey() {
     SourcePathResolver pathResolver = null;
     SourcePathRuleFinder ruleFinder = null;
 
@@ -197,8 +197,8 @@ public class PrebuiltJarSymbolsFinderTest {
   }
 
   private PrebuiltJarSymbolsFinder createFinderForFileWithEntries(
-      String jarFileName, Iterable<String> entries) throws InterruptedException, IOException {
-    Clock clock = FakeClock.DO_NOT_CARE;
+      String jarFileName, Iterable<String> entries) throws IOException {
+    Clock clock = FakeClock.doNotCare();
     Path jarFile = tmp.newFile(jarFileName);
     try (OutputStream stream =
             new BufferedOutputStream(java.nio.file.Files.newOutputStream(jarFile));

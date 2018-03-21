@@ -22,10 +22,11 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.zip.CustomZipEntry;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
 import com.facebook.buck.util.zip.ZipCompressionLevel;
@@ -98,12 +99,12 @@ public class ZipStep implements Step {
     if (filesystem.exists(pathToZipFile)) {
       context.postEvent(
           ConsoleEvent.severe("Attempting to overwrite an existing zip: %s", pathToZipFile));
-      return StepExecutionResult.ERROR;
+      return StepExecutionResults.ERROR;
     }
 
     // Since filesystem traversals can be non-deterministic, sort the entries we find into
     // a tree map before writing them out.
-    final Map<String, Pair<CustomZipEntry, Optional<Path>>> entries = new TreeMap<>();
+    Map<String, Pair<CustomZipEntry, Optional<Path>>> entries = new TreeMap<>();
 
     FileVisitor<Path> pathFileVisitor =
         new SimpleFileVisitor<Path>() {
@@ -116,8 +117,8 @@ public class ZipStep implements Step {
             return MorePaths.pathWithUnixSeparators(relativePath);
           }
 
-          private CustomZipEntry getZipEntry(
-              String entryName, final Path path, BasicFileAttributes attr) throws IOException {
+          private CustomZipEntry getZipEntry(String entryName, Path path, BasicFileAttributes attr)
+              throws IOException {
             boolean isDirectory = filesystem.isDirectory(path);
             if (isDirectory) {
               entryName += "/";
@@ -127,9 +128,7 @@ public class ZipStep implements Step {
             // We want deterministic ZIPs, so avoid mtimes.
             entry.setFakeTime();
             entry.setCompressionLevel(
-                isDirectory
-                    ? ZipCompressionLevel.MIN_COMPRESSION_LEVEL.getValue()
-                    : compressionLevel.getValue());
+                isDirectory ? ZipCompressionLevel.NONE.getValue() : compressionLevel.getValue());
             // If we're using STORED files, we must manually set the CRC, size, and compressed size.
             if (entry.getMethod() == ZipEntry.STORED && !isDirectory) {
               entry.setSize(attr.size());
@@ -189,7 +188,7 @@ public class ZipStep implements Step {
       }
     }
 
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override
@@ -211,7 +210,7 @@ public class ZipStep implements Step {
     }
 
     // destination archive
-    args.append(pathToZipFile.toString()).append(" ");
+    args.append(pathToZipFile).append(" ");
 
     // files to add to archive
     if (paths.isEmpty()) {
@@ -221,7 +220,7 @@ public class ZipStep implements Step {
     } else {
       // Add specified paths, relative to workingDirectory.
       for (Path path : paths) {
-        args.append(path.toString()).append(" ");
+        args.append(path).append(" ");
       }
     }
 

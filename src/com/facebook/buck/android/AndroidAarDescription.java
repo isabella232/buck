@@ -22,7 +22,6 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -33,14 +32,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -77,18 +75,15 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
   private static final Flavor AAR_ANDROID_RESOURCE_FLAVOR =
       InternalFlavor.of("aar_android_resource");
 
-  private final ToolchainProvider toolchainProvider;
-  private final AndroidManifestDescription androidManifestDescription;
+  private final AndroidManifestFactory androidManifestFactory;
   private final CxxBuckConfig cxxBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
 
   public AndroidAarDescription(
-      ToolchainProvider toolchainProvider,
-      AndroidManifestDescription androidManifestDescription,
+      AndroidManifestFactory androidManifestFactory,
       CxxBuckConfig cxxBuckConfig,
       JavaBuckConfig javaBuckConfig) {
-    this.toolchainProvider = toolchainProvider;
-    this.androidManifestDescription = androidManifestDescription;
+    this.androidManifestFactory = androidManifestFactory;
     this.cxxBuckConfig = cxxBuckConfig;
     this.javaBuckConfig = javaBuckConfig;
   }
@@ -100,14 +95,13 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams originalBuildRuleParams,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AndroidAarDescriptionArg args) {
 
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     buildTarget.checkUnflavored();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableSortedSet.Builder<BuildRule> aarExtraDepsBuilder =
@@ -118,26 +112,17 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
     BuildTarget androidManifestTarget =
         buildTarget.withAppendedFlavors(AAR_ANDROID_MANIFEST_FLAVOR);
 
-    AndroidManifestDescriptionArg androidManifestArgs =
-        AndroidManifestDescriptionArg.builder()
-            .setName(androidManifestTarget.getShortName())
-            .setSkeleton(args.getManifestSkeleton())
-            .setDeps(args.getDeps())
-            .build();
-
     AndroidManifest manifest =
-        androidManifestDescription.createBuildRule(
-            targetGraph,
+        androidManifestFactory.createBuildRule(
             androidManifestTarget,
             projectFilesystem,
-            originalBuildRuleParams,
             resolver,
-            cellRoots,
-            androidManifestArgs);
+            args.getDeps(),
+            args.getManifestSkeleton());
     aarExtraDepsBuilder.add(resolver.addToIndex(manifest));
 
-    final APKModuleGraph apkModuleGraph =
-        new APKModuleGraph(targetGraph, buildTarget, Optional.empty());
+    APKModuleGraph apkModuleGraph =
+        new APKModuleGraph(context.getTargetGraph(), buildTarget, Optional.empty());
 
     /* assemble dirs */
     AndroidPackageableCollector collector =
@@ -147,7 +132,8 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
             /* resourcesToExclude */ ImmutableSet.of(),
             apkModuleGraph);
     collector.addPackageables(
-        AndroidPackageableCollector.getPackageableRules(originalBuildRuleParams.getBuildDeps()));
+        AndroidPackageableCollector.getPackageableRules(originalBuildRuleParams.getBuildDeps()),
+        resolver);
     AndroidPackageableCollection packageableCollection = collector.build();
 
     ImmutableCollection<SourcePath> assetsDirectories =
@@ -213,6 +199,7 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
               + "BuildConfig class in the final .aar or do not specify build config values.",
           buildTarget);
     }
+    ToolchainProvider toolchainProvider = context.getToolchainProvider();
     if (args.getIncludeBuildConfigClass()) {
       ImmutableSortedSet<JavaLibrary> buildConfigRules =
           AndroidBinaryGraphEnhancer.addBuildConfigDeps(
@@ -237,18 +224,15 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
               .collect(Collectors.toList()));
     }
 
-    NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
-        toolchainProvider.getByName(
-            NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
-
     /* native_libraries */
     AndroidNativeLibsPackageableGraphEnhancer packageableGraphEnhancer =
         new AndroidNativeLibsPackageableGraphEnhancer(
+            toolchainProvider,
+            context.getCellPathResolver(),
             resolver,
             buildTarget,
             projectFilesystem,
             originalBuildRuleParams,
-            ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
             ImmutableSet.of(),
             cxxBuckConfig,
             /* nativeLibraryMergeMap */ Optional.empty(),
@@ -298,7 +282,7 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
 
     @Value.Default
     default BuildConfigFields getBuildConfigValues() {
-      return BuildConfigFields.empty();
+      return BuildConfigFields.of();
     }
 
     @Value.Default

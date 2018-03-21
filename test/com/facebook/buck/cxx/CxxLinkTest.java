@@ -27,15 +27,14 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -76,10 +75,7 @@ public class CxxLinkTest {
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -101,6 +97,7 @@ public class CxxLinkTest {
                     target,
                     projectFilesystem,
                     ImmutableSortedSet::of,
+                    TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
                     ImmutableMap.of(),
@@ -119,6 +116,7 @@ public class CxxLinkTest {
                     target,
                     projectFilesystem,
                     ImmutableSortedSet::of,
+                    TestCellPathResolver.get(projectFilesystem),
                     new GnuLinker(
                         new HashedFileTool(
                             PathSourcePath.of(projectFilesystem, Paths.get("different")))),
@@ -140,6 +138,7 @@ public class CxxLinkTest {
                     target,
                     projectFilesystem,
                     ImmutableSortedSet::of,
+                    TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     Paths.get("different"),
                     ImmutableMap.of(),
@@ -159,6 +158,7 @@ public class CxxLinkTest {
                     target,
                     projectFilesystem,
                     ImmutableSortedSet::of,
+                    TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
                     ImmutableMap.of(),
@@ -172,10 +172,7 @@ public class CxxLinkTest {
 
   @Test
   public void sanitizedPathsInFlagsDoNotAffectRuleKey() {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -217,6 +214,7 @@ public class CxxLinkTest {
                 target,
                 projectFilesystem,
                 ImmutableSortedSet::of,
+                TestCellPathResolver.get(projectFilesystem),
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
                 ImmutableMap.of(),
@@ -238,6 +236,7 @@ public class CxxLinkTest {
                 target,
                 projectFilesystem,
                 ImmutableSortedSet::of,
+                TestCellPathResolver.get(projectFilesystem),
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
                 ImmutableMap.of(),

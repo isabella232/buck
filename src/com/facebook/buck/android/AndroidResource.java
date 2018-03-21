@@ -21,6 +21,8 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathDeps;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -29,6 +31,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
@@ -50,6 +53,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
@@ -73,6 +77,7 @@ import javax.annotation.Nullable;
 public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements AndroidPackageable,
         HasAndroidResourceDeps,
+        HasClasspathDeps,
         InitializableFromDisk<String>,
         SupportsInputBasedRuleKey {
 
@@ -131,7 +136,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      final ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -183,7 +188,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
           } else {
             throw new RuntimeException(
                 "rDotJavaPackage for "
-                    + AndroidResource.this.getBuildTarget().toString()
+                    + AndroidResource.this.getBuildTarget()
                     + " was requested before it was made available.");
           }
         };
@@ -192,10 +197,10 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public AndroidResource(
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      final ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -222,10 +227,10 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public AndroidResource(
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      final ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -277,7 +282,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, final BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(Preconditions.checkNotNull(pathToTextSymbolsFile));
     buildableContext.recordArtifact(Preconditions.checkNotNull(pathToRDotJavaPackageFile));
 
@@ -386,7 +391,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables() {
+  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
     return AndroidPackageableCollector.getPackageableRules(deps);
   }
 
@@ -405,5 +410,12 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
     if (manifestFile != null) {
       collector.addManifestPiece(manifestFile);
     }
+  }
+
+  @Override
+  public Set<BuildRule> getDepsForTransitiveClasspathEntries() {
+    return deps.stream()
+        .filter(rule -> rule instanceof HasClasspathEntries)
+        .collect(ImmutableSet.toImmutableSet());
   }
 }

@@ -28,13 +28,11 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -67,9 +65,7 @@ public class RemoteFileDescriptionTest {
         new ToolchainProviderBuilder().withToolchain(Downloader.DEFAULT_NAME, downloader).build();
     description = new RemoteFileDescription(toolchainProvider);
     filesystem = new FakeProjectFilesystem();
-    ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ruleResolver = new TestBuildRuleResolver();
   }
 
   @Test
@@ -87,14 +83,11 @@ public class RemoteFileDescriptionTest {
     exception.expectMessage(Matchers.containsString(target.getFullyQualifiedName()));
 
     description.createBuildRule(
-        TargetGraph.EMPTY,
+        TestBuildRuleCreationContextFactory.create(ruleResolver, filesystem),
         target,
-        filesystem,
         RemoteFileBuilder.createBuilder(downloader, target)
             .from(arg)
             .createBuildRuleParams(ruleResolver),
-        ruleResolver,
-        TestCellBuilder.createCellRoots(filesystem),
         arg);
   }
 
@@ -113,14 +106,11 @@ public class RemoteFileDescriptionTest {
 
     BuildRule buildRule =
         description.createBuildRule(
-            TargetGraph.EMPTY,
+            TestBuildRuleCreationContextFactory.create(ruleResolver, filesystem),
             target,
-            filesystem,
             RemoteFileBuilder.createBuilder(downloader, target)
                 .from(arg)
                 .createBuildRuleParams(ruleResolver),
-            ruleResolver,
-            TestCellBuilder.createCellRoots(filesystem),
             arg);
     ruleResolver.addToIndex(buildRule);
 

@@ -15,9 +15,10 @@
  */
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdkConstants;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -32,11 +33,11 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
@@ -46,7 +47,6 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -55,6 +55,7 @@ import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -84,12 +85,6 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
   public static final MacroHandler MACRO_HANDLER =
       new MacroHandler(
           ImmutableMap.of("env", new EnvironmentVariableMacroExpander(Platform.detect())));
-
-  private final ToolchainProvider toolchainProvider;
-
-  public NdkLibraryDescription(ToolchainProvider toolchainProvider) {
-    this.toolchainProvider = toolchainProvider;
-  }
 
   @Override
   public Class<NdkLibraryDescriptionArg> getConstructorArgType() {
@@ -154,7 +149,10 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
    *     file and also appends relevant preprocessor and linker flags to use C/C++ library deps.
    */
   private Pair<String, Iterable<BuildRule>> generateMakefile(
-      ProjectFilesystem projectFilesystem, BuildRuleParams params, BuildRuleResolver resolver) {
+      ToolchainProvider toolchainProvider,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      BuildRuleResolver resolver) {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -175,7 +173,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
       CxxPreprocessorInput cxxPreprocessorInput =
           CxxPreprocessorInput.concat(
               CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                  cxxPlatform, params.getBuildDeps(), NdkLibrary.class::isInstance));
+                  cxxPlatform, resolver, params.getBuildDeps(), NdkLibrary.class::isInstance));
 
       // We add any dependencies from the C/C++ preprocessor input to this rule, even though
       // it technically should be added to the top-level rule.
@@ -200,6 +198,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
       NativeLinkableInput nativeLinkableInput =
           NativeLinkables.getTransitiveNativeLinkableInput(
               cxxPlatform,
+              resolver,
               params.getBuildDeps(),
               Linker.LinkableDepType.SHARED,
               r -> r instanceof NdkLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
@@ -210,7 +209,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
           nativeLinkableInput
               .getArgs()
               .stream()
-              .flatMap(arg -> arg.getDeps(ruleFinder).stream())
+              .flatMap(arg -> BuildableSupport.getDepsCollection(arg, ruleFinder).stream())
               .iterator());
 
       // Add in the transitive native linkable flags contributed by C/C++ library rules into the
@@ -240,7 +239,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
     }
 
     // GCC-only magic that rewrites non-deterministic parts of builds
-    String ndksubst = NdkCxxPlatforms.ANDROID_NDK_ROOT;
+    String ndksubst = AndroidNdkConstants.ANDROID_NDK_ROOT;
 
     outputLinesBuilder.addAll(
         ImmutableList.copyOf(
@@ -298,11 +297,11 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
 
   @VisibleForTesting
   protected ImmutableSortedSet<SourcePath> findSources(
-      final ProjectFilesystem filesystem, final Path buildRulePath) {
-    final ImmutableSortedSet.Builder<SourcePath> srcs = ImmutableSortedSet.naturalOrder();
+      ProjectFilesystem filesystem, Path buildRulePath) {
+    ImmutableSortedSet.Builder<SourcePath> srcs = ImmutableSortedSet.naturalOrder();
 
     try {
-      final Path rootDirectory = filesystem.resolve(buildRulePath);
+      Path rootDirectory = filesystem.resolve(buildRulePath);
       Files.walkFileTree(
           rootDirectory,
           EnumSet.of(FileVisitOption.FOLLOW_LINKS),
@@ -329,15 +328,15 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
 
   @Override
   public NdkLibrary createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       NdkLibraryDescriptionArg args) {
+    ToolchainProvider toolchainProvider = context.getToolchainProvider();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     Pair<String, Iterable<BuildRule>> makefilePair =
-        generateMakefile(projectFilesystem, params, resolver);
+        generateMakefile(
+            toolchainProvider, projectFilesystem, params, context.getBuildRuleResolver());
 
     ImmutableSortedSet<SourcePath> sources;
     if (!args.getSrcs().isEmpty()) {
@@ -346,13 +345,10 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
       sources = findSources(projectFilesystem, buildTarget.getBasePath());
     }
     AndroidNdk androidNdk = toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
     return new NdkLibrary(
         buildTarget,
         projectFilesystem,
-        androidLegacyToolchain,
+        toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
         params.copyAppendingExtraDeps(
             ImmutableSortedSet.<BuildRule>naturalOrder().addAll(makefilePair.getSecond()).build()),
         getGeneratedMakefilePath(buildTarget, projectFilesystem),
@@ -361,7 +357,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
         args.getFlags(),
         args.getIsAsset(),
         androidNdk.getNdkVersion(),
-        MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver));
+        MACRO_HANDLER.getExpander(
+            buildTarget, context.getCellPathResolver(), context.getBuildRuleResolver()));
   }
 
   @BuckStyleImmutable

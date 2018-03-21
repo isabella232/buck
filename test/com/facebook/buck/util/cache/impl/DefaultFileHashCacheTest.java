@@ -26,7 +26,7 @@ import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
 import com.facebook.buck.util.zip.CustomJarOutputStream;
@@ -70,12 +70,12 @@ public class DefaultFileHashCacheTest {
         .collect(ImmutableList.toImmutableList());
   }
 
-  public DefaultFileHashCacheTest(FileHashCacheMode fileHashCacheMode) throws IOException {
+  public DefaultFileHashCacheTest(FileHashCacheMode fileHashCacheMode) {
     this.fileHashCacheMode = fileHashCacheMode;
   }
 
   @Test
-  public void whenPathIsPutCacheContainsPath() throws IOException, InterruptedException {
+  public void whenPathIsPutCacheContainsPath() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path path = Paths.get("SomeClass.java");
     filesystem.touch(path);
@@ -88,7 +88,7 @@ public class DefaultFileHashCacheTest {
   }
 
   @Test
-  public void whenPathIsPutPathGetReturnsHash() throws IOException, InterruptedException {
+  public void whenPathIsPutPathGetReturnsHash() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path path = Paths.get("SomeClass.java");
     filesystem.touch(path);
@@ -101,8 +101,7 @@ public class DefaultFileHashCacheTest {
   }
 
   @Test
-  public void whenPathIsPutThenInvalidatedCacheDoesNotContainPath()
-      throws IOException, InterruptedException {
+  public void whenPathIsPutThenInvalidatedCacheDoesNotContainPath() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path path = Paths.get("SomeClass.java");
     filesystem.touch(path);
@@ -321,7 +320,7 @@ public class DefaultFileHashCacheTest {
   }
 
   @Test
-  public void thatBuckoutCacheWillGetIsCorrect() throws IOException, InterruptedException {
+  public void thatBuckoutCacheWillGetIsCorrect() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path buckOut = filesystem.getBuckPaths().getBuckOut();
     filesystem.mkdirs(buckOut);
@@ -332,11 +331,12 @@ public class DefaultFileHashCacheTest {
     DefaultFileHashCache cache =
         DefaultFileHashCache.createBuckOutFileHashCache(filesystem, fileHashCacheMode);
     assertTrue(cache.willGet(filesystem.getPath("buck-out/file.txt")));
+    assertFalse(cache.willGet(filesystem.getPath("buck-out/cells/file.txt")));
     assertFalse(cache.willGet(filesystem.getPath("file.txt")));
   }
 
   @Test
-  public void thatNonBuckoutCacheWillGetIsCorrect() throws IOException, InterruptedException {
+  public void thatNonBuckoutCacheWillGetIsCorrect() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path buckOut = filesystem.getBuckPaths().getBuckOut();
     filesystem.mkdirs(buckOut);
@@ -347,6 +347,7 @@ public class DefaultFileHashCacheTest {
     DefaultFileHashCache cache =
         DefaultFileHashCache.createDefaultFileHashCache(filesystem, fileHashCacheMode);
     assertFalse(cache.willGet(filesystem.getPath("buck-out/file.txt")));
+    assertFalse(cache.willGet(filesystem.getPath("buck-out/cells/file.txt")));
     assertTrue(cache.willGet(filesystem.getPath("file.txt")));
   }
 }

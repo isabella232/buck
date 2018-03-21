@@ -20,7 +20,6 @@ import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -78,13 +77,13 @@ public class TargetPatternEvaluator {
 
   /** Attempts to parse and load the given collection of patterns. */
   public void preloadTargetPatterns(Iterable<String> patterns, ListeningExecutorService executor)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
     resolveTargetPatterns(patterns, executor);
   }
 
   ImmutableMap<String, ImmutableSet<QueryTarget>> resolveTargetPatterns(
       Iterable<String> patterns, ListeningExecutorService executor)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
     ImmutableMap.Builder<String, ImmutableSet<QueryTarget>> resolved = ImmutableMap.builder();
 
     Map<String, String> unresolved = new HashMap<>();
@@ -140,7 +139,7 @@ public class TargetPatternEvaluator {
 
   ImmutableMap<String, ImmutableSet<QueryTarget>> resolveBuildTargetPatterns(
       List<String> patterns, ListeningExecutorService executor)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
 
     // Build up an ordered list of patterns and pass them to the parse to get resolved in one go.
     // The returned list of nodes maintains the spec list ordering.

@@ -17,10 +17,10 @@ package com.facebook.buck.macho;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.bsd.UnixArchive;
 import com.facebook.buck.util.bsd.UnixArchiveEntry;
 import com.facebook.buck.util.charset.NulTerminatedCharsetDecoder;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -91,7 +91,7 @@ public class ObjectPathsAbsolutifier {
     processThinBinary(magicInfo);
   }
 
-  private void processThinBinary(final MachoMagicInfo magicInfo) throws IOException {
+  private void processThinBinary(MachoMagicInfo magicInfo) throws IOException {
     Optional<Pair<LinkEditDataCommand, ByteBuffer>> codeSignatureData =
         getCodeSignatureDataToRelocate();
 
@@ -172,7 +172,7 @@ public class ObjectPathsAbsolutifier {
     UUIDCommandUtils.updateUuidCommand(buffer, uuidCommand, updatedCommand);
   }
 
-  private int updateStringTableContents(final MachoMagicInfo magicInfo) throws IOException {
+  private int updateStringTableContents(MachoMagicInfo magicInfo) throws IOException {
     return processSymTabCommand(magicInfo, getSymTabCommand());
   }
 
@@ -277,9 +277,9 @@ public class ObjectPathsAbsolutifier {
       Nlist nlist =
           SymTabCommandUtils.getNlistAtIndex(buffer, symTabCommand, idx, magicInfo.is64Bit());
 
-      final boolean stabIsSourceOrHeaderFile =
+      boolean stabIsSourceOrHeaderFile =
           nlist.getN_type().equals(Stab.N_SO) || nlist.getN_type().equals(Stab.N_SOL);
-      final boolean stabIsObjectFile = nlist.getN_type().equals(Stab.N_OSO);
+      boolean stabIsObjectFile = nlist.getN_type().equals(Stab.N_OSO);
 
       if (!stabIsSourceOrHeaderFile && !stabIsObjectFile) {
         continue;
@@ -488,7 +488,7 @@ public class ObjectPathsAbsolutifier {
       }
     }
     if (archiveEntryName.isPresent()) {
-      absolutePath = Paths.get(absolutePath.toString() + archiveEntryName.get());
+      absolutePath = Paths.get(absolutePath + archiveEntryName.get());
     }
     return absolutePath.normalize();
   }

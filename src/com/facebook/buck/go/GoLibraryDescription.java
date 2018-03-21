@@ -16,11 +16,13 @@
 
 package com.facebook.buck.go;
 
+import com.facebook.buck.go.GoListStep.FileType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -32,10 +34,10 @@ import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -43,13 +45,15 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Optional;
 import org.immutables.value.Value;
 
 public class GoLibraryDescription
     implements Description<GoLibraryDescriptionArg>,
         Flavored,
-        MetadataProvidingDescription<GoLibraryDescriptionArg> {
+        MetadataProvidingDescription<GoLibraryDescriptionArg>,
+        VersionPropagator<GoLibraryDescriptionArg> {
 
   private final GoBuckConfig goBuckConfig;
   private final ToolchainProvider toolchainProvider;
@@ -72,7 +76,7 @@ public class GoLibraryDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GoLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
@@ -112,22 +116,20 @@ public class GoLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       GoLibraryDescriptionArg args) {
     GoToolchain goToolchain = getGoToolchain();
     Optional<GoPlatform> platform = goToolchain.getPlatformFlavorDomain().getValue(buildTarget);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     if (platform.isPresent()) {
       return GoDescriptors.createGoCompileRule(
           buildTarget,
           projectFilesystem,
           params,
-          resolver,
+          context.getBuildRuleResolver(),
           goBuckConfig,
           goToolchain,
           args.getPackageName()
@@ -142,7 +144,8 @@ public class GoLibraryDescription
                   params.getDeclaredDeps().get().stream().map(BuildRule::getBuildTarget).iterator())
               .addAll(args.getExportedDeps())
               .build(),
-          args.getCgoDeps());
+          args.getCgoDeps(),
+          Arrays.asList(FileType.GoFiles));
     }
 
     return new NoopBuildRuleWithDeclaredAndExtraDeps(buildTarget, projectFilesystem, params);

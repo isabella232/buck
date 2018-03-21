@@ -20,9 +20,9 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.ProjectWorkspace.ProcessResult;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
@@ -38,7 +38,7 @@ public class RunCommandIntegrationTest extends EasyMockSupport {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
-  public void testRunCommandWithNoArguments() throws IOException, InterruptedException {
+  public void testRunCommandWithNoArguments() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "run-command", temporaryFolder);
     workspace.setUp();
@@ -47,11 +47,11 @@ public class RunCommandIntegrationTest extends EasyMockSupport {
 
     result.assertExitCode("missing argument is error", ExitCode.COMMANDLINE_ERROR);
     assertThat(result.getStderr(), containsString("buck run <target> <arg1> <arg2>..."));
-    assertThat(result.getStderr(), containsString("No target given to run"));
+    assertThat(result.getStderr(), containsString("no target given to run"));
   }
 
   @Test
-  public void testRunCommandWithNonExistentDirectory() throws IOException, InterruptedException {
+  public void testRunCommandWithNonExistentDirectory() throws IOException {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage("//does/not/exist:exist references non-existent directory does/not/exist");
     ProjectWorkspace workspace =
@@ -62,7 +62,7 @@ public class RunCommandIntegrationTest extends EasyMockSupport {
   }
 
   @Test
-  public void testRunCommandWithNonExistentTarget() throws IOException, InterruptedException {
+  public void testRunCommandWithNonExistentTarget() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "run-command", temporaryFolder);
     workspace.setUp();

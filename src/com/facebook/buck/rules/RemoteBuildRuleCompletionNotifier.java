@@ -21,12 +21,30 @@ package com.facebook.buck.rules;
  */
 public interface RemoteBuildRuleCompletionNotifier {
   /**
+   * Signals that an individual build rule has started building remotely
+   *
+   * @param buildTarget
+   */
+  void signalStartedRemoteBuildingOfBuildRule(String buildTarget);
+
+  /**
    * Signals that an individual build rule has completed remotely
    *
    * @param buildTarget
    */
   void signalCompletionOfBuildRule(String buildTarget);
 
-  /** Signals that the entire remote build has finished (and in turn all rules within it) */
-  void signalCompletionOfRemoteBuild();
+  /**
+   * Signals that the entire remote build has finished (and in turn all rules within it)
+   *
+   * @param success Indicates whether remote build finished successfully or in a failure.
+   */
+  void signalCompletionOfRemoteBuild(boolean success);
+
+  /**
+   * Configured threshold percentage of build rules has finished building remotely.
+   *
+   * @param success Indicates whether most rules finished successfully or in a failure.
+   */
+  void signalMostBuildRulesFinished(boolean success);
 }

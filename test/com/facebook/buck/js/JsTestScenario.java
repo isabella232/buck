@@ -20,20 +20,19 @@ import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.FakeWorkerBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.LinkedHashSet;
@@ -111,7 +110,7 @@ public class JsTestScenario {
     }
 
     public Builder bundle(BuildTarget target, ImmutableSortedSet<BuildTarget> deps) {
-      final Either<ImmutableSet<String>, String> entry = Either.ofLeft(ImmutableSet.of());
+      Either<ImmutableSet<String>, String> entry = Either.ofLeft(ImmutableSet.of());
       nodes.add(new JsBundleBuilder(target, workerTarget, entry, filesystem).setDeps(deps).build());
 
       return this;
@@ -184,9 +183,8 @@ public class JsTestScenario {
     }
 
     public JsTestScenario build() {
-      final TargetGraph graph = TargetGraphFactory.newInstance(nodes);
-      final BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
+      TargetGraph graph = TargetGraphFactory.newInstance(nodes);
+      BuildRuleResolver resolver = new TestBuildRuleResolver(graph);
       for (TargetNode<?, ?> node : nodes) {
         resolver.requireRule(node.getBuildTarget());
       }

@@ -31,6 +31,7 @@ import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.HumanReadableException;
@@ -226,9 +227,20 @@ public class ProjectCommand extends BuildCommand {
   private String generatedFilesListFilename = null;
 
   @Option(
+    name = "--update",
+    usage =
+        "Instead of generating a whole project, only regenerate the module files for the "
+            + "given targets, possibly updating the top-level modules list."
+  )
+  private boolean updateOnly = false;
+
+  @Option(
     name = "--view",
     usage =
-        "Option that builds a Project View which is a directory containing symlinks to a single"
+        "Deprecated: this feature will be removed in future versions, see "
+            + "https://github.com/facebook/buck/issues/1567."
+            + "\n"
+            + "Option that builds a Project View which is a directory containing symlinks to a single"
             + " project's code and resources. This directory looks a lot like a standard IntelliJ "
             + "project with all resources under /res, but what's really important is that it "
             + "generates a single IntelliJ module, so that editing is much faster than when you "
@@ -257,15 +269,11 @@ public class ProjectCommand extends BuildCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    final Ide projectIde =
+    Ide projectIde =
         (ide == null) ? getIdeFromBuckConfig(params.getBuckConfig()).orElse(null) : ide;
 
     if (projectIde == null) {
-      params
-          .getConsole()
-          .getStdErr()
-          .println("\nCannot build a project: project IDE is not specified.");
-      return ExitCode.COMMANDLINE_ERROR;
+      throw new CommandLineException("project IDE is not specified in Buck config or --ide");
     }
 
     int rc = runPreprocessScriptIfNeeded(params, projectIde);
@@ -509,6 +517,11 @@ public class ProjectCommand extends BuildCommand {
     @Override
     public boolean isProcessAnnotations() {
       return processAnnotations;
+    }
+
+    @Override
+    public boolean isUpdateOnly() {
+      return updateOnly;
     }
 
     @Override

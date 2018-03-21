@@ -23,7 +23,9 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.trace.uploader.launcher.UploaderLauncher;
+import com.facebook.buck.util.trace.uploader.types.CompressionType;
 import com.google.common.base.Preconditions;
 import com.google.common.io.Closer;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -34,7 +36,10 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-public class CoordinatorModeRunner implements DistBuildModeRunner {
+/**
+ * {@link DistBuildModeRunner} implementation for running a distributed build as coordinator only.
+ */
+public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
 
   private static final Logger LOG = Logger.get(CoordinatorModeRunner.class);
 
@@ -48,10 +53,11 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
   private final Optional<BuildId> clientBuildId;
   private final Path logDirectoryPath;
   private final ThriftCoordinatorServer.EventListener eventListener;
-  private final BuildRuleFinishedPublisher buildRuleFinishedPublisher;
+  private final CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher;
   private final DistBuildService distBuildService;
   private final MinionHealthTracker minionHealthTracker;
   private final Optional<URI> traceUploadUri;
+  private final MinionCountProvider minionCountProvider;
 
   /** Constructor. */
   public CoordinatorModeRunner(
@@ -62,9 +68,10 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
       Path logDirectoryPath,
       Optional<BuildId> clientBuildId,
       Optional<URI> traceUploadUri,
-      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       DistBuildService distBuildService,
-      MinionHealthTracker minionHealthTracker) {
+      MinionHealthTracker minionHealthTracker,
+      MinionCountProvider minionCountProvider) {
     this.stampedeId = stampedeId;
     this.clientBuildId = clientBuildId;
     this.traceUploadUri = traceUploadUri;
@@ -74,8 +81,9 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
     this.queue = queue;
     this.coordinatorPort = coordinatorPort;
     this.eventListener = eventListener;
-    this.buildRuleFinishedPublisher = buildRuleFinishedPublisher;
+    this.coordinatorBuildRuleEventsPublisher = coordinatorBuildRuleEventsPublisher;
     this.distBuildService = distBuildService;
+    this.minionCountProvider = minionCountProvider;
   }
 
   public CoordinatorModeRunner(
@@ -83,11 +91,12 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
       StampedeId stampedeId,
       EventListener eventListener,
       Path logDirectoryPath,
-      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       DistBuildService distBuildService,
       Optional<BuildId> clientBuildId,
       Optional<URI> traceUploadUri,
-      MinionHealthTracker minionHealthTracker) {
+      MinionHealthTracker minionHealthTracker,
+      MinionCountProvider minionCountProvider) {
     this(
         OptionalInt.empty(),
         queue,
@@ -96,9 +105,10 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
         logDirectoryPath,
         clientBuildId,
         traceUploadUri,
-        buildRuleFinishedPublisher,
+        coordinatorBuildRuleEventsPublisher,
         distBuildService,
-        minionHealthTracker);
+        minionHealthTracker,
+        minionCountProvider);
   }
 
   @Override
@@ -107,7 +117,7 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
   }
 
   @Override
-  public int runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
+  public ExitCode runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
     try (AsyncCoordinatorRun run = new AsyncCoordinatorRun(heartbeatService, queue)) {
       return run.getExitCode();
     }
@@ -115,7 +125,7 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
 
   /** Reports back to the servers that the coordinator is healthy and alive. */
   public static HeartbeatCallback createHeartbeatCallback(
-      final StampedeId stampedeId, final DistBuildService service) {
+      StampedeId stampedeId, DistBuildService service) {
     return new HeartbeatCallback() {
       @Override
       public void runHeartbeat() throws IOException {
@@ -162,9 +172,10 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
                   queue,
                   stampedeId,
                   eventListener,
-                  buildRuleFinishedPublisher,
+                  coordinatorBuildRuleEventsPublisher,
                   minionHealthTracker,
-                  distBuildService));
+                  distBuildService,
+                  minionCountProvider));
       this.server.start();
       this.closer.register(
           service.addCallback("ReportCoordinatorAlive", createHeartbeatCallback()));
@@ -174,8 +185,8 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
           service.addCallback("BuildStatusCheck", () -> server.checkBuildStatusIsNotTerminated()));
     }
 
-    public int getExitCode() {
-      return server.waitUntilBuildCompletesAndReturnExitCode();
+    public ExitCode getExitCode() {
+      return ExitCode.map(server.waitUntilBuildCompletesAndReturnExitCode());
     }
 
     public int getPort() {
@@ -186,13 +197,14 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
     public void close() throws IOException {
       closer.close();
 
+      // TODO(shivanker): This should be async, but blocking the process from shutting down.
       dumpAndUploadChromeTrace();
     }
 
     private void dumpAndUploadChromeTrace() {
       try {
         Path traceFilePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
-        this.server.traceSnapshot().dumpToChromeTrace(traceFilePath);
+        this.server.generateTrace().dumpToChromeTrace(traceFilePath);
 
         if (!clientBuildId.isPresent()) {
           LOG.warn("Not uploading distbuild chrome trace because original build uuid is unset");
@@ -209,9 +221,9 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
 
         Path uploadLogFile = logDirectoryPath.resolve("upload-dist-build-build-trace.log");
         UploaderLauncher.uploadInBackground(
-            buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile);
-      } catch (Exception e) {
-        LOG.warn("Failed to write or upload distbuild chrome trace", e);
+            buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile, CompressionType.GZIP);
+      } catch (IOException e) {
+        LOG.warn(e, "Failed to write or upload distbuild chrome trace.");
       }
     }
   }

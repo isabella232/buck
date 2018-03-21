@@ -19,7 +19,7 @@ package com.facebook.buck.rules;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.plugin.BuckPluginManagerFactory;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -106,8 +106,7 @@ public final class KnownBuildRuleTypesTestUtil {
 
   @VisibleForTesting
   static KnownBuildRuleTypes createInstance(
-      BuckConfig config, ToolchainProvider toolchainProvider, ProcessExecutor processExecutor)
-      throws InterruptedException, IOException {
+      BuckConfig config, ToolchainProvider toolchainProvider, ProcessExecutor processExecutor) {
 
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
 

@@ -16,7 +16,9 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -27,23 +29,36 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.macros.ClasspathMacroExpander;
+import com.facebook.buck.rules.macros.ExecutableMacroExpander;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroArg;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.rules.macros.MavenCoordinatesMacroExpander;
+import com.facebook.buck.rules.macros.QueryOutputsMacroExpander;
+import com.facebook.buck.rules.macros.QueryPathsMacroExpander;
+import com.facebook.buck.rules.macros.QueryTargetsAndOutputsMacroExpander;
+import com.facebook.buck.rules.macros.QueryTargetsMacroExpander;
+import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
-import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -61,6 +76,22 @@ public class ApplePackageDescription
         ImplicitDepsInferringDescription<
             ApplePackageDescription.AbstractApplePackageDescriptionArg> {
 
+  private static final MacroHandler PARSE_TIME_MACRO_HANDLER =
+      new MacroHandler(
+          ImmutableMap.<String, MacroExpander>builder()
+              .put("classpath", new ClasspathMacroExpander())
+              .put("exe", new ExecutableMacroExpander())
+              .put("worker", new WorkerMacroExpander())
+              .put("location", new LocationMacroExpander())
+              .put("maven_coords", new MavenCoordinatesMacroExpander())
+              .put("query_targets", new QueryTargetsMacroExpander(Optional.empty()))
+              .put("query_outputs", new QueryOutputsMacroExpander(Optional.empty()))
+              .put("query_paths", new QueryPathsMacroExpander(Optional.empty()))
+              .put(
+                  "query_targets_and_outputs",
+                  new QueryTargetsAndOutputsMacroExpander(Optional.empty()))
+              .build());
+
   private final ToolchainProvider toolchainProvider;
   private final SandboxExecutionStrategy sandboxExecutionStrategy;
   private final AppleConfig config;
@@ -76,35 +107,25 @@ public class ApplePackageDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       ApplePackageDescriptionArg args) {
-    final BuildRule bundle =
-        resolver.getRule(propagateFlavorsToTarget(buildTarget, args.getBundle()));
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    BuildRule bundle = resolver.getRule(propagateFlavorsToTarget(buildTarget, args.getBundle()));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    final Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
+    Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
         getApplePackageConfig(
             buildTarget,
             MacroArg.toMacroArgFunction(
-                AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER,
-                buildTarget,
-                cellRoots,
-                resolver));
-
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+                PARSE_TIME_MACRO_HANDLER, buildTarget, context.getCellPathResolver(), resolver));
 
     if (applePackageConfigAndPlatformInfo.isPresent()) {
       return new ExternallyBuiltApplePackage(
           buildTarget,
           projectFilesystem,
-          androidLegacyToolchain,
           sandboxExecutionStrategy,
           resolver,
           params.withExtraDeps(
@@ -112,17 +133,21 @@ public class ApplePackageDescription
                   ImmutableSortedSet.<BuildRule>naturalOrder()
                       .add(bundle)
                       .addAll(
-                          applePackageConfigAndPlatformInfo
-                              .get()
-                              .getExpandedArg()
-                              .getDeps(ruleFinder))
+                          BuildableSupport.getDepsCollection(
+                              applePackageConfigAndPlatformInfo.get().getExpandedArg(), ruleFinder))
                       .build()),
           applePackageConfigAndPlatformInfo.get(),
           Preconditions.checkNotNull(bundle.getSourcePathToOutput()),
           bundle.isCacheable(),
-          Optional.empty());
+          Optional.empty(),
+          toolchainProvider.getByNameIfPresent(
+              AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
+          toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
+          toolchainProvider.getByNameIfPresent(
+              AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
     } else {
-      return new BuiltinApplePackage(buildTarget, projectFilesystem, params, bundle);
+      return new BuiltinApplePackage(
+          buildTarget, projectFilesystem, params, bundle, config.getZipCompressionLevel());
     }
   }
 
@@ -173,7 +198,7 @@ public class ApplePackageDescription
    * @throws HumanReadableException if there are multiple possible package configs.
    */
   private Optional<ApplePackageConfigAndPlatformInfo> getApplePackageConfig(
-      BuildTarget target, Function<String, com.facebook.buck.rules.args.Arg> macroExpander) {
+      BuildTarget target, Function<String, Arg> macroExpander) {
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain = getAppleCxxPlatformFlavorDomain();
     Set<Flavor> platformFlavors = getPlatformFlavorsOrDefault(target, appleCxxPlatformFlavorDomain);
 
@@ -225,7 +250,7 @@ public class ApplePackageDescription
 
       if (packageConfig.isPresent()) {
         try {
-          AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
+          PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
               target,
               cellNames,
               packageConfig.get().getCommand(),

@@ -25,6 +25,7 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -74,15 +75,14 @@ public class GoTestCoverSource extends AbstractBuildRule {
     this.genDir = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/");
     this.buildDeps =
         ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(cover.getDeps(ruleFinder))
+            .addAll(BuildableSupport.getDepsCollection(cover, ruleFinder))
             .addAll(ruleFinder.filterBuildRuleInputs(srcs))
             .build();
 
     // Generate annotation variables for source files
-    ImmutableMap.Builder<String, Path> variables = ImmutableMap.<String, Path>builder();
-    ImmutableMap.Builder<SourcePath, SourcePath> coveredSources =
-        ImmutableMap.<SourcePath, SourcePath>builder();
-    ImmutableSet.Builder<SourcePath> testSources = ImmutableSet.<SourcePath>builder();
+    ImmutableMap.Builder<String, Path> variables = ImmutableMap.builder();
+    ImmutableMap.Builder<SourcePath, SourcePath> coveredSources = ImmutableMap.builder();
+    ImmutableSet.Builder<SourcePath> testSources = ImmutableSet.builder();
 
     for (SourcePath path : srcs) {
       if (!isTestFile(pathResolver, buildTarget, path)) {

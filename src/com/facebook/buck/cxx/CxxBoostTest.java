@@ -21,6 +21,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
@@ -206,7 +207,7 @@ class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunner
           String test = Joiner.on(".").join(testSuite) + "." + matcher.group(1);
           Preconditions.checkState(currentTest.isPresent() && currentTest.get().equals(test));
           String time = matcher.group(2);
-          times.put(test, time == null ? 0 : Long.valueOf(time));
+          times.put(test, time == null ? 0L : Long.parseLong(time));
           currentTest = Optional.empty();
         } else if (currentTest.isPresent()) {
           if (ERROR.matcher(line).matches()) {
@@ -233,7 +234,9 @@ class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunner
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
         super.getRuntimeDeps(ruleFinder),
-        getExecutableCommand().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
+        BuildableSupport.getDepsCollection(getExecutableCommand(), ruleFinder)
+            .stream()
+            .map(BuildRule::getBuildTarget));
   }
 
   @Override

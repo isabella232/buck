@@ -30,6 +30,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
@@ -119,8 +120,8 @@ class ProvisioningProfileCopyStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    final Optional<ImmutableMap<String, NSObject>> entitlements;
-    final String prefix;
+    Optional<ImmutableMap<String, NSObject>> entitlements;
+    String prefix;
     if (entitlementsPlist.isPresent()) {
       try {
         NSDictionary entitlementsPlistDict =
@@ -140,14 +141,14 @@ class ProvisioningProfileCopyStep implements Step {
       prefix = "*";
     }
 
-    final Optional<ImmutableList<CodeSignIdentity>> identities;
+    Optional<ImmutableList<CodeSignIdentity>> identities;
     if (!codeSignIdentitiesSupplier.get().isEmpty()) {
       identities = Optional.of(codeSignIdentitiesSupplier.get());
     } else {
       identities = ProvisioningProfileStore.MATCH_ANY_IDENTITY;
     }
 
-    final String bundleID =
+    String bundleID =
         AppleInfoPlistParsing.getBundleIdFromPlistStream(
                 infoPlist, filesystem.getInputStreamForRelativePath(infoPlist))
             .get();
@@ -180,7 +181,7 @@ class ProvisioningProfileCopyStep implements Step {
           "No valid non-expired provisioning profiles match for " + prefix + "." + bundleID;
       if (dryRunResultsPath.isPresent()) {
         LOG.warn(message);
-        return StepExecutionResult.SUCCESS;
+        return StepExecutionResults.SUCCESS;
       } else {
         throw new HumanReadableException(message);
       }

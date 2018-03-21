@@ -26,9 +26,9 @@ import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ThrowingPrintWriter;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.annotations.VisibleForTesting;
@@ -169,12 +169,27 @@ public class DistBuildPostBuildAnalysis {
   public AnalysisResults runAnalysis() {
     AnalysisResults.Builder results = AnalysisResults.builder();
 
-    //TODO(shivanker): Add per-slave cache statistics.
+    // TODO(shivanker): Add per-slave cache statistics.
     for (Map.Entry<String, BuildRuleMachineLogEntry> entry : localBuildRulesByName.entrySet()) {
       results.addPerRuleStats(analyseBuildRule(entry.getKey(), entry.getValue()));
     }
 
     return results.build();
+  }
+
+  /** @return List of rule name/type pairs for all rule keys that mismatched */
+  public List<RuleKeyNameAndType> getMismatchingDefaultRuleKeys(AnalysisResults results) {
+    return results
+        .perRuleStats()
+        .stream()
+        .filter(result -> result.wasDefaultRuleKeyMismatch())
+        .map(
+            result ->
+                RuleKeyNameAndType.builder()
+                    .setRuleName(result.ruleName())
+                    .setRuleType(result.ruleType())
+                    .build())
+        .collect(Collectors.toList());
   }
 
   public Path dumpResultsToLogFile(AnalysisResults results) throws IOException {
@@ -572,5 +587,14 @@ public class DistBuildPostBuildAnalysis {
       }
       return count;
     }
+  }
+
+  /** Pair containing name and type of a rule key. */
+  @Value.Immutable
+  @BuckStyleImmutable
+  abstract static class AbstractRuleKeyNameAndType {
+    abstract String getRuleName();
+
+    abstract String getRuleType();
   }
 }

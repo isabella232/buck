@@ -29,8 +29,10 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasContacts;
@@ -40,7 +42,6 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -75,11 +76,16 @@ public class CxxTestDescription
   private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
   private final ImmutableSet<Flavor> declaredPlatforms;
+  private final CxxBinaryMetadataFactory cxxBinaryMetadataFactory;
 
-  public CxxTestDescription(ToolchainProvider toolchainProvider, CxxBuckConfig cxxBuckConfig) {
+  public CxxTestDescription(
+      ToolchainProvider toolchainProvider,
+      CxxBuckConfig cxxBuckConfig,
+      CxxBinaryMetadataFactory cxxBinaryMetadataFactory) {
     this.toolchainProvider = toolchainProvider;
     this.cxxBuckConfig = cxxBuckConfig;
     this.declaredPlatforms = cxxBuckConfig.getDeclaredPlatforms();
+    this.cxxBinaryMetadataFactory = cxxBinaryMetadataFactory;
   }
 
   private ImmutableSet<BuildTarget> getImplicitFrameworkDeps(
@@ -138,13 +144,10 @@ public class CxxTestDescription
   @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget inputBuildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
-      final CxxTestDescriptionArg args) {
+      CxxTestDescriptionArg args) {
     Optional<StripStyle> flavoredStripStyle = StripStyle.FLAVOR_DOMAIN.getValue(inputBuildTarget);
     Optional<LinkerMapMode> flavoredLinkerMapMode =
         LinkerMapMode.FLAVOR_DOMAIN.getValue(inputBuildTarget);
@@ -152,10 +155,13 @@ public class CxxTestDescription
         CxxStrip.removeStripStyleFlavorInTarget(inputBuildTarget, flavoredStripStyle);
     inputBuildTarget =
         LinkerMapMode.removeLinkerMapModeFlavorInTarget(inputBuildTarget, flavoredLinkerMapMode);
-    final BuildTarget buildTarget = inputBuildTarget;
+    BuildTarget buildTarget = inputBuildTarget;
 
     CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    CellPathResolver cellRoots = context.getCellPathResolver();
 
     if (buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       CxxLinkAndCompileRules cxxLinkAndCompileRules =
@@ -189,7 +195,7 @@ public class CxxTestDescription
     }
 
     // Generate the link rule that builds the test binary.
-    final CxxLinkAndCompileRules cxxLinkAndCompileRules =
+    CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
             buildTarget,
             projectFilesystem,
@@ -211,7 +217,8 @@ public class CxxTestDescription
     BuildRuleParams testParams =
         params
             .withDeclaredDeps(cxxLinkAndCompileRules.deps)
-            .copyAppendingExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
+            .copyAppendingExtraDeps(
+                BuildableSupport.getDepsCollection(cxxLinkAndCompileRules.executable, ruleFinder));
 
     // Supplier which expands macros in the passed in test environment.
     ImmutableMap<String, String> testEnv =
@@ -327,7 +334,7 @@ public class CxxTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     // Get any parse time deps from the C/C++ platforms.
-    extraDepsBuilder.addAll(
+    targetGraphOnlyDepsBuilder.addAll(
         CxxPlatforms.getParseTimeDeps(getCxxPlatform(buildTarget, constructorArg)));
 
     // Extract parse time deps from flags, args, and environment parameters.
@@ -394,14 +401,9 @@ public class CxxTestDescription
       CellPathResolver cellRoots,
       CxxTestDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
-      final Class<U> metadataClass) {
-    if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class)
-        || !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      return Optional.empty();
-    }
-    return CxxDescriptionEnhancer.createCompilationDatabaseDependencies(
-            buildTarget, getCxxPlatformsProvider().getCxxPlatforms(), resolver, args)
-        .map(metadataClass::cast);
+      Class<U> metadataClass) {
+    return cxxBinaryMetadataFactory.createMetadata(
+        buildTarget, resolver, args.getDeps(), metadataClass);
   }
 
   private CxxPlatformsProvider getCxxPlatformsProvider() {

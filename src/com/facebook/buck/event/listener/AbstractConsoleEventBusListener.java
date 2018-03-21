@@ -19,7 +19,8 @@ import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
-import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
+import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
+import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -28,13 +29,11 @@ import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.InstallEvent;
-import com.facebook.buck.event.NetworkEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
@@ -47,6 +46,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.i18n.NumberFormatter;
 import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -76,6 +76,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
@@ -139,11 +140,11 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   protected AtomicReference<HttpArtifactCacheEvent.Scheduled> firstHttpCacheUploadScheduled =
       new AtomicReference<>();
 
-  protected final AtomicInteger httpArtifactUploadsScheduledCount = new AtomicInteger(0);
-  protected final AtomicInteger httpArtifactUploadsStartedCount = new AtomicInteger(0);
-  protected final AtomicInteger httpArtifactUploadedCount = new AtomicInteger(0);
-  protected final AtomicLong httpArtifactTotalBytesUploaded = new AtomicLong(0);
-  protected final AtomicInteger httpArtifactUploadFailedCount = new AtomicInteger(0);
+  protected final AtomicInteger remoteArtifactUploadsScheduledCount = new AtomicInteger(0);
+  protected final AtomicInteger remoteArtifactUploadsStartedCount = new AtomicInteger(0);
+  protected final AtomicInteger remoteArtifactUploadedCount = new AtomicInteger(0);
+  protected final AtomicLong remoteArtifactTotalBytesUploaded = new AtomicLong(0);
+  protected final AtomicInteger remoteArtifactUploadFailedCount = new AtomicInteger(0);
 
   @Nullable protected volatile HttpArtifactCacheEvent.Shutdown httpShutdownEvent;
 
@@ -158,7 +159,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   protected final NetworkStatsKeeper networkStatsKeeper;
 
-  private volatile Optional<Double> approximateDistBuildProgress = Optional.empty();
+  protected volatile int distBuildTotalRulesCount = 0;
+  protected volatile int distBuildFinishedRulesCount = 0;
 
   protected BuildRuleThreadTracker buildRuleThreadTracker;
 
@@ -230,18 +232,28 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   protected Optional<Double> getApproximateDistBuildProgress() {
-    return approximateDistBuildProgress;
+    if (distBuildTotalRulesCount == 0) {
+      return Optional.of(0.0);
+    }
+
+    double buildRatio = (double) distBuildFinishedRulesCount / distBuildTotalRulesCount;
+    return Optional.of(Math.floor(100 * buildRatio) / 100.0);
+  }
+
+  /** Local build progress. */
+  protected Optional<Double> getApproximateLocalBuildProgress() {
+    if (progressEstimator.isPresent()) {
+      return progressEstimator.get().getApproximateBuildProgress();
+    } else {
+      return Optional.empty();
+    }
   }
 
   protected Optional<Double> getApproximateBuildProgress() {
     if (distBuildStarted != null && distBuildFinished == null) {
       return getApproximateDistBuildProgress();
     } else {
-      if (progressEstimator.isPresent()) {
-        return progressEstimator.get().getApproximateBuildProgress();
-      } else {
-        return Optional.empty();
-      }
+      return getApproximateLocalBuildProgress();
     }
   }
 
@@ -263,11 +275,11 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   public void setPublicAnnouncements(BuckEventBus eventBus, Optional<String> announcements) {
     this.publicAnnouncements = announcements;
-    if (announcements.isPresent()) {
-      eventBus.post(
-          ConsoleEvent.createForMessageWithAnsiEscapeCodes(
-              Level.INFO, ansi.asInformationText(announcements.get())));
-    }
+    announcements.ifPresent(
+        announcement ->
+            eventBus.post(
+                ConsoleEvent.createForMessageWithAnsiEscapeCodes(
+                    Level.INFO, ansi.asInformationText(announcement))));
   }
 
   // This is used by the logging infrastructure to add a line to the console in a way that doesn't
@@ -366,7 +378,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     if (firstHttpCacheUploadScheduled.get() != null) {
       boolean isFinished = httpShutdownEvent != null;
       String line = "HTTP CACHE UPLOAD" + (isFinished ? ": FINISHED " : "... ");
-      line += renderHttpUploads();
+      line += renderRemoteUploads();
       lines.add(line);
     }
   }
@@ -502,11 +514,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void commandStartedEvent(CommandEvent.Started startedEvent) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator
-          .get()
-          .setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs());
-    }
+    progressEstimator.ifPresent(
+        estimator ->
+            estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
   }
 
   public static void aggregateStartedEvent(
@@ -549,17 +559,13 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @SuppressWarnings("unused")
   @Subscribe
   public void projectGenerationProcessedTarget(ProjectGenerationEvent.Processed processed) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didGenerateProjectForTarget();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didGenerateProjectForTarget);
   }
 
   @Subscribe
   public void projectGenerationFinished(ProjectGenerationEvent.Finished finished) {
     projectGenerationFinished = finished;
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didFinishProjectGeneration();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didFinishProjectGeneration);
   }
 
   @Subscribe
@@ -570,17 +576,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void ruleParseFinished(ParseBuckFileEvent.Finished ruleParseFinished) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didParseBuckRules(ruleParseFinished.getNumRules());
-    }
+    progressEstimator.ifPresent(
+        estimator -> estimator.didParseBuckRules(ruleParseFinished.getNumRules()));
   }
 
   @Subscribe
   public void parseFinished(ParseEvent.Finished finished) {
     parseFinished.add(finished);
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didFinishParsing();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didFinishParsing);
     aggregateFinishedEvent(buckFilesParsingEvents, finished);
   }
 
@@ -609,9 +612,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Subscribe
   public void buildStarted(BuildEvent.Started started) {
     buildStarted = started;
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didStartBuild();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didStartBuild);
   }
 
   @Subscribe
@@ -622,18 +623,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
     ruleCount = Optional.of(calculated.getNumRules());
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().setNumberOfRules(calculated.getNumRules());
-    }
+    progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(calculated.getNumRules()));
     cacheRateStatsKeeper.ruleCountCalculated(calculated);
   }
 
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
     ruleCount = Optional.of(updated.getNumRules());
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().setNumberOfRules(ruleCount.get());
-    }
+    progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(updated.getNumRules()));
     cacheRateStatsKeeper.ruleCountUpdated(updated);
   }
 
@@ -681,44 +678,49 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
             ? convertToAllCapsIfNeeded("Downloaded")
             : convertToAllCapsIfNeeded("Downloading") + "...";
     List<String> columns = new ArrayList<>();
-    Pair<Long, SizeUnit> bytesDownloaded = networkStatsKeeper.getBytesDownloaded();
-    Pair<Double, SizeUnit> readableBytesDownloaded =
-        SizeUnit.getHumanReadableSize(bytesDownloaded.getFirst(), bytesDownloaded.getSecond());
+
+    Pair<Long, SizeUnit> remoteDownloadedBytes =
+        networkStatsKeeper.getRemoteDownloadedArtifactsBytes();
+    Pair<Double, SizeUnit> redableRemoteDownloadedBytes =
+        SizeUnit.getHumanReadableSize(
+            remoteDownloadedBytes.getFirst(), remoteDownloadedBytes.getSecond());
     columns.add(
         String.format(
             locale,
             "%d " + convertToAllCapsIfNeeded("artifacts"),
-            networkStatsKeeper.getDownloadedArtifactDownloaded()));
+            networkStatsKeeper.getRemoteDownloadedArtifactsCount()));
     columns.add(
         String.format(
             locale,
             "%s",
             convertToAllCapsIfNeeded(
-                SizeUnit.toHumanReadableString(readableBytesDownloaded, locale))));
+                SizeUnit.toHumanReadableString(redableRemoteDownloadedBytes, locale))));
     return parseLine + " " + Joiner.on(", ").join(columns);
   }
 
   @Subscribe
   public void buildRuleStarted(BuildRuleEvent.Started started) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didStartRule();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didStartRule);
     buildRuleThreadTracker.didStartBuildRule(started);
   }
 
   @Subscribe
   public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didResumeRule();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didResumeRule);
     buildRuleThreadTracker.didResumeBuildRule(resumed);
+  }
+
+  @SuppressWarnings("unused")
+  @Subscribe
+  private void resetLocalBuildStats(BuildEvent.Reset reset) {
+    buildRuleThreadTracker.reset();
+    progressEstimator.ifPresent(ProgressEstimator::resetBuildData);
+    numRulesCompleted.set(0);
   }
 
   @Subscribe
   public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didSuspendRule();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didSuspendRule);
     buildRuleThreadTracker.didSuspendBuildRule(suspended);
   }
 
@@ -738,26 +740,25 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
 
     if (finished.getStatus() != BuildRuleStatus.CANCELED) {
-      if (progressEstimator.isPresent()) {
-        progressEstimator.get().didFinishRule();
-      }
+      progressEstimator.ifPresent(ProgressEstimator::didFinishRule);
       numRulesCompleted.getAndIncrement();
     }
+
     buildRuleThreadTracker.didFinishBuildRule(finished);
     cacheRateStatsKeeper.buildRuleFinished(finished);
   }
 
   @Subscribe
   public void distBuildFinished(BuildEvent.DistBuildFinished finished) {
-    distBuildFinished = finished;
+    if (distBuildFinished == null) {
+      distBuildFinished = finished;
+    }
   }
 
   @Subscribe
   public void buildFinished(BuildEvent.Finished finished) {
     buildFinished = finished;
-    if (progressEstimator.isPresent()) {
-      progressEstimator.get().didFinishBuild();
-    }
+    progressEstimator.ifPresent(ProgressEstimator::didFinishBuild);
   }
 
   @Subscribe
@@ -784,31 +785,45 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   public void onHttpArtifactCacheScheduledEvent(HttpArtifactCacheEvent.Scheduled event) {
     if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
       firstHttpCacheUploadScheduled.compareAndSet(null, event);
-      httpArtifactUploadsScheduledCount.incrementAndGet();
+      remoteArtifactUploadsScheduledCount.incrementAndGet();
     }
   }
 
   @Subscribe
   public void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
     if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
-      httpArtifactUploadsStartedCount.incrementAndGet();
+      remoteArtifactUploadsStartedCount.incrementAndGet();
     }
   }
 
   @Subscribe
   public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {
-    if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
-      if (event.getStoreData().wasStoreSuccessful().orElse(false)) {
-        httpArtifactUploadedCount.incrementAndGet();
-        Optional<Long> artifactSizeBytes = event.getStoreData().getArtifactSizeBytes();
-        if (artifactSizeBytes.isPresent()) {
-          httpArtifactTotalBytesUploaded.addAndGet(artifactSizeBytes.get());
+    switch (event.getOperation()) {
+      case MULTI_FETCH:
+      case FETCH:
+        if (event.getCacheResult().isPresent()
+            && event.getCacheResult().get().getType().isSuccess()) {
+          networkStatsKeeper.incrementRemoteDownloadedArtifactsCount();
+          event
+              .getCacheResult()
+              .get()
+              .artifactSizeBytes()
+              .ifPresent(networkStatsKeeper::addRemoteDownloadedArtifactsBytes);
         }
-      } else {
-        httpArtifactUploadFailedCount.incrementAndGet();
-      }
-    } else {
-      networkStatsKeeper.artifactDownloadFinished();
+        break;
+      case STORE:
+        if (event.getStoreData().wasStoreSuccessful().orElse(false)) {
+          remoteArtifactUploadedCount.incrementAndGet();
+          event
+              .getStoreData()
+              .getArtifactSizeBytes()
+              .ifPresent(remoteArtifactTotalBytesUploaded::addAndGet);
+        } else {
+          remoteArtifactUploadFailedCount.incrementAndGet();
+        }
+        break;
+      case MULTI_CONTAINS:
+        break;
     }
   }
 
@@ -819,40 +834,35 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void onDistBuildStatusEvent(DistBuildStatusEvent event) {
-    int totalRuleCount = 0;
-    int finishedRuleCount = 0;
     synchronized (distBuildStatusLock) {
       distBuildStatus = Optional.of(event.getStatus());
     }
-
-    for (BuildSlaveStatus status : event.getStatus().getSlaveStatuses()) {
-      totalRuleCount += status.getTotalRulesCount();
-      finishedRuleCount += status.getRulesFinishedCount();
-    }
-
-    if (totalRuleCount != 0) {
-      double buildProgress = (double) finishedRuleCount / totalRuleCount;
-      approximateDistBuildProgress = Optional.of(Math.floor(100 * buildProgress) / 100.0);
-    } else {
-      approximateDistBuildProgress = Optional.empty();
-    }
   }
 
+  /** Update distributed build progress. */
   @Subscribe
-  public void bytesReceived(NetworkEvent.BytesReceivedEvent bytesReceivedEvent) {
-    networkStatsKeeper.bytesReceived(bytesReceivedEvent);
+  public void onDistBuildProgressEvent(DistBuildRemoteProgressEvent event) {
+    CoordinatorBuildProgress buildProgress = event.getBuildProgress();
+    distBuildTotalRulesCount =
+        buildProgress.getTotalRulesCount() - buildProgress.getSkippedRulesCount();
+    distBuildFinishedRulesCount = buildProgress.getBuiltRulesCount();
   }
 
-  protected String renderHttpUploads() {
-    long bytesUploaded = httpArtifactTotalBytesUploaded.longValue();
+  /**
+   * A method to print the line responsible to show how our remote cache upload goes.
+   *
+   * @return the line
+   */
+  protected String renderRemoteUploads() {
+    long bytesUploaded = remoteArtifactTotalBytesUploaded.longValue();
     String humanReadableBytesUploaded =
         convertToAllCapsIfNeeded(
             SizeUnit.toHumanReadableString(
                 SizeUnit.getHumanReadableSize(bytesUploaded, SizeUnit.BYTES), locale));
-    int scheduled = httpArtifactUploadsScheduledCount.get();
-    int complete = httpArtifactUploadedCount.get();
-    int failed = httpArtifactUploadFailedCount.get();
-    int uploading = httpArtifactUploadsStartedCount.get() - (complete + failed);
+    int scheduled = remoteArtifactUploadsScheduledCount.get();
+    int complete = remoteArtifactUploadedCount.get();
+    int failed = remoteArtifactUploadFailedCount.get();
+    int uploading = remoteArtifactUploadsStartedCount.get() - (complete + failed);
     int pending = scheduled - (uploading + complete + failed);
     if (scheduled > 0) {
       return String.format(
@@ -863,51 +873,42 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
   }
 
-  protected void showTopSlowBuildRules(ImmutableList.Builder<String> lines) {
+  void showTopSlowBuildRules(ImmutableList.Builder<String> lines) {
     if (numberOfSlowRulesToShow == 0 || buildFinished == null) {
       return;
     }
 
     Comparator<UnflavoredBuildTarget> comparator =
-        new Comparator<UnflavoredBuildTarget>() {
-          @Override
-          public int compare(UnflavoredBuildTarget target1, UnflavoredBuildTarget target2) {
-            Long elapsedTime1 =
-                Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target1));
-            Long elapsedTime2 =
-                Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target2));
-            long delta = elapsedTime2 - elapsedTime1;
-            if (delta < 0L) {
-              return -1;
-            } else if (delta > 0L) {
-              return 1;
-            } else {
-              return 0;
-            }
-          }
+        (target1, target2) -> {
+          Long elapsedTime1 = Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target1));
+          Long elapsedTime2 = Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target2));
+          long delta = elapsedTime2 - elapsedTime1;
+          return Long.compare(delta, 0L);
         };
 
     ImmutableList.Builder<String> slowRulesLogsBuilder = ImmutableList.builder();
-    slowRulesLogsBuilder.add(String.format(""));
+    slowRulesLogsBuilder.add("");
     synchronized (timeSpentMillisecondsInRules) {
-      if (timeSpentMillisecondsInRules.size() == 0) {
-        slowRulesLogsBuilder.add(String.format("Top slow rules: Buck didn't spend time in rules."));
+      if (timeSpentMillisecondsInRules.isEmpty()) {
+        slowRulesLogsBuilder.add("Top slow rules: Buck didn't spend time in rules.");
       } else {
-        slowRulesLogsBuilder.add(String.format("Top slow rules"));
+        slowRulesLogsBuilder.add("Top slow rules");
         Stream<UnflavoredBuildTarget> keys =
             timeSpentMillisecondsInRules.keySet().stream().sorted(comparator);
         keys.limit(numberOfSlowRulesToShow)
             .forEachOrdered(
                 target -> {
-                  slowRulesLogsBuilder.add(
-                      String.format(
-                          "    %s: %s",
-                          target, formatElapsedTime(timeSpentMillisecondsInRules.get(target))));
+                  if (timeSpentMillisecondsInRules.containsKey(target)) {
+                    slowRulesLogsBuilder.add(
+                        String.format(
+                            "    %s: %s",
+                            target, formatElapsedTime(timeSpentMillisecondsInRules.get(target))));
+                  }
                 });
       }
     }
     ImmutableList<String> slowRulesLogs = slowRulesLogsBuilder.build();
-    LOG.info(String.join("\n", slowRulesLogs));
+    LOG.info(slowRulesLogs.stream().collect(Collectors.joining("\n")));
     if (showSlowRulesInConsole) {
       lines.addAll(slowRulesLogs);
     }

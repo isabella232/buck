@@ -21,7 +21,9 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.hamcrest.Matchers;
@@ -38,7 +40,8 @@ public class OmnibusRootsTest {
     NativeLinkTarget root = new OmnibusRootNode("//:root", ImmutableList.of(excludedDep));
 
     OmnibusRoots.Builder builder =
-        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of());
+        OmnibusRoots.builder(
+            CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of(), new TestBuildRuleResolver());
     builder.addIncludedRoot(root);
     builder.addIncludedRoot(transitiveRoot);
     OmnibusRoots roots = builder.build();
@@ -53,13 +56,15 @@ public class OmnibusRootsTest {
     OmnibusRootNode root =
         new OmnibusRootNode("//:transitive_root") {
           @Override
-          public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+          public boolean supportsOmnibusLinking(
+              CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
             return false;
           }
         };
 
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     OmnibusRoots.Builder builder =
-        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of());
+        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of(), ruleResolver);
     builder.addPotentialRoot(root);
     OmnibusRoots roots = builder.build();
 

@@ -24,7 +24,6 @@ import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,7 +53,7 @@ public class TargetNodeTranslatorTest {
     BuildTarget a = BuildTargetFactory.newInstance("//:a");
     BuildTarget b = BuildTargetFactory.newInstance("//:b");
     BuildTarget c = BuildTargetFactory.newInstance("//:c");
-    final BuildTarget d = BuildTargetFactory.newInstance("//:d");
+    BuildTarget d = BuildTargetFactory.newInstance("//:d");
     TargetNode<CxxLibraryDescriptionArg, ?> node =
         new CxxLibraryBuilder(a)
             .setDeps(ImmutableSortedSet.of(b))
@@ -114,7 +114,7 @@ public class TargetNodeTranslatorTest {
   public void selectedVersions() {
     TargetNode<VersionPropagatorDescriptionArg, ?> node =
         new VersionPropagatorBuilder("//:a").build();
-    final ImmutableMap<BuildTarget, Version> selectedVersions =
+    ImmutableMap<BuildTarget, Version> selectedVersions =
         ImmutableMap.of(BuildTargetFactory.newInstance("//:b"), Version.of("1.0"));
     TargetNodeTranslator translator =
         new TargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableList.of()) {

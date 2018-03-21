@@ -36,24 +36,23 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.ParameterizedTests;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -112,9 +111,7 @@ public class LuaBinaryIntegrationTest {
     lua = luaOptional.get();
 
     // Try to detect if a Lua devel package is available, which is needed to C/C++ support.
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
             Platform.detect(), new CxxBuckConfig(FakeBuckConfig.builder().build()));
@@ -167,8 +164,7 @@ public class LuaBinaryIntegrationTest {
   @Test
   public void stdout() throws Exception {
     workspace.writeContentsToPath("require 'os'; io.stdout:write('hello world')", "simple.lua");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:simple").assertSuccess();
+    ProcessResult result = workspace.runBuckCommand("run", "//:simple").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
         result.getStdout().trim(),
@@ -190,7 +186,7 @@ public class LuaBinaryIntegrationTest {
   public void errorCode() throws Exception {
     workspace.writeContentsToPath("require 'os'\nos.exit(5)", "simple.lua");
     workspace.runBuckBuild("//:simple").assertSuccess();
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("run", "//:simple");
+    ProcessResult result = workspace.runBuckCommand("run", "//:simple");
     assertEquals(result.getExitCode(), ExitCode.BUILD_ERROR);
   }
 
@@ -207,8 +203,7 @@ public class LuaBinaryIntegrationTest {
     Path arg0 = workspace.buildAndReturnOutput("//:simple");
 
     // no args...
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:simple").assertSuccess();
+    ProcessResult result = workspace.runBuckCommand("run", "//:simple").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
         Splitter.on(System.lineSeparator()).splitToList(result.getStdout().trim()),
@@ -233,8 +228,7 @@ public class LuaBinaryIntegrationTest {
   @Test
   public void nativeExtension() throws Exception {
     assumeTrue(luaDevel);
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:native").assertSuccess();
+    ProcessResult result = workspace.runBuckCommand("run", "//:native").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
         result.getStdout().trim(),
@@ -245,8 +239,7 @@ public class LuaBinaryIntegrationTest {
   public void nativeExtensionWithDep() throws Exception {
     assumeThat(starterType, Matchers.not(Matchers.equalTo(LuaBinaryDescription.StarterType.PURE)));
     assumeTrue(luaDevel);
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("run", "//:native_with_dep").assertSuccess();
+    ProcessResult result = workspace.runBuckCommand("run", "//:native_with_dep").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
         result.getStdout().trim(),
@@ -313,8 +306,7 @@ public class LuaBinaryIntegrationTest {
   public void cxxLuaExtensionWithoutIncludeDirs() throws IOException {
     assumeTrue("", sandboxSources && starterType == LuaBinaryDescription.StarterType.NATIVE);
     workspace.replaceFileContents("with_includes/BUCK", "include_dirs", "#");
-    ProjectWorkspace.ProcessResult luaBinaryResult =
-        workspace.runBuckBuild("//with_includes:native_with_extension");
+    ProcessResult luaBinaryResult = workspace.runBuckBuild("//with_includes:native_with_extension");
     luaBinaryResult.assertFailure();
     assertThat(luaBinaryResult.getStderr(), containsString("extension.h"));
   }
@@ -327,7 +319,7 @@ public class LuaBinaryIntegrationTest {
     assertEquals("okay", workspace.getFileContents(output));
   }
 
-  private LuaBuckConfig getLuaBuckConfig() throws InterruptedException, IOException {
+  private LuaBuckConfig getLuaBuckConfig() throws IOException {
     Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
         new BuckConfig(

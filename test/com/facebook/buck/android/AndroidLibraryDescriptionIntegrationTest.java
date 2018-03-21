@@ -19,10 +19,11 @@ package com.facebook.buck.android;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -172,9 +173,22 @@ public class AndroidLibraryDescriptionIntegrationTest extends AbiCompilationMode
         outputs, Matchers.not(Matchers.hasItemInArray("com/facebook/example/C.class")));
   }
 
+  @Test
+  public void testClasspathQueryCanTraverseAndroidResource() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    workspace.runBuckBuild("//:needs_b_has_res").assertSuccess();
+  }
+
+  @Test
+  public void testClasspathQueryOnAndroidResourceRespectsDepth() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    // Check that we have b in our resolved deps, but not c, due to the depth limiting
+    workspace.runBuckBuild("//:needs_c_has_res").assertFailure();
+  }
+
   private Path getOutputFile(String targetName) {
     try {
-      ProjectWorkspace.ProcessResult buildResult =
+      ProcessResult buildResult =
           workspace.runBuckCommand("targets", targetName, "--show-output", "--json");
       buildResult.assertSuccess();
       JsonNode jsonNode = ObjectMappers.READER.readTree(buildResult.getStdout()).get(0);

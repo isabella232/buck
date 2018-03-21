@@ -16,6 +16,8 @@
 
 package com.facebook.buck.distributed;
 
+import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_TARGET_GRAPH_SERIALIZATION;
+
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
@@ -25,12 +27,13 @@ import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
-import com.facebook.buck.rules.CellProviderFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DistBuildCellParams;
+import com.facebook.buck.rules.DistributedCellProviderFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -55,12 +58,13 @@ import org.pf4j.PluginManager;
 
 /** Saves and restores the state of a build to/from a thrift data structure. */
 public class DistBuildState {
+  private static final Logger LOG = Logger.get(DistBuildState.class);
 
   private final BuildJobState remoteState;
   private final ImmutableBiMap<Integer, Cell> cells;
   private final Map<ProjectFilesystem, BuildJobStateFileHashes> fileHashes;
 
-  private DistBuildState(BuildJobState remoteState, final ImmutableBiMap<Integer, Cell> cells) {
+  private DistBuildState(BuildJobState remoteState, ImmutableBiMap<Integer, Cell> cells) {
     this.remoteState = remoteState;
     this.cells = cells;
     this.fileHashes =
@@ -77,6 +81,7 @@ public class DistBuildState {
             });
   }
 
+  /** Creates a serializable {@link BuildJobState} object from the given parameters. */
   public static BuildJobState dump(
       DistBuildCellIndexer distributedBuildCellIndexer,
       DistBuildFileHashes fileHashes,
@@ -84,16 +89,47 @@ public class DistBuildState {
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> topLevelTargets)
       throws IOException, InterruptedException {
+    return dump(
+        distributedBuildCellIndexer,
+        fileHashes,
+        targetGraphCodec,
+        targetGraph,
+        topLevelTargets,
+        Optional.empty());
+  }
+
+  /**
+   * Creates a serializable {@link BuildJobState} object from the given parameters. Also records
+   * relevant statistics in the {@link ClientStatsTracker} if one is provided.
+   */
+  public static BuildJobState dump(
+      DistBuildCellIndexer distributedBuildCellIndexer,
+      DistBuildFileHashes fileHashes,
+      DistBuildTargetGraphCodec targetGraphCodec,
+      TargetGraph targetGraph,
+      ImmutableSet<BuildTarget> topLevelTargets,
+      Optional<ClientStatsTracker> clientStatsTracker)
+      throws IOException, InterruptedException {
     Preconditions.checkArgument(topLevelTargets.size() > 0);
     BuildJobState jobState = new BuildJobState();
+
+    LOG.info("Setting file hashes..");
     jobState.setFileHashes(fileHashes.getFileHashes());
+    LOG.info("Finished setting file hashes.");
+
+    LOG.info("Setting cells..");
+    jobState.setCells(distributedBuildCellIndexer.getState());
+    LOG.info("Finished setting cells.");
+
+    clientStatsTracker.ifPresent(tracker -> tracker.startTimer(LOCAL_TARGET_GRAPH_SERIALIZATION));
     jobState.setTargetGraph(
         targetGraphCodec.dump(targetGraph.getNodes(), distributedBuildCellIndexer));
-    jobState.setCells(distributedBuildCellIndexer.getState());
+    clientStatsTracker.ifPresent(tracker -> tracker.stopTimer(LOCAL_TARGET_GRAPH_SERIALIZATION));
 
     for (BuildTarget target : topLevelTargets) {
       jobState.addToTopLevelTargets(target.getFullyQualifiedName());
     }
+
     return jobState;
   }
 
@@ -120,6 +156,7 @@ public class DistBuildState {
 
     Path uniqueBuildRoot = Files.createTempDirectory(sandboxPath, "build");
 
+    DistBuildCellParams rootCellParams = null;
     for (Map.Entry<Integer, BuildJobStateCell> remoteCellEntry : jobState.getCells().entrySet()) {
       BuildJobStateCell remoteCell = remoteCellEntry.getValue();
 
@@ -137,8 +174,7 @@ public class DistBuildState {
           remoteCell.getCanonicalName().isEmpty()
               ? Optional.empty()
               : Optional.of(remoteCell.getCanonicalName());
-      cellParams.put(
-          cellRoot,
+      DistBuildCellParams currentCellParams =
           DistBuildCellParams.of(
               buckConfig,
               projectFilesystem,
@@ -146,11 +182,18 @@ public class DistBuildState {
               environment,
               processExecutor,
               executableFinder,
-              pluginManager));
+              pluginManager);
+      cellParams.put(cellRoot, currentCellParams);
       cellIndex.put(remoteCellEntry.getKey(), cellRoot);
+
+      if (remoteCellEntry.getKey() == DistBuildCellIndexer.ROOT_CELL_INDEX) {
+        rootCellParams = currentCellParams;
+      }
     }
 
-    CellProvider cellProvider = CellProviderFactory.createForDistributedBuild(cellParams.build());
+    CellProvider cellProvider =
+        DistributedCellProviderFactory.create(
+            Preconditions.checkNotNull(rootCellParams), cellParams.build());
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -206,7 +249,7 @@ public class DistBuildState {
 
   public TargetGraphAndBuildTargets createTargetGraph(
       DistBuildTargetGraphCodec codec, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
-      throws IOException {
+      throws InterruptedException {
     return codec.createTargetGraph(
         remoteState.getTargetGraph(),
         key -> Preconditions.checkNotNull(cells.get(key)),

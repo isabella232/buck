@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.AbstractCxxSource.Type;
+import com.facebook.buck.cxx.CxxBinaryDescription.CommonArg;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
@@ -25,6 +27,8 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.CxxRuntimeType;
+import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -56,7 +60,6 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.rules.args.StringWithMacrosArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
@@ -66,6 +69,7 @@ import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.OutputMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
@@ -137,6 +141,7 @@ public class CxxDescriptionEnhancer {
   public static HeaderSymlinkTree createHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       HeaderMode mode,
       ImmutableMap<Path, SourcePath> headers,
       HeaderVisibility headerVisibility,
@@ -148,12 +153,18 @@ public class CxxDescriptionEnhancer {
         CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
             projectFilesystem, buildTarget, headerVisibility, flavors);
     return CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
-        headerSymlinkTreeTarget, projectFilesystem, headerSymlinkTreeRoot, headers, mode);
+        headerSymlinkTreeTarget,
+        projectFilesystem,
+        ruleFinder,
+        headerSymlinkTreeRoot,
+        headers,
+        mode);
   }
 
   public static HeaderSymlinkTree createHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
@@ -162,6 +173,7 @@ public class CxxDescriptionEnhancer {
     return createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
+        ruleFinder,
         getHeaderModeForPlatform(resolver, cxxPlatform, shouldCreateHeadersSymlinks),
         headers,
         headerVisibility,
@@ -171,6 +183,7 @@ public class CxxDescriptionEnhancer {
   public static SymlinkTree createSandboxSymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> map) {
     BuildTarget sandboxSymlinkTreeTarget =
@@ -181,12 +194,19 @@ public class CxxDescriptionEnhancer {
             projectFilesystem, sandboxSymlinkTreeTarget);
 
     return new SymlinkTree(
-        sandboxSymlinkTreeTarget, projectFilesystem, sandboxSymlinkTreeRoot, map);
+        "cxx_sandbox",
+        sandboxSymlinkTreeTarget,
+        projectFilesystem,
+        sandboxSymlinkTreeRoot,
+        map,
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   public static HeaderSymlinkTree requireHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
@@ -204,6 +224,7 @@ public class CxxDescriptionEnhancer {
                 createHeaderSymlinkTree(
                     untypedTarget,
                     projectFilesystem,
+                    ruleFinder,
                     ruleResolver,
                     cxxPlatform,
                     headers,
@@ -219,7 +240,7 @@ public class CxxDescriptionEnhancer {
             untypedTarget, cxxPlatform.getFlavor());
     BuildRule rule = ruleResolver.requireRule(headerSymlinkTreeTarget);
     Preconditions.checkState(
-        rule instanceof SymlinkTree, rule.getBuildTarget() + " " + rule.getClass().toString());
+        rule instanceof SymlinkTree, rule.getBuildTarget() + " " + rule.getClass());
     return (SymlinkTree) rule;
   }
 
@@ -493,6 +514,7 @@ public class CxxDescriptionEnhancer {
   public static ImmutableList<CxxPreprocessorInput> collectCxxPreprocessorInput(
       BuildTarget target,
       CxxPlatform cxxPlatform,
+      BuildRuleResolver ruleResolver,
       Iterable<BuildRule> deps,
       ImmutableMultimap<CxxSource.Type, ? extends Arg> preprocessorFlags,
       ImmutableList<HeaderSymlinkTree> headerSymlinkTrees,
@@ -515,12 +537,12 @@ public class CxxDescriptionEnhancer {
               "Adding private includes of tested rule %s to testing rule %s",
               rule.getBuildTarget(), target);
           cxxPreprocessorInputFromTestedRulesBuilder.add(
-              testable.getPrivateCxxPreprocessorInput(cxxPlatform));
+              testable.getPrivateCxxPreprocessorInput(cxxPlatform, ruleResolver));
 
           // Add any dependent headers
           cxxPreprocessorInputFromTestedRulesBuilder.addAll(
               CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                  cxxPlatform, ImmutableList.of(rule)));
+                  cxxPlatform, ruleResolver, ImmutableList.of(rule)));
         }
       }
     }
@@ -594,10 +616,18 @@ public class CxxDescriptionEnhancer {
       BuildTarget target,
       Flavor platform,
       PicType pic,
+      Optional<String> staticLibraryBasename,
       String extension,
       boolean uniqueLibraryNameEnabled) {
     return getStaticLibraryPath(
-        filesystem, target, platform, pic, extension, "", uniqueLibraryNameEnabled);
+        filesystem,
+        target,
+        platform,
+        pic,
+        staticLibraryBasename,
+        extension,
+        "",
+        uniqueLibraryNameEnabled);
   }
 
   public static String getStaticLibraryBasename(
@@ -623,13 +653,17 @@ public class CxxDescriptionEnhancer {
       BuildTarget target,
       Flavor platform,
       PicType pic,
+      Optional<String> staticLibraryBasename,
       String extension,
       String suffix,
       boolean uniqueLibraryNameEnabled) {
-    String name =
-        String.format(
-            "lib%s.%s",
-            getStaticLibraryBasename(target, suffix, uniqueLibraryNameEnabled), extension);
+    String basename;
+    if (staticLibraryBasename.isPresent()) {
+      basename = staticLibraryBasename.get();
+    } else {
+      basename = getStaticLibraryBasename(target, suffix, uniqueLibraryNameEnabled);
+    }
+    String name = String.format("lib%s.%s", basename, extension);
     return BuildTargets.getGenPath(
             filesystem, createStaticLibraryBuildTarget(target, platform, pic), "%s")
         .resolve(name);
@@ -703,7 +737,7 @@ public class CxxDescriptionEnhancer {
    *     macros expanded.
    */
   public static RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath(
-      final CxxPlatform cxxPlatform, final SourcePathResolver resolver) {
+      CxxPlatform cxxPlatform, SourcePathResolver resolver) {
     return new FrameworkPathToSearchPathFunction(cxxPlatform, resolver);
   }
 
@@ -739,7 +773,7 @@ public class CxxDescriptionEnhancer {
       CellPathResolver cellRoots,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      CxxBinaryDescription.CommonArg args,
+      CommonArg args,
       ImmutableSet<BuildTarget> extraDeps,
       Optional<StripStyle> stripStyle,
       Optional<LinkerMapMode> flavoredLinkerMapMode) {
@@ -820,22 +854,22 @@ public class CxxDescriptionEnhancer {
       ImmutableSet<BuildTarget> linkWholeDeps,
       Optional<StripStyle> stripStyle,
       Optional<LinkerMapMode> flavoredLinkerMapMode,
-      Linker.LinkableDepType linkStyle,
+      LinkableDepType linkStyle,
       CxxLinkOptions linkOptions,
       ImmutableList<StringWithMacros> preprocessorFlags,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformPreprocessorFlags,
-      ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langPreprocessorFlags,
+      ImmutableMap<Type, ImmutableList<StringWithMacros>> langPreprocessorFlags,
       ImmutableSortedSet<FrameworkPath> frameworks,
       ImmutableSortedSet<FrameworkPath> libraries,
       ImmutableList<StringWithMacros> compilerFlags,
-      ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langCompilerFlags,
+      ImmutableMap<Type, ImmutableList<StringWithMacros>> langCompilerFlags,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformCompilerFlags,
       Optional<SourcePath> prefixHeader,
       Optional<SourcePath> precompiledHeader,
       ImmutableList<StringWithMacros> linkerFlags,
       ImmutableList<String> linkerExtraOutputs,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
-      Optional<Linker.CxxRuntimeType> cxxRuntimeType,
+      Optional<CxxRuntimeType> cxxRuntimeType,
       ImmutableList<String> includeDirs,
       ImmutableSortedSet<SourcePath> rawHeaders) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -863,6 +897,7 @@ public class CxxDescriptionEnhancer {
         requireHeaderSymlinkTree(
             target,
             projectFilesystem,
+            ruleFinder,
             resolver,
             cxxPlatform,
             headers,
@@ -876,6 +911,7 @@ public class CxxDescriptionEnhancer {
         collectCxxPreprocessorInput(
             target,
             cxxPlatform,
+            resolver,
             deps,
             ImmutableListMultimap.copyOf(
                 Multimaps.transformValues(
@@ -889,6 +925,7 @@ public class CxxDescriptionEnhancer {
             frameworks,
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
+                resolver,
                 RichStream.from(deps)
                     .filter(CxxPreprocessorDep.class::isInstance)
                     .toImmutableList()),
@@ -935,18 +972,21 @@ public class CxxDescriptionEnhancer {
 
     // Build up the linker flags, which support macro expansion.
     {
-      Optional<Function<String, String>> sanitizer =
-          Optional.of(getStringWithMacrosArgSanitizer(cxxPlatform));
       ImmutableList<AbstractMacroExpanderWithoutPrecomputedWork<? extends Macro>> expanders =
           ImmutableList.of(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander());
 
+      StringWithMacrosConverter macrosConverter =
+          StringWithMacrosConverter.builder()
+              .setBuildTarget(linkRuleTarget)
+              .setCellPathResolver(cellRoots)
+              .setResolver(resolver)
+              .setExpanders(expanders)
+              .setSanitizer(getStringWithMacrosArgSanitizer(cxxPlatform))
+              .build();
       CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
               linkerFlags, platformLinkerFlags, cxxPlatform)
           .stream()
-          .map(
-              f ->
-                  StringWithMacrosArg.of(
-                      f, expanders, sanitizer, linkRuleTarget, cellRoots, resolver))
+          .map(macrosConverter::convert)
           .forEach(argsBuilder::add);
     }
 
@@ -1020,7 +1060,8 @@ public class CxxDescriptionEnhancer {
                             .setFrameworks(frameworks)
                             .setLibraries(libraries)
                             .build(),
-                        Optional.empty()));
+                        Optional.empty(),
+                        cellRoots));
 
     BuildRule binaryRuleForExecutable;
     Optional<CxxStrip> cxxStrip = Optional.empty();
@@ -1057,6 +1098,7 @@ public class CxxDescriptionEnhancer {
               target,
               projectFilesystem,
               resolver,
+              ruleFinder,
               cxxPlatform,
               deps,
               binaryName,
@@ -1137,7 +1179,7 @@ public class CxxDescriptionEnhancer {
       BuildTarget buildTarget,
       FlavorDomain<CxxPlatform> platforms,
       BuildRuleResolver resolver,
-      CxxConstructorArg args) {
+      ImmutableSortedSet<BuildTarget> deps) {
     Preconditions.checkState(
         buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE));
     Optional<Flavor> cxxPlatformFlavor = platforms.getFlavor(buildTarget);
@@ -1146,7 +1188,7 @@ public class CxxDescriptionEnhancer {
         "Could not find cxx platform in:\n%s",
         Joiner.on(", ").join(buildTarget.getFlavors()));
     ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
-    for (BuildTarget dep : args.getDeps()) {
+    for (BuildTarget dep : deps) {
       Optional<CxxCompilationDatabaseDependencies> compilationDatabases =
           resolver.requireMetadata(
               dep.withAppendedFlavors(
@@ -1191,6 +1233,8 @@ public class CxxDescriptionEnhancer {
   public static SymlinkTree createSharedLibrarySymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem filesystem,
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>> passthrough) {
@@ -1201,13 +1245,21 @@ public class CxxDescriptionEnhancer {
         getSharedLibrarySymlinkTreePath(filesystem, baseBuildTarget, cxxPlatform.getFlavor());
 
     ImmutableSortedMap<String, SourcePath> libraries =
-        NativeLinkables.getTransitiveSharedLibraries(cxxPlatform, deps, passthrough, false);
+        NativeLinkables.getTransitiveSharedLibraries(
+            cxxPlatform, ruleResolver, deps, passthrough, false);
 
     ImmutableMap.Builder<Path, SourcePath> links = ImmutableMap.builder();
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       links.put(Paths.get(ent.getKey()), ent.getValue());
     }
-    return new SymlinkTree(symlinkTreeTarget, filesystem, symlinkTreeRoot, links.build());
+    return new SymlinkTree(
+        "cxx_binary",
+        symlinkTreeTarget,
+        filesystem,
+        symlinkTreeRoot,
+        links.build(),
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   public static SymlinkTree requireSharedLibrarySymlinkTree(
@@ -1221,7 +1273,13 @@ public class CxxDescriptionEnhancer {
             createSharedLibrarySymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
             ignored ->
                 createSharedLibrarySymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, deps, n -> Optional.empty()));
+                    buildTarget,
+                    filesystem,
+                    resolver,
+                    new SourcePathRuleFinder(resolver),
+                    cxxPlatform,
+                    deps,
+                    n -> Optional.empty()));
   }
 
   private static BuildTarget createBinaryWithSharedLibrariesSymlinkTreeTarget(
@@ -1238,6 +1296,8 @@ public class CxxDescriptionEnhancer {
   private static SymlinkTree createBinaryWithSharedLibrariesSymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem filesystem,
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Path binaryName,
@@ -1251,20 +1311,28 @@ public class CxxDescriptionEnhancer {
 
     ImmutableSortedMap<String, SourcePath> libraries =
         NativeLinkables.getTransitiveSharedLibraries(
-            cxxPlatform, deps, n -> Optional.empty(), false);
+            cxxPlatform, ruleResolver, deps, n -> Optional.empty(), false);
 
     ImmutableMap.Builder<Path, SourcePath> links = ImmutableMap.builder();
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       links.put(Paths.get(ent.getKey()), ent.getValue());
     }
     links.put(binaryName, binarySource);
-    return new SymlinkTree(symlinkTreeTarget, filesystem, symlinkTreeRoot, links.build());
+    return new SymlinkTree(
+        "cxx_binary",
+        symlinkTreeTarget,
+        filesystem,
+        symlinkTreeRoot,
+        links.build(),
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   private static SymlinkTree requireBinaryWithSharedLibrariesSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Path binaryName,
@@ -1274,7 +1342,14 @@ public class CxxDescriptionEnhancer {
             createBinaryWithSharedLibrariesSymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
             ignored ->
                 createBinaryWithSharedLibrariesSymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, deps, binaryName, binarySource));
+                    buildTarget,
+                    filesystem,
+                    resolver,
+                    ruleFinder,
+                    cxxPlatform,
+                    deps,
+                    binaryName,
+                    binarySource));
   }
 
   public static Flavor flavorForLinkableDepType(Linker.LinkableDepType linkableDepType) {
@@ -1330,7 +1405,7 @@ public class CxxDescriptionEnhancer {
           Paths.get(sourcePathResolver.getSourcePathName(buildTarget, sourcePath)), sourcePath);
     }
     return createSandboxSymlinkTree(
-        buildTarget, projectFilesystem, platform, ImmutableMap.copyOf(links));
+        buildTarget, projectFilesystem, ruleFinder, platform, ImmutableMap.copyOf(links));
   }
 
   /** Resolve the map of names to SourcePaths to a map of names to CxxSource objects. */
@@ -1361,13 +1436,15 @@ public class CxxDescriptionEnhancer {
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       StringWithMacros flag) {
-    return StringWithMacrosArg.of(
-        flag,
-        ImmutableList.of(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander()),
-        Optional.of(getStringWithMacrosArgSanitizer(cxxPlatform)),
-        target,
-        cellPathResolver,
-        resolver);
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(target)
+            .setCellPathResolver(cellPathResolver)
+            .setResolver(resolver)
+            .addExpanders(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander())
+            .setSanitizer(getStringWithMacrosArgSanitizer(cxxPlatform))
+            .build();
+    return macrosConverter.convert(flag);
   }
 
   private static Function<String, String> getStringWithMacrosArgSanitizer(CxxPlatform platform) {

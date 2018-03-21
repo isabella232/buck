@@ -20,6 +20,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.io.IOException;
@@ -47,7 +48,7 @@ public class JsonConcatenateStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(final ExecutionContext context)
+  public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
     ImmutableSortedSet<Path> filesToConcatenate =
         inputs
@@ -56,7 +57,7 @@ public class JsonConcatenateStep implements Step {
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     Path destination = filesystem.getRootPath().resolve(output);
     new JsonConcatenator(filesToConcatenate, destination, filesystem).concatenate();
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override

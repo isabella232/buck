@@ -21,17 +21,17 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -71,18 +71,15 @@ public class AuditInputCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(final CommandRunnerParams params)
+  public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
     // TargetNodes for the specified BuildTargets.
-    final ImmutableSet<String> fullyQualifiedBuildTargets =
+    ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
     if (fullyQualifiedBuildTargets.isEmpty()) {
-      params
-          .getBuckEventBus()
-          .post(ConsoleEvent.severe("Please specify at least one build target."));
-      return ExitCode.COMMANDLINE_ERROR;
+      throw new CommandLineException("must specify at least one build target");
     }
 
     ImmutableSet<BuildTarget> targets =
@@ -110,7 +107,7 @@ public class AuditInputCommand extends AbstractCommand {
                   getEnableParserProfiling(),
                   pool.getListeningExecutorService(),
                   targets);
-    } catch (BuildFileParseException | BuildTargetException e) {
+    } catch (BuildFileParseException e) {
       params
           .getBuckEventBus()
           .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -129,8 +126,8 @@ public class AuditInputCommand extends AbstractCommand {
   }
 
   @VisibleForTesting
-  ExitCode printJsonInputs(final CommandRunnerParams params, TargetGraph graph) throws IOException {
-    final SortedMap<String, ImmutableSortedSet<Path>> targetToInputs = new TreeMap<>();
+  ExitCode printJsonInputs(CommandRunnerParams params, TargetGraph graph) throws IOException {
+    SortedMap<String, ImmutableSortedSet<Path>> targetToInputs = new TreeMap<>();
 
     new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(graph) {
 
@@ -164,7 +161,7 @@ public class AuditInputCommand extends AbstractCommand {
     return ExitCode.SUCCESS;
   }
 
-  private ExitCode printInputs(final CommandRunnerParams params, TargetGraph graph) {
+  private ExitCode printInputs(CommandRunnerParams params, TargetGraph graph) {
     // Traverse the TargetGraph and print out all of the inputs used to produce each TargetNode.
     // Keep track of the inputs that have been displayed to ensure that they are not displayed more
     // than once.

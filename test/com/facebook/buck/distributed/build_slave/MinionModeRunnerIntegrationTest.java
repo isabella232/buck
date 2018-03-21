@@ -16,17 +16,20 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import static com.facebook.buck.distributed.build_slave.BuildTargetsQueueTest.CHAIN_TOP_TARGET;
-import static com.facebook.buck.distributed.build_slave.BuildTargetsQueueTest.LEAF_TARGET;
-import static com.facebook.buck.distributed.build_slave.BuildTargetsQueueTest.LEFT_TARGET;
-import static com.facebook.buck.distributed.build_slave.BuildTargetsQueueTest.RIGHT_TARGET;
-import static com.facebook.buck.distributed.build_slave.BuildTargetsQueueTest.ROOT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.CHAIN_TOP_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEAF_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEFT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.RIGHT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.ROOT_TARGET;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutor;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.DefaultBuckEventBus;
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildEngineResult;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
@@ -35,6 +38,8 @@ import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.slb.ThriftException;
+import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
@@ -59,6 +64,8 @@ public class MinionModeRunnerIntegrationTest {
   private static final int MAX_PARALLEL_WORK_UNITS = 10;
   private static final long POLL_LOOP_INTERVAL_MILLIS = 9;
   private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
+  private static final BuckEventBus BUCK_EVENT_BUS =
+      new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId());
 
   @Rule public TemporaryFolder tempDir = new TemporaryFolder();
 
@@ -77,8 +84,9 @@ public class MinionModeRunnerIntegrationTest {
             MAX_PARALLEL_WORK_UNITS,
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
-            new NoOpUnexpectedSlaveCacheMissTracker(),
-            CONNECTION_TIMEOUT_MILLIS);
+            new NoOpMinionBuildProgressTracker(),
+            CONNECTION_TIMEOUT_MILLIS,
+            BUCK_EVENT_BUS);
 
     minion.runAndReturnExitCode(createFakeHeartbeatService());
     Assert.fail("The previous line should've thrown an exception.");
@@ -91,7 +99,7 @@ public class MinionModeRunnerIntegrationTest {
         .andReturn(
             new Closeable() {
               @Override
-              public void close() throws IOException {}
+              public void close() {}
             })
         .anyTimes();
     EasyMock.replay(service);
@@ -113,12 +121,13 @@ public class MinionModeRunnerIntegrationTest {
             MAX_PARALLEL_WORK_UNITS,
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
-            new NoOpUnexpectedSlaveCacheMissTracker(),
-            CONNECTION_TIMEOUT_MILLIS);
+            new NoOpMinionBuildProgressTracker(),
+            CONNECTION_TIMEOUT_MILLIS,
+            BUCK_EVENT_BUS);
 
-    int exitCode = minion.runAndReturnExitCode(createFakeHeartbeatService());
+    ExitCode exitCode = minion.runAndReturnExitCode(createFakeHeartbeatService());
     // Server does not exit because the build has already been marked as finished.
-    Assert.assertEquals(0, exitCode);
+    Assert.assertEquals(ExitCode.SUCCESS, exitCode);
   }
 
   @Test
@@ -164,18 +173,18 @@ public class MinionModeRunnerIntegrationTest {
     //         |
     //         +-- (miss target 3)
 
-    final String MISS_TARGET_1 = ROOT_TARGET + "_miss1";
-    final String MISS_TARGET_2 = ROOT_TARGET + "_miss2";
-    final String MISS_TARGET_3 = ROOT_TARGET + "_miss3";
+    String MISS_TARGET_1 = ROOT_TARGET + "_miss1";
+    String MISS_TARGET_2 = ROOT_TARGET + "_miss2";
+    String MISS_TARGET_3 = ROOT_TARGET + "_miss3";
 
-    UnexpectedSlaveCacheMissTracker unexpectedCacheMissTracker =
-        EasyMock.createMock(UnexpectedSlaveCacheMissTracker.class);
+    MinionBuildProgressTracker unexpectedCacheMissTracker =
+        EasyMock.createMock(MinionBuildProgressTracker.class);
     BuildExecutor buildExecutor = EasyMock.createMock(BuildExecutor.class);
 
     EasyMock.expect(
             buildExecutor.waitForBuildToFinish(
                 EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject()))
-        .andReturn(0)
+        .andReturn(ExitCode.SUCCESS)
         .anyTimes();
 
     EasyMock.expect(buildExecutor.initializeBuild(EasyMock.anyObject()))
@@ -222,6 +231,12 @@ public class MinionModeRunnerIntegrationTest {
     unexpectedCacheMissTracker.onUnexpectedCacheMiss(EasyMock.captureInt(cacheMissCounts));
     EasyMock.expectLastCall().atLeastOnce();
 
+    unexpectedCacheMissTracker.updateTotalRuleCount(EasyMock.anyInt());
+    EasyMock.expectLastCall().anyTimes();
+
+    unexpectedCacheMissTracker.updateFinishedRuleCount(EasyMock.anyInt());
+    EasyMock.expectLastCall().anyTimes();
+
     EasyMock.replay(buildExecutor);
     EasyMock.replay(unexpectedCacheMissTracker);
 
@@ -237,7 +252,7 @@ public class MinionModeRunnerIntegrationTest {
   private void runDiamondGraphWithChain(
       HeartbeatService service,
       BuildExecutor buildExecutor,
-      UnexpectedSlaveCacheMissTracker unexpectedCacheMissTracker)
+      MinionBuildProgressTracker unexpectedCacheMissTracker)
       throws IOException, NoSuchBuildTargetException, InterruptedException {
     MinionModeRunner.BuildCompletionChecker checker = () -> false;
     try (ThriftCoordinatorServer server = createServer()) {
@@ -253,16 +268,17 @@ public class MinionModeRunnerIntegrationTest {
               checker,
               POLL_LOOP_INTERVAL_MILLIS,
               unexpectedCacheMissTracker,
-              CONNECTION_TIMEOUT_MILLIS);
-      int exitCode = minion.runAndReturnExitCode(service);
-      Assert.assertEquals(0, exitCode);
+              CONNECTION_TIMEOUT_MILLIS,
+              BUCK_EVENT_BUS);
+      ExitCode exitCode = minion.runAndReturnExitCode(service);
+      Assert.assertEquals(ExitCode.SUCCESS, exitCode);
     }
   }
 
   private void runDiamondGraphWithChain(HeartbeatService service)
       throws IOException, NoSuchBuildTargetException, InterruptedException {
     FakeBuildExecutorImpl buildExecutor = new FakeBuildExecutorImpl();
-    runDiamondGraphWithChain(service, buildExecutor, new NoOpUnexpectedSlaveCacheMissTracker());
+    runDiamondGraphWithChain(service, buildExecutor, new NoOpMinionBuildProgressTracker());
     Assert.assertEquals(5, buildExecutor.getBuildTargets().size());
     Assert.assertEquals(ROOT_TARGET, buildExecutor.getBuildTargets().get(4));
   }
@@ -285,16 +301,14 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public int buildLocallyAndReturnExitCode(
-        Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport)
-        throws IOException, InterruptedException {
+    public ExitCode buildLocallyAndReturnExitCode(
+        Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport) {
       buildTargets.addAll(ImmutableList.copyOf((targetsToBuild)));
-      return 0;
+      return ExitCode.SUCCESS;
     }
 
     @Override
-    public List<BuildEngineResult> initializeBuild(Iterable<String> targetsToBuild)
-        throws IOException {
+    public List<BuildEngineResult> initializeBuild(Iterable<String> targetsToBuild) {
 
       buildTargets.addAll(ImmutableList.copyOf((targetsToBuild)));
 
@@ -318,11 +332,11 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public int waitForBuildToFinish(
+    public ExitCode waitForBuildToFinish(
         Iterable<String> targetsToBuild,
         List<BuildEngineResult> resultFutures,
         Optional<Path> pathToBuildReport) {
-      return 0;
+      return ExitCode.SUCCESS;
     }
 
     @Override
@@ -331,7 +345,7 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public void shutdown() throws IOException {
+    public void shutdown() {
       // Nothing to cleanup in this implementation
     }
   }

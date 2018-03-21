@@ -25,7 +25,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.CachingBuildEngine.MetadataStorage;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -54,19 +54,18 @@ public class DefaultOnDiskBuildInfoIntegrationTest {
 
   private final MetadataStorage metadataStorage;
 
-  public DefaultOnDiskBuildInfoIntegrationTest(CachingBuildEngine.MetadataStorage metadataStorage)
-      throws IOException {
+  public DefaultOnDiskBuildInfoIntegrationTest(CachingBuildEngine.MetadataStorage metadataStorage) {
     this.metadataStorage = metadataStorage;
   }
 
   @Test
-  public void testPathsAndMetadataForArtifactAreCorrect() throws IOException, InterruptedException {
+  public void testPathsAndMetadataForArtifactAreCorrect() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo/bar:baz");
 
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
-    Clock clock = FakeClock.DO_NOT_CARE;
+    Clock clock = FakeClock.doNotCare();
     BuildId buildId = new BuildId("cat");
     BuildInfoStore buildInfoStore =
         metadataStorage == MetadataStorage.FILESYSTEM

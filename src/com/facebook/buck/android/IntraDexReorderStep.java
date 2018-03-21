@@ -25,11 +25,12 @@ import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.zip.ZipCompressionLevel;
-import com.facebook.buck.zip.UnzipStep;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -70,7 +71,7 @@ public class IntraDexReorderStep implements Step {
       BuildTarget buildTarget,
       Path inputPrimaryDexPath,
       Path outputPrimaryDexPath,
-      final Optional<Supplier<Multimap<Path, Path>>> secondaryDexMap,
+      Optional<Supplier<Multimap<Path, Path>>> secondaryDexMap,
       String inputSubDir,
       String outputSubDir) {
     this.target = target;
@@ -97,9 +98,9 @@ public class IntraDexReorderStep implements Step {
       }
     } catch (StepFailedException e) {
       context.logError(e, "There was an error in intra dex reorder step.");
-      return StepExecutionResult.ERROR;
+      return StepExecutionResults.ERROR;
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   private ImmutableList<Step> generateReorderCommands() {
@@ -118,7 +119,7 @@ public class IntraDexReorderStep implements Step {
       Path inputPath, boolean isPrimaryDex, ImmutableList.Builder<Step> steps) {
 
     if (!isPrimaryDex) {
-      String tmpname = "dex-tmp-" + inputPath.getFileName().toString() + "-%s";
+      String tmpname = "dex-tmp-" + inputPath.getFileName() + "-%s";
       Path temp = BuildTargets.getScratchPath(filesystem, buildTarget, tmpname);
       // Create tmp directory if necessary
       steps.addAll(
@@ -126,7 +127,7 @@ public class IntraDexReorderStep implements Step {
               BuildCellRelativePath.fromCellRelativePath(
                   context.getBuildCellRootPath(), filesystem, temp)));
       // un-zip
-      steps.add(new UnzipStep(filesystem, inputPath, temp));
+      steps.add(new UnzipStep(filesystem, inputPath, temp, Optional.empty()));
       // run reorder tool
       steps.add(
           new DefaultShellStep(
@@ -144,7 +145,7 @@ public class IntraDexReorderStep implements Step {
               outputPath,
               /* paths */ ImmutableSet.of(),
               /* junkPaths */ false,
-              ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
+              ZipCompressionLevel.MAX,
               temp));
     } else {
       // copy dex

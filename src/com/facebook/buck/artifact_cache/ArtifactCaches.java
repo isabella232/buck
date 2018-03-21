@@ -15,9 +15,13 @@
  */
 package com.facebook.buck.artifact_cache;
 
+import static com.facebook.buck.artifact_cache.config.ArtifactCacheMode.CacheType.local;
+import static com.facebook.buck.artifact_cache.config.ArtifactCacheMode.CacheType.remote;
+
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheEntries;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode.CacheType;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.artifact_cache.config.HttpCacheEntry;
 import com.facebook.buck.artifact_cache.config.MultiFetchType;
@@ -34,7 +38,6 @@ import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SingleUriService;
-import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.randomizedtrial.RandomizedTrial;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -48,8 +51,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import okhttp3.ConnectionPool;
 import okhttp3.Dispatcher;
@@ -65,7 +71,7 @@ import okio.Okio;
 import okio.Source;
 
 /** Creates instances of the {@link ArtifactCache}. */
-public class ArtifactCaches implements ArtifactCacheFactory {
+public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
 
   private static final Logger LOG = Logger.get(ArtifactCaches.class);
 
@@ -75,7 +81,26 @@ public class ArtifactCaches implements ArtifactCacheFactory {
   private final Optional<String> wifiSsid;
   private final ListeningExecutorService httpWriteExecutorService;
   private final ListeningExecutorService httpFetchExecutorService;
-  private final Optional<AsyncCloseable> asyncCloseable;
+  private final ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService;
+  private final ExecutorService artifactCacheCloseExecutorService;
+  private List<ArtifactCache> artifactCaches = new ArrayList<>();
+
+  @Override
+  public void close() {
+    // close all artifact caches asynchronously using a separate executor
+    for (ArtifactCache artifactCache : artifactCaches) {
+      artifactCacheCloseExecutorService.submit(
+          () -> {
+            try {
+              artifactCache.close();
+            } catch (Exception e) {
+              LOG.warn(e, "Exception when performing async close of %s.", artifactCache);
+            }
+          });
+    }
+
+    buckEventBus.post(HttpArtifactCacheEvent.newShutdownEvent());
+  }
 
   private interface NetworkCacheFactory {
     ArtifactCache newInstance(NetworkCacheArgs args);
@@ -88,7 +113,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
    * @param buckEventBus event bus
    * @param projectFilesystem filesystem to store files on
    * @param wifiSsid current WiFi ssid to decide if we want the http cache or not
-   * @param asyncCloseable
+   * @param artifactCacheCloseExecutorService executor (like thread pool) that will process closing
+   *     tasks of all artifact caches created by this factory
    */
   public ArtifactCaches(
       ArtifactCacheBuckConfig buckConfig,
@@ -97,14 +123,16 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
-      Optional<AsyncCloseable> asyncCloseable) {
+      ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService,
+      ExecutorService artifactCacheCloseExecutorService) {
     this.buckConfig = buckConfig;
     this.buckEventBus = buckEventBus;
     this.projectFilesystem = projectFilesystem;
     this.wifiSsid = wifiSsid;
     this.httpWriteExecutorService = httpWriteExecutorService;
     this.httpFetchExecutorService = httpFetchExecutorService;
-    this.asyncCloseable = asyncCloseable;
+    this.downloadHeavyBuildHttpFetchExecutorService = downloadHeavyBuildHttpFetchExecutorService;
+    this.artifactCacheCloseExecutorService = artifactCacheCloseExecutorService;
   }
 
   private static Request.Builder addHeadersToBuilder(
@@ -118,22 +146,41 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
   @Override
   public ArtifactCache newInstance() {
-    return newInstance(false);
+    return newInstance(false, false);
   }
 
   /**
    * Creates a new instance of the cache for use during a build.
    *
    * @param distributedBuildModeEnabled true if this is a distributed build
+   * @param isDownloadHeavyBuild true if creating cache connector for download heavy build
    * @return ArtifactCache instance
    */
   @Override
-  public ArtifactCache newInstance(boolean distributedBuildModeEnabled) {
-    return newInstance(false, distributedBuildModeEnabled);
+  public ArtifactCache newInstance(
+      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
+    return newInstanceInternal(
+        ImmutableSet.of(), distributedBuildModeEnabled, isDownloadHeavyBuild);
   }
 
   @Override
-  public ArtifactCache newInstance(boolean onlyRemote, boolean distributedBuildModeEnabled) {
+  public ArtifactCache remoteOnlyInstance(
+      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
+    return newInstanceInternal(
+        ImmutableSet.of(local), distributedBuildModeEnabled, isDownloadHeavyBuild);
+  }
+
+  @Override
+  public ArtifactCache localOnlyInstance(
+      boolean distributedBuildModeEnabled, boolean isDownloadHeavyBuild) {
+    return newInstanceInternal(
+        ImmutableSet.of(remote), distributedBuildModeEnabled, isDownloadHeavyBuild);
+  }
+
+  private ArtifactCache newInstanceInternal(
+      ImmutableSet<CacheType> cacheTypeBlacklist,
+      boolean distributedBuildModeEnabled,
+      boolean isDownloadHeavyBuild) {
     ArtifactCacheConnectEvent.Started started = ArtifactCacheConnectEvent.started();
     buckEventBus.post(started);
 
@@ -144,13 +191,13 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             projectFilesystem,
             wifiSsid,
             httpWriteExecutorService,
-            httpFetchExecutorService,
-            onlyRemote,
+            isDownloadHeavyBuild
+                ? downloadHeavyBuildHttpFetchExecutorService
+                : httpFetchExecutorService,
+            cacheTypeBlacklist,
             distributedBuildModeEnabled);
 
-    if (asyncCloseable.isPresent()) {
-      artifactCache = asyncCloseable.get().closeAsync(artifactCache);
-    }
+    artifactCaches.add(artifactCache);
 
     buckEventBus.post(ArtifactCacheConnectEvent.finished(started));
     return artifactCache;
@@ -165,7 +212,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
         wifiSsid,
         httpWriteExecutorService,
         httpFetchExecutorService,
-        asyncCloseable);
+        downloadHeavyBuildHttpFetchExecutorService,
+        artifactCacheCloseExecutorService);
   }
 
   /**
@@ -176,7 +224,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
    * @return a cache
    */
   public static Optional<ArtifactCache> newServedCache(
-      ArtifactCacheBuckConfig buckConfig, final ProjectFilesystem projectFilesystem) {
+      ArtifactCacheBuckConfig buckConfig, ProjectFilesystem projectFilesystem) {
     return buckConfig
         .getServedLocalCache()
         .map(input -> createDirArtifactCache(Optional.empty(), input, projectFilesystem));
@@ -189,7 +237,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
-      boolean onlyRemote,
+      ImmutableSet<CacheType> cacheTypeBlacklist,
       boolean distributedBuildModeEnabled) {
     ImmutableSet<ArtifactCacheMode> modes = buckConfig.getArtifactCacheModes();
     if (modes.isEmpty()) {
@@ -198,11 +246,15 @@ public class ArtifactCaches implements ArtifactCacheFactory {
     ArtifactCacheEntries cacheEntries = buckConfig.getCacheEntries();
     ImmutableList.Builder<ArtifactCache> builder = ImmutableList.builder();
     for (ArtifactCacheMode mode : modes) {
+      if (cacheTypeBlacklist.contains(mode.getCacheType())) {
+        continue;
+      }
+
       switch (mode) {
+        case unknown:
+          break;
         case dir:
-          if (!onlyRemote) {
-            initializeDirCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
-          }
+          initializeDirCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
           break;
         case http:
           initializeDistributedCaches(
@@ -218,9 +270,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
               mode);
           break;
         case sqlite:
-          if (!onlyRemote) {
-            initializeSQLiteCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
-          }
+          initializeSQLiteCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
           break;
         case thrift_over_http:
           Preconditions.checkArgument(
@@ -361,8 +411,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
   private static ArtifactCache createRetryingArtifactCache(
       HttpCacheEntry cacheDescription,
-      final String hostToReportToRemote,
-      final BuckEventBus buckEventBus,
+      String hostToReportToRemote,
+      BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
@@ -385,8 +435,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
 
   private static ArtifactCache createHttpArtifactCache(
       HttpCacheEntry cacheDescription,
-      final String hostToReportToRemote,
-      final BuckEventBus buckEventBus,
+      String hostToReportToRemote,
+      BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
@@ -425,8 +475,8 @@ public class ArtifactCaches implements ArtifactCacheFactory {
     dispatcher.setMaxRequestsPerHost((int) config.getThreadPoolSize());
     storeClientBuilder.dispatcher(dispatcher);
 
-    final ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
-    final ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
+    ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
+    ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
 
     // If write headers are specified, add them to every default client request.
     if (!writeHeaders.isEmpty()) {
@@ -476,8 +526,16 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             new RetryingHttpService(
                 buckEventBus,
                 new LoadBalancedService(clientSideSlb, fetchClient, buckEventBus),
+                "buck_cache_fetch_request_http_retries",
                 config.getMaxFetchRetries());
-        storeService = new LoadBalancedService(clientSideSlb, storeClient, buckEventBus);
+        storeService =
+            new RetryingHttpService(
+                buckEventBus,
+                new LoadBalancedService(clientSideSlb, storeClient, buckEventBus),
+                "buck_cache_store_request_http_retries",
+                config.getMaxStoreAttempts() - 1 /* maxNumberOfRetries */,
+                config.getStoreRetryIntervalMillis());
+
         break;
 
       case SINGLE_SERVER:
@@ -505,6 +563,7 @@ public class ArtifactCaches implements ArtifactCacheFactory {
             .setHttpWriteExecutorService(httpWriteExecutorService)
             .setHttpFetchExecutorService(httpFetchExecutorService)
             .setErrorTextTemplate(cacheDescription.getErrorMessageFormat())
+            .setErrorTextLimit(cacheDescription.getErrorMessageLimit())
             .build());
   }
 

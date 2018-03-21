@@ -23,6 +23,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeNoException;
 
 import com.facebook.buck.jvm.java.JavaBinary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
@@ -31,11 +32,14 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
@@ -72,14 +76,22 @@ public class BuildRuleResolverTest {
         new Object[][] {
           {
             SingleThreadedBuildRuleResolver.class,
-            (BuildRuleResolverFactory) SingleThreadedBuildRuleResolver::new,
+            (BuildRuleResolverFactory)
+                (graph, transformer) ->
+                    new SingleThreadedBuildRuleResolver(
+                        graph, transformer, new TestCellBuilder().build().getCellProvider(), null),
             MoreExecutors.newDirectExecutorService(),
           },
           {
             MultiThreadedBuildRuleResolver.class,
             (BuildRuleResolverFactory)
                 (graph, transformer) ->
-                    new MultiThreadedBuildRuleResolver(pool, graph, transformer, null),
+                    new MultiThreadedBuildRuleResolver(
+                        pool,
+                        graph,
+                        transformer,
+                        new TestCellBuilder().build().getCellProvider(),
+                        null),
             pool,
           },
         });
@@ -100,7 +112,7 @@ public class BuildRuleResolverTest {
   }
 
   @Test
-  public void testBuildAndAddToIndexRejectsDuplicateBuildTarget() throws Exception {
+  public void testBuildAndAddToIndexRejectsDuplicateBuildTarget() {
     BuildRuleResolver buildRuleResolver = buildRuleResolverFactory.create(TargetGraph.EMPTY);
 
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -117,7 +129,7 @@ public class BuildRuleResolverTest {
   }
 
   @Test
-  public void testRequireNonExistingBuildRule() throws Exception {
+  public void testRequireNonExistingBuildRule() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     TargetNode<?, ?> library = JavaLibraryBuilder.createBuilder(target).build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(library);
@@ -129,7 +141,7 @@ public class BuildRuleResolverTest {
   }
 
   @Test
-  public void testRequireExistingBuildRule() throws Exception {
+  public void testRequireExistingBuildRule() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavaLibraryBuilder builder = JavaLibraryBuilder.createBuilder(target);
     TargetNode<?, ?> library = builder.build();
@@ -146,7 +158,7 @@ public class BuildRuleResolverTest {
   }
 
   @Test
-  public void getRuleWithTypeMissingRule() throws Exception {
+  public void getRuleWithTypeMissingRule() {
     BuildRuleResolver resolver = buildRuleResolverFactory.create(TargetGraph.EMPTY);
     expectedException.expect(HumanReadableException.class);
     expectedException.expectMessage(Matchers.containsString("could not be resolved"));
@@ -154,7 +166,7 @@ public class BuildRuleResolverTest {
   }
 
   @Test
-  public void getRuleWithTypeWrongType() throws Exception {
+  public void getRuleWithTypeWrongType() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     JavaLibraryBuilder builder = JavaLibraryBuilder.createBuilder(target);
     TargetNode<?, ?> library = builder.build();
@@ -216,6 +228,7 @@ public class BuildRuleResolverTest {
             new TargetNodeToBuildRuleTransformer() {
               @Override
               public <T, U extends Description<T>> BuildRule transform(
+                  CellProvider cellProvider,
                   TargetGraph targetGraph,
                   BuildRuleResolver ruleResolver,
                   TargetNode<T, U> targetNode) {
@@ -248,6 +261,7 @@ public class BuildRuleResolverTest {
             new TargetNodeToBuildRuleTransformer() {
               @Override
               public <T, U extends Description<T>> BuildRule transform(
+                  CellProvider cellProvider,
                   TargetGraph targetGraph,
                   BuildRuleResolver ruleResolver,
                   TargetNode<T, U> targetNode) {
@@ -281,5 +295,98 @@ public class BuildRuleResolverTest {
     second.get();
 
     assertEquals("transform() should be called exactly twice", 2, transformCalls.size());
+  }
+
+  @Test(timeout = 5000)
+  public void deadLockOnDependencyTest() throws ExecutionException, InterruptedException {
+    Assume.assumeTrue(classUnderTest == MultiThreadedBuildRuleResolver.class);
+
+    /**
+     * create a graph of the following
+     *
+     * <pre>foo:bar0 foo:bar1   foo:bar2   foo:bar3
+     *          \        \         /         /
+     *                    foo:bar4
+     * </pre>
+     *
+     * <p>such that when the ThreadPool has all 4 threads executing bar0,...bar3, we block waiting
+     * completion of bar4, but have no additional threads for bar4
+     *
+     * <p>proper behaviour is to use one of the threads blocked on bar0,...bar3 to execute bar4.
+     */
+    BuildTarget target4 = BuildTargetFactory.newInstance("//foo:bar4");
+    TargetNode<?, ?> library4 = JavaLibraryBuilder.createBuilder(target4).build();
+
+    BuildTarget target3 = BuildTargetFactory.newInstance("//foo:bar3");
+    TargetNode<?, ?> library3 =
+        JavaLibraryBuilder.createBuilder(target3).addExportedDep(target4).build();
+
+    BuildTarget target2 = BuildTargetFactory.newInstance("//foo:bar2");
+    TargetNode<?, ?> library2 =
+        JavaLibraryBuilder.createBuilder(target2).addExportedDep(target4).build();
+
+    BuildTarget target1 = BuildTargetFactory.newInstance("//foo:bar1");
+    TargetNode<?, ?> library1 =
+        JavaLibraryBuilder.createBuilder(target1).addExportedDep(target4).build();
+
+    BuildTarget target0 = BuildTargetFactory.newInstance("//foo:bar0");
+    TargetNode<?, ?> library0 =
+        JavaLibraryBuilder.createBuilder(target0).addExportedDep(target4).build();
+
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(library0, library1, library2, library3, library4);
+
+    // Ensure the race condition occurs, where we have all of foo:bar0...foo:bar3
+    // running, but not called requireRule(foo:bar4) yet.
+    CountDownLatch jobsStarted = new CountDownLatch(4);
+
+    // run this with ThreadLimited FJP like our actual parallel implementation
+    ForkJoinPool forkJoinPool = MostExecutors.forkJoinPoolWithThreadLimit(4, 0);
+    try {
+      BuildRuleResolver resolver =
+          new MultiThreadedBuildRuleResolver(
+              forkJoinPool,
+              targetGraph,
+              new TargetNodeToBuildRuleTransformer() {
+                @Override
+                public <T, U extends Description<T>> BuildRule transform(
+                    CellProvider cellProvider,
+                    TargetGraph targetGraph,
+                    BuildRuleResolver ruleResolver,
+                    TargetNode<T, U> targetNode) {
+
+                  jobsStarted.countDown();
+
+                  if (!targetNode.getExtraDeps().isEmpty()) {
+                    try {
+                      // this waits until all of bar0,...bar3 has executed up to this point before
+                      // requiring bar4, to create the situation where all 4 threads in ForkJoinPool
+                      // are blocked waiting for one dependency that has yet to be executed.
+                      jobsStarted.await();
+                    } catch (InterruptedException e) {
+                      // stop the test if we've been interrupted
+                      assumeNoException(e);
+                    }
+
+                    targetNode.getExtraDeps().stream().forEach(ruleResolver::requireRule);
+                  }
+                  return new FakeBuildRule(targetNode.getBuildTarget());
+                }
+              },
+              new TestCellBuilder().build().getCellProvider(),
+              null);
+
+      // mimic our actual parallel action graph construction, in which we call requireRule with
+      // threads
+      // outside the ForkJoinPool, which will then fork tasks to the ForkJoinPool.
+      CompletableFuture first = CompletableFuture.runAsync(() -> resolver.requireRule(target0));
+      CompletableFuture second = CompletableFuture.runAsync(() -> resolver.requireRule(target1));
+      CompletableFuture third = CompletableFuture.runAsync(() -> resolver.requireRule(target2));
+      CompletableFuture fourth = CompletableFuture.runAsync(() -> resolver.requireRule(target3));
+
+      CompletableFuture.allOf(first, second, third, fourth).get();
+    } finally {
+      forkJoinPool.shutdownNow();
+    }
   }
 }

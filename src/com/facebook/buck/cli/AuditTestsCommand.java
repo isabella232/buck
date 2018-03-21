@@ -19,6 +19,8 @@ package com.facebook.buck.cli;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.collect.ImmutableList;
@@ -51,12 +53,11 @@ public class AuditTestsCommand extends AbstractCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    final ImmutableSet<String> fullyQualifiedBuildTargets =
+    ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
     if (fullyQualifiedBuildTargets.isEmpty()) {
-      params.getBuckEventBus().post(ConsoleEvent.severe("Must specify at least one build target."));
-      return ExitCode.COMMANDLINE_ERROR;
+      throw new CommandLineException("must specify at least one build target");
     }
 
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
@@ -74,8 +75,11 @@ public class AuditTestsCommand extends AbstractCommand {
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
             new PerBuildState(
-                params.getParser(),
+                params.getTypeCoercerFactory(),
+                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                params.getParser().getPermState(),
                 params.getBuckEventBus(),
+                params.getExecutableFinder(),
                 pool.getListeningExecutorService(),
                 params.getCell(),
                 params.getKnownBuildRuleTypesProvider(),

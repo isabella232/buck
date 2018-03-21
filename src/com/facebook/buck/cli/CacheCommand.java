@@ -21,6 +21,7 @@ import com.facebook.buck.artifact_cache.CacheCountersSummary;
 import com.facebook.buck.artifact_cache.CacheCountersSummaryEvent;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
@@ -30,9 +31,11 @@ import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -44,6 +47,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -61,6 +65,9 @@ public class CacheCommand extends AbstractCommand {
   @Option(name = "--output-dir", usage = "Extract artifacts to this directory.")
   @Nullable
   private String outputDir = null;
+
+  @Option(name = "--distributed", usage = "If the request is for our distributed system.")
+  private boolean isRequestForDistributed = false;
 
   public List<String> getArguments() {
     return arguments;
@@ -112,8 +119,7 @@ public class CacheCommand extends AbstractCommand {
     }
 
     if (arguments.isEmpty()) {
-      params.getBuckEventBus().post(ConsoleEvent.severe("No cache keys specified."));
-      return ExitCode.COMMANDLINE_ERROR;
+      throw new CommandLineException("no cache keys specified");
     }
 
     if (outputDir != null) {
@@ -129,7 +135,8 @@ public class CacheCommand extends AbstractCommand {
     BuildEvent.Started started = BuildEvent.started(getArguments());
 
     List<ArtifactRunner> results = null;
-    try (ArtifactCache cache = params.getArtifactCacheFactory().newInstance();
+    try (ArtifactCache cache =
+            params.getArtifactCacheFactory().newInstance(isRequestForDistributed, false);
         CommandThreadManager pool =
             new CommandThreadManager("Build", getConcurrencyLimit(params.getBuckConfig()))) {
       WeightedListeningExecutorService executor = pool.getWeightedListeningExecutorService();
@@ -164,6 +171,12 @@ public class CacheCommand extends AbstractCommand {
     String resultString = "";
     int goodRuns = 0;
 
+    HashMap<ArtifactCacheMode, AtomicInteger> cacheHitsPerMode = new HashMap<>();
+    HashMap<ArtifactCacheMode, AtomicInteger> cacheErrorsPerMode = new HashMap<>();
+    for (ArtifactCacheMode mode : ArtifactCacheMode.values()) {
+      cacheHitsPerMode.put(mode, new AtomicInteger(0));
+      cacheErrorsPerMode.put(mode, new AtomicInteger(0));
+    }
     int cacheHits = 0;
     int cacheMisses = 0;
     int cacheErrors = 0;
@@ -175,13 +188,21 @@ public class CacheCommand extends AbstractCommand {
         goodRuns++;
       }
       resultString += r.resultString;
-
+      ArtifactCacheMode artifactCacheMode = r.cacheResultMode.orElse(ArtifactCacheMode.unknown);
       switch (r.cacheResultType) {
         case ERROR:
+          if (cacheErrorsPerMode.containsKey(artifactCacheMode)) {
+            cacheErrorsPerMode.get(artifactCacheMode).incrementAndGet();
+          }
           ++cacheErrors;
           break;
-        case HIT:
         case CONTAINS:
+          // Ignore it since it will be counted as a hit later.
+          break;
+        case HIT:
+          if (cacheHitsPerMode.containsKey(artifactCacheMode)) {
+            cacheHitsPerMode.get(artifactCacheMode).incrementAndGet();
+          }
           ++cacheHits;
           break;
         case MISS:
@@ -220,8 +241,10 @@ public class CacheCommand extends AbstractCommand {
         .post(
             CacheCountersSummaryEvent.newSummary(
                 CacheCountersSummary.builder()
-                    .setTotalCacheErrors(cacheErrors)
+                    .setCacheHitsPerMode(cacheHitsPerMode)
+                    .setCacheErrorsPerMode(cacheErrorsPerMode)
                     .setTotalCacheHits(cacheHits)
+                    .setTotalCacheErrors(cacheErrors)
                     .setTotalCacheMisses(cacheMisses)
                     .setTotalCacheIgnores(cacheIgnored)
                     .setTotalCacheLocalKeyUnchangedHits(localKeyUnchanged)
@@ -282,11 +305,13 @@ public class CacheCommand extends AbstractCommand {
     ImmutableList<Path> paths;
     try {
       paths =
-          Unzip.extractZipFile(
-              projectFilesystemFactory,
-              artifact.toAbsolutePath(),
-              tmpDir,
-              Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+          ArchiveFormat.ZIP
+              .getUnarchiver()
+              .extractArchive(
+                  projectFilesystemFactory,
+                  artifact.toAbsolutePath(),
+                  tmpDir,
+                  ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
     } catch (IOException e) {
       resultString.append(String.format("%s %s !(Unable to extract) %s\n", ruleKey, buckTarget, e));
       return false;
@@ -332,6 +357,7 @@ public class CacheCommand extends AbstractCommand {
     Path tmpDir;
     Path artifact;
     CacheResultType cacheResultType;
+    Optional<ArtifactCacheMode> cacheResultMode;
     String statusString;
     String cacheResult;
     StringBuilder resultString;
@@ -353,6 +379,7 @@ public class CacheCommand extends AbstractCommand {
       this.resultString = new StringBuilder();
       this.completed = false;
       this.cacheResultType = CacheResultType.IGNORED;
+      this.cacheResultMode = Optional.of(ArtifactCacheMode.unknown);
     }
 
     @Override
@@ -369,6 +396,7 @@ public class CacheCommand extends AbstractCommand {
           Futures.getUnchecked(cache.fetchAsync(ruleKey, LazyPath.ofInstance(artifact)));
       cacheResult = cacheResultToString(success);
       cacheResultType = success.getType();
+      cacheResultMode = success.cacheMode();
       boolean cacheSuccess = success.getType().isSuccess();
       if (!cacheSuccess) {
         statusString = String.format("FAILED FETCHING %s %s", ruleKey, cacheResult);

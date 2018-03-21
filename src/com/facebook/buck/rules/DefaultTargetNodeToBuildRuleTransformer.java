@@ -20,8 +20,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
 import java.util.Set;
 
 /** Takes in an {@link TargetNode} from the target graph and builds a {@link BuildRule}. */
@@ -32,32 +30,17 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
     cache = new QueryCache();
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   public <T, U extends Description<T>> BuildRule transform(
-      TargetGraph targetGraph, BuildRuleResolver ruleResolver, TargetNode<T, U> targetNode) {
+      CellProvider cellProvider,
+      TargetGraph targetGraph,
+      BuildRuleResolver ruleResolver,
+      TargetNode<T, U> targetNode) {
     U description = targetNode.getDescription();
     T arg = targetNode.getConstructorArg();
 
-    ImmutableSet.Builder<BuildTarget> extraDepsBuilder = new ImmutableSet.Builder<>();
-    ImmutableSet.Builder<BuildTarget> targetGraphOnlyDepsBuilder = new ImmutableSet.Builder<>();
-    if (description instanceof ImplicitDepsInferringDescription) {
-      ImplicitDepsInferringDescription<T> castedDescription =
-          (ImplicitDepsInferringDescription<T>) description;
-      castedDescription.findDepsForTargetFromConstructorArgs(
-          targetNode.getBuildTarget(),
-          targetNode.getCellNames(),
-          targetGraph,
-          ruleResolver,
-          new SourcePathRuleFinder(ruleResolver),
-          targetNode.getFilesystem(),
-          arg,
-          extraDepsBuilder,
-          targetGraphOnlyDepsBuilder);
-    }
-    Set<BuildTarget> extraDeps = Sets.union(targetNode.getExtraDeps(), extraDepsBuilder.build());
-    Set<BuildTarget> targetGraphOnlyDeps =
-        Sets.union(targetNode.getTargetGraphOnlyDeps(), targetGraphOnlyDepsBuilder.build());
+    Set<BuildTarget> extraDeps = targetNode.getExtraDeps();
+    Set<BuildTarget> targetGraphOnlyDeps = targetNode.getTargetGraphOnlyDeps();
 
     arg =
         QueryUtils.withDepsQuery(
@@ -85,13 +68,16 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
             Suppliers.ofInstance(ruleResolver.requireAllRules(extraDeps)),
             ruleResolver.requireAllRules(targetGraphOnlyDeps));
 
-    return description.createBuildRule(
-        targetGraph,
-        targetNode.getBuildTarget(),
-        targetNode.getFilesystem(),
-        params,
-        ruleResolver,
-        targetNode.getCellNames(),
-        arg);
+    Cell targetCell = cellProvider.getBuildTargetCell(targetNode.getBuildTarget());
+
+    BuildRuleCreationContext context =
+        ImmutableBuildRuleCreationContext.of(
+            targetGraph,
+            ruleResolver,
+            targetNode.getFilesystem(),
+            targetNode.getCellNames(),
+            targetCell.getToolchainProvider());
+
+    return description.createBuildRule(context, targetNode.getBuildTarget(), params, arg);
   }
 }

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -42,8 +42,7 @@ public class FilteredTestIntegrationTest {
                     "[python]",
                     "  path_to_python_test_main = "
                         + Paths.get("src/com/facebook/buck/python/__test_main__.py")
-                            .toAbsolutePath()
-                            .toString())),
+                            .toAbsolutePath())),
         ".buckconfig");
 
     // This will attempt to build the broken test, //:broken, which will fail to build.

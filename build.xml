@@ -33,6 +33,7 @@
   <property name="javac-plugin.location.dir.name" value="com/facebook/buck/jvm/java/plugin" />
   <property name="javac-plugin.location.dir" value="${classes.dir}/${javac-plugin.location.dir.name}" />
   <property name="buck.path_to_sh_binary_template" value="${basedir}/src/com/facebook/buck/shell/sh_binary_template" />
+  <property name="buck.path_to_isolated_trampoline" value="${basedir}/src/com/facebook/buck/rules/modern/builders/trampoline.sh" />
   <property name="buck.logging_config_file" value="${basedir}/config/logging.properties.st" />
   <property name="javadoc.dir" value="${build.dir}/javadoc" />
   <property name="javadoc-with-android.dir" value="${build.dir}/javadoc-with-android" />
@@ -67,14 +68,34 @@
 
   <property name="devbuild" value="0" />
 
+  <condition property="eclipse.jdt.core.prefs.file"
+    value="org.eclipse.jdt.core.prefs"
+    else="org.eclipse.jdt.core.prefs-dev"
+  >
+    <equals arg1="${devbuild}" arg2="0" />
+  </condition>
+
   <property name="buck.hash.dir" value="${build.dir}/classes/META-INF"/>
   <property name="buck.hash.file" value="${buck.hash.dir}/buck-binary-hash.txt"/>
   <property name="buck.combined.hash.file" value="${buck.hash.dir}/buck-combined-binary-hash.txt"/>
 
   <property name="buck.info.file" value="${build.dir}/buck-info.json"/>
-  <property name="buck.info.error.file" value="${build.dir}/buck-info-error.txt"/>
 
   <property name="modules.dir.name" value="buck-modules" />
+
+  <property name="ecj.compiler" value="org.eclipse.jdt.core.JDTCompilerAdapter" />
+  <property name="ecj.compiler.path" value="${eclipse.dir}/ecj-4.7.1.jar" />
+  <property name="error.prone.compiler" value="com.google.errorprone.ErrorProneAntCompilerAdapter" />
+  <property name="error.prone.compiler.path" value="${third-party.dir}/java/errorprone/error_prone_ant-2.2.0.jar" />
+  <!-- Control whether ErrorProne compiler is enabled. Disabled by default. -->
+  <property name="error.prone" value="false" />
+  <condition property="buck.build.compiler" value="${error.prone.compiler}" else="${ecj.compiler}">
+    <istrue value="${error.prone}" />
+  </condition>
+  <condition property="buck.build.compiler.jar.path" value="${error.prone.compiler.path}"
+    else="${ecj.compiler.path}">
+    <istrue value="${error.prone}" />
+  </condition>
 
   <!-- Javadoc in 1.8 became stricter about parsing the docs. This disables some of those checks -->
   <available property="jdk1.8" classname="java.util.stream.Stream"/>
@@ -101,7 +122,7 @@
     <include name="jackson/jackson-datatype-guava-2.7.8.jar" />
     <include name="jsr/jsr305.jar" />
     <include name="android/sdklib-25.3.0.jar" />
-    <include name="nailgun/nailgun-server-0.9.2-SNAPSHOT.jar" />
+    <include name="nailgun/nailgun-server-0.9.3-SNAPSHOT.jar" />
     <include name="jna/jna-4.4.0.jar" />
     <include name="jna/jna-platform-4.4.0.jar" />
     <include name="sqlite/sqlite-jdbc-3.20.0.jar" />
@@ -141,14 +162,15 @@
     <include name="immutables/value-2.5.7-SNAPSHOT.jar" />
     <include name="infer-annotations/infer-annotations-4.1.jar" />
     <include name="nuprocess/nuprocess-1.1.0.jar" />
-    <include name="jacoco/org.jacoco.core-0.7.7.201606060606.jar" />
-    <include name="jacoco/org.jacoco.report-0.7.7.201606060606.jar" />
+    <include name="jacoco/org.jacoco.core-0.8.0.jar" />
+    <include name="jacoco/org.jacoco.report-0.8.0.jar" />
     <include name="jetty/jetty-all-9.2.10.v20150310.jar" />
     <include name="jdom/jdom-2.0.6.jar" />
     <include name="jimfs/jimfs-1.1.jar" />
     <include name="jopt-simple/jopt-simple-4.6.jar" />
     <include name="json-simple/json-simple-1.1.1.jar" />
     <include name="jsr/javax.inject-1.jar" />
+    <include name="objenesis/objenesis-1.2.jar" />
     <include name="okhttp/okhttp-3.9.0.jar" />
     <include name="okio/okio-1.13.0.jar" />
     <include name="oshi/oshi-core-3.3-SNAPSHOT.jar" />
@@ -283,7 +305,6 @@
            >
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
-      <compilerarg value="-Xlint:serial" />
       <compilerarg value="-Werror" />
     </javac>
   </target>
@@ -296,7 +317,7 @@
 
   <target name="bootstrapper" depends="checkversion, tracing-api">
     <mkdir dir="${bootstrapper.classes.dir}" />
-    <ecj destdir="${bootstrapper.classes.dir}" classpathref="bootstrapper-classpath">
+    <compiler destdir="${bootstrapper.classes.dir}" classpathref="bootstrapper-classpath">
       <javac-params>
         <include name="${bootstrapper.src.dir}/**/*.java" />
         <include name="com/facebook/buck/util/liteinfersupport/Nullable.java" />
@@ -306,7 +327,7 @@
         <include name="com/facebook/buck/jvm/java/abi/source/api/*.java" />
         <include name="com/facebook/buck/jvm/java/lang/model/*.java" />
       </javac-params>
-    </ecj>
+    </compiler>
     <jar destfile="${bootstrapper.jar}">
       <fileset dir="${bootstrapper.classes.dir}" />
 
@@ -327,11 +348,11 @@
 
   <target name="tracing-api" depends="checkversion">
     <mkdir dir="${tracing-api.classes.dir}" />
-    <ecj destdir="${tracing-api.classes.dir}" classpathref="tracing-api.classpath">
+    <compiler destdir="${tracing-api.classes.dir}" classpathref="tracing-api.classpath">
       <javac-params>
         <include name="${tracing-api.src.dir}/**/*.java"/>
       </javac-params>
-    </ecj>
+    </compiler>
     <jar destfile="${tracing-api.jar}">
       <fileset dir="${tracing-api.classes.dir}"/>
     </jar>
@@ -348,7 +369,7 @@
 
   <target name="javac-plugin" depends="checkversion, tracing-api">
     <mkdir dir="${javac-plugin.classes.dir}" />
-    <ecj destdir="${javac-plugin.classes.dir}" classpathref="javac-plugin.classpath">
+    <compiler destdir="${javac-plugin.classes.dir}" classpathref="javac-plugin.classpath">
       <javac-params>
         <include name="com/facebook/buck/util/liteinfersupport/Nullable.java" />
         <include name="com/facebook/buck/util/liteinfersupport/Preconditions.java" />
@@ -356,7 +377,7 @@
         <include name="com/facebook/buck/jvm/java/abi/source/*.java" />
         <include name="com/facebook/buck/jvm/java/plugin/adapter/**/*.java" />
       </javac-params>
-    </ecj>
+    </compiler>
     <jar destfile="${javac-plugin.jar}">
       <fileset dir="${javac-plugin.classes.dir}"/>
     </jar>
@@ -368,16 +389,16 @@
 
   <target name="compile-aosp" depends="checkversion">
     <mkdir dir="${aosp.classes.dir}" />
-    <ecj srcdir="${aosp.src.dir}" destdir="${aosp.classes.dir}" gensrcdir="${aosp.gensrc.dir}">
-      <ecj-params>
+    <compiler srcdir="${aosp.src.dir}" destdir="${aosp.classes.dir}" gensrcdir="${aosp.gensrc.dir}">
+      <compiler-params>
         <!-- suppress ManifestMerger2 warnings -->
-        <compilerarg value="-err:-all"/>
-        <compilerarg value="-warn:-all"/>
-      </ecj-params>
-    </ecj>
+        <compilerarg value="-err:-all" compiler="${ecj.compiler}"/>
+        <compilerarg value="-warn:-all" compiler="${ecj.compiler}"/>
+      </compiler-params>
+    </compiler>
   </target>
 
-  <macrodef name="ecj" description="Compile Java using the ecj compiler with strict checks.">
+  <macrodef name="compiler" description="Compile Java using the buck.build.compiler compiler.">
     <attribute name="srcdir" default="${src.dir}" />
     <attribute name="classpathref" default="classpath-no-src" />
     <attribute name="destdir" default="${classes.dir}" />
@@ -394,16 +415,12 @@
     -->
     <element name="javac-params" optional="true" />
     <!--
-      ecj-params can contain any extra paramters to the Eclipse batch compiler.
+      compiler-params can contain any extra parameters to the buck.build.compiler compiler.
     -->
-    <element name="ecj-params" optional="true" />
+    <element name="compiler-params" optional="true" />
     <sequential>
-      <condition property="eclipse.jdt.core.prefs.file"
-                 value="org.eclipse.jdt.core.prefs"
-                 else="org.eclipse.jdt.core.prefs-dev"
-                 >
-        <equals arg1="${devbuild}" arg2="0" />
-      </condition>
+      <mkdir dir="@{gensrcdir}" />
+      <mkdir dir="@{destdir}" />
       <javac srcdir="@{srcdir}"
              sourcepath=""
              destdir="@{destdir}"
@@ -411,7 +428,7 @@
              debug="on"
              deprecation="on"
              includeAntRuntime="no"
-             compiler="org.eclipse.jdt.core.JDTCompilerAdapter"
+             compiler="${buck.build.compiler}"
              >
         <javac-params />
         <!--
@@ -423,17 +440,20 @@
           http://help.eclipse.org/kepler/index.jsp?topic=%2Forg.eclipse.jdt.doc.isv%2Freference%2Fapi%2Forg%2Feclipse%2Fjdt%2Fcore%2FJavaCore.html
           Apparently Eclipse refuses to publish traditional Javadoc with manageable URLs.
         -->
-        <compilerarg line="-properties '${eclipse.dir}/${eclipse.jdt.core.prefs.file}'" />
+        <compilerarg line="-properties '${eclipse.dir}/${eclipse.jdt.core.prefs.file}'" compiler="${ecj.compiler}" />
         <compilerarg value="-Xlint:rawtypes" />
         <compilerarg value="-Xlint:unchecked" />
-        <compilerarg value="-Xlint:serial" />
-        <compilerarg value="-time" />
+        <compilerarg value="-time" compiler="${ecj.compiler}" />
         <compilerclasspath>
-          <pathelement location="${eclipse.dir}/ecj-4.6.2.jar" />
+          <pathelement location="${buck.build.compiler.jar.path}" />
         </compilerclasspath>
         <compilerarg value="-s" />
         <compilerarg value="@{gensrcdir}" />
-        <ecj-params />
+        <!-- error-prone does not like referencing concrete immutables classes -->
+        <compilerarg value="-Xep:NonCanonicalStaticImport:OFF" compiler="${error.prone.compiler}" />
+        <!-- there is no point in checking generated code -->
+        <compilerarg value="-XepDisableWarningsInGeneratedCode" compiler="${error.prone.compiler}" />
+        <compiler-params />
       </javac>
     </sequential>
   </macrodef>
@@ -456,7 +476,7 @@
           description="compile Java source code">
     <mkdir dir="${classes.dir}" />
 
-    <ecj>
+    <compiler>
       <javac-params>
         <compilerarg value="-processorpath" />
         <compilerarg value="${processorpath}" />
@@ -478,21 +498,22 @@
           <exclude name="com/facebook/buck/lua/**" />
           <exclude name="com/facebook/buck/module/annotationprocessor/**" />
           <exclude name="com/facebook/buck/rust/**" />
+          <exclude name="com/facebook/buck/shell/filegroup/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
           <exclude name="com/facebook/buck/zip/bundler/**" />
           <exclude name="com/facebook/buck/zip/rules/**" />
         </patternset>
       </javac-params>
-    </ecj>
+    </compiler>
   </target>
 
   <target name="compile-buck-modules-annotation-processor">
     <mkdir dir="${buck.modules.annotation.processor.classes.dir}" />
-    <ecj destdir="${buck.modules.annotation.processor.classes.dir}">
+    <compiler destdir="${buck.modules.annotation.processor.classes.dir}">
       <javac-params>
         <include name="${buck.modules.annotation.processor.src.dir}/**/*.java" />
       </javac-params>
-    </ecj>
+    </compiler>
 
     <jar destfile="${buck.modules.annotation.processor.jar}">
       <fileset dir="${buck.modules.annotation.processor.classes.dir}" />
@@ -505,7 +526,7 @@
     </jar>
   </target>
 
-  <target name="build-modules" depends="build-module-d, build-module-dotnet, build-module-go, build-module-haskell, build-module-lua, build-module-rust, build-module-zipbundler, build-module-ziprules"/>
+  <target name="build-modules" depends="build-module-d, build-module-dotnet, build-module-filegroup, build-module-go, build-module-haskell, build-module-lua, build-module-rust, build-module-zipbundler, build-module-ziprules"/>
 
   <target name="build-module-d" depends="compile">
     <build-buck-module-jar module-name="d">
@@ -520,6 +541,17 @@
       <module-javac-params>
         <include name="com/facebook/buck/dotnet/**/*.java" />
       </module-javac-params>
+    </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-filegroup" depends="compile, build-module-zipbundler">
+    <build-buck-module-jar module-name="filegroup">
+      <module-javac-params>
+        <include name="com/facebook/buck/shell/filegroup/**/*.java" />
+      </module-javac-params>
+      <additional-classpath-entries>
+        <include name="zipbundler.jar"/>
+      </additional-classpath-entries>
     </build-buck-module-jar>
   </target>
 
@@ -662,8 +694,8 @@
 
   <target name="report-generator-jar" depends="compile">
     <jar destfile="${build.dir}/report-generator.jar">
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.7.7.201606060606.jar"/>
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.7.7.201606060606.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.8.0.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.8.0.jar"/>
       <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/plexus/plexus-utils-3.0.20.jar"/>
       <zipfileset includes="**/*.class" src="${third-party.dir}/java/asm/asm-6.0.jar" />
       <zipfileset includes="**/*.class" src="${third-party.dir}/java/asm/asm-analysis-6.0.jar" />
@@ -716,7 +748,6 @@
       <ruleset>buck</ruleset>
       <fileset dir="${src.dir}">
         <include name="**/*.java"/>
-        <exclude name="com/facebook/buck/intellij/ideabuck/gen/**"/>
       </fileset>
       <fileset dir="${test.dir}">
         <include name="**/*.java"/>
@@ -789,7 +820,7 @@
   </target>
 
   <target name="gen-buck-info">
-    <exec executable="python" output="${buck.info.file}" error="${buck.info.error.file}">
+    <exec executable="python" output="${buck.info.file}" logError="true" failonerror="true">
       <arg value="programs/gen_buck_info.py"/>
     </exec>
   </target>
@@ -812,7 +843,7 @@
           <additional-classpath-entries/>
         </fileset>
       </path>
-      <ecj destdir="@{module-classes-dir}" classpathref="@{module-name}-classpath"
+      <compiler destdir="@{module-classes-dir}" classpathref="@{module-name}-classpath"
         gensrcdir="@{module-gen-dir}">
         <javac-params>
           <compilerarg value="-processorpath" />
@@ -820,7 +851,7 @@
           <compilerarg value="${pf4j-annotation-processor-storage-config}" />
           <module-javac-params/>
         </javac-params>
-      </ecj>
+      </compiler>
       <delete file="@{module-binary-hash-file}"/>
       <checksum todir="${build.dir}/buck-modules-checksums/@{module-name}" totalproperty="@{module-name}.module.hash.value">
         <fileset dir="@{module-classes-dir}">
@@ -857,7 +888,7 @@
           <additional-classpath-entries/>
         </fileset>
       </path>
-      <ecj destdir="@{module-classes-dir}" classpathref="@{module-name}-classpath"
+      <compiler destdir="@{module-classes-dir}" classpathref="@{module-name}-classpath"
         gensrcdir="@{module-gen-dir}">
         <javac-params>
           <compilerarg value="-processorpath" />
@@ -865,7 +896,7 @@
           <compilerarg value="${pf4j-annotation-processor-storage-config}" />
           <module-javac-params/>
         </javac-params>
-      </ecj>
+      </compiler>
       <copy todir="@{module-classes-dir}">
         <fileset dir="${src.dir}">
           <module-resources/>
@@ -909,7 +940,6 @@
         <fileset dir="${src.dir}">
           <include name="**/*.java" />
           <exclude name="com/facebook/buck/android/support/exopackage/**" />
-          <exclude name="com/facebook/buck/intellij/**" />
         </fileset>
         <fileset dir="${gensrc.dir}" />
         <fileset dir="${buck.modules.classes.dir}/gen/" />

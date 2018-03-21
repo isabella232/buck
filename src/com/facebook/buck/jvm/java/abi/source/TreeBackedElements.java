@@ -63,6 +63,12 @@ class TreeBackedElements extends ElementsExtendedImpl {
     knownPackages.clear();
   }
 
+  public void complete() {
+    for (TreeBackedElement element : treeBackedElements.values()) {
+      element.complete();
+    }
+  }
+
   public <UnderlyingElement extends Element, WrappedElement extends TreeBackedElement>
       WrappedElement enterElement(
           UnderlyingElement underlyingElement,
@@ -136,6 +142,24 @@ class TreeBackedElements extends ElementsExtendedImpl {
     return element;
   }
 
+  /* package */ AnnotationMirror getJavacAnnotation(AnnotationMirror annotation) {
+    if (annotation instanceof TreeBackedAnnotationMirror) {
+      TreeBackedAnnotationMirror treeBackedAnnotation = (TreeBackedAnnotationMirror) annotation;
+      return treeBackedAnnotation.getUnderlyingAnnotationMirror();
+    }
+
+    return annotation;
+  }
+
+  /* package */ AnnotationValue getJavacAnnotationValue(AnnotationValue value) {
+    if (value instanceof TreeBackedAnnotationValue) {
+      TreeBackedAnnotationValue treeBackedValue = (TreeBackedAnnotationValue) value;
+      return treeBackedValue.getUnderlyingAnnotationValue();
+    }
+
+    return value;
+  }
+
   public ArtificialPackageElement getOrCreatePackageElement(
       @Nullable PackageElement enclosingPackage, Name simpleName) {
     Name qualifiedName = getFullyQualifiedName(enclosingPackage, simpleName);
@@ -176,6 +200,7 @@ class TreeBackedElements extends ElementsExtendedImpl {
     ArtificialTypeElement result = (ArtificialTypeElement) getTypeElement(fullyQualifiedName);
     if (result == null) {
       result = new InferredTypeElement(simpleName, fullyQualifiedName, enclosingElement);
+      knownTypes.put(fullyQualifiedName, result);
     }
     return result;
   }
@@ -206,7 +231,11 @@ class TreeBackedElements extends ElementsExtendedImpl {
   @Override
   public Map<? extends ExecutableElement, ? extends AnnotationValue> getElementValuesWithDefaults(
       AnnotationMirror a) {
+    return getElementValuesWithDefaultsStatic(a);
+  }
 
+  static Map<? extends ExecutableElement, ? extends AnnotationValue>
+      getElementValuesWithDefaultsStatic(AnnotationMirror a) {
     Map<ExecutableElement, AnnotationValue> result = new HashMap<>();
 
     result.putAll(a.getElementValues());
@@ -244,7 +273,7 @@ class TreeBackedElements extends ElementsExtendedImpl {
         nameBuilder.append("$");
       } else {
         // package
-        nameBuilder.append(enclosingElement.toString());
+        nameBuilder.append(enclosingElement);
         nameBuilder.append(".");
       }
       nameBuilder.append(type.getSimpleName());

@@ -20,11 +20,11 @@ import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.model.Pair;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -104,7 +104,7 @@ public class SourcePathResolutionIntegrationTest {
   }
 
   private ProjectWorkspace createWorkspace(String scenarioName) throws IOException {
-    final Path tmpSubfolder = tmp.newFolder();
+    Path tmpSubfolder = tmp.newFolder();
     ProjectWorkspace projectWorkspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, scenarioName, tmpSubfolder);
     projectWorkspace.setUp();

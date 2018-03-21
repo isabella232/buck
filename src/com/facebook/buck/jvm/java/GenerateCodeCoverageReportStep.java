@@ -19,14 +19,15 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.jvm.java.JacocoConstants.JACOCO_EXEC_COVERAGE_FILE;
 import static java.util.stream.Collectors.joining;
 
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.test.CoverageReportFormat;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -106,7 +107,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
       return executeInternal(context, extractedClassesDirectories);
     } finally {
       for (Path tempDir : tempDirs) {
-        MoreFiles.deleteRecursively(tempDir);
+        MostFiles.deleteRecursively(tempDir);
       }
     }
   }
@@ -129,7 +130,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
       Set<Path> extractedClassesDirectories,
       OutputStream outputStream)
       throws IOException {
-    final Properties properties = new Properties();
+    Properties properties = new Properties();
 
     properties.setProperty("jacoco.output.dir", filesystem.resolve(outputDirectory).toString());
     properties.setProperty("jacoco.exec.data.file", JACOCO_EXEC_COVERAGE_FILE);
@@ -183,11 +184,13 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
     try {
       Preconditions.checkState(
           filesystem.exists(outputJar), String.valueOf(outputJar) + " does not exist");
-      Unzip.extractZipFile(
-          projectFilesystemFactory,
-          outputJar,
-          classesDir,
-          Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+      ArchiveFormat.ZIP
+          .getUnarchiver()
+          .extractArchive(
+              projectFilesystemFactory,
+              outputJar,
+              classesDir,
+              ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

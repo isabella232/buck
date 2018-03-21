@@ -21,16 +21,12 @@ import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
-import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.util.Console;
@@ -40,13 +36,14 @@ import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Result;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,7 +61,7 @@ public class ExternalJavac implements Javac {
   private final Either<Path, BuildTargetSourcePath> actualPath;
   private final String shortName;
 
-  public ExternalJavac(final Either<Path, SourcePath> pathToJavac) {
+  public ExternalJavac(Either<Path, SourcePath> pathToJavac) {
     // TODO(cjhopman): This is weird. It shouldn't be taking in a Path, it should get that as a
     // PathSourcePath instead.
     if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
@@ -72,9 +69,9 @@ public class ExternalJavac implements Javac {
       this.shortName = buildTargetPath.getTarget().toString();
       this.actualPath = Either.ofRight(buildTargetPath);
       this.javac =
-          MoreSuppliers.<Tool>memoize(
+          MoreSuppliers.memoize(
               () ->
-                  new AbstractTool() {
+                  new Tool() {
                     @AddToRuleKey
                     private final NonHashableSourcePathContainer container =
                         new NonHashableSourcePathContainer(buildTargetPath);
@@ -116,7 +113,7 @@ public class ExternalJavac implements Javac {
                 }
                 Optional<String> stderr = result.getStderr();
                 String output = stderr.orElse("").trim();
-                final String version;
+                String version;
                 if (Strings.isNullOrEmpty(output)) {
                   version = actualPath.toString();
                 } else {
@@ -130,11 +127,6 @@ public class ExternalJavac implements Javac {
   @VisibleForTesting
   Either<Path, BuildTargetSourcePath> getActualPath() {
     return actualPath;
-  }
-
-  @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    return javac.get().getDeps(ruleFinder);
   }
 
   @Override
@@ -196,7 +188,13 @@ public class ExternalJavac implements Javac {
 
     return new Invocation() {
       @Override
-      public int buildSourceAbiJar() throws InterruptedException {
+      public int buildSourceOnlyAbiJar() {
+        throw new UnsupportedOperationException(
+            "Cannot build source-only ABI jar with external javac.");
+      }
+
+      @Override
+      public int buildSourceAbiJar() {
         throw new UnsupportedOperationException("Cannot build source ABI jar with external javac.");
       }
 
@@ -286,11 +284,13 @@ public class ExternalJavac implements Javac {
       } else if (pathString.endsWith(SRC_ZIP) || pathString.endsWith(SRC_JAR)) {
         // For a Zip of .java files, create a JavaFileObject for each .java entry.
         ImmutableList<Path> zipPaths =
-            Unzip.extractZipFile(
-                projectFilesystemFactory,
-                projectFilesystem.resolve(path),
-                projectFilesystem.resolve(workingDirectory),
-                Unzip.ExistingFileMode.OVERWRITE);
+            ArchiveFormat.ZIP
+                .getUnarchiver()
+                .extractArchive(
+                    projectFilesystemFactory,
+                    projectFilesystem.resolve(path),
+                    projectFilesystem.resolve(workingDirectory),
+                    ExistingFileMode.OVERWRITE);
         sources.addAll(
             zipPaths.stream().filter(input -> input.toString().endsWith(".java")).iterator());
       }

@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DexProducedFromJavaLibrary.BuildOutput;
 import com.facebook.buck.android.dalvik.EstimateDexWeightStep;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -30,6 +31,7 @@ import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -37,9 +39,10 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -83,28 +86,28 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   @AddToRuleKey private final SourcePath javaLibrarySourcePath;
   @AddToRuleKey private final String dexTool;
 
-  private final AndroidLegacyToolchain androidLegacyToolchain;
+  private final AndroidPlatformTarget androidPlatformTarget;
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
   DexProducedFromJavaLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      AndroidPlatformTarget androidPlatformTarget,
       BuildRuleParams params,
       JavaLibrary javaLibrary) {
-    this(buildTarget, projectFilesystem, androidLegacyToolchain, params, javaLibrary, DxStep.DX);
+    this(buildTarget, projectFilesystem, androidPlatformTarget, params, javaLibrary, DxStep.DX);
   }
 
   DexProducedFromJavaLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      AndroidPlatformTarget androidPlatformTarget,
       BuildRuleParams params,
       JavaLibrary javaLibrary,
       String dexTool) {
     super(buildTarget, projectFilesystem, params);
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.androidPlatformTarget = androidPlatformTarget;
     this.javaLibrary = javaLibrary;
     this.dexTool = dexTool;
     this.javaLibrarySourcePath = javaLibrary.getSourcePathToOutput();
@@ -113,7 +116,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, final BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(
@@ -130,12 +133,11 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
                 getPathToDex().getParent())));
 
     // If there are classes, run dx.
-    final ImmutableSortedMap<String, HashCode> classNamesToHashes =
-        javaLibrary.getClassNamesToHashes();
-    final boolean hasClassesToDx = !classNamesToHashes.isEmpty();
-    final Supplier<Integer> weightEstimate;
+    ImmutableSortedMap<String, HashCode> classNamesToHashes = javaLibrary.getClassNamesToHashes();
+    boolean hasClassesToDx = !classNamesToHashes.isEmpty();
+    Supplier<Integer> weightEstimate;
 
-    @Nullable final DxStep dx;
+    @Nullable DxStep dx;
 
     if (hasClassesToDx) {
       Path pathToOutputFile =
@@ -151,7 +153,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
           new DxStep(
               getBuildTarget(),
               getProjectFilesystem(),
-              androidLegacyToolchain,
+              androidPlatformTarget,
               getPathToDex(),
               Collections.singleton(pathToOutputFile),
               EnumSet.of(
@@ -179,8 +181,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
     AbstractExecutionStep recordArtifactAndMetadataStep =
         new AbstractExecutionStep(stepName) {
           @Override
-          public StepExecutionResult execute(ExecutionContext context)
-              throws IOException, InterruptedException {
+          public StepExecutionResult execute(ExecutionContext context) throws IOException {
             if (hasClassesToDx) {
               buildableContext.recordArtifact(getPathToDex());
 
@@ -203,7 +204,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
                 ObjectMappers.WRITER.writeValueAsString(
                     Maps.transformValues(classNamesToHashes, Object::toString)));
 
-            return StepExecutionResult.SUCCESS;
+            return StepExecutionResults.SUCCESS;
           }
         };
     steps.add(recordArtifactAndMetadataStep);
@@ -286,6 +287,10 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   public SourcePath getSourcePathToOutput() {
     // A .dex file is not guaranteed to be generated, so we return null to be conservative.
     return null;
+  }
+
+  public SourcePath getSourcePathToDex() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToDex());
   }
 
   public Path getPathToDex() {

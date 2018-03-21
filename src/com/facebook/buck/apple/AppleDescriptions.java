@@ -19,6 +19,7 @@ package com.facebook.buck.apple;
 import static com.facebook.buck.apple.AppleAssetCatalog.validateAssetCatalogs;
 import static com.facebook.buck.swift.SwiftDescriptions.SWIFT_EXTENSION;
 
+import com.facebook.buck.apple.AppleAssetCatalog.ValidationType;
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
@@ -39,7 +40,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
@@ -57,11 +57,13 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -315,13 +317,13 @@ public class AppleDescriptions {
       TargetGraph targetGraph,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
       SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       ApplePlatform applePlatform,
       String targetSDKVersion,
       Tool actool,
-      AppleAssetCatalog.ValidationType assetCatalogValidation) {
+      AppleAssetCatalog.ValidationType assetCatalogValidation,
+      AppleAssetCatalogsCompilationOptions appleAssetCatalogsCompilationOptions) {
     TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleAssetCatalogDescriptionArg> assetCatalogArgs =
@@ -334,13 +336,7 @@ public class AppleDescriptions {
     Optional<String> appIcon = Optional.empty();
     Optional<String> launchImage = Optional.empty();
 
-    AppleAssetCatalogDescription.Optimization optimization = null;
-
     for (AppleAssetCatalogDescriptionArg arg : assetCatalogArgs) {
-      if (optimization == null) {
-        optimization = arg.getOptimization();
-      }
-
       assetCatalogDirsBuilder.addAll(arg.getDirs());
       if (arg.getAppIcon().isPresent()) {
         if (appIcon.isPresent()) {
@@ -361,13 +357,6 @@ public class AppleDescriptions {
 
         launchImage = arg.getLaunchImage();
       }
-
-      if (arg.getOptimization() != optimization) {
-        throw new HumanReadableException(
-            "At most one asset catalog optimisation style can be "
-                + "specified in the dependencies %s",
-            buildTarget);
-      }
     }
 
     ImmutableSortedSet<SourcePath> assetCatalogDirs = assetCatalogDirsBuilder.build();
@@ -375,8 +364,6 @@ public class AppleDescriptions {
     if (assetCatalogDirs.isEmpty()) {
       return Optional.empty();
     }
-    Preconditions.checkNotNull(
-        optimization, "optimization was null even though assetCatalogArgs was not empty");
 
     validateAssetCatalogs(
         assetCatalogDirs,
@@ -392,23 +379,18 @@ public class AppleDescriptions {
       applePlatform = ApplePlatform.WATCHOS;
       targetSDKVersion = "1.0";
     }
-    BuildRuleParams assetParams =
-        params
-            .withoutExtraDeps()
-            .withDeclaredDeps(
-                ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(assetCatalogDirs)));
     return Optional.of(
         new AppleAssetCatalog(
             assetCatalogBuildTarget,
             projectFilesystem,
-            assetParams,
+            ruleFinder,
             applePlatform.getName(),
             targetSDKVersion,
             actool,
             assetCatalogDirs,
             appIcon,
             launchImage,
-            optimization,
+            appleAssetCatalogsCompilationOptions,
             MERGED_ASSET_CATALOG_NAME));
   }
 
@@ -567,17 +549,20 @@ public class AppleDescriptions {
       BuildRuleResolver resolver,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
-      BuildTarget binary,
+      Optional<BuildTarget> binary,
+      Optional<PatternMatchedCollection<BuildTarget>> platformBinary,
       Either<AppleBundleExtension, String> extension,
       Optional<String> productName,
-      final SourcePath infoPlist,
+      SourcePath infoPlist,
       ImmutableMap<String, String> infoPlistSubstitutions,
       ImmutableSortedSet<BuildTarget> deps,
       ImmutableSortedSet<BuildTarget> tests,
       AppleDebugFormat debugFormat,
       boolean dryRunCodeSigning,
       boolean cacheable,
-      AppleAssetCatalog.ValidationType assetCatalogValidation,
+      boolean verifyResources,
+      ValidationType assetCatalogValidation,
+      AppleAssetCatalogsCompilationOptions appleAssetCatalogsCompilationOptions,
       ImmutableList<String> codesignFlags,
       Optional<String> codesignAdhocIdentity,
       Optional<Boolean> ibtoolModuleFlag) {
@@ -588,6 +573,8 @@ public class AppleDescriptions {
             appleCxxPlatforms,
             buildTarget,
             MultiarchFileInfos.create(appleCxxPlatforms, buildTarget));
+    BuildTarget binaryTarget =
+        getTargetPlatformBinary(binary, platformBinary, appleCxxPlatform.getFlavor());
 
     AppleBundleDestinations destinations;
 
@@ -603,7 +590,11 @@ public class AppleDescriptions {
 
     AppleBundleResources collectedResources =
         AppleResources.collectResourceDirsAndFiles(
-            targetGraph, resolver, Optional.empty(), targetGraph.get(buildTarget));
+            targetGraph,
+            resolver,
+            Optional.empty(),
+            targetGraph.get(buildTarget),
+            appleCxxPlatform);
 
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
     if (INCLUDE_FRAMEWORKS.getRequiredValue(buildTarget)) {
@@ -648,13 +639,13 @@ public class AppleDescriptions {
             targetGraph,
             buildTargetWithoutBundleSpecificFlavors,
             projectFilesystem,
-            params,
             sourcePathResolver,
             ruleFinder,
             appleCxxPlatform.getAppleSdk().getApplePlatform(),
             appleCxxPlatform.getMinVersion(),
             appleCxxPlatform.getActool(),
-            assetCatalogValidation);
+            assetCatalogValidation,
+            appleAssetCatalogsCompilationOptions);
     addToIndex(resolver, assetCatalog);
 
     Optional<CoreDataModel> coreDataModel =
@@ -687,7 +678,7 @@ public class AppleDescriptions {
             targetGraph,
             flavoredBinaryRuleFlavors,
             resolver,
-            binary);
+            binaryTarget);
 
     if (!AppleDebuggableBinary.isBuildRuleDebuggable(flavoredBinaryRule)) {
       debugFormat = AppleDebugFormat.NONE;
@@ -738,7 +729,7 @@ public class AppleDescriptions {
         collectFirstLevelExtraBinariesFromDeps(
             appleCxxPlatform.getAppleSdk().getApplePlatform().getType(),
             deps,
-            binary,
+            binaryTarget,
             cxxPlatformFlavorDomain,
             defaultCxxFlavor,
             targetGraph,
@@ -748,7 +739,7 @@ public class AppleDescriptions {
     BuildRuleParams bundleParamsWithFlavoredBinaryDep =
         getBundleParamsWithUpdatedDeps(
             params,
-            binary,
+            binaryTarget,
             ImmutableSet.<BuildRule>builder()
                 .add(targetDebuggableBinaryRule)
                 .addAll(Optionals.toStream(assetCatalog).iterator())
@@ -795,9 +786,51 @@ public class AppleDescriptions {
         provisioningProfileStore,
         dryRunCodeSigning,
         cacheable,
+        verifyResources,
         codesignFlags,
         codesignAdhocIdentity,
         ibtoolModuleFlag);
+  }
+
+  /**
+   * Returns a build target of the apple binary for the requested target platform.
+   *
+   * <p>By default it's the binary that was provided using {@code binary} attribute, but in case
+   * {@code platform_binary} is specified and one of its patterns matches the target platform, it
+   * will be returned instead.
+   */
+  public static BuildTarget getTargetPlatformBinary(
+      Optional<BuildTarget> binary,
+      Optional<PatternMatchedCollection<BuildTarget>> platformBinary,
+      Flavor cxxPlatformFlavor) {
+    String targetPlatform = cxxPlatformFlavor.toString();
+    return platformBinary
+        .flatMap(pb -> getPlatformMatchingBinary(targetPlatform, pb))
+        .orElseGet(
+            () ->
+                binary.orElseThrow(
+                    () ->
+                        new HumanReadableException(
+                            "Binary matching target platform "
+                                + targetPlatform
+                                + " cannot be found and binary default is not specified.\n"
+                                + "Please refer to https://buckbuild.com/rule/apple_bundle.html#binary for "
+                                + "more details.")));
+  }
+
+  /** Returns an optional binary target that matches the target platform. */
+  private static Optional<BuildTarget> getPlatformMatchingBinary(
+      String targetPlatform, PatternMatchedCollection<BuildTarget> platformBinary) {
+    ImmutableList<BuildTarget> matchingBinaries = platformBinary.getMatchingValues(targetPlatform);
+    if (matchingBinaries.size() > 1) {
+      throw new HumanReadableException(
+          "There must be at most one binary matching the target platform "
+              + targetPlatform
+              + " but all of "
+              + matchingBinaries
+              + " matched. Please make your pattern more precise and remove any duplicates.");
+    }
+    return matchingBinaries.isEmpty() ? Optional.empty() : Optional.of(matchingBinaries.get(0));
   }
 
   private static void addToIndex(BuildRuleResolver resolver, Optional<? extends BuildRule> rule) {
@@ -854,7 +887,7 @@ public class AppleDescriptions {
     }
     BuildTarget buildTarget = binary.withFlavors(binaryFlavorsBuilder.build());
 
-    final TargetNode<?, ?> binaryTargetNode = targetGraph.get(buildTarget);
+    TargetNode<?, ?> binaryTargetNode = targetGraph.get(buildTarget);
 
     if (binaryTargetNode.getDescription() instanceof AppleTestDescription) {
       return resolver.getRule(binary);
@@ -881,11 +914,9 @@ public class AppleDescriptions {
   }
 
   private static BuildRuleParams getBundleParamsWithUpdatedDeps(
-      BuildRuleParams params,
-      final BuildTarget originalBinaryTarget,
-      final Set<BuildRule> newDeps) {
+      BuildRuleParams params, BuildTarget originalBinaryTarget, Set<BuildRule> newDeps) {
     // Remove the unflavored binary rule and add the flavored one instead.
-    final Predicate<BuildRule> notOriginalBinaryRule =
+    Predicate<BuildRule> notOriginalBinaryRule =
         BuildRules.isBuildRuleWithTarget(originalBinaryTarget).negate();
     return params
         .withDeclaredDeps(
@@ -939,6 +970,14 @@ public class AppleDescriptions {
           extensionBundlePaths.put(sourcePath, destinations.getFrameworksPath().toString());
         } else if (AppleBundleExtension.XPC.toFileExtension().equals(appleBundle.getExtension())) {
           extensionBundlePaths.put(sourcePath, destinations.getXPCServicesPath().toString());
+        } else if (AppleBundleExtension.PLUGIN
+            .toFileExtension()
+            .equals(appleBundle.getExtension())) {
+          extensionBundlePaths.put(sourcePath, destinations.getPlugInsPath().toString());
+        } else if (AppleBundleExtension.PREFPANE
+            .toFileExtension()
+            .equals(appleBundle.getExtension())) {
+          extensionBundlePaths.put(sourcePath, destinations.getResourcesPath().toString());
         }
       }
     }

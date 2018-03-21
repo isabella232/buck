@@ -25,7 +25,6 @@ import com.facebook.buck.python.toolchain.PythonPlatform;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
@@ -43,6 +42,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -54,7 +54,6 @@ import org.stringtemplate.v4.ST;
 public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps {
 
   private static final String RUN_INPLACE_RESOURCE = "com/facebook/buck/python/run_inplace.py.in";
-  public static final String PREBUILT_PYTHON_RULES_SUBDIR = "prebuilt_rules";
 
   // TODO(agallagher): Task #8098647: This rule has no steps, so it
   // really doesn't need a rule key.
@@ -68,41 +67,11 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   @AddToRuleKey private final Tool python;
   @AddToRuleKey private final Supplier<String> script;
 
-  private PythonInPlaceBinary(
+  PythonInPlaceBinary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
-      Supplier<? extends SortedSet<BuildRule>> originalDeclareDeps,
-      PythonPlatform pythonPlatform,
-      String mainModule,
-      PythonPackageComponents components,
-      String pexExtension,
-      ImmutableSet<String> preloadLibraries,
-      boolean legacyOutputPath,
-      SymlinkTree linkTree,
-      Tool python,
-      Supplier<String> script) {
-    super(
-        buildTarget,
-        projectFilesystem,
-        params,
-        originalDeclareDeps,
-        pythonPlatform,
-        mainModule,
-        components,
-        preloadLibraries,
-        pexExtension,
-        legacyOutputPath);
-    this.linkTree = linkTree;
-    this.python = python;
-    this.script = script;
-  }
-
-  public static PythonInPlaceBinary from(
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
       BuildRuleResolver ruleResolver,
+      Supplier<? extends SortedSet<BuildRule>> originalDeclareDeps,
       CxxPlatform cxxPlatform,
       PythonPlatform pythonPlatform,
       String mainModule,
@@ -112,20 +81,19 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
       boolean legacyOutputPath,
       SymlinkTree linkTree,
       Tool python) {
-    return new PythonInPlaceBinary(
+    super(
         buildTarget,
         projectFilesystem,
-        // The actual steps of a in-place binary doesn't actually have any build-time deps.
-        params.withoutDeclaredDeps().withoutExtraDeps(),
-        params.getDeclaredDeps(),
+        originalDeclareDeps,
         pythonPlatform,
         mainModule,
         components,
-        pexExtension,
         preloadLibraries,
-        legacyOutputPath,
-        linkTree,
-        python,
+        pexExtension,
+        legacyOutputPath);
+    this.linkTree = linkTree;
+    this.python = python;
+    this.script =
         getScript(
             ruleResolver,
             pythonPlatform,
@@ -136,7 +104,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
                 .resolve(getBinPath(buildTarget, projectFilesystem, pexExtension, legacyOutputPath))
                 .getParent()
                 .relativize(linkTree.getRoot()),
-            preloadLibraries));
+            preloadLibraries);
   }
 
   @Override
@@ -153,26 +121,21 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   }
 
   private static Supplier<String> getScript(
-      final BuildRuleResolver resolver,
-      final PythonPlatform pythonPlatform,
-      final CxxPlatform cxxPlatform,
-      final String mainModule,
-      final PythonPackageComponents components,
-      final Path relativeLinkTreeRoot,
-      final ImmutableSet<String> preloadLibraries) {
-    final String relativeLinkTreeRootStr =
-        Escaper.escapeAsPythonString(relativeLinkTreeRoot.toString());
-    final String prebuiltLibsDirStr =
-        Escaper.escapeAsPythonString(
-            relativeLinkTreeRoot.resolve(PREBUILT_PYTHON_RULES_SUBDIR).toString());
-    final Linker ld = cxxPlatform.getLd().resolve(resolver);
+      BuildRuleResolver resolver,
+      PythonPlatform pythonPlatform,
+      CxxPlatform cxxPlatform,
+      String mainModule,
+      PythonPackageComponents components,
+      Path relativeLinkTreeRoot,
+      ImmutableSet<String> preloadLibraries) {
+    String relativeLinkTreeRootStr = Escaper.escapeAsPythonString(relativeLinkTreeRoot.toString());
+    Linker ld = cxxPlatform.getLd().resolve(resolver);
     return () -> {
       ST st =
           new ST(getRunInplaceResource())
               .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
               .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
-              .add("MODULES_DIR", relativeLinkTreeRootStr)
-              .add("PREBUILT_LIBS_DIR", prebuiltLibsDirStr);
+              .add("MODULES_DIR", relativeLinkTreeRootStr);
 
       // Only add platform-specific values when the binary includes native libraries.
       if (components.getNativeLibraries().isEmpty()) {
@@ -225,5 +188,11 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
         .concat(super.getRuntimeDeps(ruleFinder))
         .concat(Stream.of(linkTree.getBuildTarget()))
         .concat(getComponents().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    // The actual steps of a in-place binary doesn't actually have any build-time deps.
+    return ImmutableSortedSet.of();
   }
 }

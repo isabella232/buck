@@ -31,29 +31,29 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeTargetNodeBuilder;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,15 +74,13 @@ public class SwiftLibraryIntegrationTest {
 
   @Before
   public void setUp() {
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    resolver = new TestBuildRuleResolver();
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
   }
 
   @Test
-  public void headersOfDependentTargetsAreIncluded() throws Exception {
+  public void headersOfDependentTargetsAreIncluded() {
     // The output path used by the buildable for the link tree.
     BuildTarget symlinkTarget = BuildTargetFactory.newInstance("//:symlink");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(tmpDir.getRoot());
@@ -94,7 +92,7 @@ public class SwiftLibraryIntegrationTest {
 
     HeaderSymlinkTreeWithHeaderMap symlinkTreeBuildRule =
         HeaderSymlinkTreeWithHeaderMap.create(
-            symlinkTarget, projectFilesystem, symlinkTreeRoot, links);
+            symlinkTarget, projectFilesystem, symlinkTreeRoot, links, ruleFinder);
     resolver.addToIndex(symlinkTreeBuildRule);
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
@@ -123,12 +121,9 @@ public class SwiftLibraryIntegrationTest {
     SwiftCompile buildRule =
         (SwiftCompile)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
-                TargetGraph.EMPTY,
+                TestBuildRuleCreationContextFactory.create(resolver, projectFilesystem),
                 buildTarget,
-                projectFilesystem,
                 params,
-                resolver,
-                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
 
     ImmutableList<String> swiftIncludeArgs = buildRule.getSwiftIncludeArgs(pathResolver);
@@ -150,12 +145,9 @@ public class SwiftLibraryIntegrationTest {
     SwiftCompile buildRule =
         (SwiftCompile)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
-                TargetGraph.EMPTY,
+                TestBuildRuleCreationContextFactory.create(resolver, projectFilesystem),
                 swiftCompileTarget,
-                projectFilesystem,
                 params,
-                resolver,
-                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
     resolver.addToIndex(buildRule);
 
@@ -184,15 +176,15 @@ public class SwiftLibraryIntegrationTest {
             pathResolver.getRelativePath(buildRule.getSourcePathToOutput()).resolve("bar.o"));
     assertThat(fileListArg.getPath(), Matchers.equalTo(fileListSourcePath));
 
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(FakeTargetNodeBuilder.build(buildRule));
     CxxLink linkRule =
         (CxxLink)
             FakeAppleRuleDescriptions.SWIFT_LIBRARY_DESCRIPTION.createBuildRule(
-                TargetGraphFactory.newInstance(FakeTargetNodeBuilder.build(buildRule)),
+                TestBuildRuleCreationContextFactory.create(
+                    targetGraph, resolver, projectFilesystem),
                 buildTarget.withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR),
-                projectFilesystem,
                 params,
-                resolver,
-                TestCellBuilder.createCellRoots(projectFilesystem),
                 args);
 
     assertThat(linkRule.getArgs(), Matchers.hasItem(objArg));
@@ -210,8 +202,7 @@ public class SwiftLibraryIntegrationTest {
     workspace.addBuckConfigLocalOption("cxx", "untracked_headers", "error");
 
     BuildTarget target = workspace.newBuildTarget("//:BigLib#iphonesimulator-x86_64,static");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
   }
 
@@ -226,8 +217,7 @@ public class SwiftLibraryIntegrationTest {
 
     BuildTarget target =
         workspace.newBuildTarget("//:BigLibTransitive#iphonesimulator-x86_64,static");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
   }
 
@@ -240,8 +230,7 @@ public class SwiftLibraryIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = workspace.newBuildTarget("//:hello#iphonesimulator-x86_64,swift-compile");
-    ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    ProcessResult result = workspace.runBuckCommand("build", target.getFullyQualifiedName());
     result.assertSuccess();
     workspace
         .getBuildLog()

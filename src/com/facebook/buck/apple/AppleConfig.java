@@ -33,6 +33,7 @@ import com.facebook.buck.util.ProcessExecutor.Option;
 import com.facebook.buck.util.ProcessExecutor.Result;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.util.zip.ZipCompressionLevel;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +60,10 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   private static final Logger LOG = Logger.get(AppleConfig.class);
   public static final String APPLE_SECTION = "apple";
+
+  private static final String FORCE_LOAD_LINK_WHOLE_LIBRARY_ENABLED =
+      "force_load_link_whole_library";
+  private static final String FORCE_LOAD_LIBRARY_PATH = "force_load_library_path";
 
   private final BuckConfig delegate;
 
@@ -134,7 +139,7 @@ public class AppleConfig implements ConfigView<BuckConfig> {
    *     --print-path}.
    */
   private static Supplier<Optional<Path>> createAppleDeveloperDirectorySupplier(
-      final ProcessExecutor processExecutor) {
+      ProcessExecutor processExecutor) {
     return MoreSuppliers.memoize(
         () -> {
           ProcessExecutorParams processExecutorParams =
@@ -185,7 +190,7 @@ public class AppleConfig implements ConfigView<BuckConfig> {
   }
 
   public ToolProvider getCodesignProvider() {
-    final String codesignField = "codesign";
+    String codesignField = "codesign";
     Optional<BuildTarget> target = delegate.getMaybeBuildTarget(APPLE_SECTION, codesignField);
     String source = String.format("[%s] %s", APPLE_SECTION, codesignField);
     if (target.isPresent()) {
@@ -221,6 +226,12 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public boolean linkAllObjC() {
     return delegate.getBooleanValue(APPLE_SECTION, "always_link_with_objc_flag", true);
+  }
+
+  public ZipCompressionLevel getZipCompressionLevel() {
+    return delegate
+        .getEnum(AppleConfig.APPLE_SECTION, "ipa_compression_level", ZipCompressionLevel.class)
+        .orElse(ZipCompressionLevel.DEFAULT);
   }
 
   public Optional<Path> getAppleDeviceHelperAbsolutePath() {
@@ -267,6 +278,22 @@ public class AppleConfig implements ConfigView<BuckConfig> {
   public boolean shouldUseSwiftDelegate() {
     // TODO(mgd): Remove Swift delegation from Apple rules
     return delegate.getBooleanValue(APPLE_SECTION, "use_swift_delegate", true);
+  }
+
+  public boolean shouldVerifyBundleResources() {
+    return delegate.getBooleanValue(APPLE_SECTION, "verify_bundle_resources", false);
+  }
+
+  public boolean shouldAddLinkerFlagsForLinkWholeLibraries() {
+    return delegate.getBooleanValue(APPLE_SECTION, FORCE_LOAD_LINK_WHOLE_LIBRARY_ENABLED, false);
+  }
+
+  public String getForceLoadLibraryPath(boolean isFocusedTarget) {
+    Optional<String> path = delegate.getValue(APPLE_SECTION, FORCE_LOAD_LIBRARY_PATH);
+    if (!isFocusedTarget && path.isPresent()) {
+      return path.get();
+    }
+    return "$BUILT_PRODUCTS_DIR";
   }
 
   public AppleAssetCatalog.ValidationType assetCatalogValidation() {

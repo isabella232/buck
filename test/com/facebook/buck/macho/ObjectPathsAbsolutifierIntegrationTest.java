@@ -29,7 +29,7 @@ import com.facebook.buck.apple.CodeSigning;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
@@ -37,10 +37,11 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.testutil.ProcessResult;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -117,7 +118,7 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     BuildTarget target =
         BuildTargetFactory.newInstance("//Apps/TestApp:TestApp")
             .withAppendedFlavors(platformFlavor);
-    ProjectWorkspace.ProcessResult result =
+    ProcessResult result =
         workspace.runBuckCommand(
             "build", "--config", "cxx.cflags=-g", target.getFullyQualifiedName());
     result.assertSuccess();
@@ -190,17 +191,12 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     assertThat(
         unsanitizedOutput,
         containsString(
-            "OSO "
-                + newCompDirValue
-                + "/buck-out/bin/"
-                + relativeSanitizedObjectFilePath.toString()));
+            "OSO " + newCompDirValue + "/buck-out/bin/" + relativeSanitizedObjectFilePath));
     assertThat(
         unsanitizedOutput,
-        containsString(
-            "SO " + newCompDirValue + "/" + relativeSourceFilePath.getParent().toString()));
+        containsString("SO " + newCompDirValue + "/" + relativeSourceFilePath.getParent()));
     assertThat(
-        unsanitizedOutput,
-        containsString("SOL " + newCompDirValue + "/" + relativeSourceFilePath.toString()));
+        unsanitizedOutput, containsString("SOL " + newCompDirValue + "/" + relativeSourceFilePath));
   }
 
   private boolean checkCodeSigning(Path absoluteBundlePath)
@@ -302,14 +298,14 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     filesystem.mkdirs(unsanizitedBinaryPath.getParent());
 
     // copy bundle
-    MoreFiles.copyRecursively(sanitizedBinaryPath.getParent(), unsanizitedBinaryPath.getParent());
+    MostFiles.copyRecursively(sanitizedBinaryPath.getParent(), unsanizitedBinaryPath.getParent());
 
     DebugPathSanitizer sanitizer = getDebugPathSanitizer();
 
     String oldCompDirValue = sanitizer.getCompilationDirectory();
     String newCompDirValue = workspace.getDestPath().toString();
 
-    ProjectWorkspace.ProcessResult result =
+    ProcessResult result =
         workspace.runBuckCommand(
             "machoutils",
             "absolutify_object_paths",

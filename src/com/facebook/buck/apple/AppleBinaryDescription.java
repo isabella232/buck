@@ -23,10 +23,15 @@ import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
+import com.facebook.buck.cxx.CxxBinaryFactory;
+import com.facebook.buck.cxx.CxxBinaryFlavored;
+import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
+import com.facebook.buck.cxx.CxxBinaryMetadataFactory;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
@@ -34,12 +39,12 @@ import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -52,10 +57,12 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -98,20 +105,29 @@ public class AppleBinaryDescription
           LinkerMapMode.NO_LINKER_MAP.getFlavor());
 
   private final ToolchainProvider toolchainProvider;
-  private final CxxBinaryDescription delegate;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
+  private final CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors;
+  private final CxxBinaryFactory cxxBinaryFactory;
+  private final CxxBinaryMetadataFactory cxxBinaryMetadataFactory;
+  private final CxxBinaryFlavored cxxBinaryFlavored;
 
   public AppleBinaryDescription(
       ToolchainProvider toolchainProvider,
-      CxxBinaryDescription delegate,
       SwiftLibraryDescription swiftDelegate,
-      AppleConfig appleConfig) {
+      AppleConfig appleConfig,
+      CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors,
+      CxxBinaryFactory cxxBinaryFactory,
+      CxxBinaryMetadataFactory cxxBinaryMetadataFactory,
+      CxxBinaryFlavored cxxBinaryFlavored) {
     this.toolchainProvider = toolchainProvider;
-    this.delegate = delegate;
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
     this.appleConfig = appleConfig;
+    this.cxxBinaryImplicitFlavors = cxxBinaryImplicitFlavors;
+    this.cxxBinaryFactory = cxxBinaryFactory;
+    this.cxxBinaryMetadataFactory = cxxBinaryMetadataFactory;
+    this.cxxBinaryFlavored = cxxBinaryFlavored;
   }
 
   @Override
@@ -126,7 +142,7 @@ public class AppleBinaryDescription
     ImmutableSet<FlavorDomain<?>> localDomains = ImmutableSet.of(AppleDebugFormat.FLAVOR_DOMAIN);
 
     builder.addAll(localDomains);
-    delegate.flavorDomains().ifPresent(domains -> builder.addAll(domains));
+    cxxBinaryFlavored.flavorDomains().ifPresent(domains -> builder.addAll(domains));
     swiftDelegate
         .flatMap(swift -> swift.flavorDomains())
         .ifPresent(domains -> builder.addAll(domains));
@@ -156,9 +172,9 @@ public class AppleBinaryDescription
     ImmutableList<ImmutableSortedSet<Flavor>> thinFlavorSets =
         generateThinDelegateFlavors(delegateFlavors);
     if (thinFlavorSets.size() > 0) {
-      return Iterables.all(thinFlavorSets, delegate::hasFlavors);
+      return Iterables.all(thinFlavorSets, cxxBinaryFlavored::hasFlavors);
     } else {
-      return delegate.hasFlavors(delegateFlavors);
+      return cxxBinaryFlavored.hasFlavors(delegateFlavors);
     }
   }
 
@@ -171,32 +187,29 @@ public class AppleBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AppleBinaryDescriptionArg args) {
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain =
         getAppleCxxPlatformsFlavorDomain();
     if (buildTarget.getFlavors().contains(APP_FLAVOR)) {
       return createBundleBuildRule(
-          targetGraph,
+          context.getTargetGraph(),
           buildTarget,
-          projectFilesystem,
+          context.getProjectFilesystem(),
           params,
-          resolver,
+          context.getBuildRuleResolver(),
           appleCxxPlatformsFlavorDomain,
           args);
     } else {
       return createBinaryBuildRule(
-          targetGraph,
+          context,
           buildTarget,
-          projectFilesystem,
+          context.getProjectFilesystem(),
           params,
-          resolver,
-          cellRoots,
+          context.getBuildRuleResolver(),
+          context.getCellPathResolver(),
           appleCxxPlatformsFlavorDomain,
           args);
     }
@@ -221,7 +234,7 @@ public class AppleBinaryDescription
   }
 
   private BuildRule createBinaryBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
@@ -237,7 +250,7 @@ public class AppleBinaryDescription
 
     BuildRule unstrippedBinaryRule =
         createBinary(
-            targetGraph,
+            context,
             unstrippedBinaryBuildTarget,
             projectFilesystem,
             params,
@@ -248,7 +261,7 @@ public class AppleBinaryDescription
 
     if (shouldWrapIntoAppleDebuggableBinary(buildTarget, unstrippedBinaryRule)) {
       return createAppleDebuggableBinary(
-          targetGraph,
+          context,
           buildTarget,
           projectFilesystem,
           params,
@@ -264,7 +277,7 @@ public class AppleBinaryDescription
   }
 
   private BuildRule createAppleDebuggableBinary(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
@@ -282,7 +295,7 @@ public class AppleBinaryDescription
                 .orElse(StripStyle.NON_GLOBAL_SYMBOLS.getFlavor()));
     BuildRule strippedBinaryRule =
         createBinary(
-            targetGraph,
+            context,
             strippedBinaryBuildTarget,
             projectFilesystem,
             params,
@@ -354,7 +367,8 @@ public class AppleBinaryDescription
             CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
         toolchainProvider.getByName(
             ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
-        binaryTarget,
+        Optional.of(binaryTarget),
+        Optional.empty(),
         Either.ofLeft(AppleBundleExtension.APP),
         Optional.empty(),
         args.getInfoPlist().get(),
@@ -364,14 +378,16 @@ public class AppleBinaryDescription
         flavoredDebugFormat,
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
+        appleConfig.shouldVerifyBundleResources(),
         appleConfig.assetCatalogValidation(),
+        AppleAssetCatalogsCompilationOptions.builder().build(),
         ImmutableList.of(),
         Optional.empty(),
         Optional.empty());
   }
 
   private BuildRule createBinary(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
@@ -390,7 +406,7 @@ public class AppleBinaryDescription
       if (shouldUseStubBinary(buildTarget)) {
         BuildTarget thinTarget = Iterables.getFirst(fatBinaryInfo.get().getThinTargets(), null);
         return requireThinBinary(
-            targetGraph,
+            context,
             thinTarget,
             projectFilesystem,
             params,
@@ -404,7 +420,7 @@ public class AppleBinaryDescription
       for (BuildTarget thinTarget : fatBinaryInfo.get().getThinTargets()) {
         thinRules.add(
             requireThinBinary(
-                targetGraph,
+                context,
                 thinTarget,
                 projectFilesystem,
                 params,
@@ -417,7 +433,7 @@ public class AppleBinaryDescription
           buildTarget, projectFilesystem, params, resolver, fatBinaryInfo.get(), thinRules.build());
     } else {
       return requireThinBinary(
-          targetGraph,
+          context,
           buildTarget,
           projectFilesystem,
           params,
@@ -429,7 +445,7 @@ public class AppleBinaryDescription
   }
 
   private BuildRule requireThinBinary(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
@@ -445,14 +461,7 @@ public class AppleBinaryDescription
           Optional<BuildRule> swiftCompanionBuildRule =
               swiftDelegate.flatMap(
                   swift ->
-                      swift.createCompanionBuildRule(
-                          targetGraph,
-                          buildTarget,
-                          projectFilesystem,
-                          params,
-                          resolver,
-                          cellRoots,
-                          args));
+                      swift.createCompanionBuildRule(context, buildTarget, params, resolver, args));
           if (swiftCompanionBuildRule.isPresent()
               && SwiftLibraryDescription.isSwiftTarget(buildTarget)) {
             // when creating a swift target, there is no need to proceed with apple binary rules,
@@ -486,7 +495,30 @@ public class AppleBinaryDescription
                 CxxBinaryDescriptionArg.builder().from(args);
             AppleDescriptions.populateCxxBinaryDescriptionArg(
                 pathResolver, delegateArg, args, buildTarget);
-            return delegate.createBuildRule(
+
+            Optional<ApplePlatform> applePlatform =
+                getApplePlatformForTarget(buildTarget, appleCxxPlatformsFlavorDomain);
+            if (applePlatform.isPresent()
+                && ApplePlatform.needsEntitlementsInBinary(applePlatform.get().getName())) {
+              Optional<SourcePath> entitlements = args.getEntitlementsFile();
+              if (entitlements.isPresent()) {
+                ImmutableList<String> flags =
+                    ImmutableList.of(
+                        "-Xlinker",
+                        "-sectcreate",
+                        "-Xlinker",
+                        "__TEXT",
+                        "-Xlinker",
+                        "__entitlements",
+                        "-Xlinker",
+                        pathResolver.getAbsolutePath(entitlements.get()).toString());
+                delegateArg.addAllLinkerFlags(
+                    Iterables.transform(
+                        flags, flag -> StringWithMacros.of(ImmutableList.of(Either.ofLeft(flag)))));
+              }
+            }
+
+            return cxxBinaryFactory.createBuildRule(
                 buildTarget,
                 projectFilesystem,
                 resolver,
@@ -517,6 +549,24 @@ public class AppleBinaryDescription
     return stubBinaryPath;
   }
 
+  private Optional<ApplePlatform> getApplePlatformForTarget(
+      BuildTarget buildTarget, FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain) {
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
+    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
+    CxxPlatform cxxPlatform =
+        cxxPlatforms.getValue(buildTarget).orElse(cxxPlatforms.getValue(defaultCxxFlavor));
+
+    if (!appleCxxPlatformsFlavorDomain.contains(cxxPlatform.getFlavor())) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        appleCxxPlatformsFlavorDomain
+            .getValue(cxxPlatform.getFlavor())
+            .getAppleSdk()
+            .getApplePlatform());
+  }
+
   private Optional<AppleCxxPlatform> getAppleCxxPlatformFromParams(
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain, BuildTarget buildTarget) {
     return appleCxxPlatformsFlavorDomain.getValue(buildTarget);
@@ -537,8 +587,12 @@ public class AppleBinaryDescription
           delegateArg,
           args,
           buildTarget);
-      return delegate.createMetadata(
-          buildTarget, resolver, cellRoots, delegateArg.build(), selectedVersions, metadataClass);
+      return cxxBinaryMetadataFactory.createMetadata(
+          buildTarget, resolver, delegateArg.build().getDeps(), metadataClass);
+    }
+
+    if (metadataClass.isAssignableFrom(HasEntitlementsFile.class)) {
+      return Optional.of(metadataClass.cast(args));
     }
 
     Optional<Flavor> cxxPlatformFlavor =
@@ -566,7 +620,7 @@ public class AppleBinaryDescription
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
     // Use defaults.apple_binary if present, but fall back to defaults.cxx_binary otherwise.
-    return delegate.addImplicitFlavorsForRuleTypes(
+    return cxxBinaryImplicitFlavors.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
         Description.getBuildRuleType(this),
         Description.getBuildRuleType(CxxBinaryDescription.class));
@@ -574,22 +628,24 @@ public class AppleBinaryDescription
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
-      final BuildTarget buildTarget,
-      final CellPathResolver cellRoots,
-      final AbstractAppleBinaryDescriptionArg constructorArg,
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      AbstractAppleBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     ImmutableList<ImmutableSortedSet<Flavor>> thinFlavorSets =
         generateThinDelegateFlavors(buildTarget.getFlavors());
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
     if (thinFlavorSets.size() > 0) {
       for (ImmutableSortedSet<Flavor> flavors : thinFlavorSets) {
         extraDepsBuilder.addAll(
-            delegate.findDepsForTargetFromConstructorArgs(
-                buildTarget.withFlavors(flavors), Optional.empty()));
+            CxxPlatforms.findDepsForTargetFromConstructorArgs(
+                cxxPlatformsProvider, buildTarget.withFlavors(flavors), Optional.empty()));
       }
     } else {
       extraDepsBuilder.addAll(
-          delegate.findDepsForTargetFromConstructorArgs(buildTarget, Optional.empty()));
+          CxxPlatforms.findDepsForTargetFromConstructorArgs(
+              cxxPlatformsProvider, buildTarget, Optional.empty()));
     }
   }
 
@@ -600,7 +656,8 @@ public class AppleBinaryDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractAppleBinaryDescriptionArg extends AppleNativeTargetDescriptionArg {
+  interface AbstractAppleBinaryDescriptionArg
+      extends AppleNativeTargetDescriptionArg, HasEntitlementsFile {
     Optional<SourcePath> getInfoPlist();
 
     ImmutableMap<String, String> getInfoPlistSubstitutions();

@@ -16,11 +16,13 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -81,7 +83,7 @@ abstract class AbstractPreprocessorFlags implements AddsToRuleKey {
       deps.addAll(frameworkPath.getDeps(ruleFinder));
     }
     for (Arg arg : getOtherFlags().getAllFlags()) {
-      deps.addAll(arg.getDeps(ruleFinder));
+      deps.addAll(BuildableSupport.getDepsCollection(arg, ruleFinder));
     }
     return deps.build();
   }
@@ -99,17 +101,32 @@ abstract class AbstractPreprocessorFlags implements AddsToRuleKey {
         .build();
   }
 
+  public CxxToolFlags getSanitizedIncludePathFlags(
+      DebugPathSanitizer sanitizer,
+      SourcePathResolver resolver,
+      PathShortener pathShortener,
+      Function<FrameworkPath, Path> frameworkPathTransformer,
+      Preprocessor preprocessor) {
+    return CxxToolFlags.explicitBuilder()
+        .addAllRuleFlags(
+            StringArg.from(
+                sanitizer.sanitizeFlags(
+                    getCxxIncludePaths()
+                        .getFlags(
+                            resolver, pathShortener, frameworkPathTransformer, preprocessor))))
+        .build();
+  }
+
   public CxxToolFlags getNonIncludePathFlags(
       SourcePathResolver resolver, Optional<CxxPrecompiledHeader> pch, Preprocessor preprocessor) {
     ExplicitCxxToolFlags.Builder builder = CxxToolFlags.explicitBuilder();
     ExplicitCxxToolFlags.addCxxToolFlags(builder, getOtherFlags());
-    builder.addAllRuleFlags(
-        StringArg.from(
-            preprocessor.prefixOrPCHArgs(
-                resolver,
-                getPrefixHeader(),
-                pch.map(CxxPrecompiledHeader::getSourcePathToOutput)
-                    .map(resolver::getRelativePath))));
+    if (pch.isPresent()) {
+      boolean precompiled = pch.get().canPrecompile();
+      builder.addAllRuleFlags(
+          StringArg.from(
+              preprocessor.prefixOrPCHArgs(precompiled, pch.get().getIncludeFilePath(resolver))));
+    }
     return builder.build();
   }
 

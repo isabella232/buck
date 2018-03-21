@@ -16,11 +16,15 @@
 
 package com.facebook.buck.rules.coercer;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -38,7 +42,24 @@ import org.junit.Test;
 
 public class BuilderParamInfoTest {
   @Test
-  public void optionalsForAbstractClass() throws Exception {
+  public void failedCoercionIncludesClassAndFieldNames() {
+    try {
+      CoercedTypeCache.INSTANCE
+          .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithBadField.class)
+          .values();
+      fail("Expected exception.");
+    } catch (Exception e) {
+      String message = ErrorLogger.getUserFriendlyMessage(e);
+      assertThat(
+          message,
+          containsString(
+              "no type coercer for type: class com.facebook.buck.rules.coercer.BuilderParamInfoTest$BadFieldType"));
+      assertThat(message, containsString("DtoWithBadField$Builder.badField"));
+    }
+  }
+
+  @Test
+  public void optionalsForAbstractClass() {
     for (ParamInfo param :
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithOptionals.class)
@@ -48,7 +69,7 @@ public class BuilderParamInfoTest {
   }
 
   @Test
-  public void optionalsForInterface() throws Exception {
+  public void optionalsForInterface() {
     for (ParamInfo param :
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithOptionalsFromInterface.class)
@@ -72,18 +93,18 @@ public class BuilderParamInfoTest {
   }
 
   @Test
-  public void get() throws Exception {
+  public void get() {
     assertEquals(
         "foo", getParamInfo().get(DtoWithOneParameter.builder().setSomeString("foo").build()));
   }
 
   @Test
-  public void getName() throws Exception {
+  public void getName() {
     assertEquals("someString", getParamInfo().getName());
   }
 
   @Test
-  public void getPythonName() throws Exception {
+  public void getPythonName() {
     assertEquals("some_string", getParamInfo().getPythonName());
   }
 
@@ -92,6 +113,14 @@ public class BuilderParamInfoTest {
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithOneParameter.class)
             .values());
+  }
+
+  class BadFieldType {}
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  abstract static class AbstractDtoWithBadField {
+    abstract BadFieldType getBadFieldType();
   }
 
   @BuckStyleImmutable

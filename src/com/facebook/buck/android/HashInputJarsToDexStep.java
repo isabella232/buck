@@ -26,6 +26,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -76,7 +77,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
   }
 
   @Override
-  public StepExecutionResult execute(final ExecutionContext context)
+  public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
     ImmutableList.Builder<Path> allInputs = ImmutableList.builder();
     allInputs.addAll(primaryInputsToDex.get());
@@ -84,15 +85,15 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
       allInputs.addAll(secondaryOutputToInputs.get().get().values());
     }
 
-    final Map<String, HashCode> classNamesToHashes = classNamesToHashesSupplier.get();
+    Map<String, HashCode> classNamesToHashes = classNamesToHashesSupplier.get();
 
     for (Path path : allInputs.build()) {
-      final Hasher hasher = Hashing.sha1().newHasher();
+      Hasher hasher = Hashing.sha1().newHasher();
       new DefaultClasspathTraverser()
           .traverse(
               new ClasspathTraversal(Collections.singleton(path), filesystem) {
                 @Override
-                public void visit(FileLike fileLike) throws IOException {
+                public void visit(FileLike fileLike) {
                   if (FileLikes.isClassFile(fileLike)) {
                     String className = FileLikes.getFileNameWithoutClassSuffix(fileLike);
 
@@ -109,7 +110,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
       dexInputsToHashes.put(path, Sha1HashCode.fromHashCode(hasher.hash()));
     }
     stepFinished = true;
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override

@@ -16,13 +16,10 @@
 
 package com.facebook.buck.android;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -35,19 +32,18 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -63,7 +59,7 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
+  public void rulesExportedFromDepsBecomeFirstOrderDeps() {
     TargetNode<?, ?> transitiveExportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:transitive_exported_rule"), javaBuckConfig)
@@ -91,8 +87,8 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
             transitiveExportedNode, exportedNode, exportingNode, androidLibNode);
 
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new TestBuildRuleResolver(
+            targetGraph, AndroidLibraryBuilder.createToolchainProviderForAndroidLibrary());
 
     BuildRule androidLibRule = resolver.requireRule(androidLibNode.getBuildTarget());
     BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
@@ -112,7 +108,7 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void rulesMatchingDepQueryBecomeFirstOrderDeps() throws Exception {
+  public void rulesMatchingDepQueryBecomeFirstOrderDeps() {
     // Set up target graph: rule -> lib -> sublib -> bottom
     TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> bottomNode =
         JavaLibraryBuilder.createBuilder(
@@ -136,9 +132,7 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
     TargetNode<AndroidLibraryDescriptionArg, AndroidLibraryDescription> rule = ruleBuilder.build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode, rule);
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
 
     FakeBuildRule bottomRule = resolver.addToIndex(new FakeBuildRule(bottomNode.getBuildTarget()));
     FakeBuildRule sublibRule =
@@ -156,7 +150,7 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() throws Exception {
+  public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() {
     TargetNode<?, ?> transitiveExportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:transitive_exported_rule"), javaBuckConfig)
@@ -184,8 +178,8 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
             transitiveExportedNode, exportedNode, exportingNode, androidLibNode);
 
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new TestBuildRuleResolver(
+            targetGraph, AndroidLibraryBuilder.createToolchainProviderForAndroidLibrary());
 
     BuildRule androidLibRule = resolver.requireRule(androidLibNode.getBuildTarget());
     BuildRule exportedRule = resolver.requireRule(exportedNode.getBuildTarget());
@@ -206,19 +200,32 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void androidClasspathFromContextFunctionAddsLibsFromAndroidPlatformTarget() {
-    AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    List<Path> entries =
+    ImmutableList<Path> entries =
         ImmutableList.of(
             Paths.get("add-ons/addon-google_apis-google-15/libs/effects.jar"),
             Paths.get("add-ons/addon-google_apis-google-15/libs/maps.jar"),
             Paths.get("add-ons/addon-google_apis-google-15/libs/usb.jar"));
-    expect(androidPlatformTarget.getBootclasspathEntries()).andReturn(entries);
-
-    replay(androidPlatformTarget);
+    AndroidPlatformTarget androidPlatformTarget =
+        AndroidPlatformTarget.of(
+            "android",
+            Paths.get(""),
+            entries,
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""));
 
     ExtraClasspathProvider extraClasspathProvider =
         new AndroidClasspathProvider(
-            TestAndroidLegacyToolchainFactory.create(androidPlatformTarget));
+            new ToolchainProviderBuilder()
+                .withToolchain(AndroidPlatformTarget.DEFAULT_NAME, androidPlatformTarget)
+                .build());
 
     JavacOptions options =
         JavacOptions.builder().setSourceLevel("1.7").setTargetLevel("1.7").build();
@@ -233,20 +240,16 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
                     + "add-ons/addon-google_apis-google-15/libs/usb.jar")
                 .replace("/", File.separator)),
         updated.getBootclasspath());
-
-    verify(androidPlatformTarget);
   }
 
   @Test
-  public void testClasspathContainsOnlyJavaTargets() throws Exception {
+  public void testClasspathContainsOnlyJavaTargets() {
     TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> resourceRule =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:res")).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceRule);
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
 
     resolver.addToIndex(new FakeBuildRule(resourceRule.getBuildTarget()));
 

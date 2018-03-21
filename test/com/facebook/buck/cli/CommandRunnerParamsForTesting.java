@@ -31,7 +31,7 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.plugin.BuckPluginManagerFactory;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
@@ -46,15 +46,18 @@ import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.cache.NoOpCacheStatsTracker;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -62,6 +65,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class CommandRunnerParamsForTesting {
 
@@ -91,7 +95,7 @@ public class CommandRunnerParamsForTesting {
       ImmutableMap<String, String> environment,
       JavaPackageFinder javaPackageFinder,
       Optional<WebServer> webServer)
-      throws IOException, InterruptedException {
+      throws IOException {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
@@ -105,7 +109,8 @@ public class CommandRunnerParamsForTesting {
         console,
         new ByteArrayInputStream("".getBytes("UTF-8")),
         cell,
-        new VersionedTargetGraphCache(),
+        new InstrumentedVersionedTargetGraphCache(
+            new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
         new Parser(
@@ -113,7 +118,8 @@ public class CommandRunnerParamsForTesting {
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider),
+            knownBuildRuleTypesProvider,
+            new ExecutableFinder()),
         eventBus,
         platform,
         environment,
@@ -128,7 +134,8 @@ public class CommandRunnerParamsForTesting {
         ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
+        new ActionGraphCache(
+            config.getMaxActionGraphCacheEntries(), config.getMaxActionGraphNodeCacheEntries()),
         knownBuildRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),
@@ -154,11 +161,17 @@ public class CommandRunnerParamsForTesting {
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private Optional<WebServer> webServer = Optional.empty();
+    @Nullable private ToolchainProvider toolchainProvider = null;
 
     public CommandRunnerParams build() throws IOException, InterruptedException {
+      TestCellBuilder cellBuilder = new TestCellBuilder();
+      if (toolchainProvider != null) {
+        cellBuilder.setToolchainProvider(toolchainProvider);
+      }
+
       return createCommandRunnerParamsForTesting(
           console,
-          new TestCellBuilder().build(),
+          cellBuilder.build(),
           artifactCache,
           eventBus,
           config,
@@ -180,6 +193,11 @@ public class CommandRunnerParamsForTesting {
 
     public Builder setArtifactCache(ArtifactCache cache) {
       this.artifactCache = cache;
+      return this;
+    }
+
+    public Builder setToolchainProvider(ToolchainProvider toolchainProvider) {
+      this.toolchainProvider = toolchainProvider;
       return this;
     }
   }

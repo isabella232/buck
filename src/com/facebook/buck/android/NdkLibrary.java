@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -26,6 +27,7 @@ import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
@@ -34,6 +36,7 @@ import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -65,7 +68,7 @@ import javax.annotation.Nullable;
 public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements NativeLibraryBuildRule, AndroidPackageable {
 
-  private final AndroidLegacyToolchain androidLegacyToolchain;
+  private final AndroidNdk androidNdk;
 
   /** @see NativeLibraryBuildRule#isAsset() */
   @AddToRuleKey private final boolean isAsset;
@@ -93,7 +96,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   protected NdkLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      AndroidNdk androidNdk,
       BuildRuleParams params,
       Path makefile,
       String makefileContents,
@@ -103,7 +106,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       String ndkVersion,
       Function<String, String> macroExpander) {
     super(buildTarget, projectFilesystem, params);
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.androidNdk = androidNdk;
     this.isAsset = isAsset;
 
     this.root = buildTarget.getBasePath();
@@ -140,7 +143,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, final BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // .so files are written to the libs/ subdirectory of the output directory.
@@ -159,7 +162,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
         new NdkBuildStep(
             getBuildTarget(),
             getProjectFilesystem(),
-            androidLegacyToolchain,
+            androidNdk,
             root,
             makefile,
             buildArtifactsDirectory,
@@ -185,8 +188,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     steps.add(
         new AbstractExecutionStep("cache_unstripped_so") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context)
-              throws IOException, InterruptedException {
+          public StepExecutionResult execute(ExecutionContext context) throws IOException {
             Set<Path> unstrippedSharedObjs =
                 getProjectFilesystem()
                     .getFilesUnderPath(
@@ -194,7 +196,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
             for (Path path : unstrippedSharedObjs) {
               buildableContext.recordArtifact(path);
             }
-            return StepExecutionResult.SUCCESS;
+            return StepExecutionResults.SUCCESS;
           }
         });
 
@@ -214,7 +216,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables() {
+  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
     return AndroidPackageableCollector.getPackageableRules(getBuildDeps());
   }
 

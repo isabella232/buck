@@ -19,7 +19,6 @@ package com.facebook.buck.cli;
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidInstallConfig;
-import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
@@ -41,13 +40,12 @@ import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
@@ -210,9 +208,7 @@ public class InstallCommand extends BuildCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    if (!checkArguments(params)) {
-      return ExitCode.COMMANDLINE_ERROR;
-    }
+    assertArguments(params);
 
     try (CommandThreadManager pool =
             new CommandThreadManager("Install", getConcurrencyLimit(params.getBuckConfig()));
@@ -221,7 +217,7 @@ public class InstallCommand extends BuildCommand {
       ImmutableSet<String> installHelperTargets;
       try {
         installHelperTargets = getInstallHelperTargets(params, pool.getListeningExecutorService());
-      } catch (BuildTargetException | BuildFileParseException e) {
+      } catch (BuildFileParseException e) {
         params
             .getBuckEventBus()
             .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
@@ -229,7 +225,7 @@ public class InstallCommand extends BuildCommand {
       }
 
       // Build the targets
-      ExitCode exitCode = super.run(params, pool, installHelperTargets);
+      ExitCode exitCode = run(params, pool, installHelperTargets);
       if (exitCode != ExitCode.SUCCESS) {
         return exitCode;
       }
@@ -271,7 +267,7 @@ public class InstallCommand extends BuildCommand {
   private ExitCode install(CommandRunnerParams params)
       throws IOException, InterruptedException, NoSuchBuildTargetException {
 
-    Build build = super.getBuild();
+    Build build = getBuild();
     ExitCode exitCode = ExitCode.SUCCESS;
 
     for (BuildTarget buildTarget : getBuildTargets()) {
@@ -329,10 +325,7 @@ public class InstallCommand extends BuildCommand {
     return super.getExecutionContextBuilder(params)
         .setAndroidDevicesHelper(
             AndroidDevicesHelperFactory.get(
-                params
-                    .getCell()
-                    .getToolchainProvider()
-                    .getByName(AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class),
+                params.getCell().getToolchainProvider(),
                 this::getExecutionContext,
                 params.getBuckConfig(),
                 adbOptions(params.getBuckConfig()),
@@ -341,7 +334,7 @@ public class InstallCommand extends BuildCommand {
 
   private ImmutableSet<String> getInstallHelperTargets(
       CommandRunnerParams params, ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildTargetException, BuildFileParseException {
+      throws IOException, InterruptedException, BuildFileParseException {
 
     ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
     ImmutableSet.Builder<String> installHelperTargets = ImmutableSet.builder();
@@ -408,8 +401,8 @@ public class InstallCommand extends BuildCommand {
       ExecutionContext executionContext,
       SourcePathResolver pathResolver,
       CommandRunnerParams params)
-      throws IOException, InterruptedException {
-    final AndroidDevicesHelper adbHelper = executionContext.getAndroidDevicesHelper().get();
+      throws InterruptedException {
+    AndroidDevicesHelper adbHelper = executionContext.getAndroidDevicesHelper().get();
 
     boolean concurrentInstallEnabled = false;
     // concurrentInstall is currently only implemented for AndroidBinary (and not subclasses).
@@ -464,6 +457,10 @@ public class InstallCommand extends BuildCommand {
       try {
         adbHelper.startActivity(
             pathResolver, hasInstallableApk, getActivityToStart(), waitForDebugger);
+      } catch (HumanReadableException hre) {
+        LOG.warn(hre, "Unable to start activity");
+        params.getConsole().printBuildFailure(hre.getMessage());
+        return ExitCode.RUN_ERROR;
       } catch (Exception e) {
         throw new BuckUncheckedExecutionException("When starting activity.");
       }
@@ -503,10 +500,10 @@ public class InstallCommand extends BuildCommand {
       throws IOException {
     AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
-    final Path helperPath;
+    Path helperPath;
     Optional<BuildTarget> helperTarget = appleConfig.getAppleDeviceHelperTarget();
     if (helperTarget.isPresent()) {
-      BuildRuleResolver resolver = super.getBuild().getRuleResolver();
+      BuildRuleResolver resolver = getBuild().getRuleResolver();
       BuildRule buildRule = resolver.requireRule(helperTarget.get());
       if (buildRule == null) {
         params

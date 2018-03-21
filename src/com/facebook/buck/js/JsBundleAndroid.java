@@ -26,6 +26,7 @@ import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
@@ -57,7 +58,7 @@ public class JsBundleAndroid extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+    SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
 
     buildableContext.recordArtifact(sourcePathResolver.getRelativePath(getSourcePathToOutput()));
     buildableContext.recordArtifact(sourcePathResolver.getRelativePath(getSourcePathToSourceMap()));
@@ -121,7 +122,7 @@ public class JsBundleAndroid extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables() {
+  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
     return ImmutableList.of(androidResource);
   }
 

@@ -33,13 +33,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.plugin.BuckPluginManagerFactory;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.toolchain.Toolchain;
 import com.facebook.buck.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.util.FakeProcess;
@@ -102,19 +102,16 @@ public class KnownBuildRuleTypesTest {
 
     @Override
     public BuildRule createBuildRule(
-        TargetGraph targetGraph,
+        BuildRuleCreationContext context,
         BuildTarget buildTarget,
-        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
-        BuildRuleResolver resolver,
-        CellPathResolver cellRoots,
         KnownRuleTestDescriptionArg args) {
       return null;
     }
   }
 
   @BeforeClass
-  public static void setupBuildParams() throws IOException {
+  public static void setupBuildParams() {
     projectFilesystem = new FakeProjectFilesystem();
     buildTarget = BuildTargetFactory.newInstance("//:foo");
     buildRuleParams = TestBuildRuleParams.create();
@@ -128,24 +125,19 @@ public class KnownBuildRuleTypesTest {
                 Description.getBuildRuleType(JavaLibraryDescription.class));
 
     JavaLibraryDescriptionArg arg = JavaLibraryDescriptionArg.builder().setName("foo").build();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     return (DefaultJavaLibrary)
         description.createBuildRule(
-            TargetGraph.EMPTY,
+            TestBuildRuleCreationContextFactory.create(resolver, projectFilesystem),
             buildTarget,
-            projectFilesystem,
             buildRuleParams,
-            resolver,
-            TestCellBuilder.createCellRoots(projectFilesystem),
             arg);
   }
 
   @Test
   public void whenJavacIsSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithDifferentRuleKey()
       throws Exception {
-    final Path javac;
+    Path javac;
     if (Platform.detect() == Platform.WINDOWS) {
       javac = Paths.get("C:/Windows/system32/rundll32.exe");
     } else {
@@ -179,10 +171,7 @@ public class KnownBuildRuleTypesTest {
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, processExecutor);
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
 
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     FakeFileHashCache hashCache =
         new FakeFileHashCache(
@@ -196,7 +185,7 @@ public class KnownBuildRuleTypesTest {
   }
 
   @Test(expected = IllegalStateException.class)
-  public void whenRegisteringDescriptionsWithSameTypeErrorIsThrown() throws Exception {
+  public void whenRegisteringDescriptionsWithSameTypeErrorIsThrown() {
     KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
     buildRuleTypesBuilder.addDescriptions(new KnownRuleTestDescription("Foo"));
     buildRuleTypesBuilder.addDescriptions(new KnownRuleTestDescription("Bar"));
@@ -224,7 +213,7 @@ public class KnownBuildRuleTypesTest {
     KnownBuildRuleTypes knownBuildRuleTypes1 =
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, createExecutor());
 
-    final Path javac = temporaryFolder.newExecutableFile();
+    Path javac = temporaryFolder.newExecutableFile();
     ImmutableMap<String, ImmutableMap<String, String>> sections =
         ImmutableMap.of("tools", ImmutableMap.of("javac", javac.toString()));
     buckConfig = FakeBuckConfig.builder().setFilesystem(filesystem).setSections(sections).build();

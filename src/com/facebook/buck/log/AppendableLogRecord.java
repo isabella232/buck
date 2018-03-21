@@ -24,7 +24,6 @@ import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
-@SuppressWarnings("serial")
 public class AppendableLogRecord extends LogRecord {
   private final String displayLevel;
 
@@ -51,7 +50,7 @@ public class AppendableLogRecord extends LogRecord {
       if (params == null) {
         params = new Object[0];
       }
-      sb.append(Arrays.asList(params).toString());
+      sb.append(Arrays.asList(params));
     } catch (ConcurrentModificationException originalException) {
       // This way we may be at least able to figure out where offending log was created.
       throw new ConcurrentModificationException(

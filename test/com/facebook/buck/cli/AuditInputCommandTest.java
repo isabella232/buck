@@ -36,8 +36,8 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
@@ -86,7 +86,7 @@ public class AuditInputCommandTest {
   @Test
   public void testJsonClassPathOutput() throws IOException {
     ObjectMapper objectMapper = ObjectMappers.legacyCreate();
-    final String expectedJson =
+    String expectedJson =
         Joiner.on("")
             .join(
                 "{",

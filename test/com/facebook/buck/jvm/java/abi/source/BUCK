@@ -8,12 +8,12 @@ java_test(
         # we compile against a stub.
         "//third-party/java/jdk:compiler-tree-api",
     ],
+    required_for_source_only_abi = True,
     deps = [
         "//src/com/facebook/buck/jvm/java/abi/source:source",
         "//src/com/facebook/buck/jvm/java/abi/source/api:api",
         "//src/com/facebook/buck/jvm/java/lang/model:model",
         "//src/com/facebook/buck/jvm/java/plugin/adapter:adapter",
-        "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/immutables:immutables",
         "//test/com/facebook/buck/jvm/java/abi/source:testutil",

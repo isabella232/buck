@@ -46,14 +46,14 @@ import com.facebook.buck.python.toolchain.PythonPlatform;
 import com.facebook.buck.python.toolchain.PythonVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -62,6 +62,7 @@ import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Paths;
@@ -74,22 +75,28 @@ public class CxxPythonExtensionDescriptionTest {
 
   private static final BuildTarget PYTHON2_DEP_TARGET =
       BuildTargetFactory.newInstance("//:python2_dep");
-  private static final PythonPlatform PY2 =
-      PythonPlatform.of(
-          InternalFlavor.of("py2"),
-          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
-          Optional.empty());
+  private static final PythonPlatform PY2 = createPy2Platform(Optional.empty());
 
   private static final BuildTarget PYTHON3_DEP_TARGET =
       BuildTargetFactory.newInstance("//:python3_dep");
-  private static final PythonPlatform PY3 =
-      PythonPlatform.of(
-          InternalFlavor.of("py3"),
-          new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
-          Optional.empty());
+  private static final PythonPlatform PY3 = createPy3Platform(Optional.empty());
+
+  private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {
+    return new TestPythonPlatform(
+        InternalFlavor.of("py2"),
+        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        cxxLibrary);
+  }
+
+  private static PythonPlatform createPy3Platform(Optional<BuildTarget> cxxLibrary) {
+    return new TestPythonPlatform(
+        InternalFlavor.of("py3"),
+        new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+        cxxLibrary);
+  }
 
   @Test
-  public void createBuildRuleBaseModule() throws Exception {
+  public void createBuildRuleBaseModule() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -101,14 +108,12 @@ public class CxxPythonExtensionDescriptionTest {
             CxxTestUtils.createDefaultPlatforms());
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
 
     CxxPythonExtension normal = builder.build(resolver, filesystem, targetGraph);
 
     PythonPackageComponents normalComps =
-        normal.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM);
+        normal.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     assertEquals(
         ImmutableSet.of(
             target
@@ -127,12 +132,10 @@ public class CxxPythonExtensionDescriptionTest {
                 CxxTestUtils.createDefaultPlatforms())
             .setBaseModule(name);
     targetGraph = TargetGraphFactory.newInstance(baseModuleBuilder.build());
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    resolver = new TestBuildRuleResolver(targetGraph);
     CxxPythonExtension baseModule = baseModuleBuilder.build(resolver, filesystem, targetGraph);
     PythonPackageComponents baseModuleComps =
-        baseModule.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM);
+        baseModule.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     assertEquals(
         ImmutableSet.of(
             Paths.get(name)
@@ -141,7 +144,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void createBuildRuleNativeLinkableDep() throws Exception {
+  public void createBuildRuleNativeLinkableDep() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
 
@@ -162,9 +165,7 @@ public class CxxPythonExtensionDescriptionTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(cxxLibraryBuilder.build(), builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     CxxLibrary dep = (CxxLibrary) cxxLibraryBuilder.build(resolver, filesystem, targetGraph);
@@ -172,10 +173,10 @@ public class CxxPythonExtensionDescriptionTest {
 
     NativeLinkableInput depInput =
         dep.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, resolver);
 
     // Verify that the shared library dep propagated to the link rule.
-    extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM);
+    extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     BuildRule rule =
         resolver.getRule(
             CxxPythonExtensionDescription.getExtensionTarget(
@@ -184,12 +185,12 @@ public class CxxPythonExtensionDescriptionTest {
         rule.getBuildDeps(),
         Matchers.hasItems(
             FluentIterable.from(depInput.getArgs())
-                .transformAndConcat(arg -> arg.getDeps(ruleFinder))
+                .transformAndConcat(arg -> BuildableSupport.getDepsCollection(arg, ruleFinder))
                 .toArray(BuildRule.class)));
   }
 
   @Test
-  public void createBuildRulePythonPackageable() throws Exception {
+  public void createBuildRulePythonPackageable() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -201,15 +202,13 @@ public class CxxPythonExtensionDescriptionTest {
             CxxTestUtils.createDefaultPlatforms());
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
 
     CxxPythonExtension extension = builder.build(resolver, filesystem, targetGraph);
 
     // Verify that we get the expected view from the python packageable interface.
     PythonPackageComponents actualComponent =
-        extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM);
+        extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     BuildRule rule =
         resolver.getRule(
             CxxPythonExtensionDescription.getExtensionTarget(
@@ -223,13 +222,13 @@ public class CxxPythonExtensionDescriptionTest {
                 rule.getSourcePathToOutput()),
             ImmutableMap.of(),
             ImmutableMap.of(),
-            ImmutableSet.of(),
+            ImmutableMultimap.of(),
             Optional.of(false));
     assertEquals(expectedComponents, actualComponent);
   }
 
   @Test
-  public void findDepsFromParamsAddsPythonDep() throws Exception {
+  public void findDepsFromParamsAddsPythonDep() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     CxxPythonExtensionDescription desc =
@@ -237,8 +236,8 @@ public class CxxPythonExtensionDescriptionTest {
                 target,
                 FlavorDomain.of(
                     "Python Platform",
-                    PY2.withCxxLibrary(PYTHON2_DEP_TARGET),
-                    PY3.withCxxLibrary(PYTHON3_DEP_TARGET)),
+                    createPy2Platform(Optional.of(PYTHON2_DEP_TARGET)),
+                    createPy3Platform(Optional.of(PYTHON3_DEP_TARGET))),
                 new CxxBuckConfig(FakeBuckConfig.builder().build()),
                 CxxTestUtils.createDefaultPlatforms())
             .build()
@@ -256,7 +255,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void py2AndPy3PropagateToLinkRules() throws Exception {
+  public void py2AndPy3PropagateToLinkRules() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     PrebuiltCxxLibraryBuilder python2Builder =
@@ -268,8 +267,8 @@ public class CxxPythonExtensionDescriptionTest {
             .setHeaderOnly(true)
             .setExportedLinkerFlags(ImmutableList.of("-lpython3"));
 
-    PythonPlatform py2 = PY2.withCxxLibrary(PYTHON2_DEP_TARGET);
-    PythonPlatform py3 = PY3.withCxxLibrary(PYTHON3_DEP_TARGET);
+    PythonPlatform py2 = createPy2Platform(Optional.of(PYTHON2_DEP_TARGET));
+    PythonPlatform py3 = createPy3Platform(Optional.of(PYTHON3_DEP_TARGET));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     CxxPythonExtensionBuilder builder =
@@ -282,9 +281,7 @@ public class CxxPythonExtensionDescriptionTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             python2Builder.build(), python3Builder.build(), builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
@@ -293,13 +290,15 @@ public class CxxPythonExtensionDescriptionTest {
     CxxPythonExtension extension = builder.build(resolver, filesystem, targetGraph);
 
     // Get the py2 extension, and verify it pulled in the py2 lib but not the py3 lib.
-    CxxLink py2Ext = (CxxLink) extension.getExtension(py2, CxxPlatformUtils.DEFAULT_PLATFORM);
+    CxxLink py2Ext =
+        (CxxLink) extension.getExtension(py2, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     assertThat(
         Arg.stringify(py2Ext.getArgs(), pathResolver),
         Matchers.allOf(Matchers.hasItem("-lpython2"), Matchers.not(Matchers.hasItem("-lpython3"))));
 
     // Get the py3 extension, and verify it pulled in the py3 lib but not the py2 lib.
-    CxxLink py3Ext = (CxxLink) extension.getExtension(py3, CxxPlatformUtils.DEFAULT_PLATFORM);
+    CxxLink py3Ext =
+        (CxxLink) extension.getExtension(py3, CxxPlatformUtils.DEFAULT_PLATFORM, resolver);
     assertThat(
         Arg.stringify(py3Ext.getArgs(), pathResolver),
         Matchers.allOf(Matchers.hasItem("-lpython3"), Matchers.not(Matchers.hasItem("-lpython2"))));
@@ -307,9 +306,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void nativeLinkTargetMode() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxPythonExtensionBuilder builder =
         new CxxPythonExtensionBuilder(
             BuildTargetFactory.newInstance("//:rule"),
@@ -325,9 +322,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void nativeLinkTargetDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxLibrary dep =
         (CxxLibrary)
             new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep")).build(resolver);
@@ -342,15 +337,15 @@ public class CxxPythonExtensionDescriptionTest {
     NativeLinkTarget nativeLinkTarget = rule.getNativeLinkTarget(PY2);
     assertThat(
         ImmutableList.copyOf(
-            nativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM)),
+            nativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM, resolver)),
         Matchers.<NativeLinkable>hasItem(dep));
   }
 
   @Test
-  public void nativeLinkTargetDepsIncludePlatformCxxLibrary() throws Exception {
+  public void nativeLinkTargetDepsIncludePlatformCxxLibrary() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxLibraryBuilder python2Builder = new CxxLibraryBuilder(PYTHON2_DEP_TARGET);
-    PythonPlatform platform = PY2.withCxxLibrary(PYTHON2_DEP_TARGET);
+    PythonPlatform platform = createPy2Platform(Optional.of(PYTHON2_DEP_TARGET));
     CxxPythonExtensionBuilder builder =
         new CxxPythonExtensionBuilder(
             BuildTargetFactory.newInstance("//:rule"),
@@ -359,20 +354,18 @@ public class CxxPythonExtensionDescriptionTest {
             CxxTestUtils.createDefaultPlatforms());
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(python2Builder.build(), builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
     python2Builder.build(resolver, filesystem, targetGraph);
     CxxPythonExtension rule = builder.build(resolver, filesystem, targetGraph);
     NativeLinkTarget nativeLinkTarget = rule.getNativeLinkTarget(platform);
     assertThat(
         ImmutableList.copyOf(
-            nativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM)),
+            nativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM, resolver)),
         Matchers.hasItem((NativeLinkable) resolver.getRule(PYTHON2_DEP_TARGET)));
   }
 
   @Test
-  public void nativeLinkTargetInput() throws Exception {
+  public void nativeLinkTargetInput() {
     CxxPythonExtensionBuilder builder =
         new CxxPythonExtensionBuilder(
             BuildTargetFactory.newInstance("//:rule"),
@@ -381,23 +374,20 @@ public class CxxPythonExtensionDescriptionTest {
             CxxTestUtils.createDefaultPlatforms());
     builder.setLinkerFlags(ImmutableList.of(StringWithMacrosUtils.format("--flag")));
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(builder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        new TestBuildRuleResolver(TargetGraphFactory.newInstance(builder.build()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     CxxPythonExtension rule = builder.build(resolver);
     NativeLinkTarget nativeLinkTarget = rule.getNativeLinkTarget(PY2);
     NativeLinkableInput input =
-        nativeLinkTarget.getNativeLinkTargetInput(CxxPlatformUtils.DEFAULT_PLATFORM);
+        nativeLinkTarget.getNativeLinkTargetInput(
+            CxxPlatformUtils.DEFAULT_PLATFORM, resolver, pathResolver, ruleFinder);
     assertThat(Arg.stringify(input.getArgs(), pathResolver), Matchers.hasItems("--flag"));
   }
 
   @Test
   public void platformDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxLibrary dep =
         (CxxLibrary)
             new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:dep")).build(resolver);
@@ -419,17 +409,19 @@ public class CxxPythonExtensionDescriptionTest {
     NativeLinkTarget py2NativeLinkTarget = rule.getNativeLinkTarget(PY2);
     assertThat(
         ImmutableList.copyOf(
-            py2NativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM)),
+            py2NativeLinkTarget.getNativeLinkTargetDeps(
+                CxxPlatformUtils.DEFAULT_PLATFORM, resolver)),
         Matchers.<NativeLinkable>hasItem(dep));
     NativeLinkTarget py3NativeLinkTarget = rule.getNativeLinkTarget(PY3);
     assertThat(
         ImmutableList.copyOf(
-            py3NativeLinkTarget.getNativeLinkTargetDeps(CxxPlatformUtils.DEFAULT_PLATFORM)),
+            py3NativeLinkTarget.getNativeLinkTargetDeps(
+                CxxPlatformUtils.DEFAULT_PLATFORM, resolver)),
         Matchers.not(Matchers.<NativeLinkable>hasItem(dep)));
   }
 
   @Test
-  public void platformDepsSeparateLinkage() throws Exception {
+  public void platformDepsSeparateLinkage() {
     PythonBuckConfig pythonBuckConfig = new PythonBuckConfig(FakeBuckConfig.builder().build());
     FlavorDomain<PythonPlatform> pythonPlatforms = FlavorDomain.of("Python Platform", PY2, PY3);
 
@@ -462,10 +454,9 @@ public class CxxPythonExtensionDescriptionTest {
             .setDeps(ImmutableSortedSet.of(extensionBuilder.getTarget()));
 
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
+        new TestBuildRuleResolver(
             TargetGraphFactory.newInstance(
-                depBuilder.build(), extensionBuilder.build(), binary2Builder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+                depBuilder.build(), extensionBuilder.build(), binary2Builder.build()));
     depBuilder.build(resolver);
     extensionBuilder.build(resolver);
     PythonBinary binary2 = binary2Builder.build(resolver);
@@ -480,12 +471,11 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void runtimeDeps() throws Exception {
+  public void runtimeDeps() {
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
+        new TestBuildRuleResolver(
             TargetGraphFactory.newInstance(
-                new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep#sandbox")).build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+                new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:dep#sandbox")).build()));
     BuildTarget depTarget = BuildTargetFactory.newInstance("//:dep");
     BuildRule cxxBinary = new CxxBinaryBuilder(depTarget).build(resolver);
     CxxPythonExtension cxxPythonExtension =
@@ -505,9 +495,7 @@ public class CxxPythonExtensionDescriptionTest {
 
   @Test
   public void moduleName() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver resolver = new TestBuildRuleResolver();
     CxxPythonExtension cxxPythonExtension =
         new CxxPythonExtensionBuilder(
                 BuildTargetFactory.newInstance("//:ext"),
@@ -522,7 +510,7 @@ public class CxxPythonExtensionDescriptionTest {
   }
 
   @Test
-  public void compilationDatabase() throws Exception {
+  public void compilationDatabase() {
     CxxPythonExtensionBuilder builder =
         new CxxPythonExtensionBuilder(
             BuildTargetFactory.newInstance("//:ext"),
@@ -531,9 +519,7 @@ public class CxxPythonExtensionDescriptionTest {
             CxxTestUtils.createDefaultPlatforms());
     builder.setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.c"))));
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(builder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+        new TestBuildRuleResolver(TargetGraphFactory.newInstance(builder.build()));
     BuildRule rule =
         resolver.requireRule(
             builder

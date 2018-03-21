@@ -18,10 +18,10 @@ package com.facebook.buck.apple.toolchain;
 
 import com.dd.plist.NSArray;
 import com.dd.plist.NSObject;
-import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -37,7 +37,7 @@ import org.immutables.value.Value;
 /** Metadata contained in a provisioning profile (.mobileprovision). */
 @Value.Immutable
 @BuckStyleImmutable
-abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable {
+abstract class AbstractProvisioningProfileMetadata implements AddsToRuleKey {
   private static final Pattern BUNDLE_ID_PATTERN = Pattern.compile("^([A-Z0-9]{10,10})\\.(.+)$");
 
   /**
@@ -49,6 +49,7 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
 
   public abstract Date getExpirationDate();
 
+  @AddToRuleKey
   public abstract String getUUID();
 
   public abstract Path getProfilePath();
@@ -99,27 +100,19 @@ abstract class AbstractProvisioningProfileMetadata implements RuleKeyAppendable 
     }
   }
 
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink.setReflectively("provisioning-profile-uuid", getUUID());
-  }
-
   public ImmutableMap<String, NSObject> getMergeableEntitlements() {
-    final ImmutableSet<String> excludedKeys =
+    ImmutableSet<String> includedKeys =
         ImmutableSet.of(
-            "com.apple.developer.restricted-resource-mode",
-            "inter-app-audio",
-            "com.apple.developer.icloud-container-development-container-identifiers",
-            "com.apple.developer.homekit",
-            "com.apple.developer.healthkit",
-            "com.apple.developer.in-app-payments",
-            "com.apple.developer.maps",
-            "com.apple.external-accessory.wireless-configuration");
+            "application-identifier",
+            "beta-reports-active",
+            "get-task-allow",
+            "com.apple.developer.aps-environment",
+            "com.apple.developer.team-identifier");
 
     ImmutableMap<String, NSObject> allEntitlements = getEntitlements();
     ImmutableMap.Builder<String, NSObject> filteredEntitlementsBuilder = ImmutableMap.builder();
     for (String key : allEntitlements.keySet()) {
-      if (!excludedKeys.contains(key)) {
+      if (includedKeys.contains(key)) {
         filteredEntitlementsBuilder.put(key, allEntitlements.get(key));
       }
     }

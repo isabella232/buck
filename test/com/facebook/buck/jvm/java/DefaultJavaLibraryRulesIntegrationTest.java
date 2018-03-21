@@ -18,8 +18,8 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import java.io.IOException;
 import org.junit.Rule;
@@ -81,7 +81,11 @@ public class DefaultJavaLibraryRulesIntegrationTest {
             || params.abiGenerationMode.equals("source_only")
             || params.sourceAbiVerificationMode.equals("fail"));
 
-    testBuildTarget("//:main#source-abi");
+    if (params.abiGenerationMode.equals("source")) {
+      testBuildTarget("//:main#source-abi");
+    } else if (params.abiGenerationMode.equals("source_only")) {
+      testBuildTarget("//:main#source-only-abi");
+    }
   }
 
   @Test

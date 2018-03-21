@@ -22,9 +22,10 @@ import com.facebook.buck.rules.keys.RuleKeyScopedHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Scope;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.SortedSet;
 import java.util.function.Supplier;
@@ -46,6 +47,12 @@ public final class BuildableSupport {
     DepsBuilder builder = new DepsBuilder(ruleFinder);
     AlterRuleKeys.amendKey(builder, rule);
     return builder.build();
+  }
+
+  /** Derives dependencies based on everything added to its rulekey. */
+  public static ImmutableCollection<BuildRule> getDepsCollection(
+      AddsToRuleKey tool, SourcePathRuleFinder ruleFinder) {
+    return deriveDeps(tool, ruleFinder).collect(ImmutableList.toImmutableList());
   }
 
   /** Derives inputs based on everything added to the rulekey. */
@@ -102,7 +109,7 @@ public final class BuildableSupport {
     }
 
     @Override
-    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) throws IOException {
+    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) {
       return this;
     }
 
@@ -119,13 +126,16 @@ public final class BuildableSupport {
 
     @Override
     protected AbstractRuleKeyBuilder<Stream<BuildRule>> setAddsToRuleKey(AddsToRuleKey appendable) {
-      AlterRuleKeys.amendKey(this, appendable);
+      if (appendable instanceof HasCustomDepsLogic) {
+        ((HasCustomDepsLogic) appendable).getDeps(ruleFinder).forEach(streamBuilder);
+      } else {
+        AlterRuleKeys.amendKey(this, appendable);
+      }
       return this;
     }
 
     @Override
-    protected AbstractRuleKeyBuilder<Stream<BuildRule>> setSourcePath(SourcePath sourcePath)
-        throws IOException {
+    protected AbstractRuleKeyBuilder<Stream<BuildRule>> setSourcePath(SourcePath sourcePath) {
       ruleFinder.getRule(sourcePath).ifPresent(streamBuilder);
       return this;
     }
@@ -176,7 +186,7 @@ public final class BuildableSupport {
     }
 
     @Override
-    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) throws IOException {
+    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) {
       return this;
     }
 
@@ -198,8 +208,7 @@ public final class BuildableSupport {
     }
 
     @Override
-    protected AbstractRuleKeyBuilder<Stream<SourcePath>> setSourcePath(SourcePath sourcePath)
-        throws IOException {
+    protected AbstractRuleKeyBuilder<Stream<SourcePath>> setSourcePath(SourcePath sourcePath) {
       streamBuilder.add(sourcePath);
       return this;
     }

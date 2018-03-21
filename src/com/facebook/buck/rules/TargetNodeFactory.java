@@ -18,7 +18,7 @@ package com.facebook.buck.rules;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -98,7 +98,11 @@ public class TargetNodeFactory implements NodeCopier {
           && info.hasElementTypes(BuildTarget.class, SourcePath.class, Path.class)
           && !info.getName().equals("deps")) {
         detectBuildTargetsAndPathsForConstructorArg(
-            extraDepsBuilder, pathsBuilder, info, constructorArg);
+            cellRoots,
+            info.isTargetGraphOnlyDep() ? targetGraphOnlyDepsBuilder : extraDepsBuilder,
+            pathsBuilder,
+            info,
+            constructorArg);
       }
     }
 
@@ -138,8 +142,9 @@ public class TargetNodeFactory implements NodeCopier {
   }
 
   private static void detectBuildTargetsAndPathsForConstructorArg(
-      final ImmutableSet.Builder<BuildTarget> depsBuilder,
-      final ImmutableSet.Builder<Path> pathsBuilder,
+      CellPathResolver cellRoots,
+      ImmutableSet.Builder<BuildTarget> depsBuilder,
+      ImmutableSet.Builder<Path> pathsBuilder,
       ParamInfo info,
       Object constructorArg)
       throws NoSuchBuildTargetException {
@@ -147,6 +152,7 @@ public class TargetNodeFactory implements NodeCopier {
 
     try {
       info.traverse(
+          cellRoots,
           object -> {
             if (object instanceof PathSourcePath) {
               pathsBuilder.add(((PathSourcePath) object).getRelativePath());

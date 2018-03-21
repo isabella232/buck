@@ -51,6 +51,7 @@ import com.facebook.buck.model.Flavored;
 import com.facebook.buck.python.toolchain.PythonPlatform;
 import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
@@ -61,7 +62,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -77,10 +77,14 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimaps;
+import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
 
@@ -95,7 +99,6 @@ public class CxxPythonExtensionDescription
     EXTENSION(CxxDescriptionEnhancer.SHARED_FLAVOR),
     SANDBOX_TREE(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR),
     COMPILATION_DATABASE(CxxCompilationDatabase.COMPILATION_DATABASE);
-    ;
 
     private final Flavor flavor;
 
@@ -180,6 +183,7 @@ public class CxxPythonExtensionDescription
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             target,
             projectFilesystem,
+            ruleFinder,
             ruleResolver,
             cxxPlatform,
             headers,
@@ -194,6 +198,7 @@ public class CxxPythonExtensionDescription
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             target,
             cxxPlatform,
+            ruleResolver,
             deps,
             ImmutableListMultimap.copyOf(
                 Multimaps.transformValues(
@@ -207,7 +212,7 @@ public class CxxPythonExtensionDescription
                             target, cellRoots, ruleResolver, cxxPlatform, f))),
             ImmutableList.of(headerSymlinkTree),
             ImmutableSet.of(),
-            CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps),
+            CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver, deps),
             args.getIncludeDirs(),
             sandboxTree,
             args.getRawHeaders());
@@ -366,7 +371,8 @@ public class CxxPythonExtensionDescription
             .setFrameworks(args.getFrameworks())
             .setLibraries(args.getLibraries())
             .build(),
-        Optional.empty());
+        Optional.empty(),
+        cellRoots);
   }
 
   private BuildRule createCompilationDatabase(
@@ -397,16 +403,16 @@ public class CxxPythonExtensionDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver ruleResolver,
-      CellPathResolver cellRoots,
-      final CxxPythonExtensionDescriptionArg args) {
+      CxxPythonExtensionDescriptionArg args) {
+    BuildRuleResolver ruleResolverLocal = context.getBuildRuleResolver();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    CellPathResolver cellRoots = context.getCellPathResolver();
 
     // See if we're building a particular "type" of this library, and if so, extract it as an enum.
-    final Optional<Type> type = LIBRARY_TYPE.getValue(buildTarget);
+    Optional<Type> type = LIBRARY_TYPE.getValue(buildTarget);
     if (type.isPresent()) {
 
       FlavorDomain<CxxPlatform> cxxPlatforms = getCxxPlatforms();
@@ -416,7 +422,7 @@ public class CxxPythonExtensionDescription
       switch (type.get()) {
         case SANDBOX_TREE:
           return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
-              ruleResolver,
+              ruleResolverLocal,
               args,
               cxxPlatforms.getRequiredValue(buildTarget),
               buildTarget,
@@ -425,7 +431,7 @@ public class CxxPythonExtensionDescription
           return createExtensionBuildRule(
               buildTarget,
               projectFilesystem,
-              ruleResolver,
+              ruleResolverLocal,
               cellRoots,
               getPythonPlatforms().getRequiredValue(buildTarget),
               cxxPlatforms.getRequiredValue(buildTarget),
@@ -434,7 +440,7 @@ public class CxxPythonExtensionDescription
           return createCompilationDatabase(
               buildTarget,
               projectFilesystem,
-              ruleResolver,
+              ruleResolverLocal,
               cellRoots,
               getPythonPlatforms().getRequiredValue(buildTarget),
               cxxPlatforms.getRequiredValue(buildTarget),
@@ -444,21 +450,32 @@ public class CxxPythonExtensionDescription
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     Path baseModule = PythonUtil.getBasePath(buildTarget, args.getBaseModule());
     String moduleName = args.getModuleName().orElse(buildTarget.getShortName());
-    final Path module = baseModule.resolve(getExtensionName(moduleName));
+    Path module = baseModule.resolve(getExtensionName(moduleName));
     return new CxxPythonExtension(buildTarget, projectFilesystem, params) {
 
+      private Set<BuildRule> implicitDepsForCaching = Sets.newConcurrentHashSet();
+
       @Override
-      protected BuildRule getExtension(PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) {
-        return ruleResolver.requireRule(
-            getBuildTarget()
-                .withAppendedFlavors(
-                    pythonPlatform.getFlavor(),
-                    cxxPlatform.getFlavor(),
-                    CxxDescriptionEnhancer.SHARED_FLAVOR));
+      protected BuildRule getExtension(
+          PythonPlatform pythonPlatform, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        BuildRule extension =
+            ruleResolver.requireRule(
+                getBuildTarget()
+                    .withAppendedFlavors(
+                        pythonPlatform.getFlavor(),
+                        cxxPlatform.getFlavor(),
+                        CxxDescriptionEnhancer.SHARED_FLAVOR));
+
+        // The extension rules created here are not tracked as part of this placeholder rule's deps
+        // in the action graph; they end up as nodes with no incoming edges, which nonetheless
+        // need to be associated with this node, so that we can guarantee we add them to the action
+        // graph if this placeholder node is loaded from cache during incremental action graph
+        // construction.
+        implicitDepsForCaching.add(extension);
+
+        return extension;
       }
 
       @Override
@@ -468,7 +485,7 @@ public class CxxPythonExtensionDescription
 
       @Override
       public Iterable<BuildRule> getPythonPackageDeps(
-          PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) {
+          PythonPlatform pythonPlatform, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         return PythonUtil.getDeps(
                 pythonPlatform, cxxPlatform, args.getDeps(), args.getPlatformDeps())
             .stream()
@@ -479,19 +496,19 @@ public class CxxPythonExtensionDescription
 
       @Override
       public PythonPackageComponents getPythonPackageComponents(
-          PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) {
-        BuildRule extension = getExtension(pythonPlatform, cxxPlatform);
+          PythonPlatform pythonPlatform, CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        BuildRule extension = getExtension(pythonPlatform, cxxPlatform, ruleResolver);
         SourcePath output = extension.getSourcePathToOutput();
         return PythonPackageComponents.of(
             ImmutableMap.of(module, output),
             ImmutableMap.of(),
             ImmutableMap.of(),
-            ImmutableSet.of(),
+            ImmutableMultimap.of(),
             Optional.of(false));
       }
 
       @Override
-      public NativeLinkTarget getNativeLinkTarget(final PythonPlatform pythonPlatform) {
+      public NativeLinkTarget getNativeLinkTarget(PythonPlatform pythonPlatform) {
         return new NativeLinkTarget() {
 
           @Override
@@ -506,14 +523,18 @@ public class CxxPythonExtensionDescription
 
           @Override
           public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
-              CxxPlatform cxxPlatform) {
+              CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
             return RichStream.from(getPlatformDeps(ruleResolver, pythonPlatform, cxxPlatform, args))
                 .filter(NativeLinkable.class)
                 .toImmutableList();
           }
 
           @Override
-          public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+          public NativeLinkableInput getNativeLinkTargetInput(
+              CxxPlatform cxxPlatform,
+              BuildRuleResolver ruleResolver,
+              SourcePathResolver pathResolver,
+              SourcePathRuleFinder ruleFinder) {
             return NativeLinkableInput.builder()
                 .addAllArgs(
                     getExtensionArgs(
@@ -541,6 +562,11 @@ public class CxxPythonExtensionDescription
       @Override
       public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
         return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
+      }
+
+      @Override
+      public SortedSet<BuildRule> getImplicitDepsForCaching() {
+        return ImmutableSortedSet.copyOf(implicitDepsForCaching);
       }
     };
   }

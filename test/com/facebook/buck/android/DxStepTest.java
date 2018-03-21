@@ -20,6 +20,7 @@ import static com.facebook.buck.util.Verbosity.COMMANDS_AND_SPECIAL_OUTPUT;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.DxStep.Option;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.cli.VerbosityParser;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -36,14 +37,13 @@ import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Optional;
-import org.easymock.EasyMock;
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
 
-public class DxStepTest extends EasyMockSupport {
+public class DxStepTest {
 
   private static final String BASE_DX_PREFIX = Paths.get("/usr/bin/dx").toString();
 
@@ -59,13 +59,25 @@ public class DxStepTest extends EasyMockSupport {
 
   @Before
   public void setUp() {
-    androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    EasyMock.expect(androidPlatformTarget.getDxExecutable()).andReturn(Paths.get("/usr/bin/dx"));
-    replayAll();
+    androidPlatformTarget =
+        AndroidPlatformTarget.of(
+            "android",
+            Paths.get(""),
+            Collections.emptyList(),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get("/usr/bin/dx"),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""));
   }
 
   @Test
-  public void testDxCommandNoOptimizeNoJumbo() throws InterruptedException, IOException {
+  public void testDxCommandNoOptimizeNoJumbo() throws IOException {
     // Context with --verbose 2.
     try (ExecutionContext context = createExecutionContext(2)) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -74,7 +86,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX,
               EnumSet.of(Option.NO_OPTIMIZE),
@@ -91,12 +103,11 @@ public class DxStepTest extends EasyMockSupport {
           ImmutableList.of(expected),
           ImmutableList.of(dx),
           context);
-      verifyAll();
     }
   }
 
   @Test
-  public void testDxCommandOptimizeNoJumbo() throws InterruptedException, IOException {
+  public void testDxCommandOptimizeNoJumbo() throws IOException {
     // Context with --verbose 2.
     try (ExecutionContext context = createExecutionContext(2)) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -105,7 +116,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX);
 
@@ -120,12 +131,11 @@ public class DxStepTest extends EasyMockSupport {
           ImmutableList.of(expected),
           ImmutableList.of(dx),
           context);
-      verifyAll();
     }
   }
 
   @Test
-  public void testDxCommandNoOptimizeForceJumbo() throws InterruptedException, IOException {
+  public void testDxCommandNoOptimizeForceJumbo() throws IOException {
     // Context with --verbose 2.
     try (ExecutionContext context = createExecutionContext(2)) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -134,7 +144,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX,
               EnumSet.of(DxStep.Option.NO_OPTIMIZE, DxStep.Option.FORCE_JUMBO),
@@ -151,12 +161,11 @@ public class DxStepTest extends EasyMockSupport {
           ImmutableList.of(expected),
           ImmutableList.of(dx),
           context);
-      verifyAll();
     }
   }
 
   @Test
-  public void testVerbose3AddsStatisticsFlag() throws InterruptedException, IOException {
+  public void testVerbose3AddsStatisticsFlag() throws IOException {
     // Context with --verbose 3.
     try (ExecutionContext context = createExecutionContext(COMMANDS_AND_SPECIAL_OUTPUT.ordinal())) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -165,7 +174,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX);
 
@@ -185,12 +194,11 @@ public class DxStepTest extends EasyMockSupport {
           "Should print stdout to show statistics.", dx.shouldPrintStdout(context.getVerbosity()));
       assertTrue(
           "Should print stderr to show statistics.", dx.shouldPrintStderr(context.getVerbosity()));
-      verifyAll();
     }
   }
 
   @Test
-  public void testVerbose10AddsVerboseFlagToDx() throws InterruptedException, IOException {
+  public void testVerbose10AddsVerboseFlagToDx() throws IOException {
     // Context with --verbose 10.
     try (ExecutionContext context = createExecutionContext(10)) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -199,7 +207,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX);
 
@@ -221,12 +229,11 @@ public class DxStepTest extends EasyMockSupport {
       assertTrue(
           "Should print stdout since `dx --verbose` is enabled.",
           dx.shouldPrintStderr(context.getVerbosity()));
-      verifyAll();
     }
   }
 
   @Test
-  public void testOverridenMaxHeapSize() throws InterruptedException, IOException {
+  public void testOverridenMaxHeapSize() throws IOException {
     try (ExecutionContext context = createExecutionContext(2)) {
       ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
@@ -234,7 +241,7 @@ public class DxStepTest extends EasyMockSupport {
           new DxStep(
               BuildTargetFactory.newInstance("//dummy:target"),
               filesystem,
-              TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+              androidPlatformTarget,
               SAMPLE_OUTPUT_PATH,
               SAMPLE_FILES_TO_DEX,
               EnumSet.noneOf(DxStep.Option.class),
@@ -253,12 +260,10 @@ public class DxStepTest extends EasyMockSupport {
           ImmutableList.of(expected),
           ImmutableList.of(dx),
           context);
-
-      verifyAll();
     }
   }
 
-  private ExecutionContext createExecutionContext(int verbosityLevel) throws IOException {
+  private ExecutionContext createExecutionContext(int verbosityLevel) {
     Verbosity verbosity = VerbosityParser.getVerbosityForLevel(verbosityLevel);
     TestConsole console = new TestConsole(verbosity);
     return TestExecutionContext.newBuilder().setConsole(console).build();

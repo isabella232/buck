@@ -25,22 +25,20 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
+import com.facebook.buck.android.TestAndroidPlatformTargetFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -68,9 +66,7 @@ public class ExternallyBuiltApplePackageTest {
       BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
   private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
   private BuildRuleParams params = TestBuildRuleParams.create();
-  private BuildRuleResolver resolver =
-      new SingleThreadedBuildRuleResolver(
-          TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+  private BuildRuleResolver resolver = new TestBuildRuleResolver();
   private ApplePackageConfigAndPlatformInfo config =
       ApplePackageConfigAndPlatformInfo.of(
           ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
@@ -90,13 +86,15 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
-            TestAndroidLegacyToolchainFactory.create(),
             new NoSandboxExecutionStrategy(),
             resolver,
             params,
             config,
             FakeSourcePath.of(bundleLocation),
             true,
+            Optional.empty(),
+            Optional.of(TestAndroidPlatformTargetFactory.create()),
+            Optional.empty(),
             Optional.empty());
     resolver.addToIndex(rule);
     ShellStep step =
@@ -120,13 +118,15 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
-            TestAndroidLegacyToolchainFactory.create(),
             new NoSandboxExecutionStrategy(),
             resolver,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
             true,
+            Optional.empty(),
+            Optional.of(TestAndroidPlatformTargetFactory.create()),
+            Optional.empty(),
             Optional.empty());
     resolver.addToIndex(rule);
     assertThat(
@@ -144,13 +144,15 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
-            TestAndroidLegacyToolchainFactory.create(),
             new NoSandboxExecutionStrategy(),
             resolver,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
             true,
+            Optional.empty(),
+            Optional.of(TestAndroidPlatformTargetFactory.create()),
+            Optional.empty(),
             Optional.empty());
     resolver.addToIndex(rule);
     AbstractGenruleStep step =
@@ -172,13 +174,15 @@ public class ExternallyBuiltApplePackageTest {
             new ExternallyBuiltApplePackage(
                 buildTarget,
                 projectFilesystem,
-                TestAndroidLegacyToolchainFactory.create(),
                 new NoSandboxExecutionStrategy(),
                 resolver,
                 params,
                 config.withPlatform(config.getPlatform().withBuildVersion(input)),
                 FakeSourcePath.of("Fake/Bundle/Location"),
                 true,
+                Optional.empty(),
+                Optional.of(TestAndroidPlatformTargetFactory.create()),
+                Optional.empty(),
                 Optional.empty());
     assertNotEquals(
         newRuleKeyFactory().build(packageWithVersion.apply("real")),
@@ -192,7 +196,6 @@ public class ExternallyBuiltApplePackageTest {
             new ExternallyBuiltApplePackage(
                 buildTarget,
                 projectFilesystem,
-                TestAndroidLegacyToolchainFactory.create(),
                 new NoSandboxExecutionStrategy(),
                 resolver,
                 params,
@@ -202,6 +205,9 @@ public class ExternallyBuiltApplePackageTest {
                         .withAppleSdk(config.getPlatform().getAppleSdk().withVersion(input))),
                 FakeSourcePath.of("Fake/Bundle/Location"),
                 true,
+                Optional.empty(),
+                Optional.of(TestAndroidPlatformTargetFactory.create()),
+                Optional.empty(),
                 Optional.empty());
     assertNotEquals(
         newRuleKeyFactory().build(packageWithSdkVersion.apply("real")),

@@ -39,7 +39,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
@@ -66,6 +65,7 @@ import com.facebook.buck.step.fs.MoveStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -79,6 +79,7 @@ import com.google.common.io.Files;
 import com.google.common.util.concurrent.Futures;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -110,6 +111,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final SourcePath infoPlist;
 
   @AddToRuleKey private final ImmutableMap<String, String> infoPlistSubstitutions;
+
+  @AddToRuleKey private final Optional<SourcePath> entitlementsFile;
 
   @AddToRuleKey private final Optional<BuildRule> binary;
 
@@ -170,6 +173,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final boolean hasBinary;
   private final boolean cacheable;
+  private final boolean verifyResources;
 
   AppleBundle(
       BuildTarget buildTarget,
@@ -196,6 +200,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProvisioningProfileStore provisioningProfileStore,
       boolean dryRunCodeSigning,
       boolean cacheable,
+      boolean verifyResources,
       ImmutableList<String> codesignFlags,
       Optional<String> codesignIdentity,
       Optional<Boolean> ibtoolModuleFlag) {
@@ -206,6 +211,17 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.infoPlist = infoPlist;
     this.infoPlistSubstitutions = ImmutableMap.copyOf(infoPlistSubstitutions);
     this.binary = binary;
+    Optional<SourcePath> entitlementsFile = Optional.empty();
+    if (binary.isPresent()) {
+      Optional<HasEntitlementsFile> hasEntitlementsFile =
+          buildRuleResolver.requireMetadata(
+              binary.get().getBuildTarget(), HasEntitlementsFile.class);
+      if (hasEntitlementsFile.isPresent()) {
+        entitlementsFile = hasEntitlementsFile.get().getEntitlementsFile();
+      }
+    }
+    this.entitlementsFile = entitlementsFile;
+
     this.appleDsym = appleDsym;
     this.extraBinaries = extraBinaries;
     this.destinations = destinations;
@@ -232,6 +248,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.xcodeVersion = appleCxxPlatform.getXcodeVersion();
     this.dryRunCodeSigning = dryRunCodeSigning;
     this.cacheable = cacheable;
+    this.verifyResources = verifyResources;
     this.codesignFlags = codesignFlags;
     this.codesignIdentitySubjectName = codesignIdentity;
     this.ibtoolModuleParams =
@@ -298,6 +315,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public Optional<BuildRule> getBinary() {
     return binary;
+  }
+
+  public Optional<AppleDsym> getAppleDsym() {
+    return appleDsym;
   }
 
   public boolean isLegacyWatchApp() {
@@ -430,6 +451,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
             resources.getResourceDirs(),
             resources.getDirsContainingResourceDirs(),
             resources.getResourceFiles()))) {
+      if (verifyResources) {
+        verifyResourceConflicts(resources, context.getSourcePathResolver());
+      }
       stepsBuilder.add(
           MkdirStep.of(
               BuildCellRelativePath.fromCellRelativePath(
@@ -523,45 +547,53 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       } else {
         // Copy the .mobileprovision file if the platform requires it, and sign the executable.
         Optional<Path> entitlementsPlist = Optional.empty();
-        final Path srcRoot =
-            getProjectFilesystem().getRootPath().resolve(getBuildTarget().getBasePath());
-        Optional<String> entitlementsPlistString =
-            InfoPlistSubstitution.getVariableExpansionForPlatform(
-                CODE_SIGN_ENTITLEMENTS,
-                platform.getName(),
-                withDefaults(
-                    infoPlistSubstitutions,
-                    ImmutableMap.of(
-                        "SOURCE_ROOT", srcRoot.toString(),
-                        "SRCROOT", srcRoot.toString())));
+
+        // Try to use the entitlements file specified in the bundle's binary first.
         entitlementsPlist =
-            entitlementsPlistString.map(
-                entitlementsPlistName -> {
-                  ProjectFilesystem filesystem = getProjectFilesystem();
-                  Path originalEntitlementsPlist =
-                      srcRoot.resolve(Paths.get(entitlementsPlistName));
-                  Path entitlementsPlistWithSubstitutions =
-                      BuildTargets.getScratchPath(
-                          filesystem, getBuildTarget(), "%s-Entitlements.plist");
+            entitlementsFile.map(p -> context.getSourcePathResolver().getAbsolutePath(p));
 
-                  stepsBuilder.add(
-                      new FindAndReplaceStep(
-                          filesystem,
-                          originalEntitlementsPlist,
-                          entitlementsPlistWithSubstitutions,
-                          InfoPlistSubstitution.createVariableExpansionFunction(
-                              infoPlistSubstitutions)));
+        // Fall back to getting CODE_SIGN_ENTITLEMENTS from info_plist_substitutions.
+        if (!entitlementsPlist.isPresent()) {
+          Path srcRoot =
+              getProjectFilesystem().getRootPath().resolve(getBuildTarget().getBasePath());
+          Optional<String> entitlementsPlistString =
+              InfoPlistSubstitution.getVariableExpansionForPlatform(
+                  CODE_SIGN_ENTITLEMENTS,
+                  platform.getName(),
+                  withDefaults(
+                      infoPlistSubstitutions,
+                      ImmutableMap.of(
+                          "SOURCE_ROOT", srcRoot.toString(),
+                          "SRCROOT", srcRoot.toString())));
+          entitlementsPlist =
+              entitlementsPlistString.map(
+                  entitlementsPlistName -> {
+                    ProjectFilesystem filesystem = getProjectFilesystem();
+                    Path originalEntitlementsPlist =
+                        srcRoot.resolve(Paths.get(entitlementsPlistName));
+                    Path entitlementsPlistWithSubstitutions =
+                        BuildTargets.getScratchPath(
+                            filesystem, getBuildTarget(), "%s-Entitlements.plist");
 
-                  return filesystem.resolve(entitlementsPlistWithSubstitutions);
-                });
+                    stepsBuilder.add(
+                        new FindAndReplaceStep(
+                            filesystem,
+                            originalEntitlementsPlist,
+                            entitlementsPlistWithSubstitutions,
+                            InfoPlistSubstitution.createVariableExpansionFunction(
+                                infoPlistSubstitutions)));
+
+                    return filesystem.resolve(entitlementsPlistWithSubstitutions);
+                  });
+        }
 
         signingEntitlementsTempPath =
             Optional.of(
                 BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.xcent"));
 
-        final Path dryRunResultPath = bundleRoot.resolve(PP_DRY_RUN_RESULT_FILE);
+        Path dryRunResultPath = bundleRoot.resolve(PP_DRY_RUN_RESULT_FILE);
 
-        final ProvisioningProfileCopyStep provisioningProfileCopyStep =
+        ProvisioningProfileCopyStep provisioningProfileCopyStep =
             new ProvisioningProfileCopyStep(
                 getProjectFilesystem(),
                 infoPlistOutputPath,
@@ -618,9 +650,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
           bundleRoot.resolve(destinations.getFrameworksPath()),
-          dryRunCodeSigning
-              ? Optional.<Supplier<CodeSignIdentity>>empty()
-              : Optional.of(codeSignIdentitySupplier),
+          dryRunCodeSigning ? Optional.empty() : Optional.of(codeSignIdentitySupplier),
           stepsBuilder,
           false /* is for packaging? */);
 
@@ -662,7 +692,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
           bundleRoot.resolve(destinations.getFrameworksPath()),
-          Optional.<Supplier<CodeSignIdentity>>empty(),
+          Optional.empty(),
           stepsBuilder,
           false /* is for packaging? */);
     }
@@ -674,19 +704,32 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return stepsBuilder.build();
   }
 
-  private boolean needsPkgInfoFile() {
-    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
-      return false;
+  private void verifyResourceConflicts(
+      AppleBundleResources resources, SourcePathResolver resolver) {
+    // Ensure there are no resources that will overwrite each other
+    // TODO: handle ResourceDirsContainingResourceDirs
+    Set<Path> resourcePaths = new HashSet<>();
+    for (SourcePath path :
+        Iterables.concat(resources.getResourceDirs(), resources.getResourceFiles())) {
+      Path pathInBundle = resolver.getRelativePath(path).getFileName();
+      if (resourcePaths.contains(pathInBundle)) {
+        throw new HumanReadableException(
+            "Bundle contains multiple resources with path %s", pathInBundle);
+      } else {
+        resourcePaths.add(pathInBundle);
+      }
     }
+  }
 
-    return true;
+  private boolean needsPkgInfoFile() {
+    return !extension.equals(AppleBundleExtension.XPC.toFileExtension());
   }
 
   private void appendCopyBinarySteps(
       ImmutableList.Builder<Step> stepsBuilder, BuildContext context) {
     Preconditions.checkArgument(hasBinary);
 
-    final Path binaryOutputPath =
+    Path binaryOutputPath =
         context
             .getSourcePathResolver()
             .getRelativePath(Preconditions.checkNotNull(binary.get().getSourcePathToOutput()));
@@ -736,9 +779,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private void copyAnotherCopyOfWatchKitStub(
       ImmutableList.Builder<Step> stepsBuilder, BuildContext context, Path binaryOutputPath) {
-    if ((isLegacyWatchApp() || (platform.getName().contains("watch") && minOSVersion.equals("2.0")))
+    if ((isLegacyWatchApp() || platform.getName().contains("watch"))
         && binary.get() instanceof WriteFile) {
-      final Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
+      Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
       stepsBuilder.add(
           MkdirStep.of(
               BuildCellRelativePath.fromCellRelativePath(
@@ -857,13 +900,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private boolean needsAppInfoPlistKeysOnMac() {
-    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
-      // XPC bundles on macOS don't require app-specific keys
-      // (which also confuses Finder in displaying the XPC bundles as apps)
-      return false;
-    }
-
-    return true;
+    // XPC bundles on macOS don't require app-specific keys
+    // (which also confuses Finder in displaying the XPC bundles as apps)
+    return !extension.equals(AppleBundleExtension.XPC.toFileExtension());
   }
 
   private ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys() {
@@ -1066,11 +1105,13 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     if (binary.isPresent()) {
       BuildRule binaryRule = binary.get();
       if (binaryRule instanceof NativeTestable) {
-        return ((NativeTestable) binaryRule).getPrivateCxxPreprocessorInput(cxxPlatform);
+        return ((NativeTestable) binaryRule)
+            .getPrivateCxxPreprocessorInput(cxxPlatform, ruleResolver);
       }
     }
     return CxxPreprocessorInput.of();

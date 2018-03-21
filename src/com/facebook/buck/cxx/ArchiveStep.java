@@ -22,6 +22,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.CommandSplitter;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -90,7 +91,7 @@ class ArchiveStep implements Step {
       if (filesystem.isDirectory(input)) {
         // We make sure to sort the files we find under the directories so that we get
         // deterministic output.
-        final Set<String> dirFiles = new TreeSet<>();
+        Set<String> dirFiles = new TreeSet<>();
         filesystem.walkFileTree(
             filesystem.resolve(input),
             new SimpleFileVisitor<Path>() {
@@ -110,7 +111,7 @@ class ArchiveStep implements Step {
   }
 
   private ProcessExecutor.Result runArchiver(
-      ExecutionContext context, final ImmutableList<String> command)
+      ExecutionContext context, ImmutableList<String> command)
       throws IOException, InterruptedException {
     Map<String, String> env = new HashMap<>(context.getEnvironment());
     env.putAll(environment);
@@ -137,7 +138,7 @@ class ArchiveStep implements Step {
     ImmutableList<String> allInputs = getAllInputs();
     if (allInputs.isEmpty()) {
       filesystem.writeContentsToPath("!<arch>\n", output);
-      return StepExecutionResult.SUCCESS;
+      return StepExecutionResults.SUCCESS;
     } else {
       ImmutableList<String> outputArgs = archiver.outputArgs(output.toString());
       if (archiver.isArgfileRequired()) {
@@ -163,7 +164,7 @@ class ArchiveStep implements Step {
             return StepExecutionResult.of(result);
           }
         }
-        return StepExecutionResult.SUCCESS;
+        return StepExecutionResults.SUCCESS;
       }
     }
   }

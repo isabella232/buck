@@ -113,7 +113,7 @@ public abstract class AbstractTestStep implements Step {
         ObjectOutputStream objectOut = new ObjectOutputStream(fileOut)) {
       objectOut.writeInt(result.getExitCode());
     }
-    return StepExecutionResult.SUCCESS;
+    return StepExecutionResults.SUCCESS;
   }
 
   @Override
@@ -155,11 +155,7 @@ public abstract class AbstractTestStep implements Step {
       return false;
     }
 
-    if (!output.equals(that.output)) {
-      return false;
-    }
-
-    return true;
+    return output.equals(that.output);
   }
 
   @Override

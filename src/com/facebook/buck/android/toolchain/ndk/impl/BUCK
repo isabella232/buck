@@ -1,4 +1,6 @@
-java_library(
+load("//tools/build_rules:java_rules.bzl", "java_library_with_plugins")
+
+java_library_with_plugins(
     name = "impl",
     srcs = glob(["*.java"]),
     exported_deps = [
@@ -12,6 +14,10 @@ java_library(
         "//src/com/facebook/buck/android:config",
         "//src/com/facebook/buck/android:helpers",
         "//src/com/facebook/buck/android:utils",
+        "//src/com/facebook/buck/cxx/toolchain/linker:linker",
+        "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/environment:platform",
+        "//third-party/java/infer-annotations:infer-annotations",
     ],
 )

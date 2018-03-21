@@ -15,13 +15,11 @@
  */
 package com.facebook.buck.android;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -33,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import org.junit.Test;
 
 /** Test generation of command line flags based on creation parameters */
@@ -53,7 +52,20 @@ public class AaptStepTest {
       ManifestEntries manifestEntries) {
     return new AaptStep(
         BuildTargetFactory.newInstance("//dummy:target"),
-        TestAndroidLegacyToolchainFactory.create(),
+        AndroidPlatformTarget.of(
+            "android",
+            basePath.resolve("mock_android.jar"),
+            Collections.emptyList(),
+            basePath.resolve("mock_aapt_bin"),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get("")),
         /* workingDirectory */ basePath,
         /* manifestDirectory */ basePath.resolve("AndroidManifest.xml"),
         /* resDirectories */ ImmutableList.of(),
@@ -73,11 +85,6 @@ public class AaptStepTest {
    * calling replay().
    */
   private ExecutionContext createTestExecutionContext(Verbosity verbosity) {
-    final AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    expect(androidPlatformTarget.getAaptExecutable()).andReturn(basePath.resolve("mock_aapt_bin"));
-    expect(androidPlatformTarget.getAndroidJar()).andReturn(basePath.resolve("mock_android.jar"));
-    replay(androidPlatformTarget);
-
     ExecutionContext executionContext =
         TestExecutionContext.newBuilder().setConsole(new TestConsole(verbosity)).build();
 
@@ -85,7 +92,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitVerbosityFlagWithVerboseContext() throws Exception {
+  public void shouldEmitVerbosityFlagWithVerboseContext() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -94,7 +101,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitVerbosityFlagWithQuietContext() throws Exception {
+  public void shouldNotEmitVerbosityFlagWithQuietContext() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.SILENT);
 
@@ -103,7 +110,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitGFlagIfProguardConfigPresent() throws Exception {
+  public void shouldEmitGFlagIfProguardConfigPresent() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -116,7 +123,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitNoCrunchFlagIfNotCrunch() throws Exception {
+  public void shouldEmitNoCrunchFlagIfNotCrunch() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -126,7 +133,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitNoCrunchFlagIfCrunch() throws Exception {
+  public void shouldNotEmitNoCrunchFlagIfCrunch() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, true, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -136,7 +143,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitNoVersionVectorsFlagIfRequested() throws Exception {
+  public void shouldEmitNoVersionVectorsFlagIfRequested() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, true, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -146,7 +153,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitNoVersionVectorsFlagIfNotRequested() throws Exception {
+  public void shouldNotEmitNoVersionVectorsFlagIfNotRequested() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -156,7 +163,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitFlagsForManifestEntries() throws Exception {
+  public void shouldEmitFlagsForManifestEntries() {
     ManifestEntries entries =
         ManifestEntries.builder()
             .setMinSdkVersion(3)
@@ -187,7 +194,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitFailOnInsertWithoutManifestEntries() throws Exception {
+  public void shouldNotEmitFailOnInsertWithoutManifestEntries() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, true, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
     ImmutableList<String> command = aaptStep.getShellCommandInternal(executionContext);

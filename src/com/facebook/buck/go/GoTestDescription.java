@@ -20,14 +20,17 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
+import com.facebook.buck.go.GoListStep.FileType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -42,12 +45,12 @@ import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +59,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -63,7 +67,8 @@ public class GoTestDescription
     implements Description<GoTestDescriptionArg>,
         Flavored,
         MetadataProvidingDescription<GoTestDescriptionArg>,
-        ImplicitDepsInferringDescription<GoTestDescription.AbstractGoTestDescriptionArg> {
+        ImplicitDepsInferringDescription<GoTestDescription.AbstractGoTestDescriptionArg>,
+        VersionRoot<GoTestDescriptionArg> {
 
   private static final Flavor TEST_LIBRARY_FLAVOR = InternalFlavor.of("test-library");
 
@@ -89,7 +94,7 @@ public class GoTestDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GoTestDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
@@ -165,7 +170,7 @@ public class GoTestDescription
             params
                 .withDeclaredDeps(
                     ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(testMainGenerator.getDeps(ruleFinder))
+                        .addAll(BuildableSupport.getDepsCollection(testMainGenerator, ruleFinder))
                         .addAll(extraDeps)
                         .build())
                 .withoutExtraDeps(),
@@ -180,12 +185,9 @@ public class GoTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       GoTestDescriptionArg args) {
     GoToolchain goToolchain = getGoToolchain();
     GoPlatform platform =
@@ -194,17 +196,19 @@ public class GoTestDescription
             .getValue(buildTarget)
             .orElse(goToolchain.getDefaultPlatform());
 
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     GoTestCoverStep.Mode coverageMode;
-    ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.<BuildRule>naturalOrder();
+    ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
     ImmutableSet.Builder<SourcePath> srcs = ImmutableSet.builder();
     ImmutableMap<String, Path> coverVariables;
 
     if (args.getCoverageMode().isPresent()) {
       coverageMode = args.getCoverageMode().get();
-      final GoTestCoverStep.Mode coverage = coverageMode;
+      GoTestCoverStep.Mode coverage = coverageMode;
 
       GoTestCoverSource coverSource =
           (GoTestCoverSource)
@@ -274,7 +278,7 @@ public class GoTestDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       GoToolchain goToolchain,
       ImmutableSet<SourcePath> srcs,
       ImmutableMap<String, Path> coverVariables,
@@ -328,7 +332,7 @@ public class GoTestDescription
     target = target.withFlavors(); // remove flavors.
 
     if (args.getLibrary().isPresent()) {
-      final Optional<GoLibraryDescriptionArg> libraryArg =
+      Optional<GoLibraryDescriptionArg> libraryArg =
           resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class);
       if (!libraryArg.isPresent()) {
         throw new HumanReadableException(
@@ -365,7 +369,7 @@ public class GoTestDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       ImmutableSet<SourcePath> srcs,
       GoTestDescriptionArg args,
       GoPlatform platform) {
@@ -374,23 +378,22 @@ public class GoTestDescription
     GoToolchain goToolchain = getGoToolchain();
     if (args.getLibrary().isPresent()) {
       // We should have already type-checked the arguments in the base rule.
-      final GoLibraryDescriptionArg libraryArg =
+      GoLibraryDescriptionArg libraryArg =
           resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
 
-      final BuildRuleParams originalParams = params;
       BuildRuleParams testTargetParams =
           params
               .withDeclaredDeps(
                   () ->
                       ImmutableSortedSet.<BuildRule>naturalOrder()
-                          .addAll(originalParams.getDeclaredDeps().get())
+                          .addAll(params.getDeclaredDeps().get())
                           .addAll(resolver.getAllRules(libraryArg.getDeps()))
                           .build())
               .withExtraDeps(
                   () -> {
                     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
                     return ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(originalParams.getExtraDeps().get())
+                        .addAll(params.getExtraDeps().get())
                         // Make sure to include dynamically generated sources as deps.
                         .addAll(ruleFinder.filterBuildRuleInputs(libraryArg.getSrcs()))
                         .build();
@@ -414,13 +417,17 @@ public class GoTestDescription
                   .addAll(args.getAssemblerFlags())
                   .build(),
               platform,
-              params
+              testTargetParams
                   .getDeclaredDeps()
                   .get()
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              args.getCgoDeps());
+              ImmutableSortedSet.<BuildTarget>naturalOrder()
+                  .addAll(libraryArg.getCgoDeps())
+                  .addAll(args.getCgoDeps())
+                  .build(),
+              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles));
     } else {
       testLibrary =
           GoDescriptors.createGoCompileRule(
@@ -441,7 +448,8 @@ public class GoTestDescription
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              args.getCgoDeps());
+              args.getCgoDeps(),
+              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles, FileType.XTestGoFiles));
     }
 
     return testLibrary;
@@ -456,7 +464,7 @@ public class GoTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ linker parse time deps.
     CxxPlatform cxxPlatform = getCxxPlatform(!constructorArg.getCgoDeps().isEmpty());
-    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
+    targetGraphOnlyDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
   }
 
   private CxxPlatform getCxxPlatform(Boolean withCgo) {

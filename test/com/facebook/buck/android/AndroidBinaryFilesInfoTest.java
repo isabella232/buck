@@ -25,13 +25,13 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -56,7 +56,7 @@ public class AndroidBinaryFilesInfoTest {
   public void setUp() throws Exception {
     EnumSet<ExopackageMode> exopackageModes = EnumSet.of(ExopackageMode.MODULES);
     BuildTarget apkTarget = BuildTargetFactory.newInstance("//app:app");
-    final APKModuleGraph apkModuleGraph =
+    APKModuleGraph apkModuleGraph =
         new APKModuleGraph(TargetGraph.EMPTY, apkTarget, Optional.empty());
     AndroidPackageableCollection collection =
         new AndroidPackageableCollector(
@@ -69,7 +69,7 @@ public class AndroidBinaryFilesInfoTest {
             FakeSourcePath.of("primary.dex"),
             ImmutableSortedSet.of(FakeSourcePath.of("secondary_dexes")),
             Optional.empty());
-    final AndroidGraphEnhancementResult enhancementResult =
+    AndroidGraphEnhancementResult enhancementResult =
         AndroidGraphEnhancementResult.builder()
             .setDexMergeRule(Either.ofLeft(preDexMerge))
             .setPackageableCollection(collection)
@@ -81,17 +81,17 @@ public class AndroidBinaryFilesInfoTest {
   }
 
   @Test
-  public void getExopackageInfo() throws Exception {
-    final Pair<SourcePath, SourcePath> metadataAndSourcePath =
+  public void getExopackageInfo() {
+    Pair<SourcePath, SourcePath> metadataAndSourcePath =
         new Pair<>(
             FakeSourcePath.of(Paths.get("module_name", "metadata.txt")),
             FakeSourcePath.of(Paths.get("module_name")));
     preDexMerge.moduleMetadataAndDexSources = ImmutableList.of(metadataAndSourcePath);
 
-    final ExopackageInfo info = androidBinaryFilesInfo.getExopackageInfo().get();
-    final ImmutableList<DexInfo> moduleInfo = info.getModuleInfo().get();
+    ExopackageInfo info = androidBinaryFilesInfo.getExopackageInfo().get();
+    ImmutableList<DexInfo> moduleInfo = info.getModuleInfo().get();
     Assert.assertThat(moduleInfo, Matchers.hasSize(1));
-    final DexInfo dexInfo = moduleInfo.get(0);
+    DexInfo dexInfo = moduleInfo.get(0);
     Assert.assertEquals(metadataAndSourcePath.getFirst(), dexInfo.getMetadata());
     Assert.assertEquals(metadataAndSourcePath.getSecond(), dexInfo.getDirectory());
   }

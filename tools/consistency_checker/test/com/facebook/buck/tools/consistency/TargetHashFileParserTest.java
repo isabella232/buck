@@ -16,7 +16,7 @@
 
 package com.facebook.buck.tools.consistency;
 
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.tools.consistency.RuleKeyLogFileReader.ParseException;
 import com.facebook.buck.tools.consistency.TargetHashFileParser.ParsedTargetsFile;
 import java.io.BufferedWriter;
@@ -38,7 +38,7 @@ public class TargetHashFileParserTest {
   private Path logPath;
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     logPath = temporaryFolder.newFile("out.bin.log").toAbsolutePath();
   }
 
@@ -52,7 +52,7 @@ public class TargetHashFileParserTest {
   }
 
   @Test
-  public void failsIfFileDoesNotExist() throws IOException, ParseException {
+  public void failsIfFileDoesNotExist() throws ParseException {
     Path invalidLogPath = logPath.resolveSibling("invalid_path");
     expectedException.expectMessage(String.format("%s: Error reading file:", invalidLogPath));
     expectedException.expect(ParseException.class);

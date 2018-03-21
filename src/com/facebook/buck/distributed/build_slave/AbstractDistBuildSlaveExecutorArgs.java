@@ -18,6 +18,7 @@ package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.command.BuildExecutorArgs;
+import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -33,6 +34,8 @@ import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
@@ -40,7 +43,7 @@ import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.timing.Clock;
-import com.facebook.buck.versions.VersionedTargetGraphCache;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
 import java.util.Map;
@@ -89,11 +92,13 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract String getRemoteCoordinatorAddress();
 
-  public abstract VersionedTargetGraphCache getVersionedTargetGraphCache();
+  public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
 
   public abstract BuildInfoStoreManager getBuildInfoStoreManager();
 
   public abstract DistBuildService getDistBuildService();
+
+  public abstract RuleKeyCacheScope<RuleKey> getRuleKeyCacheScope();
 
   public DistBuildConfig getDistBuildConfig() {
     return new DistBuildConfig(getState().getRemoteRootCellConfig());
@@ -103,9 +108,15 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
-  public abstract BuildRuleFinishedPublisher getBuildRuleFinishedPublisher();
+  public abstract CoordinatorBuildRuleEventsPublisher getCoordinatorBuildRuleEventsPublisher();
 
-  public abstract UnexpectedSlaveCacheMissTracker getUnexpectedSlaveCacheMissTracker();
+  public abstract MinionBuildProgressTracker getMinionBuildProgressTracker();
+
+  public abstract HealthCheckStatsTracker getHealthCheckStatsTracker();
+
+  public abstract int getMaxActionGraphParallelism();
+
+  public abstract ActionGraphParallelizationMode getActionGraphParallelizationMode();
 
   public int getBuildThreadCount() {
     return getState()
@@ -152,6 +163,12 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
         .setKnownBuildRuleTypesProvider(this.getKnownBuildRuleTypesProvider())
         .setShouldInstrumentActionGraph(
             this.getDistBuildConfig().getBuckConfig().getShouldInstrumentActionGraph())
+        .setIncrementalActionGraphMode(
+            this.getDistBuildConfig().getBuckConfig().getIncrementalActionGraphMode())
+        .setDistBuildConfig(this.getDistBuildConfig())
+        .setMaxActionGraphParallelism(this.getMaxActionGraphParallelism())
+        .setActionGraphParallelizationMode(this.getActionGraphParallelizationMode())
+        .setCellProvider(this.getRootCell().getCellProvider())
         .build();
   }
 

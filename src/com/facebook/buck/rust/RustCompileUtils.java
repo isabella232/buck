@@ -16,10 +16,13 @@
 
 package com.facebook.buck.rust;
 
+import static com.facebook.buck.cxx.CxxDescriptionEnhancer.createSharedLibrarySymlinkTreeTarget;
+
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxGenruleDescription;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
@@ -27,7 +30,6 @@ import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BinaryWrapperRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -44,6 +46,7 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -93,14 +96,16 @@ public class RustCompileUtils {
       ImmutableList<String> extraLinkerFlags,
       Iterable<Arg> linkerInputs,
       CrateType crateType,
-      Linker.LinkableDepType depType,
+      LinkableDepType depType,
       boolean rpath,
       ImmutableSortedSet<SourcePath> sources,
-      SourcePath rootModule) {
+      SourcePath rootModule,
+      boolean forceRlib) {
     SortedSet<BuildRule> ruledeps = params.getBuildDeps();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
 
     Stream.concat(rustConfig.getLinkerArgs(cxxPlatform).stream(), extraLinkerFlags.stream())
+        .filter(x -> !x.isEmpty())
         .map(StringArg::of)
         .forEach(linkerArgs::add);
 
@@ -135,6 +140,15 @@ public class RustCompileUtils {
         .map(StringArg::of)
         .forEach(args::add);
 
+    LinkableDepType rustDepType;
+    // If we're building a CDYLIB then our Rust dependencies need to be static
+    // Alternatively, if we're using forceRlib then anything else needs rlib deps.
+    if (depType == LinkableDepType.SHARED && (forceRlib || crateType == CrateType.CDYLIB)) {
+      rustDepType = LinkableDepType.STATIC_PIC;
+    } else {
+      rustDepType = depType;
+    }
+
     // Find direct and transitive Rust deps. We do this in two passes, since a dependency that's
     // both direct and transitive needs to be listed on the command line in each form.
     //
@@ -147,7 +161,8 @@ public class RustCompileUtils {
         .filter(RustLinkable.class::isInstance)
         .map(
             rule ->
-                ((RustLinkable) rule).getLinkerArg(true, crateType.isCheck(), cxxPlatform, depType))
+                ((RustLinkable) rule)
+                    .getLinkerArg(true, crateType.isCheck(), cxxPlatform, rustDepType))
         .forEach(depArgs::add);
 
     // Second pass - indirect deps
@@ -163,7 +178,8 @@ public class RustCompileUtils {
           deps = rule.getBuildDeps();
 
           Arg arg =
-              ((RustLinkable) rule).getLinkerArg(false, crateType.isCheck(), cxxPlatform, depType);
+              ((RustLinkable) rule)
+                  .getLinkerArg(false, crateType.isCheck(), cxxPlatform, rustDepType);
 
           depArgs.add(arg);
         }
@@ -178,6 +194,7 @@ public class RustCompileUtils {
       ImmutableList<Arg> nativeArgs =
           NativeLinkables.getTransitiveNativeLinkableInput(
                   cxxPlatform,
+                  resolver,
                   ruledeps,
                   depType,
                   r -> r instanceof RustLinkable ? Optional.of(r.getBuildDeps()) : Optional.empty())
@@ -229,9 +246,10 @@ public class RustCompileUtils {
       Iterable<Arg> linkerInputs,
       String crateName,
       CrateType crateType,
-      Linker.LinkableDepType depType,
+      LinkableDepType depType,
       ImmutableSortedSet<SourcePath> sources,
-      SourcePath rootModule) {
+      SourcePath rootModule,
+      boolean forceRlib) {
     return (RustCompileRule)
         resolver.computeIfAbsent(
             getCompileBuildTarget(buildTarget, cxxPlatform, crateType),
@@ -252,7 +270,8 @@ public class RustCompileUtils {
                     depType,
                     true,
                     sources,
-                    rootModule));
+                    rootModule,
+                    forceRlib));
   }
 
   public static Linker.LinkableDepType getLinkStyle(
@@ -334,6 +353,8 @@ public class RustCompileUtils {
       binaryTarget = binaryTarget.withAppendedFlavors(cxxPlatform.getFlavor());
     }
 
+    boolean forceRlib = rustBuckConfig.getForceRlib();
+
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Special handling for dynamically linked binaries.
@@ -342,16 +363,21 @@ public class RustCompileUtils {
       // Create a symlink tree with for all native shared (NativeLinkable) libraries
       // needed by this binary.
       SymlinkTree sharedLibraries =
-          resolver.addToIndex(
-              CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
-                  buildTarget,
-                  projectFilesystem,
-                  cxxPlatform,
-                  params.getBuildDeps(),
-                  r ->
-                      r instanceof RustLinkable
-                          ? Optional.of(r.getBuildDeps())
-                          : Optional.empty()));
+          (SymlinkTree)
+              resolver.computeIfAbsent(
+                  createSharedLibrarySymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
+                  target ->
+                      CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
+                          target,
+                          projectFilesystem,
+                          resolver,
+                          ruleFinder,
+                          cxxPlatform,
+                          params.getBuildDeps(),
+                          r ->
+                              r instanceof RustLinkable
+                                  ? Optional.of(r.getBuildDeps())
+                                  : Optional.empty()));
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
@@ -374,19 +400,20 @@ public class RustCompileUtils {
       executableBuilder.addInputs(sharedLibraries.getLinks().values());
 
       // Also add Rust shared libraries as runtime deps. We don't need these in the symlink tree
-      // because rustc will include their dirs in rpath by default.
+      // because rustc will include their dirs in rpath by default. We won't have any if we're
+      // forcing the use of rlibs.
       Map<String, SourcePath> rustSharedLibraries =
-          getTransitiveRustSharedLibraries(cxxPlatform, params.getBuildDeps());
+          getTransitiveRustSharedLibraries(cxxPlatform, params.getBuildDeps(), forceRlib);
       executableBuilder.addInputs(rustSharedLibraries.values());
     }
 
-    final RustCompileRule buildRule =
+    RustCompileRule buildRule =
         (RustCompileRule)
             resolver.computeIfAbsent(
                 binaryTarget,
-                binaryTarget1 ->
+                target ->
                     createBuild(
-                        binaryTarget1,
+                        target,
                         crate,
                         projectFilesystem,
                         params,
@@ -401,12 +428,13 @@ public class RustCompileUtils {
                         linkStyle,
                         rpath,
                         rootModuleAndSources.getSecond(),
-                        rootModuleAndSources.getFirst()));
+                        rootModuleAndSources.getFirst(),
+                        forceRlib));
 
     // Add the binary as the first argument.
     executableBuilder.addArg(SourcePathArg.of(buildRule.getSourcePathToOutput()));
 
-    final CommandTool executable = executableBuilder.build();
+    CommandTool executable = executableBuilder.build();
 
     return new BinaryWrapperRule(
         buildTarget, projectFilesystem, params.copyAppendingExtraDeps(buildRule)) {
@@ -480,7 +508,7 @@ public class RustCompileUtils {
    * @return a mapping of library name to the library {@link SourcePath}.
    */
   public static Map<String, SourcePath> getTransitiveRustSharedLibraries(
-      CxxPlatform cxxPlatform, Iterable<? extends BuildRule> inputs) {
+      CxxPlatform cxxPlatform, Iterable<? extends BuildRule> inputs, boolean forceRlib) {
     ImmutableSortedMap.Builder<String, SourcePath> libs = ImmutableSortedMap.naturalOrder();
 
     new AbstractBreadthFirstTraversal<BuildRule>(inputs) {
@@ -493,7 +521,7 @@ public class RustCompileUtils {
           if (!rustLinkable.isProcMacro()) {
             deps = rule.getBuildDeps();
 
-            if (rustLinkable.getPreferredLinkage() != NativeLinkable.Linkage.STATIC) {
+            if (!forceRlib && rustLinkable.getPreferredLinkage() != NativeLinkable.Linkage.STATIC) {
               libs.putAll(rustLinkable.getRustSharedLibraries(cxxPlatform));
             }
           }

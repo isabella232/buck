@@ -115,7 +115,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
 
     LOG.verbose("Will fetch key %s", thriftRuleKey);
 
-    final ThriftArtifactCacheProtocol.Request request =
+    ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest);
     Request.Builder builder = toOkHttpRequest(request);
     try (HttpResponse httpResponse = fetchClient.makeRequest(hybridThriftEndpoint, builder)) {
@@ -128,7 +128,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
                 httpResponse.statusMessage(),
                 httpResponse.requestUrl(),
                 ruleKey.toString());
-        LOG.error(message);
+        LOG.warn(message);
         return resultBuilder
             .setCacheResult(CacheResult.error(getName(), getMode(), message))
             .build();
@@ -223,7 +223,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
                 String.format(
                     "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
                     fetchResponse.getMetadata().getArtifactPayloadMd5(), readResult.getMd5Hash());
-            LOG.error(msg);
+            LOG.warn(msg);
             return resultBuilder
                 .setCacheResult(CacheResult.error(getName(), getMode(), msg))
                 .build();
@@ -278,7 +278,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     MultiContainsResult.Builder resultBuilder = MultiContainsResult.builder();
 
     if (httpResponse.statusCode() != 200) {
-      LOG.error(
+      LOG.warn(
           String.format(
               "Failed to multi-contains request for [%d] cache artifacts "
                   + "with HTTP status code [%d:%s] to url [%s].",
@@ -356,7 +356,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     cacheRequest.setType(BuckCacheRequestType.CONTAINS);
     cacheRequest.setMultiContainsRequest(containsRequest);
 
-    final ThriftArtifactCacheProtocol.Request request =
+    ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest);
     Request.Builder builder = toOkHttpRequest(request);
     try (HttpResponse httpResponse = fetchClient.makeRequest(hybridThriftEndpoint, builder)) {
@@ -437,7 +437,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
               httpResponse.statusMessage(),
               httpResponse.requestUrl(),
               joinedKeys);
-      LOG.error(message);
+      LOG.warn(message);
       CacheResult cacheResult = CacheResult.error(getName(), getMode(), message);
       return keys.stream().map(k -> FetchResult.builder().setCacheResult(cacheResult).build())
           ::iterator;
@@ -615,7 +615,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
           String.format(
               "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
               fetchResponse.getMetadata().getArtifactPayloadMd5(), readResult.getMd5Hash());
-      LOG.error(msg);
+      LOG.warn(msg);
       builder.setCacheResult(CacheResult.error(getName(), getMode(), msg));
       return;
     }
@@ -637,9 +637,9 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   }
 
   @Override
-  protected StoreResult storeImpl(final ArtifactInfo info, final Path file) throws IOException {
+  protected StoreResult storeImpl(ArtifactInfo info, Path file) throws IOException {
     StoreResult.Builder resultBuilder = StoreResult.builder();
-    final ByteSource artifact =
+    ByteSource artifact =
         new ByteSource() {
           @Override
           public InputStream openStream() throws IOException {
@@ -666,7 +666,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
               ThriftUtil.thriftToDebugJson(artifactMetadata)));
     }
 
-    final ThriftArtifactCacheProtocol.Request request =
+    ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest, artifact);
     Request.Builder builder = toOkHttpRequest(request);
     resultBuilder.setRequestSizeBytes(request.getRequestLengthBytes());
@@ -748,8 +748,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     return metadata;
   }
 
-  private static Request.Builder toOkHttpRequest(
-      final ThriftArtifactCacheProtocol.Request request) {
+  private static Request.Builder toOkHttpRequest(ThriftArtifactCacheProtocol.Request request) {
     Request.Builder builder =
         new Request.Builder().addHeader(PROTOCOL_HEADER, PROTOCOL.toString().toLowerCase());
     builder.post(
@@ -760,7 +759,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
           }
 
           @Override
-          public long contentLength() throws IOException {
+          public long contentLength() {
             return request.getRequestLengthBytes();
           }
 
@@ -797,7 +796,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       LOG.verbose(String.format("Deleting rule keys: [%s].", ruleKeys));
     }
 
-    final ThriftArtifactCacheProtocol.Request request =
+    ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest);
     Request.Builder builder = toOkHttpRequest(request);
     try (HttpResponse httpResponse = storeClient.makeRequest(hybridThriftEndpoint, builder)) {

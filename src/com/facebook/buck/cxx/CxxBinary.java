@@ -27,6 +27,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.HasSupplementaryOutputs;
@@ -49,9 +51,9 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
         HasRuntimeDeps,
         HasAppleDebugSymbolDeps,
         SupportsInputBasedRuleKey,
-        HasSupplementaryOutputs {
+        HasSupplementaryOutputs,
+        CacheableBuildRule {
 
-  private final BuildRuleResolver ruleResolver;
   private final CxxPlatform cxxPlatform;
   private final BuildRule linkRule;
   private final Tool executable;
@@ -63,7 +65,6 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       BuildRule linkRule,
       Tool executable,
@@ -71,7 +72,6 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Iterable<BuildTarget> tests,
       BuildTarget platformlessTarget) {
     super(buildTarget, projectFilesystem, params);
-    this.ruleResolver = ruleResolver;
     this.cxxPlatform = cxxPlatform;
     this.linkRule = linkRule;
     this.executable = executable;
@@ -133,7 +133,8 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     return CxxPreprocessables.getCxxPreprocessorInput(
         platformlessTarget,
         ruleResolver,
@@ -154,11 +155,18 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
   }
 
+  @Override
+  public boolean isCacheable() {
+    return false; // CxxBinary is a wrapper rule, and takes < 1ms to complete.
+  }
+
   // This rule just delegates to the output of the `CxxLink` rule and so needs that available at
   // runtime.  Model this via `HasRuntimeDeps`.
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return Stream.concat(getDeclaredDeps().stream(), executable.getDeps(ruleFinder).stream())
+    return Stream.concat(
+            getDeclaredDeps().stream(),
+            BuildableSupport.getDepsCollection(executable, ruleFinder).stream())
         .map(BuildRule::getBuildTarget);
   }
 

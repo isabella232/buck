@@ -20,12 +20,15 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathDeps;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildDeps;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -41,6 +44,7 @@ import com.facebook.buck.rules.SupportsPipelining;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
@@ -83,6 +87,7 @@ import javax.annotation.Nullable;
 public class DefaultJavaLibrary extends AbstractBuildRule
     implements JavaLibrary,
         HasClasspathEntries,
+        HasClasspathDeps,
         ExportDependencies,
         InitializableFromDisk<JavaLibrary.Data>,
         AndroidPackageable,
@@ -96,11 +101,14 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @AddToRuleKey private final Optional<String> mavenCoords;
   private final JarContentsSupplier outputJarContentsSupplier;
   @Nullable private final BuildTarget abiJar;
+  @Nullable private final BuildTarget sourceOnlyAbiJar;
   @AddToRuleKey private final Optional<SourcePath> proguardConfig;
   @AddToRuleKey private final boolean requiredForSourceOnlyAbi;
+  @AddToRuleKey private final UnusedDependenciesAction unusedDependenciesAction;
+  private final Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory;
 
   // This is automatically added to the rule key by virtue of being returned from getBuildDeps.
-  private final ImmutableSortedSet<BuildRule> buildDeps;
+  private final BuildDeps buildDeps;
 
   // It's very important that these deps are non-ABI rules, even if compiling against ABIs is turned
   // on. This is because various methods in this class perform dependency traversal that rely on
@@ -121,16 +129,20 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   public static DefaultJavaLibraryRules.Builder rulesBuilder(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      ToolchainProvider toolchainProvider,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellPathResolver,
       ConfiguredCompilerFactory compilerFactory,
       @Nullable JavaBuckConfig javaBuckConfig,
       @Nullable JavaLibraryDescription.CoreArg args) {
     return new DefaultJavaLibraryRules.Builder(
         buildTarget,
         projectFilesystem,
+        toolchainProvider,
         params,
         buildRuleResolver,
+        cellPathResolver,
         compilerFactory,
         javaBuckConfig,
         args);
@@ -143,8 +155,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   protected DefaultJavaLibrary(
       BuildTarget buildTarget,
-      final ProjectFilesystem projectFilesystem,
-      ImmutableSortedSet<BuildRule> buildDeps,
+      ProjectFilesystem projectFilesystem,
+      BuildDeps buildDeps,
       SourcePathResolver resolver,
       JarBuildStepsFactory jarBuildStepsFactory,
       Optional<SourcePath> proguardConfig,
@@ -152,12 +164,17 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
       @Nullable BuildTarget abiJar,
+      @Nullable BuildTarget sourceOnlyAbiJar,
       Optional<String> mavenCoords,
       ImmutableSortedSet<BuildTarget> tests,
-      boolean requiredForSourceOnlyAbi) {
+      boolean requiredForSourceOnlyAbi,
+      UnusedDependenciesAction unusedDependenciesAction,
+      Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory) {
     super(buildTarget, projectFilesystem);
     this.buildDeps = buildDeps;
     this.jarBuildStepsFactory = jarBuildStepsFactory;
+    this.unusedDependenciesAction = unusedDependenciesAction;
+    this.unusedDependenciesFinderFactory = unusedDependenciesFinderFactory;
 
     // Exported deps are meant to be forwarded onto the CLASSPATH for dependents,
     // and so only make sense for java library types.
@@ -189,6 +206,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
     this.outputJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
     this.abiJar = abiJar;
+    this.sourceOnlyAbiJar = sourceOnlyAbiJar;
 
     this.outputClasspathEntriesSupplier =
         MoreSuppliers.memoize(
@@ -312,8 +330,15 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public final ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    return jarBuildStepsFactory.getBuildStepsForLibraryJar(
-        context, buildableContext, getBuildTarget());
+    ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
+    steps.addAll(
+        jarBuildStepsFactory.getBuildStepsForLibraryJar(
+            context, buildableContext, getBuildTarget()));
+
+    unusedDependenciesFinderFactory.ifPresent(factory -> steps.add(factory.create()));
+
+    return steps.build();
   }
 
   @Override
@@ -345,6 +370,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
+  public Optional<BuildTarget> getSourceOnlyAbiJar() {
+    return Optional.ofNullable(sourceOnlyAbiJar);
+  }
+
+  @Override
   public ImmutableSortedMap<String, HashCode> getClassNamesToHashes() {
     return buildOutputInitializer.getBuildOutput().getClassNamesToHashes();
   }
@@ -356,7 +386,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables() {
+  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
     // TODO(jkeljo): Subtracting out provided deps is probably not the right behavior (we don't
     // do it when assembling the contents of a java_binary), but it is long-standing and projects
     // are depending upon it. The long term direction should be that we add an
@@ -400,7 +430,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @Override
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
-      BuildContext context, CellPathResolver cellPathResolver) throws IOException {
+      BuildContext context, CellPathResolver cellPathResolver) {
     return jarBuildStepsFactory.getInputsAfterBuildingLocally(
         context, cellPathResolver, getBuildTarget());
   }

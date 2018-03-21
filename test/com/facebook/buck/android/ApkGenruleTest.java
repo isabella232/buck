@@ -29,24 +29,23 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestBuildRuleResolver;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -104,19 +103,16 @@ public class ApkGenruleTest {
 
   @Test
   @SuppressWarnings("PMD.AvoidUsingHardCodedIP")
-  public void testCreateAndRunApkGenrule()
-      throws InterruptedException, IOException, NoSuchBuildTargetException {
+  public void testCreateAndRunApkGenrule() throws IOException, NoSuchBuildTargetException {
     ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     FileSystem fileSystem = projectFilesystem.getRootPath().getFileSystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
     createSampleAndroidBinaryRule(ruleResolver, projectFilesystem);
 
     // From the Python object, create a ApkGenruleBuildRuleFactory to create a ApkGenrule.Builder
     // that builds a ApkGenrule from the Python object.
     BuildTargetParser parser = EasyMock.createNiceMock(BuildTargetParser.class);
-    final BuildTarget apkTarget =
+    BuildTarget apkTarget =
         BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:fb4a");
 
     EasyMock.expect(
@@ -132,11 +128,7 @@ public class ApkGenruleTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
-    ToolchainProvider toolchainProvider =
-        new ToolchainProviderBuilder()
-            .withToolchain(
-                AndroidLegacyToolchain.DEFAULT_NAME, TestAndroidLegacyToolchainFactory.create())
-            .build();
+    ToolchainProvider toolchainProvider = new ToolchainProviderBuilder().build();
 
     ApkGenruleDescription description =
         new ApkGenruleDescription(toolchainProvider, new NoSandboxExecutionStrategy());
@@ -144,9 +136,9 @@ public class ApkGenruleTest {
         ApkGenruleDescriptionArg.builder()
             .setName(buildTarget.getShortName())
             .setApk(new FakeInstallable(apkTarget).getBuildTarget())
-            .setBash("")
-            .setCmd("python signer.py $APK key.properties > $OUT")
-            .setCmdExe("")
+            .setBash(StringWithMacrosUtils.format(""))
+            .setCmd(StringWithMacrosUtils.format("python signer.py $APK key.properties > $OUT"))
+            .setCmdExe(StringWithMacrosUtils.format(""))
             .setOut("signed_fb4a.apk")
             .setSrcs(
                 ImmutableList.of(
@@ -159,23 +151,18 @@ public class ApkGenruleTest {
     ApkGenrule apkGenrule =
         (ApkGenrule)
             description.createBuildRule(
-                TargetGraph.EMPTY,
+                TestBuildRuleCreationContextFactory.create(ruleResolver, projectFilesystem),
                 buildTarget,
-                projectFilesystem,
                 params,
-                ruleResolver,
-                TestCellBuilder.createCellRoots(projectFilesystem),
                 arg);
     ruleResolver.addToIndex(apkGenrule);
 
     // Verify all of the observers of the Genrule.
-    String expectedApkOutput =
-        projectFilesystem
-            .resolve(
-                projectFilesystem.getBuckPaths().getGenDir().toString()
-                    + "/src/com/facebook/sign_fb4a/sign_fb4a.apk")
-            .toString();
-    assertEquals(expectedApkOutput, apkGenrule.getAbsoluteOutputFilePath(pathResolver));
+    Path expectedApkOutput =
+        projectFilesystem.resolve(
+            projectFilesystem.getBuckPaths().getGenDir()
+                + "/src/com/facebook/sign_fb4a/sign_fb4a.apk");
+    assertEquals(expectedApkOutput, apkGenrule.getAbsoluteOutputFilePath());
     assertEquals(
         "The apk that this rule is modifying must have the apk in its deps.",
         ImmutableSet.of(apkTarget.toString()),
@@ -199,7 +186,8 @@ public class ApkGenruleTest {
     List<Step> steps = apkGenrule.getBuildSteps(buildContext, new FakeBuildableContext());
     MoreAsserts.assertStepsNames(
         "",
-        ImmutableList.of("rm", "mkdir", "rm", "mkdir", "rm", "mkdir", "link_tree", "genrule"),
+        ImmutableList.of(
+            "rm", "mkdir", "rm", "mkdir", "rm", "mkdir", "genrule_srcs_link_tree", "genrule"),
         steps);
 
     ExecutionContext executionContext = newEmptyExecutionContext();
@@ -263,6 +251,7 @@ public class ApkGenruleTest {
 
     assertEquals(
         new SymlinkTreeStep(
+            "genrule_srcs",
             projectFilesystem,
             relativePathToSrcDir,
             ImmutableMap.of(
@@ -285,7 +274,7 @@ public class ApkGenruleTest {
                 projectFilesystem
                     .resolve(BuildTargets.getGenPath(projectFilesystem, apkTarget, "%s.apk"))
                     .toString())
-            .put("OUT", expectedApkOutput)
+            .put("OUT", expectedApkOutput.toString())
             .build(),
         environmentVariables);
 

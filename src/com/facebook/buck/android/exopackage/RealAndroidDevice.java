@@ -165,10 +165,10 @@ public class RealAndroidDevice implements AndroidDevice {
       return Optional.empty();
     }
 
-    final String packagePrefix = "  Package [" + packageName + "] (";
-    final String otherPrefix = "  Package [";
+    String packagePrefix = "  Package [" + packageName + "] (";
+    String otherPrefix = "  Package [";
     boolean sawPackageLine = false;
-    final Splitter splitter = Splitter.on('=').limit(2);
+    Splitter splitter = Splitter.on('=').limit(2);
 
     String codePath = null;
     String resourcePath = null;
@@ -313,7 +313,7 @@ public class RealAndroidDevice implements AndroidDevice {
                   : null;
             }
           };
-      final String waitForDebuggerFlag = waitForDebugger ? "-D" : "";
+      String waitForDebuggerFlag = waitForDebugger ? "-D" : "";
       device.executeShellCommand(
           //  0x10200000 is FLAG_ACTIVITY_RESET_TASK_IF_NEEDED | FLAG_ACTIVITY_NEW_TASK; the
           // constant values are public ABI.  This way of invoking "am start" makes buck install -r
@@ -521,7 +521,13 @@ public class RealAndroidDevice implements AndroidDevice {
       if (installViaSd) {
         reason = deviceInstallPackageViaSd(apk.getAbsolutePath());
       } else {
-        device.installPackage(apk.getAbsolutePath(), true);
+        // Always pass -d if it's supported. The duplication is unfortunate
+        // but there's no easy way to conditionally pass varargs in Java.
+        if (supportsInstallDowngrade()) {
+          device.installPackage(apk.getAbsolutePath(), true, "-d");
+        } else {
+          device.installPackage(apk.getAbsolutePath(), true);
+        }
       }
       if (reason != null) {
         console.printBuildFailure(String.format("Failed to install apk on %s: %s.", name, reason));
@@ -533,6 +539,23 @@ public class RealAndroidDevice implements AndroidDevice {
       ex.printStackTrace(console.getStdErr());
       return false;
     }
+  }
+
+  /**
+   * The -d flag is only recognized on API level 17 and above. It was added to android/base in
+   * 7767eac3232ba2fb9828766813cdb481d6a97584. The next release was jb-mr1-release,
+   * b361b3043bb351ab175ae1ff3dae4de9fe31d42b.
+   */
+  private boolean supportsInstallDowngrade() {
+    String value = device.getProperty("ro.build.version.sdk");
+    try {
+      if (Integer.parseInt(value) >= 17) {
+        return true;
+      }
+    } catch (NumberFormatException exn) {
+      return false;
+    }
+    return false;
   }
 
   @Override
@@ -606,7 +629,7 @@ public class RealAndroidDevice implements AndroidDevice {
   public void rmFiles(String dirPath, Iterable<String> filesToDelete) throws Exception {
     String commandPrefix = "cd " + dirPath + " && rm ";
     // Add a fudge factor for separators and error checking.
-    final int overhead = commandPrefix.length() + 100;
+    int overhead = commandPrefix.length() + 100;
     for (List<String> rmArgs : chunkArgs(filesToDelete, MAX_ADB_COMMAND_SIZE - overhead)) {
       String command = commandPrefix + Joiner.on(' ').join(rmArgs);
       LOG.debug("Executing %s", command);

@@ -16,12 +16,9 @@
 
 package com.facebook.buck.android;
 
-import static org.easymock.EasyMock.createMock;
-import static org.easymock.EasyMock.expect;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -30,17 +27,15 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -52,13 +47,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
 
 public class GenAidlTest {
 
   @Test
-  public void testSimpleGenAidlRule() throws InterruptedException, IOException {
+  public void testSimpleGenAidlRule() throws IOException {
     ProjectFilesystem stubFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Files.createDirectories(stubFilesystem.getRootPath().resolve("java/com/example/base"));
 
@@ -66,34 +62,43 @@ public class GenAidlTest {
         FakeSourcePath.of(stubFilesystem, "java/com/example/base/IWhateverService.aidl");
     String importPath = Paths.get("java/com/example/base").toString();
 
-    final String pathToAidlExecutable = Paths.get("/usr/local/bin/aidl").toString();
-    final String pathToFrameworkAidl =
+    String pathToAidlExecutable = Paths.get("/usr/local/bin/aidl").toString();
+    String pathToFrameworkAidl =
         Paths.get("/home/root/android/platforms/android-16/framework.aidl").toString();
-    final AndroidPlatformTarget androidPlatformTarget = createMock(AndroidPlatformTarget.class);
-    expect(androidPlatformTarget.getAidlExecutable()).andReturn(Paths.get(pathToAidlExecutable));
-    expect(androidPlatformTarget.getAndroidFrameworkIdlFile())
-        .andReturn(Paths.get(pathToFrameworkAidl));
-    replay(androidPlatformTarget);
+    AndroidPlatformTarget androidPlatformTarget =
+        AndroidPlatformTarget.of(
+            "android",
+            Paths.get(""),
+            Collections.emptyList(),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(pathToAidlExecutable),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(pathToFrameworkAidl),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""));
 
     BuildTarget target =
         BuildTargetFactory.newInstance(
             stubFilesystem.getRootPath(), "//java/com/example/base:IWhateverService");
     BuildRuleParams params = TestBuildRuleParams.create();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
     GenAidl genAidlRule =
         new GenAidl(
             target,
             stubFilesystem,
-            TestAndroidLegacyToolchainFactory.create(androidPlatformTarget),
+            new ToolchainProviderBuilder()
+                .withToolchain(AndroidPlatformTarget.DEFAULT_NAME, androidPlatformTarget)
+                .build(),
             params,
             pathToAidl,
             importPath);
 
-    GenAidlDescription description = new GenAidlDescription(new ToolchainProviderBuilder().build());
+    GenAidlDescription description = new GenAidlDescription();
     assertEquals(
         Description.getBuildRuleType(GenAidlDescription.class),
         Description.getBuildRuleType(description));
@@ -130,7 +135,5 @@ public class GenAidlTest {
         aidlStep.getDescription(TestExecutionContext.newBuilder().build()));
 
     assertEquals(7, steps.size());
-
-    verify(androidPlatformTarget);
   }
 }

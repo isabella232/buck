@@ -28,8 +28,8 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.environment.Platform;
@@ -74,6 +74,13 @@ public class JsRulesIntegrationTest {
     workspace.runBuckBuild("//js:extras").assertSuccess();
 
     workspace.verify(Paths.get("with_extra_args.expected"), genPath);
+  }
+
+  @Test
+  public void testBuildWithExtraJson() throws IOException {
+    workspace.runBuckBuild("//js:bundle_with_extra_json").assertSuccess();
+
+    workspace.verify(Paths.get("bundle_with_extra_json.expected"), genPath);
   }
 
   @Test
@@ -185,6 +192,21 @@ public class JsRulesIntegrationTest {
   }
 
   @Test
+  public void generatesProjectWithJsBundleDependency() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    workspace
+        .runBuckCommand(
+            "project",
+            "--config",
+            "project.ide=xcode",
+            "//ios:DemoApp#iphonesimulator-x86_64,no-debug")
+        .assertSuccess();
+    workspace.verify(Paths.get("ios_project.expected"), workspace.getDestPath());
+  }
+
+  @Test
   public void dependencyFile() throws IOException {
     workspace
         .runBuckBuild(
@@ -232,6 +254,21 @@ public class JsRulesIntegrationTest {
   }
 
   @Test
+  public void generatesProjectWithJsBundleGenruleDependency() throws IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    workspace
+        .runBuckCommand(
+            "project",
+            "--config",
+            "project.ide=xcode",
+            "//ios:DemoAppWithJsBundleGenrule#iphonesimulator-x86_64,no-debug")
+        .assertSuccess();
+    workspace.verify(Paths.get("ios_project_with_genrule.expected"), workspace.getDestPath());
+  }
+
+  @Test
   public void apkContainsGenruleOutputAndBundleResources()
       throws IOException, InterruptedException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
@@ -256,5 +293,11 @@ public class JsRulesIntegrationTest {
   @Test
   public void genruleSourcemapCanBeAccessedWithoutDependingOnBundle() throws IOException {
     workspace.runBuckBuild("//js:genrule-using-only-sourcemap-of-bundle-genrule").assertSuccess();
+  }
+
+  @Test
+  public void genruleAllowsToRewriteMiscDir() throws IOException {
+    workspace.runBuckBuild("//js:misc-genrule").assertSuccess();
+    workspace.verify(Paths.get("misc_genrule.expected"), genPath);
   }
 }

@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.config.ActionGraphParallelizationMode;
+import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescription;
@@ -38,11 +39,14 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TemporaryPaths;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
@@ -57,9 +61,12 @@ import java.util.concurrent.TimeUnit;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 public class DuplicateResourcesTest {
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
+
   private BuildTarget mainResTarget;
   private BuildTarget directDepResTarget;
   private BuildTarget transitiveDepResTarget;
@@ -93,17 +100,17 @@ public class DuplicateResourcesTest {
    *                                                        //bottom_dep:res
    */
   @Before
-  public void makeRules() throws Exception {
-    mainResTarget = BuildTargetFactory.newInstance("//main_app:res");
-    directDepResTarget = BuildTargetFactory.newInstance("//direct_dep:res");
-    transitiveDepResTarget = BuildTargetFactory.newInstance("//transitive_dep:res");
-    transitiveDepLibTarget = BuildTargetFactory.newInstance("//transitive_dep:library");
-    bottomDepResTarget = BuildTargetFactory.newInstance("//bottom_dep:res");
-    androidLibraryTarget = BuildTargetFactory.newInstance("//direct_dep:library");
-    androidBinaryTarget = BuildTargetFactory.newInstance("//main_app:binary");
-    keystoreTarget = BuildTargetFactory.newInstance("//main_app:keystore");
+  public void makeRules() {
+    filesystem = new FakeProjectFilesystem(tmp.getRoot());
 
-    filesystem = new FakeProjectFilesystem();
+    mainResTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:res");
+    directDepResTarget = BuildTargetFactory.newInstance(filesystem, "//direct_dep:res");
+    transitiveDepResTarget = BuildTargetFactory.newInstance(filesystem, "//transitive_dep:res");
+    transitiveDepLibTarget = BuildTargetFactory.newInstance(filesystem, "//transitive_dep:library");
+    bottomDepResTarget = BuildTargetFactory.newInstance(filesystem, "//bottom_dep:res");
+    androidLibraryTarget = BuildTargetFactory.newInstance(filesystem, "//direct_dep:library");
+    androidBinaryTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:binary");
+    keystoreTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:keystore");
 
     mainRes =
         AndroidResourceBuilder.createBuilder(mainResTarget)
@@ -150,7 +157,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithLibraryDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithLibraryDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -162,7 +169,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithTwoLibraryDeps() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithTwoLibraryDeps() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -175,7 +182,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithResourceDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -187,7 +194,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithOnlyResourceDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithOnlyResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -243,13 +250,27 @@ public class DuplicateResourcesTest {
             keystore);
 
     ActionGraphAndResolver actionGraphAndResolver =
-        ActionGraphCache.getFreshActionGraph(
-            BuckEventBusForTests.newInstance(
-                new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
-            new DefaultTargetNodeToBuildRuleTransformer(),
-            targetGraph,
-            ActionGraphParallelizationMode.DISABLED,
-            false);
+        new ActionGraphCache(1, 1)
+            .getFreshActionGraph(
+                BuckEventBusForTests.newInstance(
+                    new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
+                new DefaultTargetNodeToBuildRuleTransformer(),
+                targetGraph,
+                new TestCellBuilder()
+                    .setToolchainProvider(
+                        AndroidBinaryBuilder.createToolchainProviderForAndroidBinary())
+                    .setFilesystem(filesystem)
+                    .build()
+                    .getCellProvider(),
+                ActionGraphParallelizationMode.DISABLED,
+                false,
+                IncrementalActionGraphMode.DISABLED,
+                CloseableMemoizedSupplier.of(
+                    () -> {
+                      throw new IllegalStateException(
+                          "should not use parallel executor for single threaded action graph construction in test");
+                    },
+                    ignored -> {}));
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
