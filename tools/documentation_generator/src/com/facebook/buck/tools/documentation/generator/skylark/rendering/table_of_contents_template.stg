@@ -5,12 +5,12 @@
  * @param navid The current page's navigation id.
  */
 {template .tableOfContents}
-  <h4>Skylark</h4>
   <ul>
+      <li><strong>Skylark</strong></li>
       %signatures :{ signature |
-          %openCurly%call buck.navigationLink%closeCurly%
+          %openCurly%call navigation.link%closeCurly%
               %openCurly%param currentnavid: $navid /%closeCurly%
-              %openCurly%param folder: 'function' /%closeCurly%
+              %openCurly%param folder: 'skylark/generated' /%closeCurly%
               %openCurly%param page: '%signature.name%' /%closeCurly%
               %openCurly%param text: '%signature.name%()' /%closeCurly%
           %openCurly%/call%closeCurly%

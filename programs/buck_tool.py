@@ -18,7 +18,8 @@ import uuid
 from pynailgun import NailgunConnection, NailgunException
 from timing import monotonic_time_nanos
 from tracing import Tracing
-from subprocutils import check_output, which, CalledProcessError
+from subprocutils import which
+from subprocess import check_output, CalledProcessError
 
 BUCKD_CLIENT_TIMEOUT_MILLIS = 120000
 BUCKD_STARTUP_TIMEOUT_MILLIS = 10000
@@ -309,7 +310,7 @@ class BuckTool(object):
                                      "You can use 'buck kill' to kill buck " +
                                      "if you suspect buck is stuck.")
                         busy_diagnostic_displayed = True
-                    time.sleep(1)
+                    time.sleep(3)
         return exit_code
 
     def _run_without_nailgun(self, argv, env):
@@ -632,8 +633,18 @@ class BuckTool(object):
                 "-Dorg.eclipse.jetty.util.log.class=org.eclipse.jetty.util.log.JavaUtilLog",
                 "-Dbuck.git_commit={0}".format(self._get_buck_version_uid()),
                 "-Dbuck.git_commit_timestamp={0}".format(self._get_buck_version_timestamp()),
-                "-Dbuck.binary_hash={0}".format(self._get_buck_binary_hash())
+                "-Dbuck.binary_hash={0}".format(self._get_buck_binary_hash()),
             ]
+
+            if "BUCK_DEFAULT_FILESYSTEM" not in os.environ and (
+                sys.platform == "darwin" or sys.platform.startswith("linux")
+            ):
+                # Change default filesystem to custom filesystem for memory optimizations
+                # Calls like Paths.get() would return optimized Path implementation
+                java_args.append(
+                  "-Djava.nio.file.spi.DefaultFileSystemProvider="
+                  "com.facebook.buck.cli.bootstrapper.filesystem.BuckFileSystemProvider"
+                )
 
             resource_lock_path = self._get_resource_lock_path()
             if resource_lock_path is not None:

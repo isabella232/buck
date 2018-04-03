@@ -66,14 +66,6 @@ enum BuildStatus {
 struct BuildSlaveInfo {
   1: optional BuildSlaveRunId buildSlaveRunId;
   2: optional string hostname;
-
-  // TODO(ruibm): Fields [4-7] have fallen out of sync and should not be used anymore however
-  //              the buck client code otherwise we get compile errors.
-  4: optional i32 stdOutCurrentBatchNumber;
-  5: optional i32 stdOutCurrentBatchLineCount;
-  6: optional i32 stdErrCurrentBatchNumber;
-  7: optional i32 stdErrCurrentBatchLineCount;
-
   8: optional bool logDirZipWritten;
   10: optional BuildStatus status = BuildStatus.UNKNOWN;
 }
@@ -114,11 +106,19 @@ enum LogRequestType {
 
 enum BuildMode {
   UNKNOWN = 0,
+
   REMOTE_BUILD = 1,
+
   // A random BuildSlave will be the Coordinator.
   DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR = 2
+
   // The machine launching the build is the Coordinator.
   DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR = 3,
+
+  // The machine launching the build is the Coordinator and proceeds to a normal
+  // local build using the CachingBuildEngine. Build nodes are sent to be built
+  // remotely in a strategy similar to distcc.
+  LOCAL_BUILD_WITH_REMOTE_EXECUTION = 4,
 }
 
 struct PathInfo {
@@ -312,7 +312,7 @@ struct MultiGetBuildSlaveLogDirResponse {
 }
 
 # Uniquely identifies a log stream at a particular build slave,
-# and the first batch number to request. Batches numbers start at 1.
+# and the first batch number to request. Batches numbers start at 0.
 struct LogLineBatchRequest {
   1: optional SlaveStream slaveStream;
   2: optional i32 batchNumber;
@@ -433,6 +433,7 @@ struct FetchRuleKeyLogsRequest {
 
 struct FetchRuleKeyLogsResponse {
   1: optional list<RuleKeyLogEntry> ruleKeyLogs;
+  2: optional list<string> lookedUpStoreIds;
 }
 
 struct SetCoordinatorRequest {

@@ -40,7 +40,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceRoot;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -114,6 +113,8 @@ public class RuleKeyBuilderTest {
           (float) 42,
           (double) 0,
           (double) 42,
+          (char) 0,
+          (char) 42,
           "",
           "42",
           new byte[0],
@@ -145,8 +146,6 @@ public class RuleKeyBuilderTest {
           ARCHIVE_PATH_2,
           TARGET_PATH_1,
           TARGET_PATH_2,
-          SourceWithFlags.of(SOURCE_PATH_1, ImmutableList.of("42")),
-          SourceWithFlags.of(SOURCE_PATH_2, ImmutableList.of("42")),
 
           // Buck rules & appendables
           RULE_1,
@@ -270,8 +269,7 @@ public class RuleKeyBuilderTest {
       super(
           TargetGraph.EMPTY,
           new DefaultTargetNodeToBuildRuleTransformer(),
-          new TestCellBuilder().build().getCellProvider(),
-          null);
+          new TestCellBuilder().build().getCellProvider());
       this.ruleMap = ruleMap;
     }
 

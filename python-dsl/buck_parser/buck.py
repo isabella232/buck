@@ -394,8 +394,8 @@ def add_rule(rule, build_env):
             'rules \'name\' field must be a string.  Found %s.' % rule_name)
 
     if rule_name in build_env.rules:
-        raise ValueError('Duplicate rule definition found.  Found %s and %s' %
-                         (rule, build_env.rules[rule_name]))
+        raise ValueError('Duplicate rule definition \'%s\' found.  Found %s and %s' %
+                         (rule_name, rule, build_env.rules[rule_name]))
     rule['buck.base_path'] = build_env.base_path
 
     build_env.rules[rule_name] = rule
@@ -600,6 +600,27 @@ def get_cell_name(build_env=None):
     assert isinstance(build_env, BuildFileContext), (
         "Cannot use `get_cell_name()` at the top-level of an included file.")
     return build_env.cell_name
+
+
+@provide_as_native_rule
+def repository_name(build_env=None):
+    """
+    Get the repository (cell) name of the build file that was initially
+    evaluated.
+
+    This function is intended to be used from within a build defs file that
+    likely contains macros that could be called from any build file.
+    Such macros may need to know the base path of the file in which they
+    are defining new build rules.
+
+    :return: a string, such as "@cell". The return value will be "@" if
+             the build file is in the main (standalone) repository.
+             :rtype: str
+
+    """
+    assert isinstance(build_env, BuildFileContext), (
+        "Cannot use `repository_name()` at the top-level of an included file.")
+    return "@" + build_env.cell_name
 
 
 def flatten_list_of_dicts(list_of_dicts):

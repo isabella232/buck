@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.startsWith;
 import static org.hamcrest.Matchers.stringContainsInOrder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -103,7 +104,11 @@ public class SkylarkProjectBuildFileParserTest {
         options,
         BuckEventBusForTests.newInstance(),
         SkylarkFilesystem.using(projectFilesystem),
-        new DefaultTypeCoercerFactory(),
+        BuckGlobals.builder()
+            .setRuleFunctionFactory(new RuleFunctionFactory(new DefaultTypeCoercerFactory()))
+            .setDescriptions(options.getDescriptions())
+            .setDisableImplicitNativeRules(options.getDisableImplicitNativeRules())
+            .build(),
         eventHandler);
   }
 
@@ -176,16 +181,6 @@ public class SkylarkProjectBuildFileParserTest {
     thrown.expect(BuildFileParseException.class);
 
     parser.getAll(buildFile, new AtomicLong());
-  }
-
-  @Test
-  public void packageNameIsProvided() throws Exception {
-    Path buildFile = projectFilesystem.resolve("src").resolve("test").resolve("BUCK");
-    Files.createDirectories(buildFile.getParent());
-    Files.write(buildFile, Arrays.asList("prebuilt_jar(name='guava', binary_jar=PACKAGE_NAME)"));
-
-    Map<String, Object> rule = getSingleRule(buildFile);
-    assertThat(rule.get("binaryJar"), equalTo("src/test"));
   }
 
   @Test
@@ -273,6 +268,15 @@ public class SkylarkProjectBuildFileParserTest {
   }
 
   @Test
+  public void canLoadSameExtensionMultipleTimes() throws Exception {
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(buildFile, Arrays.asList("load('//:ext.bzl', 'ext')", "load('//:ext.bzl', 'ext')"));
+    Path extensionFile = projectFilesystem.resolve("ext.bzl");
+    Files.write(extensionFile, Arrays.asList("ext = 'hello'", "print('hello world')"));
+    assertTrue(parser.getAll(buildFile, new AtomicLong()).isEmpty());
+  }
+
+  @Test
   public void packageNameFunctionInExtensionUsesBuildFilePackage() throws Exception {
     Path buildFileDirectory = projectFilesystem.resolve("test");
     Files.createDirectories(buildFileDirectory);
@@ -288,6 +292,37 @@ public class SkylarkProjectBuildFileParserTest {
     Files.write(extensionFile, Arrays.asList("def get_name():", "  return native.package_name()"));
     Map<String, Object> rule = getSingleRule(buildFile);
     assertThat(rule.get("binaryJar"), equalTo("test"));
+  }
+
+  @Test
+  public void repositoryNameFunctionInExtensionReturnsCellName() throws Exception {
+    Path buildFileDirectory = projectFilesystem.resolve("test");
+    Files.createDirectories(buildFileDirectory);
+    Path buildFile = buildFileDirectory.resolve("BUCK");
+    Path extensionFileDirectory = buildFileDirectory.resolve("ext");
+    Files.createDirectories(extensionFileDirectory);
+    Path extensionFile = extensionFileDirectory.resolve("build_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//test/ext:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(
+        extensionFile, Arrays.asList("def get_name():", "  return native.repository_name()"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("@"));
+  }
+
+  @Test
+  public void repositoryNameFunctionInBuildFileReturnsCellName() throws Exception {
+    Path buildFileDirectory = projectFilesystem.resolve("test");
+    Files.createDirectories(buildFileDirectory);
+    Path buildFile = buildFileDirectory.resolve("BUCK");
+    Path extensionFileDirectory = buildFileDirectory.resolve("ext");
+    Files.createDirectories(extensionFileDirectory);
+    Files.write(buildFile, Arrays.asList("prebuilt_jar(name='foo', binary_jar=repository_name())"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("@"));
   }
 
   @Test
@@ -530,21 +565,27 @@ public class SkylarkProjectBuildFileParserTest {
     Files.createDirectories(extensionDirectory);
     Path extensionFile = extensionDirectory.resolve("build_rules.bzl");
 
+    ProjectBuildFileParserOptions options =
+        ProjectBuildFileParserOptions.builder()
+            .setProjectRoot(cell.getRoot())
+            .setAllowEmptyGlobs(ParserConfig.DEFAULT_ALLOW_EMPTY_GLOBS)
+            .setIgnorePaths(ImmutableSet.of())
+            .setBuildFileName("BUCK")
+            .setDescriptions(knownBuildRuleTypesProvider.get(cell).getDescriptions())
+            .setBuildFileImportWhitelist(ImmutableList.of())
+            .setPythonInterpreter("skylark")
+            .setCellRoots(ImmutableMap.of("tp2", anotherCell))
+            .build();
     parser =
         SkylarkProjectBuildFileParser.using(
-            ProjectBuildFileParserOptions.builder()
-                .setProjectRoot(cell.getRoot())
-                .setAllowEmptyGlobs(ParserConfig.DEFAULT_ALLOW_EMPTY_GLOBS)
-                .setIgnorePaths(ImmutableSet.of())
-                .setBuildFileName("BUCK")
-                .setDescriptions(knownBuildRuleTypesProvider.get(cell).getDescriptions())
-                .setBuildFileImportWhitelist(ImmutableList.of())
-                .setPythonInterpreter("skylark")
-                .setCellRoots(ImmutableMap.of("tp2", anotherCell))
-                .build(),
+            options,
             BuckEventBusForTests.newInstance(),
             SkylarkFilesystem.using(projectFilesystem),
-            new DefaultTypeCoercerFactory(),
+            BuckGlobals.builder()
+                .setDisableImplicitNativeRules(options.getDisableImplicitNativeRules())
+                .setDescriptions(options.getDescriptions())
+                .setRuleFunctionFactory(new RuleFunctionFactory(new DefaultTypeCoercerFactory()))
+                .build(),
             new PrintingEventHandler(EnumSet.allOf(EventKind.class)));
 
     Files.write(

@@ -16,6 +16,9 @@
 
 package com.facebook.buck.testutil.endtoend;
 
+import static org.junit.internal.runners.rules.RuleMemberValidator.RULE_METHOD_VALIDATOR;
+import static org.junit.internal.runners.rules.RuleMemberValidator.RULE_VALIDATOR;
+
 import com.facebook.buck.testutil.ProcessResult;
 import java.lang.annotation.AnnotationFormatError;
 import java.lang.reflect.InvocationTargetException;
@@ -26,9 +29,18 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.internal.runners.model.ReflectiveCallable;
+import org.junit.internal.runners.statements.ExpectException;
 import org.junit.internal.runners.statements.Fail;
+import org.junit.internal.runners.statements.RunAfters;
+import org.junit.internal.runners.statements.RunBefores;
+import org.junit.rules.RunRules;
+import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.ParentRunner;
@@ -266,6 +278,13 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
     }
   }
 
+  private void validateTestAnnotations(List<Throwable> errors) {
+    validatePublicVoidNoArgMethods(Before.class, false, errors);
+    validatePublicVoidNoArgMethods(After.class, false, errors);
+    RULE_VALIDATOR.validate(getTestClass(), errors);
+    RULE_METHOD_VALIDATOR.validate(getTestClass(), errors);
+  }
+
   /**
    * Marks validation errors in errors if:
    *
@@ -326,6 +345,39 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
     return output;
   }
 
+  private Statement withBefores(Object target, Statement statement) {
+    List<FrameworkMethod> befores = getTestClass().getAnnotatedMethods(Before.class);
+    return befores.isEmpty() ? statement : new RunBefores(statement, befores, target);
+  }
+
+  private Statement withAfters(Object target, Statement statement) {
+    List<FrameworkMethod> afters = getTestClass().getAnnotatedMethods(After.class);
+    return afters.isEmpty() ? statement : new RunAfters(statement, afters, target);
+  }
+
+  private Statement withExpectedExceptions(EndToEndTestDescriptor child, Statement statement) {
+    FrameworkMethod verificationMethod = child.getMethod();
+    Test annotation = verificationMethod.getAnnotation(Test.class);
+    Class<? extends Throwable> expectedException = annotation.expected();
+    // ExpectException doesn't account for the default Test.None.class, so skip expecting an
+    // exception if it is Test.None.class
+    if (expectedException.isAssignableFrom(Test.None.class)) {
+      return statement;
+    }
+    return new ExpectException(statement, expectedException);
+  }
+
+  private Statement withRules(EndToEndTestDescriptor child, Object target, Statement statement) {
+    // We do not support MethodRules like the JUnit runner does as it has been functionally
+    // replaced by TestRules (https://junit.org/junit4/javadoc/4.12/org/junit/rules/MethodRule.html)
+    List<TestRule> testRules =
+        getTestClass().getAnnotatedMethodValues(target, Rule.class, TestRule.class);
+    testRules.addAll(getTestClass().getAnnotatedFieldValues(target, Rule.class, TestRule.class));
+    return testRules.isEmpty()
+        ? statement
+        : new RunRules(statement, testRules, describeChild(child));
+  }
+
   private Object createTest() throws Exception {
     return getTestClass().getOnlyConstructor().newInstance();
   }
@@ -345,7 +397,12 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
       return new Fail(e);
     }
 
-    return new BuckInvoker(testDescriptor, test);
+    Statement statement = new BuckInvoker(testDescriptor, test);
+    statement = withBefores(test, statement);
+    statement = withAfters(test, statement);
+    statement = withExpectedExceptions(testDescriptor, statement);
+    statement = withRules(testDescriptor, test, statement);
+    return statement;
   }
 
   @Override
@@ -353,6 +410,11 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
     super.collectInitializationErrors(errors);
     validateTestMethods(errors);
     validateEnvironments(errors);
+    validateTestAnnotations(errors);
+  }
+
+  protected boolean isIgnored(EndToEndTestDescriptor child) {
+    return child.getMethod().getAnnotation(Ignore.class) != null;
   }
 
   /**
@@ -395,6 +457,9 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
     Statement statement;
     if (setupError != null) {
       statement = new Fail(setupError);
+    } else if (isIgnored(child)) {
+      notifier.fireTestIgnored(description);
+      return;
     } else {
       statement =
           new Statement() {

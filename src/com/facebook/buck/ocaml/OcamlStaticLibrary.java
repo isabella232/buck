@@ -19,20 +19,21 @@ package com.facebook.buck.ocaml;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 
-class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements OcamlLibrary {
-  private final BuildTarget staticLibraryTarget;
+class OcamlStaticLibrary extends OcamlLibrary implements HasRuntimeDeps {
   private final ImmutableList<String> linkerFlags;
   private final ImmutableList<? extends SourcePath> objFiles;
   private final OcamlBuildContext ocamlContext;
@@ -40,10 +41,10 @@ class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implement
   private final ImmutableSortedSet<BuildRule> nativeCompileDeps;
   private final ImmutableSortedSet<BuildRule> bytecodeCompileDeps;
   private final ImmutableSortedSet<BuildRule> bytecodeLinkDeps;
+  private final Iterable<BuildTarget> runtimeDeps;
 
   public OcamlStaticLibrary(
       BuildTarget buildTarget,
-      BuildTarget compileBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableList<String> linkerFlags,
@@ -52,7 +53,8 @@ class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implement
       BuildRule ocamlLibraryBuild,
       ImmutableSortedSet<BuildRule> nativeCompileDeps,
       ImmutableSortedSet<BuildRule> bytecodeCompileDeps,
-      ImmutableSortedSet<BuildRule> bytecodeLinkDeps) {
+      ImmutableSortedSet<BuildRule> bytecodeLinkDeps,
+      Iterable<BuildTarget> runtimeDeps) {
     super(buildTarget, projectFilesystem, params);
     this.linkerFlags = linkerFlags;
     this.objFiles = objFiles;
@@ -61,7 +63,7 @@ class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implement
     this.nativeCompileDeps = nativeCompileDeps;
     this.bytecodeCompileDeps = bytecodeCompileDeps;
     this.bytecodeLinkDeps = bytecodeLinkDeps;
-    staticLibraryTarget = OcamlRuleBuilder.createStaticLibraryBuildTarget(compileBuildTarget);
+    this.runtimeDeps = runtimeDeps;
   }
 
   private NativeLinkableInput getLinkableInput(boolean isBytecode) {
@@ -71,16 +73,15 @@ class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implement
     inputBuilder.addAllArgs(StringArg.from(linkerFlags));
 
     // Add arg and input for static library.
-    UnflavoredBuildTarget staticBuildTarget = staticLibraryTarget.getUnflavoredBuildTarget();
     inputBuilder.addArgs(
         SourcePathArg.of(
             ExplicitBuildTargetSourcePath.of(
                 ocamlLibraryBuild.getBuildTarget(),
                 isBytecode
                     ? OcamlBuildContext.getBytecodeOutputPath(
-                        staticBuildTarget, getProjectFilesystem(), /* isLibrary */ true)
+                        getBuildTarget(), getProjectFilesystem(), /* isLibrary */ true)
                     : OcamlBuildContext.getNativeOutputPath(
-                        staticBuildTarget, getProjectFilesystem(), /* isLibrary */ true))));
+                        getBuildTarget(), getProjectFilesystem(), /* isLibrary */ true))));
 
     // Add args and inputs for C object files.
     for (SourcePath objFile : objFiles) {
@@ -91,38 +92,48 @@ class OcamlStaticLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implement
   }
 
   @Override
-  public NativeLinkableInput getNativeLinkableInput() {
+  public NativeLinkableInput getNativeLinkableInput(OcamlPlatform platform) {
     return getLinkableInput(false);
   }
 
   @Override
-  public NativeLinkableInput getBytecodeLinkableInput() {
+  public NativeLinkableInput getBytecodeLinkableInput(OcamlPlatform platform) {
     return getLinkableInput(true);
   }
 
   @Override
-  public Path getIncludeLibDir() {
+  public Path getIncludeLibDir(OcamlPlatform platform) {
     return OcamlBuildContext.getCompileNativeOutputDir(
-        staticLibraryTarget.getUnflavoredBuildTarget(), getProjectFilesystem(), true);
+        getBuildTarget(), getProjectFilesystem(), true);
   }
 
   @Override
-  public Iterable<String> getBytecodeIncludeDirs() {
+  public Iterable<String> getBytecodeIncludeDirs(OcamlPlatform platform) {
     return ocamlContext.getBytecodeIncludeDirectories();
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getNativeCompileDeps() {
+  public ImmutableSortedSet<BuildRule> getNativeCompileDeps(OcamlPlatform platform) {
     return nativeCompileDeps;
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getBytecodeCompileDeps() {
+  public ImmutableSortedSet<BuildRule> getBytecodeCompileDeps(OcamlPlatform platform) {
     return bytecodeCompileDeps;
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getBytecodeLinkDeps() {
+  public ImmutableSortedSet<BuildRule> getBytecodeLinkDeps(OcamlPlatform platform) {
     return bytecodeLinkDeps;
+  }
+
+  @Override
+  public Iterable<BuildRule> getOcamlLibraryDeps(OcamlPlatform platform) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+    return RichStream.from(runtimeDeps);
   }
 }

@@ -16,14 +16,10 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.graph.DirectedAcyclicGraph;
-import com.facebook.buck.graph.TopologicalSort;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDependencyVisitors;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -67,18 +63,6 @@ public class OcamlUtil {
         };
   }
 
-  public static ImmutableList<OcamlLibrary> getTransitiveOcamlInput(
-      Iterable<? extends BuildRule> inputs) {
-
-    DirectedAcyclicGraph<BuildRule> graph =
-        BuildRuleDependencyVisitors.getBuildRuleDirectedGraphFilteredBy(
-            inputs, OcamlLibrary.class::isInstance, OcamlLibrary.class::isInstance);
-
-    ImmutableList<BuildRule> sorted = TopologicalSort.sort(graph);
-
-    return FluentIterable.from(sorted).filter(OcamlLibrary.class).toList();
-  }
-
   static ImmutableSet<Path> getExtensionVariants(Path output, String... extensions) {
     String withoutExtension = stripExtension(output.toString());
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
@@ -94,5 +78,14 @@ public class OcamlUtil {
     // if dot is in the first position,
     // we are dealing with a hidden file rather than an extension
     return (index > 0) ? fileName.substring(0, index) : fileName;
+  }
+
+  static Iterable<BuildTarget> getParseTimeDeps(OcamlPlatform platform) {
+    ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
+    deps.addAll(platform.getCCompiler().getParseTimeDeps());
+    deps.addAll(platform.getCxxCompiler().getParseTimeDeps());
+    deps.addAll(platform.getCPreprocessor().getParseTimeDeps());
+    deps.addAll(CxxPlatforms.getParseTimeDeps(platform.getCxxPlatform()));
+    return deps.build();
   }
 }

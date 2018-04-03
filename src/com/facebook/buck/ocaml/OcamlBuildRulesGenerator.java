@@ -142,6 +142,7 @@ public class OcamlBuildRulesGenerator {
         .setBytecodeCompileDeps(ImmutableSortedSet.copyOf(bytecodeCompileDeps.build()))
         .setObjectFiles(objFiles)
         .setBytecodeLink(bytecodeLink)
+        .setOcamlContext(ocamlContext)
         .build();
   }
 
@@ -248,7 +249,7 @@ public class OcamlBuildRulesGenerator {
             new OcamlDebugLauncherStep.Args(
                 ocamlContext.getOcamlDebug().get(),
                 ocamlContext.getBytecodeOutput(),
-                ocamlContext.getOcamlInput(),
+                ocamlContext.getTransitiveBytecodeIncludes(),
                 ocamlContext.getBytecodeIncludeFlags()));
     resolver.addToIndex(debugLauncher);
     return debugLauncher;

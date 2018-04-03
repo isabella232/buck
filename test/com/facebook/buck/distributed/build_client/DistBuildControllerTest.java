@@ -57,6 +57,7 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.InvocationInfo;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionAndTargetGraphs;
 import com.facebook.buck.rules.ActionGraph;
@@ -153,7 +154,8 @@ public class DistBuildControllerTest {
             .setRuleKeyConfiguration(
                 ConfigRuleKeyConfigurationFactory.create(
                     FakeBuckConfig.builder().build(),
-                    BuckPluginManagerFactory.createPluginManager()))
+                    TestBuckModuleManagerFactory.create(
+                        BuckPluginManagerFactory.createPluginManager())))
             .setRootCell(
                 new TestCellBuilder()
                     .setFilesystem(new FakeProjectFilesystem())
@@ -397,7 +399,7 @@ public class DistBuildControllerTest {
 
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
     expect(mockDistBuildService.createBuildSlaveEventsQuery(stampedeId, buildSlaveRunId, 0))
         .andReturn(query);
@@ -415,7 +417,7 @@ public class DistBuildControllerTest {
     job.setStatus(BuildStatus.FAILED);
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
     expect(mockLogStateTracker.getBuildSlaveLogsMaterializer())
         .andReturn(createNiceMock(BuildSlaveLogsMaterializer.class))
@@ -447,7 +449,7 @@ public class DistBuildControllerTest {
     job.getBuildSlaves().set(0, slaveInfo1);
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
 
     query.setFirstEventNumber(1);

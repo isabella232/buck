@@ -5,11 +5,11 @@
  * @param navid The current page's navigation id.
  */
 {template .tableOfContents}
-  <h4>Skylark</h4>
   <ul>
-                {call buck.navigationLink}
+      <li><strong>Skylark</strong></li>
+                {call navigation.link}
                     {param currentnavid: $navid /}
-                    {param folder: 'function' /}
+                    {param folder: 'skylark/generated' /}
                     {param page: 'dummy' /}
                     {param text: 'dummy()' /}
                 {/call}

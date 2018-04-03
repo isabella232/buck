@@ -24,7 +24,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
@@ -63,7 +62,7 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
 
   static final Path DEFAULT_OCAML_INTEROP_INCLUDE_DIR = Paths.get("/usr/local/lib/ocaml");
 
-  public abstract UnflavoredBuildTarget getBuildTarget();
+  public abstract BuildTarget getBuildTarget();
 
   public abstract ProjectFilesystem getProjectFilesystem();
 
@@ -84,6 +83,8 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
 
   public abstract List<String> getBytecodeIncludes();
 
+  public abstract ImmutableSortedSet<String> getTransitiveBytecodeIncludes();
+
   /** Inputs for the native (ocamlopt) build */
   public abstract NativeLinkableInput getNativeLinkableInput();
 
@@ -92,8 +93,6 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
 
   /** Inputs for the C compiler (both builds) */
   public abstract NativeLinkableInput getCLinkableInput();
-
-  public abstract List<OcamlLibrary> getOcamlInput();
 
   public abstract CxxPreprocessorInput getCxxPreprocessorInput();
 
@@ -169,20 +168,15 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
         .asList();
   }
 
-  private static Path getArchiveNativeOutputPath(
-      UnflavoredBuildTarget target, ProjectFilesystem filesystem) {
+  private static Path getArchiveNativeOutputPath(BuildTarget target, ProjectFilesystem filesystem) {
     return BuildTargets.getGenPath(
-        filesystem,
-        BuildTarget.of(target),
-        "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMXA);
+        filesystem, target, "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMXA);
   }
 
   private static Path getArchiveBytecodeOutputPath(
-      UnflavoredBuildTarget target, ProjectFilesystem filesystem) {
+      BuildTarget target, ProjectFilesystem filesystem) {
     return BuildTargets.getGenPath(
-        filesystem,
-        BuildTarget.of(target),
-        "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMA);
+        filesystem, target, "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMA);
   }
 
   public Path getNativeOutput() {
@@ -190,20 +184,20 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
   }
 
   public Path getNativePluginOutput() {
-    UnflavoredBuildTarget target = getBuildTarget();
+    BuildTarget target = getBuildTarget();
     return BuildTargets.getGenPath(
         getProjectFilesystem(),
-        BuildTarget.of(target),
+        target,
         "%s/lib" + target.getShortName() + OcamlCompilables.OCAML_CMXS);
   }
 
   public static Path getNativeOutputPath(
-      UnflavoredBuildTarget target, ProjectFilesystem filesystem, boolean isLibrary) {
+      BuildTarget target, ProjectFilesystem filesystem, boolean isLibrary) {
     if (isLibrary) {
       return getArchiveNativeOutputPath(target, filesystem);
     } else {
       return BuildTargets.getScratchPath(
-          filesystem, BuildTarget.of(target), "%s/" + target.getShortName() + ".opt");
+          filesystem, target, "%s/" + target.getShortName() + ".opt");
     }
   }
 
@@ -212,12 +206,11 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
   }
 
   public static Path getBytecodeOutputPath(
-      UnflavoredBuildTarget target, ProjectFilesystem filesystem, boolean isLibrary) {
+      BuildTarget target, ProjectFilesystem filesystem, boolean isLibrary) {
     if (isLibrary) {
       return getArchiveBytecodeOutputPath(target, filesystem);
     } else {
-      return BuildTargets.getScratchPath(
-          filesystem, BuildTarget.of(target), "%s/" + target.getShortName());
+      return BuildTargets.getScratchPath(filesystem, target, "%s/" + target.getShortName());
     }
   }
 
@@ -230,7 +223,7 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
   }
 
   public static Path getCompileNativeOutputDir(
-      UnflavoredBuildTarget buildTarget, ProjectFilesystem filesystem, boolean isLibrary) {
+      BuildTarget buildTarget, ProjectFilesystem filesystem, boolean isLibrary) {
     return getNativeOutputPath(buildTarget, filesystem, isLibrary)
         .getParent()
         .resolve(OCAML_COMPILED_DIR);
@@ -365,17 +358,16 @@ abstract class AbstractOcamlBuildContext implements AddsToRuleKey {
     return addPrefix("-ccopt", getLdFlags());
   }
 
-  public static OcamlBuildContext.Builder builder(
-      OcamlToolchain ocamlToolchain, OcamlBuckConfig config) {
+  public static OcamlBuildContext.Builder builder(OcamlPlatform ocamlPlatform) {
     return OcamlBuildContext.builder()
-        .setOcamlDepTool(config.getOcamlDepTool())
-        .setOcamlCompiler(config.getOcamlCompiler())
-        .setOcamlDebug(config.getOcamlDebug())
-        .setYaccCompiler(config.getYaccCompiler())
-        .setLexCompiler(config.getLexCompiler())
-        .setOcamlBytecodeCompiler(config.getOcamlBytecodeCompiler())
-        .setOcamlInteropIncludesDir(config.getOcamlInteropIncludesDir())
-        .setCFlags(ocamlToolchain.getCFlags())
-        .setLdFlags(ocamlToolchain.getLdFlags());
+        .setOcamlDepTool(ocamlPlatform.getOcamlDepTool())
+        .setOcamlCompiler(ocamlPlatform.getOcamlCompiler())
+        .setOcamlDebug(ocamlPlatform.getOcamlDebug())
+        .setYaccCompiler(ocamlPlatform.getYaccCompiler())
+        .setLexCompiler(ocamlPlatform.getLexCompiler())
+        .setOcamlBytecodeCompiler(ocamlPlatform.getOcamlBytecodeCompiler())
+        .setOcamlInteropIncludesDir(ocamlPlatform.getOcamlInteropIncludesDir())
+        .setCFlags(ocamlPlatform.getCFlags())
+        .setLdFlags(ocamlPlatform.getLdFlags());
   }
 }

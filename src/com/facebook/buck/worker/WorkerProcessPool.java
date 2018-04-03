@@ -112,6 +112,7 @@ public abstract class WorkerProcessPool implements Closeable {
   }
 
   @Nullable
+  @GuardedBy("createdWorkers")
   private AtomicReference<WorkerProcess> findRefForWorkerProcess(WorkerProcess workerProcess) {
     for (AtomicReference<WorkerProcess> ref : createdWorkers) {
       if (ref.get() == workerProcess) {
@@ -165,7 +166,7 @@ public abstract class WorkerProcessPool implements Closeable {
 
   protected abstract WorkerProcess startWorkerProcess() throws IOException;
 
-  public HashCode getPoolHash() {
+  HashCode getPoolHash() {
     return poolHash;
   }
 }

@@ -16,9 +16,10 @@
 
 package com.facebook.buck.ocaml;
 
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -28,14 +29,16 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.OcamlSource;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -45,21 +48,23 @@ public class OcamlBinaryDescription
         VersionRoot<OcamlBinaryDescriptionArg> {
 
   private final ToolchainProvider toolchainProvider;
-  private final OcamlBuckConfig ocamlBuckConfig;
 
-  public OcamlBinaryDescription(
-      ToolchainProvider toolchainProvider, OcamlBuckConfig ocamlBuckConfig) {
+  public OcamlBinaryDescription(ToolchainProvider toolchainProvider) {
     this.toolchainProvider = toolchainProvider;
-    this.ocamlBuckConfig = ocamlBuckConfig;
-  }
-
-  public OcamlBuckConfig getOcamlBuckConfig() {
-    return ocamlBuckConfig;
   }
 
   @Override
   public Class<OcamlBinaryDescriptionArg> getConstructorArgType() {
     return OcamlBinaryDescriptionArg.class;
+  }
+
+  private OcamlPlatform getPlatform(Optional<Flavor> platformFlavor) {
+    OcamlToolchain ocamlToolchain =
+        toolchainProvider.getByName(OcamlToolchain.DEFAULT_NAME, OcamlToolchain.class);
+    FlavorDomain<OcamlPlatform> ocamlPlatforms = ocamlToolchain.getOcamlPlatforms();
+    return platformFlavor
+        .map(ocamlPlatforms::getValue)
+        .orElse(ocamlToolchain.getDefaultOcamlPlatform());
   }
 
   @Override
@@ -69,36 +74,71 @@ public class OcamlBinaryDescription
       BuildRuleParams params,
       OcamlBinaryDescriptionArg args) {
 
+    OcamlPlatform ocamlPlatform = getPlatform(args.getPlatform());
+
+    CxxDeps allDeps =
+        CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();
+
     ImmutableList<OcamlSource> srcs = args.getSrcs();
-    ImmutableList.Builder<Arg> flags = ImmutableList.builder();
-    flags.addAll(
-        OcamlDescriptionEnhancer.toStringWithMacrosArgs(
+
+    ImmutableList<Arg> flags =
+        OcamlRuleBuilder.getFlags(
             buildTarget,
             context.getCellPathResolver(),
             context.getBuildRuleResolver(),
-            args.getCompilerFlags()));
-    if (ocamlBuckConfig.getWarningsFlags().isPresent() || args.getWarningsFlags().isPresent()) {
-      flags.addAll(StringArg.from("-w"));
-      flags.addAll(
-          StringArg.from(
-              ocamlBuckConfig.getWarningsFlags().orElse("") + args.getWarningsFlags().orElse("")));
-    }
-    ImmutableList<String> linkerFlags = args.getLinkerFlags();
+            ocamlPlatform,
+            args.getCompilerFlags(),
+            args.getWarningsFlags());
 
-    return OcamlRuleBuilder.createBuildRule(
-        toolchainProvider,
-        ocamlBuckConfig,
+    BuildTarget compileBuildTarget = OcamlRuleBuilder.createOcamlLinkTarget(buildTarget);
+
+    ImmutableList<BuildRule> rules;
+    if (OcamlRuleBuilder.shouldUseFineGrainedRules(context.getBuildRuleResolver(), srcs)) {
+      OcamlGeneratedBuildRules result =
+          OcamlRuleBuilder.createFineGrainedBuildRules(
+              buildTarget,
+              ocamlPlatform,
+              compileBuildTarget,
+              context.getProjectFilesystem(),
+              params,
+              context.getBuildRuleResolver(),
+              allDeps.get(context.getBuildRuleResolver(), ocamlPlatform.getCxxPlatform()),
+              srcs,
+              /* isLibrary */ false,
+              args.getBytecodeOnly().orElse(false),
+              flags,
+              args.getOcamldepFlags(),
+              /* buildNativePlugin */ false);
+      rules = result.getRules();
+    } else {
+
+      OcamlBuild ocamlLibraryBuild =
+          OcamlRuleBuilder.createBulkCompileRule(
+              buildTarget,
+              ocamlPlatform,
+              compileBuildTarget,
+              context.getProjectFilesystem(),
+              params,
+              context.getBuildRuleResolver(),
+              allDeps.get(context.getBuildRuleResolver(), ocamlPlatform.getCxxPlatform()),
+              srcs,
+              /* isLibrary */ false,
+              args.getBytecodeOnly().orElse(false),
+              flags,
+              args.getOcamldepFlags());
+      rules = ImmutableList.of(ocamlLibraryBuild);
+    }
+
+    return new OcamlBinary(
         buildTarget,
         context.getProjectFilesystem(),
-        params,
-        context.getBuildRuleResolver(),
-        srcs,
-        /*isLibrary*/ false,
-        args.getBytecodeOnly().orElse(false),
-        flags.build(),
-        linkerFlags,
-        args.getOcamldepFlags(),
-        /*buildNativePlugin*/ false);
+        params.withDeclaredDeps(
+            Suppliers.ofInstance(
+                ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(params.getDeclaredDeps().get())
+                    .addAll(rules)
+                    .build())),
+        rules.get(0));
   }
 
   @Override
@@ -109,10 +149,7 @@ public class OcamlBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            toolchainProvider
-                .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                .getDefaultCxxPlatform()));
+        OcamlUtil.getParseTimeDeps(getPlatform(constructorArg.getPlatform())));
   }
 
   @BuckStyleImmutable
@@ -129,5 +166,12 @@ public class OcamlBinaryDescription
     Optional<String> getWarningsFlags();
 
     Optional<Boolean> getBytecodeOnly();
+
+    Optional<Flavor> getPlatform();
+
+    @Value.Default
+    default PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> getPlatformDeps() {
+      return PatternMatchedCollection.of();
+    }
   }
 }

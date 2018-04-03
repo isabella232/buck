@@ -88,6 +88,7 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import org.immutables.value.Value;
@@ -478,8 +479,16 @@ public class AppleTestDescription
       extraDepsBuilder.add(xctoolZipTarget.get());
     }
     extraDepsBuilder.addAll(appleConfig.getCodesignProvider().getParseTimeDeps());
+
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
+    ImmutableList<CxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getCxxPlatforms().getValues(buildTarget);
+
     extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatformsProvider().getCxxPlatforms().getValues()));
+        CxxPlatforms.getParseTimeDeps(
+            cxxPlatforms.isEmpty()
+                ? Collections.singleton(cxxPlatformsProvider.getDefaultCxxPlatform())
+                : cxxPlatforms));
   }
 
   private AppleBundle getBuildRuleForTestHostAppTarget(

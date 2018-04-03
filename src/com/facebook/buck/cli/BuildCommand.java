@@ -471,7 +471,7 @@ public class BuildCommand extends AbstractCommand {
       this.arguments.addAll(additionalTargets);
     }
     BuildEvent.Started started = postBuildStartedEvent(params);
-    ExitCode exitCode = ExitCode.SUCCESS;
+    ExitCode exitCode = ExitCode.BUILD_ERROR;
     try (CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
         getForkJoinPoolSupplier(params.getBuckConfig())) {
       exitCode = executeBuildAndProcessResult(params, commandThreadManager, poolSupplier);
@@ -695,7 +695,8 @@ public class BuildCommand extends AbstractCommand {
       Path linkPath = lastOutputDirPath.resolve(absolutePath.getFileName());
       // Don't overwrite existing symlink in case there are duplicate names.
       if (!Files.exists(linkPath)) {
-        Files.createSymbolicLink(linkPath, destPath);
+        ProjectFilesystem projectFilesystem = rule.getProjectFilesystem();
+        projectFilesystem.createSymLink(linkPath, destPath, false);
       }
     }
   }

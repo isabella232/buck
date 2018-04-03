@@ -16,29 +16,24 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
-class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements OcamlLibrary {
+class PrebuiltOcamlLibrary extends OcamlLibrary {
 
   private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Optional<SourcePath> staticNativeLibraryPath;
@@ -55,6 +50,8 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final Path includeDir;
 
+  private final CxxDeps deps;
+
   public PrebuiltOcamlLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
@@ -65,7 +62,8 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList<SourcePath> staticCLibraryPaths,
       SourcePath bytecodeLibraryPath,
       Path libPath,
-      Path includeDir) {
+      Path includeDir,
+      CxxDeps deps) {
     super(buildTarget, projectFilesystem, params);
     this.ruleFinder = ruleFinder;
     this.staticNativeLibraryPath = staticNativeLibraryPath;
@@ -74,6 +72,7 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.bytecodeLibraryPath = bytecodeLibraryPath;
     this.libPath = libPath;
     this.includeDir = includeDir;
+    this.deps = deps;
   }
 
   private NativeLinkableInput getLinkableInput(SourcePath sourcePath) {
@@ -88,7 +87,7 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkableInput getNativeLinkableInput() {
+  public NativeLinkableInput getNativeLinkableInput(OcamlPlatform platform) {
     if (staticNativeLibraryPath.isPresent()) {
       return getLinkableInput(staticNativeLibraryPath.get());
     } else {
@@ -97,32 +96,32 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkableInput getBytecodeLinkableInput() {
+  public NativeLinkableInput getBytecodeLinkableInput(OcamlPlatform platform) {
     return getLinkableInput(staticBytecodeLibraryPath);
   }
 
   @Override
-  public Path getIncludeLibDir() {
+  public Path getIncludeLibDir(OcamlPlatform platform) {
     return includeDir;
   }
 
   @Override
-  public Iterable<String> getBytecodeIncludeDirs() {
+  public Iterable<String> getBytecodeIncludeDirs(OcamlPlatform platform) {
     return ImmutableList.of(includeDir.toString());
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getNativeCompileDeps() {
+  public ImmutableSortedSet<BuildRule> getNativeCompileDeps(OcamlPlatform platform) {
     return ImmutableSortedSet.of();
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getBytecodeCompileDeps() {
+  public ImmutableSortedSet<BuildRule> getBytecodeCompileDeps(OcamlPlatform platform) {
     return ImmutableSortedSet.of();
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getBytecodeLinkDeps() {
+  public ImmutableSortedSet<BuildRule> getBytecodeLinkDeps(OcamlPlatform platform) {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
         .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(bytecodeLibraryPath)))
         .addAll(ruleFinder.filterBuildRuleInputs(staticBytecodeLibraryPath))
@@ -130,14 +129,7 @@ class PrebuiltOcamlLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
-    return ImmutableList.of();
-  }
-
-  @Nullable
-  @Override
-  public SourcePath getSourcePathToOutput() {
-    return null;
+  public Iterable<BuildRule> getOcamlLibraryDeps(OcamlPlatform platform) {
+    return deps.get(ruleFinder.getRuleResolver(), platform.getCxxPlatform());
   }
 }

@@ -19,6 +19,7 @@ package com.facebook.buck.tools.documentation.generator.skylark.rendering;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Streams;
 import com.google.common.io.Resources;
@@ -32,7 +33,7 @@ import java.util.stream.Collectors;
 import org.stringtemplate.v4.ST;
 
 /** Renders a soy template suitable for usage with the rest of buckbuild website documents. */
-class SoyTemplateSkylarkSignatureRenderer {
+public class SoyTemplateSkylarkSignatureRenderer {
 
   private static final char DELIMITER_START_CHAR = '%';
   private static final char DELIMITER_STOP_CHAR = '%';
@@ -41,7 +42,7 @@ class SoyTemplateSkylarkSignatureRenderer {
 
   private final LoadingCache<String, String> templateCache;
 
-  SoyTemplateSkylarkSignatureRenderer() {
+  public SoyTemplateSkylarkSignatureRenderer() {
     this.templateCache =
         CacheBuilder.newBuilder()
             .build(
@@ -57,7 +58,7 @@ class SoyTemplateSkylarkSignatureRenderer {
    * Renders provided Skylark signature into a soy template content similar to manually written
    * templates for all Python DSL functions.
    */
-  String render(SkylarkSignature skylarkSignature) {
+  public String render(SkylarkSignature skylarkSignature) {
     ST stringTemplate = createTemplate(FUNCTION_TEMPLATE_NAME);
     // open and close brace characters are not allowed inside of StringTemplate loops and using
     // named parameters seems nicer than their unicode identifiers
@@ -68,7 +69,7 @@ class SoyTemplateSkylarkSignatureRenderer {
   }
 
   /** Renders a table of contents for the Skylark functions subsection on buckbuild.com website. */
-  String renderTableOfContents(Iterable<SkylarkSignature> signatures) {
+  public String renderTableOfContents(Iterable<SkylarkSignature> signatures) {
     ST stringTemplate = createTemplate(TABLE_OF_CONTENTS_TEMPLATE_NAME);
     stringTemplate.add("openCurly", "{");
     stringTemplate.add("closeCurly", "}");
@@ -91,19 +92,29 @@ class SoyTemplateSkylarkSignatureRenderer {
   }
 
   private static ImmutableMap<String, Object> toMap(SkylarkSignature skylarkSignature) {
+    ImmutableList.Builder<Param> parameters =
+        ImmutableList.<Param>builder().addAll(Arrays.asList(skylarkSignature.parameters()));
+    if (!skylarkSignature.extraKeywords().name().isEmpty()) {
+      parameters.add(skylarkSignature.extraKeywords());
+    }
+
     return ImmutableMap.of(
-        "name", skylarkSignature.name(),
-        "doc", skylarkSignature.doc(),
+        "name",
+        skylarkSignature.name(),
+        "doc",
+        skylarkSignature.doc(),
         "parameters",
-            Arrays.stream(skylarkSignature.parameters())
-                .map(SoyTemplateSkylarkSignatureRenderer::toMap)
-                .collect(Collectors.toList()));
+        parameters
+            .build()
+            .stream()
+            .map(SoyTemplateSkylarkSignatureRenderer::toMap)
+            .collect(Collectors.toList()));
   }
 
   private static ImmutableMap<String, String> toMap(Param param) {
     return ImmutableMap.of(
         "name", param.name(),
         "doc", param.doc(),
-        "defaultValue", param.defaultValue());
+        "defaultValue", param.defaultValue().isEmpty() ? "None" : param.defaultValue());
   }
 }
