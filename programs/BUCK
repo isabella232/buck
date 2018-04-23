@@ -1,4 +1,9 @@
-load("//tools/build_rules:module_rules.bzl", "convert_modules_to_resources", "get_module_binary")
+load(
+    "//tools/build_rules:module_rules.bzl",
+    "convert_modules_to_external_resources",
+    "convert_modules_to_resources",
+    "get_module_binary",
+)
 
 python_library(
     name = "subprocutils",
@@ -78,23 +83,29 @@ RESOURCES_AFFECTING_BUILD_ARTIFACTS = {
     "external_executor_jar": "//src/com/facebook/buck/step/external:executor",
     "native_exopackage_fake_path": "//assets/android:native-exopackage-fakes.apk",
     "path_to_pathlib_py": "//third-party/py/pathlib:pathlib.py",
-    "path_to_pex": "//src/com/facebook/buck/python:pex",
     "path_to_pywatchman": "//third-party/py/pywatchman:pywatchman-archive",
     "path_to_sh_binary_template": "//src/com/facebook/buck/shell:sh_binary_template",
     "path_to_typing": "//third-party/py:typing-archive",
 }
 
 BUCK_MODULES = {
-    "d": "//src/com/facebook/buck/d:d",
-    "dotnet": "//src/com/facebook/buck/dotnet:dotnet",
-    "filegroup": "//src/com/facebook/buck/shell/filegroup:filegroup",
-    "go": "//src/com/facebook/buck/go:go",
-    "haskell": "//src/com/facebook/buck/haskell:haskell",
-    "lua": "//src/com/facebook/buck/lua:lua",
-    "rust": "//src/com/facebook/buck/rust:rust",
-    "zipbundler": "//src/com/facebook/buck/zip/bundler:bundler",
-    "ziprules": "//src/com/facebook/buck/zip/rules:rules",
+    "d": "//src/com/facebook/buck/features/d:d",
+    "dotnet": "//src/com/facebook/buck/features/dotnet:dotnet",
+    "filebundler": "//src/com/facebook/buck/features/filebundler:filebundler",
+    "filegroup": "//src/com/facebook/buck/features/filegroup:filegroup",
+    "go": "//src/com/facebook/buck/features/go:go",
+    "gwt": "//src/com/facebook/buck/features/gwt:gwt",
+    "haskell": "//src/com/facebook/buck/features/haskell:haskell",
+    "lua": "//src/com/facebook/buck/features/lua:lua",
+    "ocaml": "//src/com/facebook/buck/features/ocaml:ocaml",
+    "python": "//src/com/facebook/buck/features/python:module",
+    "rust": "//src/com/facebook/buck/features/rust:rust",
+    "ziprules": "//src/com/facebook/buck/features/zip/rules:rules",
 }
+
+BUCK_MODULES_WITH_RESOURCES = [
+    "python",
+]
 
 # This genrule generates a single hash of all resources listed in
 # RESOURCES_AFFECTING_BUILD_ARTIFACTS list. The hash is stored in the output file.
@@ -126,7 +137,7 @@ python_library(
     ],
     resources = dict(RESOURCES_NOT_AFFECTING_BUILD_ARTIFACTS.items() + RESOURCES_AFFECTING_BUILD_ARTIFACTS.items() + convert_modules_to_resources(BUCK_MODULES).items() + {
         "buck_binary_hash": ":calculate-buck-binary-hash",
-    }.items()),
+    }.items()) + convert_modules_to_external_resources(BUCK_MODULES, BUCK_MODULES_WITH_RESOURCES),
     deps = [
         ":buck_version",
         ":subprocutils",
@@ -142,8 +153,7 @@ python_binary(
     main = "buck.py",
     visibility = [
         "//scripts/packages/debian:debian",
-        "//test/com/facebook/buck/testutil/endtoend:testutil",
-        "//test/com/facebook/buck/testutil/integration:integration-py",
+        "//test/...",
         "//tools/...",
     ],
     deps = [

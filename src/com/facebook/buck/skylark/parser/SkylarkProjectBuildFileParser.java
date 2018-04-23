@@ -28,6 +28,7 @@ import com.facebook.buck.skylark.function.SkylarkNativeModule;
 import com.facebook.buck.skylark.io.impl.SimpleGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.packages.PackageFactory;
+import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -140,8 +141,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
                     .stream()
                     .map(Object::toString)
                     .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()))))
-        // TODO(ttsugrii): implement once configuration options are exposed via Skylark API
-        .add(ImmutableMap.of("__configs", ImmutableMap.of()))
+        .add(ImmutableMap.of("__configs", parseResult.getReadConfigurationOptions()))
         // TODO(ttsugrii): implement once environment variables are exposed via Skylark API
         .add(ImmutableMap.of("__env", ImmutableMap.of()))
         .build();
@@ -191,7 +191,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         throw BuildFileParseException.createForUnknownParseError(
             "Cannot evaluate build file " + buildFile);
       }
-      ImmutableList<Map<String, Object>> rules = parseContext.getRecordedRules();
+      ImmutableList<ImmutableMap<String, Object>> rules = parseContext.getRecordedRules();
       LOG.verbose("Got rules: %s", rules);
       LOG.verbose("Parsed %d rules from %s", rules.size(), buildFile);
       return ParseResult.builder()
@@ -201,6 +201,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
                   .addAll(envData.getLoadedPaths())
                   .add(buildFilePath)
                   .build())
+          .setReadConfigurationOptions(parseContext.getAccessedConfigurationOptions())
           .build();
     }
   }

@@ -26,7 +26,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
@@ -45,8 +44,7 @@ import java.util.Optional;
  * from running at build time, requiring a user to run {@code buck fetch} before executing the
  * build.
  */
-public class RemoteFile extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements CacheableBuildRule {
+public class RemoteFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey(stringify = true)
   private final URI uri;
@@ -122,10 +120,19 @@ public class RemoteFile extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
+    // EXPLODED_ZIP remote files can include many files; hashing the exploded files to compute
+    // an input-based rule key can take a very long time. But we have an ace up our sleeve:
+    // we already have a hash that represents the content in those exploded files!
+    // Just pass that hash along so that RuleKeyBuilder can use it.
+    return ExplicitBuildTargetSourcePath.builder()
+        .setTarget(getBuildTarget())
+        .setResolvedPath(output)
+        .setPrecomputedHash(Optional.of(sha1.getHashCode()))
+        .build();
   }
 
-  enum Type {
+  /** Defines how the remote file should be treated when downloaded. */
+  public enum Type {
     DATA,
     EXECUTABLE,
     EXPLODED_ZIP,

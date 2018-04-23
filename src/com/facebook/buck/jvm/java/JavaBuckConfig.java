@@ -20,6 +20,7 @@ import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -37,6 +38,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.logging.Level;
 
 /** A java-specific "view" of BuckConfig. */
 public class JavaBuckConfig implements ConfigView<BuckConfig> {
@@ -108,6 +110,11 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
         delegate.getListWithoutComments(SECTION, "safe_annotation_processors");
 
     builder.setTrackClassUsage(trackClassUsage());
+    Optional<Boolean> trackJavacPhaseEvents =
+        delegate.getBoolean(SECTION, "track_javac_phase_events");
+    if (trackJavacPhaseEvents.isPresent()) {
+      builder.setTrackJavacPhaseEvents(trackJavacPhaseEvents.get());
+    }
 
     Optional<AbstractJavacOptions.SpoolMode> spoolMode =
         delegate.getEnum(SECTION, "jar_spool_mode", AbstractJavacOptions.SpoolMode.class);
@@ -162,8 +169,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   @VisibleForTesting
-  Optional<Path> getJavacPath() {
-    return getPathToExecutable("javac");
+  Optional<PathSourcePath> getJavacPath() {
+    return getPathToExecutable("javac").map(delegate::getPathSourcePath);
   }
 
   private Optional<Path> getPathToExecutable(String executableName) {
@@ -240,6 +247,13 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
         .orElse(UnusedDependenciesAction.IGNORE);
   }
 
+  public Level getDuplicatesLogLevel() {
+    return delegate
+        .getEnum(SECTION, "duplicates_log_level", DuplicatesLogLevel.class)
+        .orElse(DuplicatesLogLevel.INFO)
+        .getLevel();
+  }
+
   public enum SourceAbiVerificationMode {
     /** Don't verify ABI jars. */
     OFF,
@@ -254,5 +268,23 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     FAIL,
     WARN,
     IGNORE
+  }
+
+  /** Logging level duplicates are reported at */
+  public enum DuplicatesLogLevel {
+    WARN(Level.WARNING),
+    INFO(Level.INFO),
+    FINE(Level.FINE),
+    ;
+
+    private final Level level;
+
+    DuplicatesLogLevel(Level level) {
+      this.level = level;
+    }
+
+    public Level getLevel() {
+      return level;
+    }
   }
 }

@@ -22,15 +22,18 @@ import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.modern.annotations.CustomClassBehaviorTag;
+import com.facebook.buck.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
-import com.facebook.buck.rules.modern.impl.FieldInfo;
-import com.facebook.buck.rules.modern.impl.ValueCreator;
-import com.facebook.buck.rules.modern.impl.ValueTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.io.ByteStreams;
@@ -44,6 +47,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 import org.objenesis.ObjenesisStd;
 
 /**
@@ -75,11 +80,15 @@ public class Deserializer {
 
   private final Function<Optional<String>, ProjectFilesystem> cellMap;
   private final ClassFinder classFinder;
+  private final Supplier<SourcePathResolver> pathResolver;
 
   public Deserializer(
-      Function<Optional<String>, ProjectFilesystem> cellMap, ClassFinder classFinder) {
+      Function<Optional<String>, ProjectFilesystem> cellMap,
+      ClassFinder classFinder,
+      Supplier<SourcePathResolver> pathResolver) {
     this.cellMap = cellMap;
     this.classFinder = classFinder;
+    this.pathResolver = pathResolver;
   }
 
   public <T extends AddsToRuleKey> T deserialize(DataProvider provider, Class<T> clazz)
@@ -94,6 +103,17 @@ public class Deserializer {
     private Creator(DataProvider provider) {
       this.stream = new DataInputStream(provider.getData());
       this.provider = provider;
+    }
+
+    @Override
+    public <T> T createSpecial(Class<T> valueClass, Object... args) {
+      if (valueClass.equals(SourcePathResolver.class)) {
+        Preconditions.checkState(args.length == 0);
+        @SuppressWarnings("unchecked")
+        T value = (T) pathResolver.get();
+        return value;
+      }
+      throw new IllegalArgumentException();
     }
 
     @Override
@@ -124,7 +144,7 @@ public class Deserializer {
       int size = stream.readInt();
       ImmutableList.Builder<T> builder = ImmutableList.builderWithExpectedSize(size);
       for (int i = 0; i < size; i++) {
-        builder.add(innerType.create(this));
+        builder.add(innerType.createNotNull(this));
       }
       return builder.build();
     }
@@ -136,7 +156,7 @@ public class Deserializer {
       ImmutableSortedSet.Builder<T> builder =
           (ImmutableSortedSet.Builder<T>) ImmutableSortedSet.naturalOrder();
       for (int i = 0; i < size; i++) {
-        builder.add(innerType.create(this));
+        builder.add(innerType.createNotNull(this));
       }
       return builder.build();
     }
@@ -144,14 +164,25 @@ public class Deserializer {
     @Override
     public <T> Optional<T> createOptional(ValueTypeInfo<T> innerType) throws IOException {
       if (stream.readBoolean()) {
-        return Optional.of(innerType.create(this));
+        return Optional.of(innerType.createNotNull(this));
       }
       return Optional.empty();
     }
 
     @Override
+    @Nullable
+    public <T> T createNullable(ValueTypeInfo<T> innerType) throws IOException {
+      if (stream.readBoolean()) {
+        return innerType.create(this);
+      }
+      return null;
+    }
+
+    @Override
     public OutputPath createOutputPath() throws IOException {
-      return new OutputPath(stream.readUTF());
+      boolean isPublic = stream.readBoolean();
+      String path = stream.readUTF();
+      return isPublic ? new PublicOutputPath(Paths.get(path)) : new OutputPath(path);
     }
 
     @Override
@@ -231,7 +262,7 @@ public class Deserializer {
     }
 
     private <T> T readValue(TypeToken<T> typeToken) throws IOException {
-      return ValueTypeInfoFactory.forTypeToken(typeToken).create(this);
+      return ValueTypeInfoFactory.forTypeToken(typeToken).createNotNull(this);
     }
 
     public <T extends AddsToRuleKey> T create(Class<T> requestedClass) throws IOException {
@@ -243,13 +274,20 @@ public class Deserializer {
         throw new RuntimeException(e);
       }
       Preconditions.checkState(requestedClass.isAssignableFrom(instanceClass));
+
+      Optional<CustomClassBehaviorTag> serializerTag =
+          CustomBehaviorUtils.getBehavior(instanceClass, CustomClassSerialization.class);
+      if (serializerTag.isPresent()) {
+        @SuppressWarnings("unchecked")
+        CustomClassSerialization<T> customSerializer =
+            (CustomClassSerialization<T>) serializerTag.get();
+        return customSerializer.deserialize(this);
+      }
+
       @SuppressWarnings("unchecked")
       T instance = (T) new ObjenesisStd().newInstance(instanceClass);
       ClassInfo<? super T> classInfo = DefaultClassInfoFactory.forInstance(instance);
 
-      if (classInfo.getSuperInfo().isPresent()) {
-        initialize(instance, classInfo.getSuperInfo().get());
-      }
       initialize(instance, classInfo);
 
       return instance;
@@ -257,22 +295,68 @@ public class Deserializer {
 
     private <T extends AddsToRuleKey> void initialize(T instance, ClassInfo<? super T> classInfo)
         throws IOException {
+      if (classInfo.getSuperInfo().isPresent()) {
+        initialize(instance, classInfo.getSuperInfo().get());
+      }
+
       ImmutableCollection<FieldInfo<?>> fields = classInfo.getFieldInfos();
       for (FieldInfo<?> info : fields) {
         try {
-          Object value = info.getValueTypeInfo().create(this);
+          Object value = createForField(info);
           setField(info.getField(), instance, value);
         } catch (Exception e) {
           Throwables.throwIfInstanceOf(e, IOException.class);
-          throw new RuntimeException(e);
+          throw new BuckUncheckedExecutionException(
+              e,
+              "When trying to initialize %s.%s.",
+              instance.getClass().getName(),
+              info.getField().getName());
         }
       }
     }
 
-    private void setField(Field field, Object instance, Object value)
+    @Nullable
+    private <T> T createForField(FieldInfo<T> info) throws IOException {
+      Optional<CustomFieldBehavior> behavior = info.getCustomBehavior();
+      if (behavior.isPresent()) {
+        if (CustomBehaviorUtils.get(behavior.get(), DefaultFieldSerialization.class).isPresent()) {
+          @SuppressWarnings("unchecked")
+          ValueTypeInfo<T> typeInfo =
+              (ValueTypeInfo<T>)
+                  ValueTypeInfoFactory.forTypeToken(TypeToken.of(info.getField().getGenericType()));
+          return typeInfo.create(this);
+        }
+
+        Optional<?> serializerTag =
+            CustomBehaviorUtils.get(behavior, CustomFieldSerialization.class);
+        if (serializerTag.isPresent()) {
+          @SuppressWarnings("unchecked")
+          CustomFieldSerialization<T> customSerializer =
+              (CustomFieldSerialization<T>) serializerTag.get();
+          return customSerializer.deserialize(this);
+        }
+      }
+
+      return info.getValueTypeInfo().create(this);
+    }
+
+    private void setField(Field field, Object instance, @Nullable Object value)
         throws IllegalAccessException {
       field.setAccessible(true);
       field.set(instance, value);
+    }
+
+    @Override
+    public <K, V> ImmutableSortedMap<K, V> createMap(
+        ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) throws IOException {
+      int size = stream.readInt();
+      @SuppressWarnings("unchecked")
+      ImmutableSortedMap.Builder<K, V> builder =
+          (ImmutableSortedMap.Builder<K, V>) ImmutableSortedMap.naturalOrder();
+      for (int i = 0; i < size; i++) {
+        builder.put(keyType.createNotNull(this), valueType.createNotNull(this));
+      }
+      return builder.build();
     }
   }
 }

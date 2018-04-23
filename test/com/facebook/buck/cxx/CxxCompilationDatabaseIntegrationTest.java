@@ -34,6 +34,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -173,11 +174,12 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/foo.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
+            .add(
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/foo.cpp.o").toString())
             .build());
   }
 
@@ -254,11 +256,12 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/bar.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
+            .add(
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/bar.cpp.o").toString())
             .build());
   }
 
@@ -307,11 +310,13 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
+            .add(
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o")
+                    .toString())
             .build());
   }
 
@@ -362,11 +367,13 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
+            .add(
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o")
+                    .toString())
             .build());
   }
 
@@ -531,6 +538,19 @@ public class CxxCompilationDatabaseIntegrationTest {
     BuildTarget sourceTarget = BuildTargetFactory.newInstance("//dep1:source");
     Path source = workspace.getPath(BuildTargets.getGenPath(filesystem, sourceTarget, "%s"));
     assertThat(Files.exists(source), is(true));
+  }
+
+  @Test
+  public void testPlatformDepsAddedToCompilationDatabase() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library_platform_deps", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.default_platform=platform", "//:echo#compilation-database");
+
+    result.assertSuccess();
   }
 
   private void addLibraryHeaderFiles(ProjectWorkspace workspace) throws IOException {

@@ -1,10 +1,13 @@
 load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 
-CACHE_RATE_STATS_SRCS = ["CacheRateStatsKeeper.java"]
+CACHE_STATS_SRCS = [
+    "CacheRateStatsKeeper.java",
+    "RemoteCacheUploadStats.java",
+]
 
 java_library(
-    name = "CacheRateStatsKeeper",
-    srcs = CACHE_RATE_STATS_SRCS,
+    name = "CacheStats",
+    srcs = CACHE_STATS_SRCS,
     visibility = [
         "PUBLIC",
     ],
@@ -18,26 +21,11 @@ java_library(
     ],
 )
 
-BROADCAST_EVENT_LISTENER_SCRS = ["BroadcastEventListener.java"]
-
-java_library(
-    name = "BroadcastEventListener",
-    srcs = BROADCAST_EVENT_LISTENER_SCRS,
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/event/external:external_lib",
-        "//third-party/java/jsr:jsr305",
-    ],
-)
-
 java_immutables_library(
     name = "listener",
     srcs = glob(
         ["*.java"],
-        exclude = CACHE_RATE_STATS_SRCS + BROADCAST_EVENT_LISTENER_SCRS,
+        exclude = CACHE_STATS_SRCS,
     ),
     tests = [
         "//test/com/facebook/buck/event/listener:listener",
@@ -51,7 +39,7 @@ java_immutables_library(
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/io/filesystem:filesystem",
         "//src/com/facebook/buck/util/json:json",
-        ":CacheRateStatsKeeper",
+        ":CacheStats",
         "//src-gen:thrift",
         "//src/com/facebook/buck/util/config:config",
         "//src/com/facebook/buck/android:steps",

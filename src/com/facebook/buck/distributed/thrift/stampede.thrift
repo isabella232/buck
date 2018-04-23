@@ -21,6 +21,33 @@ struct StampedeId {
   1 : optional string id;
 }
 
+# Identifies the hardware category for a particular minion when running in mixed environment.
+enum MinionType {
+    UNKNOWN = 0,
+    LOW_SPEC = 1,
+    # This is the default, and should always be used for minion running on coordinator machine
+    STANDARD_SPEC = 2,
+}
+
+enum SchedulingEnvironmentType {
+    UNKNOWN = 0,
+    # Nodes in build are scheduled on machines with identical hardware
+    IDENTICAL_HARDWARE = 1,
+    # Nodes in build are scheduled on machines with varying hardware types (i.e. low/standard spec)
+    MIXED_HARDWARE = 2,
+}
+
+# Specifies how many of a certain type of minion will be needed for this build
+struct MinionRequirement {
+  1: optional MinionType minionType;
+  2: optional i32 requiredCount;
+}
+
+# Gives requirements for all minion types (only one if running in IDENTICAL_HARDWARE environment)
+struct MinionRequirements {
+  1: optional list<MinionRequirement> requirements;
+}
+
 # Uniquely identifies the run of a specific BuildSlave server.
 # One StampedeId will have one or more BuildSlaveRunId's associated with it.
 # (one BuildSlaveRunId per Minion that contributes to the build).
@@ -145,9 +172,10 @@ struct BuckVersion {
 
 struct BuildModeInfo {
   1: optional BuildMode mode = BuildMode.UNKNOWN;
-  2: optional i32 numberOfMinions;
+  2: optional i32 totalNumberOfMinions; // Deprecated
   3: optional string coordinatorAddress;
   4: optional i32 coordinatorPort;
+  5: optional MinionRequirements minionRequirements;
 }
 
 struct BuildJob {
@@ -210,14 +238,14 @@ struct BuildSlaveEventsRange {
 struct CreateBuildRequest {
   1: optional i64 createTimestampMillis;
   2: optional BuildMode buildMode = BuildMode.REMOTE_BUILD;
-  // Maximum number of minions to be used in this distributed build.
-  3: optional i32 numberOfMinions;
+  3: optional i32 totalNumberOfMinions; // Deprecated, use MinionRequirements
   4: optional string repository;
   5: optional string tenantId;
   6: optional string buckBuildUuid;
   7: optional string username;
   8: optional list<string> buildTargets;
   9: optional string buildLabel;
+  10: optional MinionRequirements minionRequirements;
 }
 
 struct CreateBuildResponse {
@@ -449,6 +477,7 @@ struct EnqueueMinionsRequest {
   1: optional StampedeId stampedeId;
   2: optional string minionQueue;
   3: optional i32 numberOfMinions;
+  4: optional MinionType minionType;
 }
 
 struct EnqueueMinionsResponse {

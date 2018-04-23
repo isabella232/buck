@@ -38,7 +38,6 @@ import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.CacheRateStatsListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
@@ -827,18 +826,13 @@ public final class Main {
               unexpandedCommandLineArgs,
               filesystem.getBuckPaths().getLogDir());
 
-      try (DefaultBuckEventBus buildEventBus = new DefaultBuckEventBus(clock, buildId);
+      try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
+              GlobalStateManager.singleton()
+                  .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
+          DefaultBuckEventBus buildEventBus = new DefaultBuckEventBus(clock, buildId);
           ) {
 
-        // Create and register the event buses that should listen to broadcast events.
-        // If the build doesn't have a daemon create a new instance.
-        BroadcastEventListener broadcastEventListener =
-            daemon.map(Daemon::getBroadcastEventListener).orElseGet(BroadcastEventListener::new);
-
-        try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
-                GlobalStateManager.singleton()
-                    .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
-            ThrowingCloseableWrapper<ExecutorService, InterruptedException> diskIoExecutorService =
+        try (ThrowingCloseableWrapper<ExecutorService, InterruptedException> diskIoExecutorService =
                 getExecutorWrapper(
                     MostExecutors.newSingleThreadExecutor("Disk I/O"),
                     "Disk IO",
@@ -914,8 +908,6 @@ public final class Main {
                     buckConfig.isLogBuildIdToConsoleEnabled()
                         ? Optional.of(buildId)
                         : Optional.empty());
-            BroadcastEventListener.BroadcastEventBusClosable broadcastEventBusClosable =
-                broadcastEventListener.addEventBus(buildEventBus);
             // This makes calls to LOG.error(...) post to the EventBus, instead of writing to
             // stderr.
             Closeable logErrorToEventBus =
@@ -982,13 +974,21 @@ public final class Main {
                   ExecutorPool.PROJECT,
                   projectExecutorService.get());
 
-          ProgressEstimator progressEstimator =
-              new ProgressEstimator(
-                  filesystem
-                      .resolve(filesystem.getBuckPaths().getBuckOut())
-                      .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON),
-                  buildEventBus);
-          consoleListener.setProgressEstimator(progressEstimator);
+          // No need to kick off ProgressEstimator for commands that
+          // don't build anything -- it has overhead and doesn't seem
+          // to work for (e.g.) query anyway. ProgressEstimator has
+          // special support for project so we have to include it
+          // there too.
+          if (consoleListener.displaysEstimatedProgress()
+              && (command.performsBuild() || command.subcommand instanceof ProjectCommand)) {
+            ProgressEstimator progressEstimator =
+                new ProgressEstimator(
+                    filesystem
+                        .resolve(filesystem.getBuckPaths().getBuckOut())
+                        .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON),
+                    buildEventBus);
+            consoleListener.setProgressEstimator(progressEstimator);
+          }
 
           BuildEnvironmentDescription buildEnvironmentDescription =
               getBuildEnvironmentDescription(
@@ -1101,7 +1101,6 @@ public final class Main {
                   knownBuildRuleTypesProvider,
                   rootCell,
                   daemon,
-                  broadcastEventListener,
                   buildEventBus,
                   executableFinder);
 
@@ -1243,7 +1242,6 @@ public final class Main {
       KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       Cell rootCell,
       Optional<Daemon> daemonOptional,
-      BroadcastEventListener broadcastEventListener,
       BuckEventBus buildEventBus,
       ExecutableFinder executableFinder)
       throws IOException, InterruptedException {
@@ -1304,7 +1302,6 @@ public final class Main {
       parserAndCaches =
           ParserAndCaches.of(
               new Parser(
-                  broadcastEventListener,
                   parserConfig,
                   typeCoercerFactory,
                   new ConstructorArgMarshaller(typeCoercerFactory),
@@ -1313,9 +1310,7 @@ public final class Main {
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(
                   new VersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
-              new ActionGraphCache(
-                  buckConfig.getMaxActionGraphCacheEntries(),
-                  buckConfig.getMaxActionGraphNodeCacheEntries()),
+              new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
               /* defaultRuleKeyFactoryCacheRecycler */ Optional.empty());
     }
     return parserAndCaches;
@@ -1329,7 +1324,7 @@ public final class Main {
           if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
             // Process no longer wants work done on its behalf.
             LOG.debug("Killing background processes on client disconnect");
-            BgProcessKiller.killBgProcesses();
+            BgProcessKiller.interruptBgProcesses();
           }
 
           if (reason != NGClientDisconnectReason.SESSION_SHUTDOWN) {

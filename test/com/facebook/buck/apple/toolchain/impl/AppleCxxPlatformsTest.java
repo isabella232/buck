@@ -31,6 +31,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.dd.plist.NSDictionary;
+import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.FakeAppleRuleDescriptions;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
@@ -60,6 +61,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -182,6 +184,7 @@ public class AppleCxxPlatformsTest {
             .build();
     paths.forEach(this::touchFile);
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -189,8 +192,8 @@ public class AppleCxxPlatformsTest {
             "7.0",
             "armv7",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -278,6 +281,7 @@ public class AppleCxxPlatformsTest {
             .build();
     paths.forEach(this::touchFile);
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -285,8 +289,8 @@ public class AppleCxxPlatformsTest {
             "2.0",
             "armv7k",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -370,6 +374,7 @@ public class AppleCxxPlatformsTest {
             .build();
     paths.forEach(this::touchFile);
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -377,8 +382,8 @@ public class AppleCxxPlatformsTest {
             "9.1",
             "arm64",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -463,6 +468,7 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -470,8 +476,8 @@ public class AppleCxxPlatformsTest {
             "7.0",
             "cha+rs",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -514,6 +520,18 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig =
+        FakeBuckConfig.builder()
+            .setSections(
+                ImmutableMap.of(
+                    "cxx",
+                    ImmutableMap.of(
+                        "cflags", "-std=gnu11",
+                        "cppflags", "-DCTHING",
+                        "cxxflags", "-std=c++11",
+                        "cxxppflags", "-DCXXTHING")))
+            .build();
+
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -521,17 +539,8 @@ public class AppleCxxPlatformsTest {
             "7.0",
             "armv7",
             appleSdkPaths,
-            FakeBuckConfig.builder()
-                .setSections(
-                    ImmutableMap.of(
-                        "cxx",
-                        ImmutableMap.of(
-                            "cflags", "-std=gnu11",
-                            "cppflags", "-DCTHING",
-                            "cxxflags", "-std=c++11",
-                            "cxxppflags", "-DCXXTHING")))
-                .build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -571,14 +580,15 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatforms.buildWithXcodeToolFinder(
         projectFilesystem,
         targetSdk,
         "7.0",
         "armv7",
         appleSdkPaths,
-        FakeBuckConfig.builder().build(),
-        new XcodeToolFinder(),
+        buckConfig,
+        new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
         new AppleCxxPlatforms.XcodeBuildVersionCache(),
         Optional.empty());
   }
@@ -619,6 +629,7 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -626,8 +637,8 @@ public class AppleCxxPlatformsTest {
             "7.0",
             "armv7",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -673,6 +684,7 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -680,8 +692,8 @@ public class AppleCxxPlatformsTest {
             "2.0",
             "armv7k",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -728,6 +740,7 @@ public class AppleCxxPlatformsTest {
             .setToolchains(ImmutableList.of(toolchain))
             .build();
 
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     AppleCxxPlatform appleCxxPlatform =
         AppleCxxPlatforms.buildWithXcodeToolFinder(
             projectFilesystem,
@@ -735,8 +748,8 @@ public class AppleCxxPlatformsTest {
             "9.1",
             "arm64",
             appleSdkPaths,
-            FakeBuckConfig.builder().build(),
-            new XcodeToolFinder(),
+            buckConfig,
+            new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
             new AppleCxxPlatforms.XcodeBuildVersionCache(),
             Optional.empty());
 
@@ -887,7 +900,7 @@ public class AppleCxxPlatformsTest {
         "armv7",
         appleSdkPaths,
         config,
-        new XcodeToolFinder(),
+        new XcodeToolFinder(config.getView(AppleConfig.class)),
         FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
         Optional.empty());
   }
@@ -1049,11 +1062,11 @@ public class AppleCxxPlatformsTest {
     assertThat(swiftPlatformOptional.isPresent(), is(true));
     Tool swiftcTool = swiftPlatformOptional.get().getSwiftc();
     assertTrue(swiftcTool instanceof VersionedTool);
-    assertThat(
-        ((VersionedTool) swiftcTool).getPath(),
-        equalTo(
-            projectFilesystem.getPath(
-                "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc")));
+    PathSourcePath path = ((VersionedTool) swiftcTool).getPath();
+    assertEquals(projectFilesystem, path.getFilesystem());
+    assertEquals(
+        "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+        path.getRelativePathName());
 
     assertThat(swiftPlatformOptional.get().getSwiftRuntimePaths(), Matchers.empty());
   }
@@ -1064,9 +1077,9 @@ public class AppleCxxPlatformsTest {
     Optional<SwiftPlatform> swiftPlatformOptional = platformWithConfiguredSwift.getSwiftPlatform();
     assertThat(swiftPlatformOptional.isPresent(), is(true));
     Tool swiftcTool = swiftPlatformOptional.get().getSwiftc();
-    assertThat(
-        ((VersionedTool) swiftcTool).getPath(),
-        equalTo(projectFilesystem.getPath("/TEMP_ROOT/usr/bin/swiftc")));
+    PathSourcePath path = ((VersionedTool) swiftcTool).getPath();
+    assertEquals(projectFilesystem, path.getFilesystem());
+    assertEquals("/TEMP_ROOT/usr/bin/swiftc", path.getRelativePathName());
 
     assertThat(
         swiftPlatformOptional.get().getSwiftRuntimePaths(),
@@ -1130,6 +1143,7 @@ public class AppleCxxPlatformsTest {
                     "Toolchains/XcodeDefault.xctoolchain/usr/bin/swift-stdlib-tool"))
             .build();
     knownPaths.forEach(this::touchFile);
+    BuckConfig buckConfig = FakeBuckConfig.builder().build();
     return AppleCxxPlatforms.buildWithXcodeToolFinder(
         projectFilesystem,
         FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_SDK,
@@ -1142,8 +1156,8 @@ public class AppleCxxPlatformsTest {
             .setSdkPath(
                 developerDir.resolve("Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"))
             .build(),
-        FakeBuckConfig.builder().build(),
-        new XcodeToolFinder(),
+        buckConfig,
+        new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
         FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
         selectedSwiftToolChain);
   }

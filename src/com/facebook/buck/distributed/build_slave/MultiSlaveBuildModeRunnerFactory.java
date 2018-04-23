@@ -28,6 +28,7 @@ import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
@@ -114,12 +115,17 @@ public class MultiSlaveBuildModeRunnerFactory {
                     executorService),
             executorService);
     Optional<String> minionQueue = distBuildConfig.getMinionQueue();
+
     Preconditions.checkArgument(
         minionQueue.isPresent(),
         "Minion queue name is missing to be able to run in Coordinator mode.");
+
+    MinionQueueProvider minionQueueProvider =
+        createMinionQueueProvider(distBuildConfig.getLowSpecMinionQueue(), minionQueue.get());
+
     CoordinatorEventListener listenerAndMinionCountProvider =
         new CoordinatorEventListener(
-            distBuildService, stampedeId, minionQueue.get(), isLocalMinionAlsoRunning);
+            distBuildService, stampedeId, minionQueueProvider, isLocalMinionAlsoRunning);
     MinionHealthTracker minionHealthTracker =
         new MinionHealthTracker(
             new DefaultClock(),
@@ -156,6 +162,7 @@ public class MultiSlaveBuildModeRunnerFactory {
       ListenableFuture<BuildExecutor> localBuildExecutor,
       DistBuildService distBuildService,
       StampedeId stampedeId,
+      MinionType minionType,
       BuildSlaveRunId buildSlaveRunId,
       String coordinatorAddress,
       OptionalInt coordinatorPort,
@@ -194,6 +201,7 @@ public class MultiSlaveBuildModeRunnerFactory {
         coordinatorPort,
         localBuildExecutor,
         stampedeId,
+        minionType,
         buildSlaveRunId,
         distBuildConfig
             .getBuckConfig()
@@ -255,6 +263,7 @@ public class MultiSlaveBuildModeRunnerFactory {
             localBuildExecutor,
             distBuildService,
             stampedeId,
+            MinionType.STANDARD_SPEC, // Coordinator should always run on standard spec machine.
             buildSlaveRunId,
             LOCALHOST_ADDRESS,
             OptionalInt.empty(),
@@ -262,5 +271,19 @@ public class MultiSlaveBuildModeRunnerFactory {
             minionBuildProgressTracker,
             coordinatorBuildCapacityRatio,
             eventBus));
+  }
+
+  /** @return MinionQueueProvider populated with standard queue, and optionally low spec queue. */
+  private static MinionQueueProvider createMinionQueueProvider(
+      Optional<String> lowSpecMinionQueue, String standardSpecMinionQueue) {
+    MinionQueueProvider queueProvider = new MinionQueueProvider();
+
+    if (lowSpecMinionQueue.isPresent()) {
+      queueProvider.registerMinionQueue(MinionType.LOW_SPEC, lowSpecMinionQueue.get());
+    }
+
+    queueProvider.registerMinionQueue(MinionType.STANDARD_SPEC, standardSpecMinionQueue);
+
+    return queueProvider;
   }
 }

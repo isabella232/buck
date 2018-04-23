@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class StampedeBuildClient {
   private static final Logger LOG = Logger.get(StampedeBuildClient.class);
-  public static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
+  public static final String PENDING_STAMPEDE_ID = ClientStatsTracker.PENDING_STAMPEDE_ID;
 
   private final RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer;
   private final AtomicReference<StampedeId> stampedeIdReference =
@@ -257,7 +257,7 @@ public class StampedeBuildClient {
               distBuildControllerInvocationArgs.getFileHashCache(),
               distBuildControllerInvocationArgs.getInvocationInfo(),
               distBuildControllerInvocationArgs.getBuildMode(),
-              distBuildControllerInvocationArgs.getNumberOfMinions(),
+              distBuildControllerInvocationArgs.getMinionRequirements(),
               distBuildControllerInvocationArgs.getRepository(),
               distBuildControllerInvocationArgs.getTenantId(),
               distBuildControllerInvocationArgs.getRuleKeyCalculatorFuture());

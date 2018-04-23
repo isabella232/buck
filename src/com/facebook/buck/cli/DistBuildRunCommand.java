@@ -199,10 +199,12 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
           // Note that we cannot use the same pool of build threads for file materialization
           // because usually all build threads are waiting for files to be materialized, and
           // there is no thread left for the FileContentsProvider(s) to use.
+          DistBuildConfig distBuildConfig =
+              new DistBuildConfig(state.getRootCell().getBuckConfig());
           FileContentsProvider multiSourceFileContentsProvider =
               DistBuildFactory.createMultiSourceContentsProvider(
                   service,
-                  new DistBuildConfig(state.getRootCell().getBuckConfig()),
+                  distBuildConfig,
                   fileMaterializationStatsTracker,
                   params.getScheduledExecutor(),
                   Preconditions.checkNotNull(params.getExecutors().get(ExecutorPool.CPU)),

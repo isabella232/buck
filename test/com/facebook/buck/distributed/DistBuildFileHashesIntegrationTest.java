@@ -27,7 +27,6 @@ import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -113,7 +112,6 @@ public class DistBuildFileHashesIntegrationTest {
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
         new Parser(
-            new BroadcastEventListener(),
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
@@ -189,7 +187,6 @@ public class DistBuildFileHashesIntegrationTest {
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
         new Parser(
-            new BroadcastEventListener(),
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
@@ -233,9 +230,7 @@ public class DistBuildFileHashesIntegrationTest {
   private DistBuildFileHashes createDistBuildFileHashes(TargetGraph targetGraph, Cell rootCell)
       throws InterruptedException {
     ActionGraphCache cache =
-        new ActionGraphCache(
-            rootCell.getBuckConfig().getMaxActionGraphCacheEntries(),
-            rootCell.getBuckConfig().getMaxActionGraphNodeCacheEntries());
+        new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
     ActionGraphAndResolver actionGraphAndResolver =
         cache.getActionGraph(
             BuckEventBusForTests.newInstance(),

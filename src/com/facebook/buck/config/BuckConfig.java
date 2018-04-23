@@ -357,9 +357,7 @@ public class BuckConfig implements ConfigPathGetter {
     return PathSourcePath.of(
         projectFilesystem,
         checkPathExists(
-            path.toString(),
-            String.format(
-                "Failed to transform Path %s to Source Path because path was not found.", path)));
+            path.toString(), "Failed to transform Path to SourcePath, path not found: "));
   }
 
   /**
@@ -564,10 +562,6 @@ public class BuckConfig implements ConfigPathGetter {
   public IncrementalActionGraphMode getIncrementalActionGraphMode() {
     return getEnum("cache", "incremental_action_graph", IncrementalActionGraphMode.class)
         .orElse(IncrementalActionGraphMode.DEFAULT);
-  }
-
-  public int getMaxActionGraphNodeCacheEntries() {
-    return getInteger("cache", "max_action_graph_node_cache_entries").orElse(10000);
   }
 
   public Optional<String> getRepository() {

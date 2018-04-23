@@ -32,7 +32,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasSupplementaryOutputs;
@@ -67,8 +66,7 @@ public class CxxLink extends AbstractBuildRule
     implements SupportsInputBasedRuleKey,
         HasAppleDebugSymbolDeps,
         OverrideScheduleRule,
-        HasSupplementaryOutputs,
-        CacheableBuildRule {
+        HasSupplementaryOutputs {
 
   private final Supplier<? extends SortedSet<BuildRule>> buildDeps;
 
@@ -218,7 +216,6 @@ public class CxxLink extends AbstractBuildRule
                 context.getSourcePathResolver()))
         .add(
             new CxxLinkStep(
-                getBuildTarget(),
                 getProjectFilesystem().getRootPath(),
                 linker.getEnvironment(context.getSourcePathResolver()),
                 linker.getCommandPrefix(context.getSourcePathResolver()),

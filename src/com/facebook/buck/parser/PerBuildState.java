@@ -125,7 +125,10 @@ public class PerBuildState implements AutoCloseable {
 
     this.rawNodeParsePipeline =
         new RawNodeParsePipeline(
-            daemonicParserState.getRawNodeCache(), projectBuildFileParserPool, executorService);
+            daemonicParserState.getRawNodeCache(),
+            projectBuildFileParserPool,
+            executorService,
+            eventBus);
     this.targetNodeParsePipeline =
         new TargetNodeParsePipeline(
             daemonicParserState.getOrCreateNodeCache(TargetNode.class),
@@ -231,12 +234,6 @@ public class PerBuildState implements AutoCloseable {
     Cell currentCell = getCell(node.getBuildTarget());
     symlinkCache.registerInputsUnderSymlinks(
         currentCell, getCell(node.getBuildTarget()), buildFile, node);
-  }
-
-  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
-    for (Cell eachCell : cells.values()) {
-      eachCell.ensureConcreteFilesExist(eventBus);
-    }
   }
 
   public long getParseProcessedBytes() {

@@ -29,7 +29,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
@@ -56,7 +55,7 @@ import java.util.function.Predicate;
 
 /** A build rule which preprocesses and/or compiles a C/C++ source in a single step. */
 public class CxxPreprocessAndCompile extends AbstractBuildRule
-    implements SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey, CacheableBuildRule {
+    implements SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey {
 
   private final ImmutableSortedSet<BuildRule> buildDeps;
 
@@ -65,8 +64,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
 
   @AddToRuleKey private final CompilerDelegate compilerDelegate;
 
-  @AddToRuleKey(stringify = true)
-  private final Path output;
+  @AddToRuleKey private final String outputName;
 
   @AddToRuleKey private final SourcePath input;
   private final Optional<CxxPrecompiledHeader> precompiledHeaderRule;
@@ -80,7 +78,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       ImmutableSortedSet<BuildRule> buildDeps,
       Optional<PreprocessorDelegate> preprocessDelegate,
       CompilerDelegate compilerDelegate,
-      Path output,
+      String outputName,
       SourcePath input,
       CxxSource.Type inputType,
       Optional<CxxPrecompiledHeader> precompiledHeaderRule,
@@ -96,7 +94,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
     }
     this.preprocessDelegate = preprocessDelegate;
     this.compilerDelegate = compilerDelegate;
-    this.output = output;
+    this.outputName = outputName;
     this.input = input;
     this.inputType = inputType;
     this.precompiledHeaderRule = precompiledHeaderRule;
@@ -118,7 +116,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       ProjectFilesystem projectFilesystem,
       ImmutableSortedSet<BuildRule> buildDeps,
       CompilerDelegate compilerDelegate,
-      Path output,
+      String outputName,
       SourcePath input,
       CxxSource.Type inputType,
       DebugPathSanitizer sanitizer,
@@ -129,7 +127,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
         buildDeps,
         Optional.empty(),
         compilerDelegate,
-        output,
+        outputName,
         input,
         inputType,
         Optional.empty(),
@@ -146,7 +144,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
       ImmutableSortedSet<BuildRule> buildDeps,
       PreprocessorDelegate preprocessorDelegate,
       CompilerDelegate compilerDelegate,
-      Path output,
+      String outputName,
       SourcePath input,
       CxxSource.Type inputType,
       Optional<CxxPrecompiledHeader> precompiledHeaderRule,
@@ -158,7 +156,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
         buildDeps,
         Optional.of(preprocessorDelegate),
         compilerDelegate,
-        output,
+        outputName,
         input,
         inputType,
         precompiledHeaderRule,
@@ -186,12 +184,19 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
   }
 
   private Path getDepFilePath() {
-    return output.getFileSystem().getPath(output + ".dep");
+    return getOutputRoot().resolve(outputName + ".dep");
+  }
+
+  private Path getOutputPath() {
+    return getOutputRoot().resolve(outputName);
+  }
+
+  private Path getOutputRoot() {
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s__/");
   }
 
   @VisibleForTesting
-  CxxPreprocessAndCompileStep makeMainStep(
-      SourcePathResolver resolver, Path scratchDir, boolean useArgfile) {
+  CxxPreprocessAndCompileStep makeMainStep(SourcePathResolver resolver, boolean useArgfile) {
 
     // If we're compiling, this will just be empty.
     HeaderPathNormalizer headerPathNormalizer =
@@ -208,6 +213,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
 
     Path relativeInputPath = getRelativeInputPath(resolver);
 
+    Path output = getOutputPath();
     return new CxxPreprocessAndCompileStep(
         getProjectFilesystem(),
         preprocessDelegate.isPresent()
@@ -225,7 +231,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
             compilerDelegate.getEnvironment(resolver)),
         headerPathNormalizer,
         sanitizer,
-        scratchDir,
+        getScratchPath(),
         useArgfile,
         compilerDelegate.getCompiler(),
         Optional.of(
@@ -260,6 +266,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
           }
         });
 
+    Path output = getOutputPath();
     buildableContext.recordArtifact(output);
 
     for (String flag :
@@ -280,11 +287,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
             MakeCleanDirectoryStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
                     context.getBuildCellRootPath(), getProjectFilesystem(), getScratchPath())))
-        .add(
-            makeMainStep(
-                context.getSourcePathResolver(),
-                getScratchPath(),
-                compilerDelegate.isArgFileSupported()))
+        .add(makeMainStep(context.getSourcePathResolver(), compilerDelegate.isArgFileSupported()))
         .build();
   }
 
@@ -309,12 +312,12 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
 
   // Used for compdb
   public ImmutableList<String> getCommand(SourcePathResolver pathResolver) {
-    return makeMainStep(pathResolver, getScratchPath(), false).getCommand();
+    return makeMainStep(pathResolver, false).getCommand();
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getOutputPath());
   }
 
   public SourcePath getInput() {
@@ -375,7 +378,7 @@ public class CxxPreprocessAndCompile extends AbstractBuildRule
                 preprocessDelegate.get().getHeaderVerification(),
                 getDepFilePath(),
                 getRelativeInputPath(context.getSourcePathResolver()),
-                output,
+                getOutputPath(),
                 compilerDelegate.getDependencyTrackingMode());
       } catch (Depfiles.HeaderVerificationException e) {
         throw new HumanReadableException(e);

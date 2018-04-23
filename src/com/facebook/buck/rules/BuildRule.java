@@ -16,12 +16,12 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
+import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
+import com.facebook.buck.core.rules.provider.MissingProviderException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.provider.BuildRuleInfoProvider;
-import com.facebook.buck.rules.provider.BuildRuleInfoProviderCollection;
-import com.facebook.buck.rules.provider.MissingProviderException;
 import com.facebook.buck.step.Step;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -111,6 +111,19 @@ public interface BuildRule extends Comparable<BuildRule> {
 
     return this.getBuildTarget().compareTo(that.getBuildTarget());
   }
+
+  /**
+   * Updates the build rule resolver and associated objects for this build rule.
+   *
+   * <p>Build rules sometimes hold field references to build rule resolvers. If this build rule is
+   * to be cached, it must update its build rule resolver when a new action graph is constructed to
+   * avoid leaking the entire action graph it was originally associated with.
+   */
+  @SuppressWarnings("unused")
+  void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver);
 
   /**
    * Whether the BuildRule is implemented with {@link BuildRuleInfoProvider}. This will be removed

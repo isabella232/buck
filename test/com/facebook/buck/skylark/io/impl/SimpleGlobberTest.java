@@ -26,10 +26,8 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.Path;
-import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.Collections;
-import org.hamcrest.CoreMatchers;
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -50,7 +48,43 @@ public class SimpleGlobberTest {
   }
 
   @Test
-  public void testGlobFindsIncludes() throws IOException {
+  public void testGlobFindsRecursiveIncludes() throws Exception {
+    Path child = root.getChild("child");
+    child.createDirectory();
+    FileSystemUtils.createEmptyFile(child.getChild("foo.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.jpg"));
+    assertThat(
+        globber.run(Collections.singleton("**/*.txt"), Collections.emptySet(), false),
+        equalTo(ImmutableSet.of("child/bar.txt", "child/foo.txt")));
+  }
+
+  @Test
+  public void testGlobFindsShallowRecursiveIncludes() throws Exception {
+    Path child = root.getChild("child");
+    child.createDirectory();
+    FileSystemUtils.createEmptyFile(child.getChild("foo.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.jpg"));
+    assertThat(
+        globber.run(Collections.singleton("child/**/*.txt"), Collections.emptySet(), false),
+        equalTo(ImmutableSet.of("child/bar.txt", "child/foo.txt")));
+  }
+
+  @Test
+  public void testGlobFindsDeepRecursiveIncludes() throws Exception {
+    Path child = root.getChild("dir").getChild("child");
+    child.createDirectoryAndParents();
+    FileSystemUtils.createEmptyFile(child.getChild("foo.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.txt"));
+    FileSystemUtils.createEmptyFile(child.getChild("bar.jpg"));
+    assertThat(
+        globber.run(Collections.singleton("dir/**/child/*.txt"), Collections.emptySet(), false),
+        equalTo(ImmutableSet.of("dir/child/bar.txt", "dir/child/foo.txt")));
+  }
+
+  @Test
+  public void testGlobFindsIncludes() throws Exception {
     FileSystemUtils.createEmptyFile(root.getChild("foo.txt"));
     FileSystemUtils.createEmptyFile(root.getChild("bar.txt"));
     FileSystemUtils.createEmptyFile(root.getChild("bar.jpg"));
@@ -60,7 +94,7 @@ public class SimpleGlobberTest {
   }
 
   @Test
-  public void testGlobExcludedElementsAreNotReturned() throws IOException {
+  public void testGlobExcludedElementsAreNotReturned() throws Exception {
     FileSystemUtils.createEmptyFile(root.getChild("foo.txt"));
     FileSystemUtils.createEmptyFile(root.getChild("bar.txt"));
     FileSystemUtils.createEmptyFile(root.getChild("bar.jpg"));
@@ -89,18 +123,16 @@ public class SimpleGlobberTest {
   }
 
   @Test
-  public void testThrowsOnNonexistentDirectory() throws Exception {
-    thrown.expect(FileNotFoundException.class);
-    thrown.expectMessage(CoreMatchers.endsWith("/does"));
-
-    globber.run(Collections.singleton("does/not/exist.txt"), Collections.emptySet(), false);
+  public void doesNotReturnNonexistentDirectory() throws Exception {
+    assertThat(
+        globber.run(Collections.singleton("does/not/exist.txt"), Collections.emptySet(), false),
+        Matchers.empty());
   }
 
   @Test
-  public void testThrowsOnNonexistentFile() throws Exception {
-    thrown.expect(FileNotFoundException.class);
-    thrown.expectMessage(CoreMatchers.endsWith("/does_not_exist.txt"));
-
-    globber.run(Collections.singleton("does_not_exist.txt"), Collections.emptySet(), false);
+  public void doesNotReturnNonexistentFile() throws Exception {
+    assertThat(
+        globber.run(Collections.singleton("does_not_exist.txt"), Collections.emptySet(), false),
+        Matchers.empty());
   }
 }

@@ -27,6 +27,8 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.features.python.PythonBuckConfig;
+import com.facebook.buck.features.python.toolchain.impl.PythonInterpreterFromConfig;
 import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.ExplodingDownloader;
@@ -35,11 +37,10 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
+import com.facebook.buck.maven.aether.Repository;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
-import com.facebook.buck.python.PythonBuckConfig;
-import com.facebook.buck.python.toolchain.impl.PythonInterpreterFromConfig;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -161,7 +162,7 @@ public class ResolverIntegrationTest {
       throws URISyntaxException, IOException, RepositoryException, ExecutionException,
           InterruptedException {
     ArtifactConfig config = newConfig();
-    config.repositories.add(new ArtifactConfig.Repository(httpd.getUri("/").toString()));
+    config.repositories.add(new Repository(httpd.getUri("/").toString()));
     config.artifacts.addAll(Arrays.asList(artifacts));
     config.visibility.add("PUBLIC");
     new Resolver(config).resolve(config.artifacts);

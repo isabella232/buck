@@ -17,6 +17,9 @@
 package com.facebook.buck.rules.modern.impl;
 
 import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -254,6 +257,21 @@ class ValueTypeInfos {
     @Override
     public <E extends Exception> Double create(ValueCreator<E> creator) throws E {
       return creator.createDouble();
+    }
+  }
+
+  /** ValueTypeInfo for fields that are not annotated with @AddToRuleKey. */
+  public static class ExcludedValueTypeInfo implements ValueTypeInfo<Object> {
+    public static final ValueTypeInfo<?> INSTANCE = new ExcludedValueTypeInfo();
+
+    @Override
+    public <E extends Exception> void visit(Object value, ValueVisitor<E> visitor) throws E {
+      // Excluded values are skipped.
+    }
+
+    @Override
+    public <E extends Exception> Object create(ValueCreator<E> creator) throws E {
+      throw new IllegalStateException("Cannot create excluded fields.");
     }
   }
 }

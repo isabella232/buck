@@ -81,7 +81,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
 
     PreprocessorDelegate preprocessorDelegate =
         new PreprocessorDelegate(
-            CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification(),
             Paths.get("whatever"),
             new GccPreprocessor(preprocessorTool),
@@ -99,7 +98,7 @@ public class CxxCollectAndLogInferDependenciesStepTest {
         FakeSourcePath.of("src.c"),
         AbstractCxxSource.Type.C,
         Optional.empty(),
-        Paths.get("src.o"),
+        "src.o",
         preprocessorDelegate,
         inferBuckConfig);
   }

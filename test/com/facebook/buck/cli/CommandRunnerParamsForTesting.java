@@ -23,7 +23,6 @@ import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
@@ -115,7 +114,6 @@ public class CommandRunnerParamsForTesting {
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
         new Parser(
-            new BroadcastEventListener(),
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
@@ -135,8 +133,7 @@ public class CommandRunnerParamsForTesting {
         ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(
-            config.getMaxActionGraphCacheEntries(), config.getMaxActionGraphNodeCacheEntries()),
+        new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
         knownBuildRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),

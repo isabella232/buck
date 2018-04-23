@@ -127,7 +127,6 @@ public class CxxCompilationDatabaseTest {
                 filesystem,
                 ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree),
                 new PreprocessorDelegate(
-                    CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                     CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification(),
                     filesystem.getRootPath(),
                     new GccPreprocessor(
@@ -142,7 +141,7 @@ public class CxxCompilationDatabaseTest {
                     new GccCompiler(
                         new HashedFileTool(PathSourcePath.of(filesystem, Paths.get("compiler")))),
                     CxxToolFlags.of()),
-                Paths.get("test.o"),
+                "test.o",
                 FakeSourcePath.of(filesystem, "test.cpp"),
                 CxxSource.Type.CXX,
                 Optional.empty(),
@@ -192,10 +191,10 @@ public class CxxCompilationDatabaseTest {
                     "-c",
                     "-MD",
                     "-MF",
-                    "test.o.dep",
+                    "buck-out/gen/foo/baz#compile-test.cpp__/test.o.dep",
                     "test.cpp",
                     "-o",
-                    "test.o")));
+                    "buck-out/gen/foo/baz#compile-test.cpp__/test.o")));
     MoreAsserts.assertIterablesEquals(expectedEntries, observedEntries);
   }
 }

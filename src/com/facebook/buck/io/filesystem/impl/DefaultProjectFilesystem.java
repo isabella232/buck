@@ -16,7 +16,6 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
 import com.facebook.buck.io.file.MostFiles;
@@ -139,7 +138,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     if (shouldVerifyConstructorArguments()) {
       Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
       Preconditions.checkState(vfs.equals(root.getFileSystem()));
-      Preconditions.checkArgument(root.isAbsolute());
+      Preconditions.checkArgument(root.isAbsolute(), "Expected absolute path. Got <%s>.", root);
     }
     this.projectRoot = MorePaths.normalize(root);
     this.delegate = delegate;
@@ -216,15 +215,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public ImmutableMap<String, ? extends Object> getDelegateDetails() {
     return delegate.getDetailsForLogging();
-  }
-
-  /**
-   * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
-   * them past this point.
-   */
-  @Override
-  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
-    delegate.ensureConcreteFilesExist(eventBus);
   }
 
   /**
@@ -1009,7 +999,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     private final Path root;
     private final boolean followLinks;
     private final boolean skipIgnored;
-    private ArrayDeque<DirWalkState> state;
+    private final ArrayDeque<DirWalkState> state;
 
     FileTreeWalker(
         Path root,

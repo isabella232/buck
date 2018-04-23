@@ -32,7 +32,6 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
@@ -53,12 +52,9 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.Set;
-import java.util.SortedSet;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
@@ -70,13 +66,7 @@ import java.util.stream.Stream;
  * interfaces to make it consumable by C/C++ preprocessing and native linkable rules.
  */
 public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements AbstractCxxLibrary,
-        HasRuntimeDeps,
-        NativeTestable,
-        NativeLinkTarget,
-        CacheableBuildRule {
-
-  private Set<BuildRule> implicitDepsForCaching = Sets.newConcurrentHashSet();
+    implements AbstractCxxLibrary, HasRuntimeDeps, NativeTestable, NativeLinkTarget {
 
   private final CxxDeps deps;
   private final CxxDeps exportedDeps;
@@ -178,19 +168,9 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   private CxxPreprocessorInput getCxxPreprocessorInput(
       CxxPlatform cxxPlatform, HeaderVisibility headerVisibility, BuildRuleResolver ruleResolver) {
     // Handle via metadata query.
-    CxxPreprocessorInput preprocessorInput =
-        CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
-                ruleResolver, getBuildTarget(), cxxPlatform, headerVisibility)
-            .orElseThrow(IllegalStateException::new);
-
-    // Make sure we save preprocessor deps, which won't show up under buildDeps or runtimeDeps,
-    // for the action graph cache.
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    for (BuildRule dep : preprocessorInput.getDeps(ruleResolver, ruleFinder)) {
-      implicitDepsForCaching.add(dep);
-    }
-
-    return preprocessorInput;
+    return CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
+            ruleResolver, getBuildTarget(), cxxPlatform, headerVisibility)
+        .orElseThrow(IllegalStateException::new);
   }
 
   @Override
@@ -403,17 +383,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   /** Require a flavored version of this build rule */
   public BuildRule requireBuildRule(BuildRuleResolver ruleResolver, Flavor... flavors) {
-    BuildRule buildRule = ruleResolver.requireRule(getBuildTarget().withAppendedFlavors(flavors));
-
-    // These dependencies are not tracked as part of deps for this library, but rather, end up
-    // under the link node of the parent binary. We need to capture them here to ensure we
-    // actually get perf benefits from caching this library node. Otherwise, an invalidated parent
-    // binary node will recompute the potentially complex subgraph that actually does the heavy
-    // lifting to compile and link together this library. The most important entries are the Archive
-    // node created by {@link #getNativeLinkableInputUncached}, and the shared library node created
-    // by {@link #getSharedLibraries}.
-    implicitDepsForCaching.add(buildRule);
-    return buildRule;
+    return ruleResolver.requireRule(getBuildTarget().withAppendedFlavors(flavors));
   }
 
   @Override
@@ -514,10 +484,5 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   public Iterable<? extends Arg> getExportedLinkerFlags(
       CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     return exportedLinkerFlags.apply(cxxPlatform, ruleResolver);
-  }
-
-  @Override
-  public SortedSet<BuildRule> getImplicitDepsForCaching() {
-    return ImmutableSortedSet.copyOf(implicitDepsForCaching);
   }
 }
