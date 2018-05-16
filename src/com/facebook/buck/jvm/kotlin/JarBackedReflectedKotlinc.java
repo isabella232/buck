@@ -40,6 +40,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -188,18 +189,14 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
       ClassLoaderCache classLoaderCache = context.getClassLoaderCache();
       classLoaderCache.addRef();
 
+      ImmutableList<URL> urls = ImmutableList.copyOf(
+          compilerClassPath
+              .stream()
+              .map(p -> ((PathSourcePath) p).getRelativePath())
+              .map(PATH_TO_URL)
+              .iterator());
       ClassLoader toolClassLoader = SynchronizedToolProvider.getSystemToolClassLoader();
-      LOG.info("JCTreeVisitor class Building ruleading test:");
-      LOG.info(toolClassLoader.loadClass("com.sun.tools.javac.tree.JCTree$Visitor").toString());
-      ClassLoader classLoader =
-          classLoaderCache.getClassLoaderForClassPath(
-              toolClassLoader, ImmutableList.copyOf(
-                      compilerClassPath
-                          .stream()
-                          .map(p -> ((PathSourcePath) p).getRelativePath())
-                          .map(PATH_TO_URL)
-                          .iterator()));
-
+      ClassLoader classLoader = new URLClassLoader(urls.toArray(new URL[urls.size()]), toolClassLoader);
       return classLoader.loadClass(COMPILER_CLASS).newInstance();
     } catch (Exception ex) {
       throw new RuntimeException(ex);
