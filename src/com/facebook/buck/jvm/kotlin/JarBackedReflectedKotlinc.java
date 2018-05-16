@@ -187,15 +187,17 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
       ClassLoaderCache classLoaderCache = context.getClassLoaderCache();
       classLoaderCache.addRef();
 
+      ClassLoader toolClassLoader = SynchronizedToolProvider.getSystemToolClassLoader();
+      System.out.println("JCTreeVisitor class loading test:");
+      System.out.println(toolClassLoader.loadClass("com.sun.tools.javac.tree.JCTree$Visitor"));
       ClassLoader classLoader =
           classLoaderCache.getClassLoaderForClassPath(
-              SynchronizedToolProvider.getSystemToolClassLoader(),
-              ImmutableList.copyOf(
-                  compilerClassPath
-                      .stream()
-                      .map(p -> ((PathSourcePath) p).getRelativePath())
-                      .map(PATH_TO_URL)
-                      .iterator()));
+              toolClassLoader, ImmutableList.copyOf(
+                      compilerClassPath
+                          .stream()
+                          .map(p -> ((PathSourcePath) p).getRelativePath())
+                          .map(PATH_TO_URL)
+                          .iterator()));
 
       return classLoader.loadClass(COMPILER_CLASS).newInstance();
     } catch (Exception ex) {
