@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.kotlin;
 
 import static com.google.common.collect.Iterables.transform;
 
+import com.facebook.buck.core.build.engine.impl.CachingBuildRuleBuilder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -26,6 +27,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.google.common.base.Joiner;
@@ -48,7 +50,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class JarBackedReflectedKotlinc implements Kotlinc {
-
+  private static final Logger LOG = Logger.get(JarBackedReflectedKotlinc.class);
   private static final String COMPILER_CLASS = "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler";
   private static final String EXIT_CODE_CLASS = "org.jetbrains.kotlin.cli.common.ExitCode";
   private static final KotlincVersion VERSION = KotlincVersion.of("in memory");
@@ -188,8 +190,8 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
       classLoaderCache.addRef();
 
       ClassLoader toolClassLoader = SynchronizedToolProvider.getSystemToolClassLoader();
-      System.out.println("JCTreeVisitor class loading test:");
-      System.out.println(toolClassLoader.loadClass("com.sun.tools.javac.tree.JCTree$Visitor"));
+      LOG.info("JCTreeVisitor class Building ruleading test:");
+      LOG.info(toolClassLoader.loadClass("com.sun.tools.javac.tree.JCTree$Visitor").toString());
       ClassLoader classLoader =
           classLoaderCache.getClassLoaderForClassPath(
               toolClassLoader, ImmutableList.copyOf(
