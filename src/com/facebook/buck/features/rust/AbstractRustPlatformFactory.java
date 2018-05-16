@@ -17,14 +17,14 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.rules.ConstantToolProvider;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.ToolProvider;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -42,14 +42,14 @@ abstract class AbstractRustPlatformFactory {
 
   abstract ExecutableFinder getExecutableFinder();
 
-  /** @return a {@link RustPlatform} from the given config section. */
-  public RustPlatform getPlatform(String section, CxxPlatform cxxPlatform) {
+  /** @return a {@link RustPlatform} from the given config subsection name. */
+  public RustPlatform getPlatform(String name, CxxPlatform cxxPlatform) {
     RustBuckConfig rustBuckConfig = new RustBuckConfig(getBuckConfig());
-    Optional<ToolProvider> linker = rustBuckConfig.getRustLinker(section);
+    Optional<ToolProvider> linker = rustBuckConfig.getRustLinker(name);
     return RustPlatform.builder()
         .setRustCompiler(
             rustBuckConfig
-                .getRustCompiler(section)
+                .getRustCompiler(name)
                 .orElseGet(
                     () -> {
                       HashedFileTool tool =
@@ -63,10 +63,10 @@ abstract class AbstractRustPlatformFactory {
                                                   getBuckConfig().getEnvironment())));
                       return new ConstantToolProvider(tool);
                     }))
-        .addAllRustLibraryFlags(rustBuckConfig.getRustcLibraryFlags(section))
-        .addAllRustBinaryFlags(rustBuckConfig.getRustcBinaryFlags(section))
-        .addAllRustTestFlags(rustBuckConfig.getRustcTestFlags(section))
-        .addAllRustCheckFlags(rustBuckConfig.getRustcCheckFlags(section))
+        .addAllRustLibraryFlags(rustBuckConfig.getRustcLibraryFlags(name))
+        .addAllRustBinaryFlags(rustBuckConfig.getRustcBinaryFlags(name))
+        .addAllRustTestFlags(rustBuckConfig.getRustcTestFlags(name))
+        .addAllRustCheckFlags(rustBuckConfig.getRustcCheckFlags(name))
         .setLinker(linker)
         .setLinkerProvider(
             linker
@@ -75,11 +75,11 @@ abstract class AbstractRustPlatformFactory {
                         (LinkerProvider)
                             new DefaultLinkerProvider(
                                 rustBuckConfig
-                                    .getLinkerPlatform(section)
+                                    .getLinkerPlatform(name)
                                     .orElse(cxxPlatform.getLd().getType()),
                                 tp))
                 .orElseGet(cxxPlatform::getLd))
-        .addAllLinkerArgs(rustBuckConfig.getLinkerFlags(section))
+        .addAllLinkerArgs(rustBuckConfig.getLinkerFlags(name))
         .addAllLinkerArgs(!linker.isPresent() ? cxxPlatform.getLdflags() : ImmutableList.of())
         .setCxxPlatform(cxxPlatform)
         .build();

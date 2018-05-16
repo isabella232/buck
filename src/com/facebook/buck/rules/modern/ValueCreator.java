@@ -16,8 +16,8 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;

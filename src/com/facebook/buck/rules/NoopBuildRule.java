@@ -16,8 +16,11 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
@@ -34,8 +37,8 @@ import javax.annotation.Nullable;
  *       NoopBuildRuleWithDeclaredAndExtraDeps to keep to that constraint, even though the actual
  *       work is done by the flavored versions.
  *   <li>When a target has no output artifacts, but its exit code may be interesting. e.g. {@link
- *       TestRule}s may not have any build steps to perform, but have runTests Steps to run to
- *       determine their exit code.
+ *       com.facebook.buck.core.test.rule.TestRule}s may not have any build steps to perform, but
+ *       have runTests Steps to run to determine their exit code.
  *   <li>When a target just forwards an existing file, e.g. for prebuilt library rules, or if all
  *       the work is actually done on a depending rule (e.g. Lua).
  * </ol>
@@ -50,6 +53,11 @@ public abstract class NoopBuildRule extends AbstractBuildRule implements Support
   public final ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
+  }
+
+  @Override
+  public final boolean hasBuildSteps() {
+    return false;
   }
 
   @Nullable

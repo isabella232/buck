@@ -21,14 +21,14 @@ import static com.facebook.buck.jvm.core.JavaLibrary.SRC_JAR;
 import static com.facebook.buck.jvm.java.Javadoc.DOC_JAR;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.maven.Publisher;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -57,6 +57,8 @@ public class PublishCommand extends BuildCommand {
   public static final String INCLUDE_DOCS_SHORT_ARG = "-w";
   public static final String TO_MAVEN_CENTRAL_LONG_ARG = "--to-maven-central";
   public static final String DRY_RUN_LONG_ARG = "--dry-run";
+
+  private static final String PUBLISH_GEN_PATH = "publish";
 
   @Option(
     name = REMOTE_REPO_LONG_ARG,
@@ -110,6 +112,16 @@ public class PublishCommand extends BuildCommand {
       throws IOException, InterruptedException {
 
     // Input validation
+    if (remoteRepo != null && toMavenCentral) {
+      throw new CommandLineException(
+          "please specify only a single remote repository to publish to.\n"
+              + "Use "
+              + REMOTE_REPO_LONG_ARG
+              + " <URL> or "
+              + TO_MAVEN_CENTRAL_LONG_ARG
+              + " but not both.");
+    }
+
     if (remoteRepo == null && !toMavenCentral) {
       throw new CommandLineException(
           "please specify a remote repository to publish to.\n"
@@ -172,10 +184,13 @@ public class PublishCommand extends BuildCommand {
       publishables.add(publishable);
     }
 
+    // Assume validation passed.
+    URL repoUrl = toMavenCentral ? Publisher.MAVEN_CENTRAL : Preconditions.checkNotNull(remoteRepo);
+
     Publisher publisher =
         new Publisher(
-            params.getCell().getFilesystem(),
-            Optional.ofNullable(remoteRepo),
+            params.getCell().getFilesystem().getBuckPaths().getTmpDir().resolve(PUBLISH_GEN_PATH),
+            repoUrl,
             Optional.ofNullable(username),
             Optional.ofNullable(password),
             dryRun);

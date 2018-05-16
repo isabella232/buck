@@ -16,16 +16,16 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKeyAppendable;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.util.HumanReadableException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;

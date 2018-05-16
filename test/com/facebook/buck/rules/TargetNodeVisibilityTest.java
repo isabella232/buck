@@ -16,21 +16,24 @@
 
 package com.facebook.buck.rules;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternParser;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
@@ -234,7 +237,7 @@ public class TargetNodeVisibilityTest {
     FakeRuleDescriptionArg arg =
         FakeRuleDescriptionArg.builder().setName(buildTarget.getShortName()).build();
     return new TargetNodeFactory(new DefaultTypeCoercerFactory())
-        .create(
+        .createFromObject(
             Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
             description,
             arg,

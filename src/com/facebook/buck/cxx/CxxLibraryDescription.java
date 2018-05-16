@@ -16,35 +16,36 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorConvertible;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.DescriptionCache;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableCollection;
@@ -285,7 +286,7 @@ public class CxxLibraryDescription
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
     return cxxLibraryImplicitFlavors.addImplicitFlavorsForRuleTypes(
-        argDefaultFlavors, Description.getBuildRuleType(this));
+        argDefaultFlavors, DescriptionCache.getBuildRuleType(this));
   }
 
   @Override

@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.event.BuckEventBus;
@@ -24,8 +26,6 @@ import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,6 +35,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.CharBuffer;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -206,6 +207,8 @@ class Depfiles {
         List<String> srcAndIncludes = filesystem.readLines(sourceDepFile);
         List<String> includes = srcAndIncludes.subList(1, srcAndIncludes.size());
         return includes;
+      case NONE:
+        return Collections.emptyList();
       default:
         // never happens
         throw new IllegalStateException();

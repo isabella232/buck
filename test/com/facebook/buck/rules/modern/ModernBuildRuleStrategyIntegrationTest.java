@@ -21,22 +21,24 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeFalse;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.modern.builders.grpc.server.GrpcServer;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -49,7 +51,6 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Arrays;
@@ -57,6 +58,7 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.Optional;
 import org.immutables.value.Value;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -65,6 +67,10 @@ import org.junit.runners.Parameterized;
 
 @RunWith(Parameterized.class)
 public class ModernBuildRuleStrategyIntegrationTest {
+  // By default, the tests will start up a remote execution service and connect to that. This value
+  // can be changed to connect to a different service.
+  private static final int REMOTE_PORT = ModernBuildRuleConfig.DEFAULT_REMOTE_PORT;
+
   private String simpleTarget = "//:simple";
   private String failingTarget = "//:failing";
   private String failingStepTarget = "//:failing_step";
@@ -83,6 +89,7 @@ public class ModernBuildRuleStrategyIntegrationTest {
   @Rule public TemporaryPaths tmpFolder = new TemporaryPaths(true);
 
   private final ModernBuildRuleConfig.Strategy strategy;
+  private Optional<GrpcServer> server = Optional.empty();
   private ProjectWorkspace workspace;
   private ProjectFilesystem filesystem;
 
@@ -216,7 +223,9 @@ public class ModernBuildRuleStrategyIntegrationTest {
   public void setUp() throws InterruptedException, IOException {
     // MBR strategies use a ContentAddressedStorage that doesn't work correctly on Windows.
     assumeFalse(Platform.detect().equals(Platform.WINDOWS));
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "strategies", tmpFolder);
+    workspace =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "strategies", tmpFolder);
     workspace.setKnownBuildRuleTypesFactoryFactory(
         (processExecutor, pluginManager, sandboxExecutionStrategyFactory) ->
             cell ->
@@ -228,7 +237,21 @@ public class ModernBuildRuleStrategyIntegrationTest {
                     .build());
     workspace.setUp();
     workspace.addBuckConfigLocalOption("modern_build_rule", "strategy", strategy.toString());
+    workspace.addBuckConfigLocalOption(
+        "modern_build_rule", "remote_port", Integer.toString(REMOTE_PORT));
+
     filesystem = TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath());
+
+    if (strategy == ModernBuildRuleConfig.Strategy.GRPC_REMOTE) {
+      server = Optional.of(new GrpcServer(ModernBuildRuleConfig.DEFAULT_REMOTE_PORT));
+    }
+  }
+
+  @After
+  public void tearDown() throws Exception {
+    if (server.isPresent()) {
+      server.get().close();
+    }
   }
 
   public ModernBuildRuleStrategyIntegrationTest(ModernBuildRuleConfig.Strategy strategy) {

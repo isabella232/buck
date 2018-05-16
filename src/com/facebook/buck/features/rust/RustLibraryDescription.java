@@ -18,6 +18,20 @@ package com.facebook.buck.features.rust;
 
 import static com.facebook.buck.features.rust.RustCompileUtils.ruleToCrateName;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.arg.HasDefaultPlatform;
+import com.facebook.buck.core.description.arg.HasSrcs;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -25,32 +39,18 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.HasDefaultPlatform;
-import com.facebook.buck.rules.HasSrcs;
-import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableCollection;
@@ -132,6 +132,7 @@ public class RustLibraryDescription
         rootModuleAndSources.getSecond(),
         rootModuleAndSources.getFirst(),
         rustBuckConfig.getForceRlib(),
+        rustBuckConfig.getPreferStaticLibs(),
         deps);
   }
 
@@ -463,11 +464,15 @@ public class RustLibraryDescription
       AbstractRustLibraryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    if (LIBRARY_TYPE.getValue(buildTarget).isPresent()) {
-      targetGraphOnlyDepsBuilder.addAll(
-          RustCompileUtils.getPlatformParseTimeDeps(
-              getRustToolchain(), buildTarget, constructorArg));
-    }
+    // Add parse-time deps for *all* platforms, as we don't know which platform will be
+    // selected by a top-level binary rule (e.g. a Python binary transitively depending on
+    // this library may choose platform "foo").
+    getRustToolchain()
+        .getRustPlatforms()
+        .getValues()
+        .stream()
+        .flatMap(p -> RichStream.from(RustCompileUtils.getPlatformParseTimeDeps(p)))
+        .forEach(targetGraphOnlyDepsBuilder::add);
   }
 
   @Override

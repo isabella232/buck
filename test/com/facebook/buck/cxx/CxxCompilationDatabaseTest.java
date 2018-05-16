@@ -19,27 +19,28 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
@@ -120,22 +121,28 @@ public class CxxCompilationDatabaseTest {
         throw new UnsupportedOperationException("should not be called");
       }
     }
+    BuildTarget aggregatedDeps = compileTarget.withFlavors(InternalFlavor.of("deps"));
     rules.add(
         testBuildRuleResolver.addToIndex(
             CxxPreprocessAndCompile.preprocessAndCompile(
                 compileTarget,
                 filesystem,
-                ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree),
+                ruleFinder,
                 new PreprocessorDelegate(
                     CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification(),
-                    filesystem.getRootPath(),
+                    FakeSourcePath.of(filesystem.getRootPath()),
                     new GccPreprocessor(
                         new HashedFileTool(
                             PathSourcePath.of(filesystem, Paths.get("preprocessor")))),
                     preprocessorFlags,
                     new FrameworkPathAppendableFunction(),
                     Optional.empty(),
-                    /* leadingIncludePaths */ Optional.empty()),
+                    /* leadingIncludePaths */ Optional.empty(),
+                    Optional.of(
+                        new DependencyAggregation(
+                            aggregatedDeps,
+                            filesystem,
+                            ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree)))),
                 new CompilerDelegate(
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                     new GccCompiler(
@@ -145,8 +152,7 @@ public class CxxCompilationDatabaseTest {
                 FakeSourcePath.of(filesystem, "test.cpp"),
                 CxxSource.Type.CXX,
                 Optional.empty(),
-                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                Optional.empty())));
+                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER)));
 
     CxxCompilationDatabase compilationDatabase =
         CxxCompilationDatabase.createCompilationDatabase(
@@ -155,8 +161,7 @@ public class CxxCompilationDatabaseTest {
 
     assertThat(
         compilationDatabase.getRuntimeDeps(ruleFinder).collect(ImmutableSet.toImmutableSet()),
-        Matchers.contains(
-            exportedSymlinkTree.getBuildTarget(), privateSymlinkTree.getBuildTarget()));
+        Matchers.contains(aggregatedDeps));
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
@@ -188,13 +193,13 @@ public class CxxCompilationDatabaseTest {
                     "/foo/bar",
                     "-isystem",
                     "/test",
+                    "-o",
+                    "buck-out/gen/foo/baz#compile-test.cpp/test.o",
                     "-c",
                     "-MD",
                     "-MF",
-                    "buck-out/gen/foo/baz#compile-test.cpp__/test.o.dep",
-                    "test.cpp",
-                    "-o",
-                    "buck-out/gen/foo/baz#compile-test.cpp__/test.o")));
+                    "buck-out/gen/foo/baz#compile-test.cpp/test.o.dep",
+                    "test.cpp")));
     MoreAsserts.assertIterablesEquals(expectedEntries, observedEntries);
   }
 }

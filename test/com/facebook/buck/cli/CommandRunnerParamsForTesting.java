@@ -21,6 +21,12 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.httpserver.WebServer;
@@ -29,15 +35,10 @@ import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -113,12 +114,13 @@ public class CommandRunnerParamsForTesting {
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
-        new Parser(
+        new DefaultParser(
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownBuildRuleTypesProvider,
-            new ExecutableFinder()),
+            new ExecutableFinder(),
+            new TargetSpecResolver()),
         eventBus,
         platform,
         environment,

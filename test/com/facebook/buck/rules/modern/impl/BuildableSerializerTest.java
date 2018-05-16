@@ -17,6 +17,7 @@
 package com.facebook.buck.rules.modern.impl;
 
 import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
@@ -24,15 +25,18 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.CustomClassSerialization;
@@ -44,14 +48,11 @@ import com.facebook.buck.rules.modern.Serializer.Delegate;
 import com.facebook.buck.rules.modern.SourcePathResolverSerialization;
 import com.facebook.buck.rules.modern.ValueCreator;
 import com.facebook.buck.rules.modern.ValueVisitor;
-import com.facebook.buck.rules.modern.annotations.CustomClassBehavior;
-import com.facebook.buck.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -75,14 +76,19 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   public void setUp() throws IOException, InterruptedException {
     resolver = createStrictMock(SourcePathResolver.class);
     ruleFinder = createStrictMock(SourcePathRuleFinder.class);
-    cellResolver = createStrictMock(CellPathResolver.class);
+    cellResolver = createMock(CellPathResolver.class);
 
-    expect(cellResolver.getCellPaths())
-        .andReturn(ImmutableMap.of("other", otherFilesystem.getRootPath()))
+    expect(cellResolver.getKnownRoots())
+        .andReturn(ImmutableSet.of(rootFilesystem.getRootPath(), otherFilesystem.getRootPath()))
         .anyTimes();
-    expect(cellResolver.getCellPath(Optional.empty()))
-        .andReturn(Optional.of(rootFilesystem.getRootPath()))
+
+    expect(cellResolver.getCanonicalCellName(rootFilesystem.getRootPath()))
+        .andReturn(Optional.empty())
         .anyTimes();
+    expect(cellResolver.getCanonicalCellName(otherFilesystem.getRootPath()))
+        .andReturn(Optional.of("other"))
+        .anyTimes();
+
     expect(cellResolver.getCellPathOrThrow(Optional.empty()))
         .andReturn(rootFilesystem.getRootPath())
         .anyTimes();

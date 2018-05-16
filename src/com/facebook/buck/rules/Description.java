@@ -16,14 +16,9 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
-import com.facebook.buck.util.MoreStrings;
-import com.google.common.base.CaseFormat;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 
 /**
  * The Source of Truth about a {@link BuildRule}, providing mechanisms to expose the arguments that
@@ -35,42 +30,12 @@ import com.google.common.cache.LoadingCache;
  */
 public interface Description<T> {
 
-  LoadingCache<Class<? extends Description<?>>, BuildRuleType> BUILD_RULE_TYPES_BY_CLASS =
-      CacheBuilder.newBuilder()
-          .build(
-              new CacheLoader<Class<? extends Description<?>>, BuildRuleType>() {
-                @Override
-                public BuildRuleType load(Class<? extends Description<?>> key) {
-                  return Description.getBuildRuleType(key.getSimpleName());
-                }
-              });
-
-  /** @return The {@link BuildRuleType} being described. */
-  static BuildRuleType getBuildRuleType(Class<? extends Description<?>> descriptionClass) {
-    return BUILD_RULE_TYPES_BY_CLASS.getUnchecked(descriptionClass);
-  }
-
-  @SuppressWarnings("unchecked")
-  static BuildRuleType getBuildRuleType(Description<?> description) {
-    return getBuildRuleType((Class<? extends Description<?>>) description.getClass());
-  }
-
-  static BuildRuleType getBuildRuleType(String descriptionClassName) {
-    descriptionClassName =
-        MoreStrings.stripPrefix(descriptionClassName, "Abstract").orElse(descriptionClassName);
-    descriptionClassName =
-        MoreStrings.stripSuffix(descriptionClassName, "Description").orElse(descriptionClassName);
-    return BuildRuleType.of(
-        CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, descriptionClassName));
-  }
-
   /** The class of the argument of this Description uses in createBuildRule(). */
   Class<T> getConstructorArgType();
 
   /**
    * Create a {@link BuildRule} for the given {@link BuildRuleParams}. Note that the {@link
-   * com.facebook.buck.model.BuildTarget} referred to in the {@code params} contains the {@link
-   * Flavor} to create.
+   * BuildTarget} referred to in the {@code params} contains the {@link Flavor} to create.
    *
    * @param buildTarget
    * @param args A constructor argument, of type as returned by {@link #getConstructorArgType()}.
@@ -81,7 +46,8 @@ public interface Description<T> {
 
   /**
    * Whether or not the build rule subgraph produced by this {@code Description} is safe to cache in
-   * {@link IncrementalActionGraphGenerator} for incremental action graph generation.
+   * {@link com.facebook.buck.core.model.actiongraph.computation.IncrementalActionGraphGenerator}
+   * for incremental action graph generation.
    */
   default boolean producesCacheableSubgraph() {
     return false;

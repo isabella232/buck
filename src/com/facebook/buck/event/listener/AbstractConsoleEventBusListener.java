@@ -17,6 +17,11 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
@@ -33,13 +38,8 @@ import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -520,9 +520,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void commandStartedEvent(CommandEvent.Started startedEvent) {
-    progressEstimator.ifPresent(
-        estimator ->
-            estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
+    try {
+      LOG.warn("Command.Started event received at %d", System.currentTimeMillis());
+      progressEstimator.ifPresent(
+          estimator ->
+              estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
+    } finally {
+      LOG.warn("Command.Started event done processing at %d", System.currentTimeMillis());
+    }
   }
 
   public static void aggregateStartedEvent(

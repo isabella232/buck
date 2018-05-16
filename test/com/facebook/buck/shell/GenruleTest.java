@@ -25,28 +25,29 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -69,7 +70,6 @@ import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -1084,5 +1084,47 @@ public class GenruleTest {
     assertTrue(genrule1.isCacheable());
     assertTrue(genrule2.isCacheable());
     assertFalse(genrule3.isCacheable());
+  }
+
+  @Test
+  public void testChangingNoRemoteChangesRuleKey() {
+    StandaloneGenruleBuilder builder1 = new StandaloneGenruleBuilder("//:genrule1");
+    StandaloneGenruleBuilder builder2 = new StandaloneGenruleBuilder("//:genrule1");
+
+    builder1.genruleBuilder.setOut("foo").setNoRemote(true);
+    RuleKey key1 = builder1.getRuleKey();
+
+    builder2.genruleBuilder.setOut("foo").setNoRemote(false);
+    RuleKey key2 = builder2.getRuleKey();
+
+    assertNotEquals(key1, key2);
+  }
+
+  @Test
+  public void testNoRemoteIsRespected() {
+    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildTarget buildTarget1 = BuildTargetFactory.newInstance("//:genrule1");
+    BuildTarget buildTarget2 = BuildTargetFactory.newInstance("//:genrule2");
+    BuildTarget buildTarget3 = BuildTargetFactory.newInstance("//:genrule3");
+
+    Genrule genrule1 =
+        GenruleBuilder.newGenruleBuilder(buildTarget1)
+            .setOut("foo")
+            .setNoRemote(null)
+            .build(ruleResolver);
+    Genrule genrule2 =
+        GenruleBuilder.newGenruleBuilder(buildTarget2)
+            .setOut("foo")
+            .setNoRemote(false)
+            .build(ruleResolver);
+    Genrule genrule3 =
+        GenruleBuilder.newGenruleBuilder(buildTarget3)
+            .setOut("foo")
+            .setNoRemote(true)
+            .build(ruleResolver);
+
+    assertFalse(genrule1.shouldBuildLocally());
+    assertFalse(genrule2.shouldBuildLocally());
+    assertTrue(genrule3.shouldBuildLocally());
   }
 }

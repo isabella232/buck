@@ -25,14 +25,14 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.apple.clang.HeaderMap;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -170,16 +170,15 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .map(e -> String.format("-fdebug-prefix-map=%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/foo.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/foo.cpp.o").toString())
             .build());
   }
 
@@ -252,16 +251,15 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .map(e -> String.format("-fdebug-prefix-map=%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/bar.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/bar.cpp.o").toString())
             .build());
   }
 
@@ -306,17 +304,15 @@ public class CxxCompilationDatabaseIntegrationTest {
                     : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o")
-                    .toString())
             .build());
   }
 
@@ -363,17 +359,15 @@ public class CxxCompilationDatabaseIntegrationTest {
                     : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o.dep")
+                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s__/test.cpp.o")
-                    .toString())
             .build());
   }
 

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
  * should be excluded from the resulting set) using Watchman tool for improved performance.
  *
  * <p>The implementation is mostly compatible with glob_watchman.py and as such differs from the
- * {@link SimpleGlobber} in certain ways:
+ * {@link NativeGlobber} in certain ways:
  *
  * <ul>
  *   <li>does not fail for patterns that cannot possibly match
@@ -43,14 +43,24 @@ import java.util.stream.Collectors;
  */
 public class WatchmanGlobber {
 
-  private static final long TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(5);
+  private static final long TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10);
+  private static final ImmutableList<String> FIELDS_TO_INCLUDE = ImmutableList.of("name");
   private final WatchmanClient watchmanClient;
   /** Path used as a root when resolving patterns. */
   private final String basePath;
 
-  private WatchmanGlobber(WatchmanClient watchmanClient, String basePath) {
+  private final String watchmanWatchRoot;
+  private final SyncCookieState syncCookieState;
+
+  private WatchmanGlobber(
+      WatchmanClient watchmanClient,
+      String basePath,
+      String watchmanWatchRoot,
+      SyncCookieState syncCookieState) {
     this.watchmanClient = watchmanClient;
     this.basePath = basePath;
+    this.watchmanWatchRoot = watchmanWatchRoot;
+    this.syncCookieState = syncCookieState;
   }
 
   /**
@@ -67,7 +77,7 @@ public class WatchmanGlobber {
         createWatchmanQuery(include, exclude, excludeDirectories);
 
     return watchmanClient
-        .queryWithTimeout(TIMEOUT_NANOS, "query", basePath, watchmanQuery)
+        .queryWithTimeout(TIMEOUT_NANOS, "query", watchmanWatchRoot, watchmanQuery)
         .map(
             result -> {
               @SuppressWarnings("unchecked")
@@ -83,21 +93,43 @@ public class WatchmanGlobber {
    */
   private ImmutableMap<String, ?> createWatchmanQuery(
       Collection<String> include, Collection<String> exclude, boolean excludeDirectories) {
+    ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
+    builder.putAll(
+        ImmutableMap.of(
+            "relative_root",
+            basePath,
+            "expression",
+            toMatchExpressions(exclude, excludeDirectories),
+            "glob",
+            include,
+            "fields",
+            FIELDS_TO_INCLUDE));
+
+    // Sync cookies cause a massive overhead when issuing thousands of
+    // glob queries.  Only enable them (by not setting sync_timeout to 0)
+    // for the very first request issued by this process.
+    if (syncCookieState.shouldSyncCookies()) {
+      syncCookieState.disableSyncCookies();
+    } else {
+      builder.put("sync_timeout", 0);
+    }
+
+    return builder.build();
+  }
+
+  /** Returns an expression for every matched include file should match in order to be returned. */
+  private static ImmutableList<Object> toMatchExpressions(
+      Collection<String> exclude, boolean excludeDirectories) {
     ImmutableList.Builder<Object> matchExpressions = ImmutableList.builder();
     matchExpressions.add("allof", toTypeExpression(excludeDirectories));
     if (!exclude.isEmpty()) {
       matchExpressions.add(toExcludeExpression(exclude));
     }
-    return ImmutableMap.of(
-        "expression",
-        matchExpressions.build(),
-        "glob",
-        include,
-        "fields",
-        ImmutableList.of("name"));
+    return matchExpressions.build();
   }
 
-  private ImmutableList<Object> toTypeExpression(boolean excludeDirectories) {
+  /** Returns an expression for matching types of files to return. */
+  private static ImmutableList<Object> toTypeExpression(boolean excludeDirectories) {
     ImmutableList.Builder<Object> typeExpressionBuilder =
         ImmutableList.builder()
             .add("anyof")
@@ -109,7 +141,8 @@ public class WatchmanGlobber {
     return typeExpressionBuilder.build();
   }
 
-  private ImmutableList<Serializable> toExcludeExpression(Collection<String> exclude) {
+  /** Returns an expression that excludes all paths in {@code exclude}. */
+  private static ImmutableList<Serializable> toExcludeExpression(Collection<String> exclude) {
     return ImmutableList.of(
         "not",
         ImmutableList.builder()
@@ -127,7 +160,11 @@ public class WatchmanGlobber {
    *
    * @param basePath The base path relative to which paths matching glob patterns will be resolved.
    */
-  public static WatchmanGlobber create(WatchmanClient watchmanClient, String basePath) {
-    return new WatchmanGlobber(watchmanClient, basePath);
+  public static WatchmanGlobber create(
+      WatchmanClient watchmanClient,
+      SyncCookieState syncCookieState,
+      String basePath,
+      String watchmanWatchRoot) {
+    return new WatchmanGlobber(watchmanClient, basePath, watchmanWatchRoot, syncCookieState);
   }
 }

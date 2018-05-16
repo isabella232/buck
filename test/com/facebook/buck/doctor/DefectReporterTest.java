@@ -56,13 +56,20 @@ public class DefectReporterTest {
           .setJsonProtocolVersion(1)
           .build();
 
-  private static final UserLocalConfiguration TEST_USER_LOCAL_CONFIGURATION =
-      UserLocalConfiguration.of(true, ImmutableMap.of(Paths.get(".buckconfig.local"), "data"));
-
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   @Test
   public void testAttachesPaths() throws Exception {
+    UserLocalConfiguration userLocalConfiguration =
+        UserLocalConfiguration.of(
+            true,
+            ImmutableMap.of(
+                Paths.get(".buckconfig.local"),
+                "data",
+                temporaryFolder.newFile("experiments"),
+                "[foo]\nbar = baz"),
+            ImmutableMap.of("config_key", "config_value"));
+
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     DoctorConfig config = DoctorConfig.of(FakeBuckConfig.builder().build());
@@ -81,7 +88,7 @@ public class DefectReporterTest {
             DefectReport.builder()
                 .setBuildEnvironmentDescription(TEST_ENV_DESCRIPTION)
                 .setIncludedPaths(fileToBeIncluded)
-                .setUserLocalConfiguration(TEST_USER_LOCAL_CONFIGURATION)
+                .setUserLocalConfiguration(userLocalConfiguration)
                 .build());
 
     Path reportPath = filesystem.resolve(defectSubmitResult.getReportSubmitLocation().get());
@@ -91,6 +98,16 @@ public class DefectReporterTest {
 
   @Test
   public void testAttachesReport() throws Exception {
+    UserLocalConfiguration testUserLocalConfiguration =
+        UserLocalConfiguration.of(
+            true,
+            ImmutableMap.of(
+                Paths.get(".buckconfig.local"),
+                "data",
+                temporaryFolder.newFile("experiments"),
+                "[foo]\nbar = baz\n"),
+            ImmutableMap.of("config_key", "config_value"));
+
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     DoctorConfig config = DoctorConfig.of(FakeBuckConfig.builder().build());
@@ -103,7 +120,7 @@ public class DefectReporterTest {
         reporter.submitReport(
             DefectReport.builder()
                 .setBuildEnvironmentDescription(TEST_ENV_DESCRIPTION)
-                .setUserLocalConfiguration(TEST_USER_LOCAL_CONFIGURATION)
+                .setUserLocalConfiguration(testUserLocalConfiguration)
                 .build());
 
     Path reportPath = filesystem.resolve(defectSubmitResult.getReportSubmitLocation().get());
@@ -116,6 +133,27 @@ public class DefectReporterTest {
       assertThat(
           reportNode.get("userLocalConfiguration").get("noBuckCheckPresent").asBoolean(),
           Matchers.equalTo(true));
+      assertThat(
+          reportNode
+              .get("userLocalConfiguration")
+              .get("localConfigsContents")
+              .get(temporaryFolder.getRoot().resolve("experiments").toString())
+              .textValue(),
+          Matchers.equalTo("[foo]\nbar = baz\n"));
+      assertThat(
+          reportNode
+              .get("userLocalConfiguration")
+              .get("localConfigsContents")
+              .get(".buckconfig.local")
+              .textValue(),
+          Matchers.equalTo("data"));
+      assertThat(
+          reportNode
+              .get("userLocalConfiguration")
+              .get("configOverrides")
+              .get("config_key")
+              .textValue(),
+          Matchers.equalTo("config_value"));
     }
   }
 }

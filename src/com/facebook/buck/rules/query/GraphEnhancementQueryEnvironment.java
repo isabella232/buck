@@ -16,8 +16,10 @@
 
 package com.facebook.buck.rules.query;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -35,9 +37,6 @@ import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -142,7 +141,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) {
-    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
+    return getNode(target).getBuildRuleType().getName();
   }
 
   @Override

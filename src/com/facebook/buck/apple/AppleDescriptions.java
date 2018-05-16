@@ -25,6 +25,18 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
@@ -39,28 +51,17 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.shell.AbstractGenruleDescription;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
@@ -311,6 +312,14 @@ public class AppleDescriptions {
         SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
                 buildTarget, resolver::getRelativePath, headerPathPrefix, arg)));
+    if (arg.isModular()) {
+      output.addCompilerFlags(
+          StringWithMacros.of(
+              ImmutableList.of(
+                  Either.ofLeft(
+                      "-fmodule-name="
+                          + arg.getHeaderPathPrefix().orElse(buildTarget.getShortName())))));
+    }
   }
 
   public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
@@ -970,6 +979,10 @@ public class AppleDescriptions {
           extensionBundlePaths.put(sourcePath, destinations.getFrameworksPath().toString());
         } else if (AppleBundleExtension.XPC.toFileExtension().equals(appleBundle.getExtension())) {
           extensionBundlePaths.put(sourcePath, destinations.getXPCServicesPath().toString());
+        } else if (AppleBundleExtension.QLGENERATOR
+            .toFileExtension()
+            .equals(appleBundle.getExtension())) {
+          extensionBundlePaths.put(sourcePath, destinations.getQuickLookPath().toString());
         } else if (AppleBundleExtension.PLUGIN
             .toFileExtension()
             .equals(appleBundle.getExtension())) {

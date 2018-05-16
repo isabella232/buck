@@ -9,6 +9,7 @@ java_library_with_plugins(
     visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/config:config",
+        "//src/com/facebook/buck/core/toolchain/tool/impl:impl",
         "//src/com/facebook/buck/cxx/toolchain:toolchain",
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
@@ -18,6 +19,7 @@ java_library_with_plugins(
         "//src/com/facebook/buck/jvm/java:steps",
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/toolchain:toolchain",
+        "//src/com/facebook/buck/maven/aether:aether",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/model/macros:macros",
         "//src/com/facebook/buck/parser:rule_pattern",

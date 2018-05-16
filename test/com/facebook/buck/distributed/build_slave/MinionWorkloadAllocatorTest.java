@@ -19,16 +19,16 @@ package com.facebook.buck.distributed.build_slave;
 import static com.facebook.buck.distributed.thrift.MinionType.LOW_SPEC;
 import static com.facebook.buck.distributed.thrift.MinionType.STANDARD_SPEC;
 
+import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.distributed.NoopArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.WorkUnit;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.RuleDepsCache;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
 import org.junit.Assert;
@@ -48,7 +48,11 @@ public class MinionWorkloadAllocatorTest {
     BuildTarget target = BuildTargetFactory.newInstance(CustomBuildRuleResolverFactory.ROOT_TARGET);
     BuildTargetsQueue queue =
         new CacheOptimizedBuildTargetsQueueFactory(
-                resolver, new NoopArtifactCacheByBuildRule(), false, new RuleDepsCache(resolver))
+                resolver,
+                new NoopArtifactCacheByBuildRule(),
+                false,
+                new DefaultRuleDepsCache(resolver),
+                false)
             .createBuildTargetsQueue(
                 ImmutableList.of(target),
                 new NoOpCoordinatorBuildRuleEventsPublisher(),

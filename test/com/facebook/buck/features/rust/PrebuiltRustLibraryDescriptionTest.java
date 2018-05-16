@@ -19,11 +19,11 @@ package com.facebook.buck.features.rust;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;

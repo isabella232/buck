@@ -17,8 +17,11 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibrary;
-import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.PreprocessorFlags;
@@ -27,14 +30,10 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCompile;
@@ -57,7 +56,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
       BuildRuleParams params,
-      CxxLibraryDescription.CommonArg args,
+      AppleNativeTargetDescriptionArg args,
       ProjectFilesystem filesystem,
       CxxPlatform platform,
       AppleCxxPlatform applePlatform,
@@ -84,6 +83,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
 
     PreprocessorFlags.Builder flagsBuilder = PreprocessorFlags.builder();
     inputs.forEach(input -> flagsBuilder.addAllIncludes(input.getIncludes()));
+    inputs.forEach(input -> flagsBuilder.addAllFrameworkPaths(input.getFrameworks()));
     PreprocessorFlags preprocessorFlags = flagsBuilder.build();
 
     return SwiftLibraryDescription.createSwiftCompileRule(

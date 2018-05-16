@@ -21,6 +21,23 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.HasContacts;
+import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.FlavorDomainException;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -38,29 +55,16 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.FlavorDomainException;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.HasContacts;
-import com.facebook.buck.rules.HasTestTimeout;
+import com.facebook.buck.rules.DescriptionCache;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -68,10 +72,7 @@ import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.unarchive.UnzipStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
 import com.google.common.annotations.VisibleForTesting;
@@ -347,7 +348,8 @@ public class AppleTestDescription
             .map(Optional::of)
             .orElse(appleConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getIsUiTest(),
-        args.getSnapshotReferenceImagesPath());
+        args.getSnapshotReferenceImagesPath(),
+        args.getEnv());
   }
 
   private Optional<SourcePath> getXctool(
@@ -512,7 +514,7 @@ public class AppleTestDescription
           buildTarget,
           testHostKeyName,
           testHostBuildTarget,
-          Description.getBuildRuleType(AppleBundleDescription.class));
+          DescriptionCache.getBuildRuleType(AppleBundleDescription.class));
     }
     return (AppleBundle) rule;
   }
@@ -665,6 +667,9 @@ public class AppleTestDescription
 
     // Bundle related fields.
     ImmutableMap<String, String> getDestinationSpecifier();
+
+    // Environment variables to set during the test run
+    Optional<ImmutableMap<String, String>> getEnv();
 
     @Override
     default Either<AppleBundleExtension, String> getExtension() {

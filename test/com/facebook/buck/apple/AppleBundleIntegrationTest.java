@@ -33,15 +33,16 @@ import com.dd.plist.NSNumber;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -50,7 +51,6 @@ import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
@@ -1318,6 +1318,35 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
+  public void macAppWithQuickLook() throws IOException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_osx_app_with_quicklook", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path quicklookPath = appPath.resolve("Contents/Library/QuickLook/QuickLook.qlgenerator");
+    Path quicklookBinaryPath = quicklookPath.resolve("Contents/MacOS/QuickLook");
+    Path quicklookInfoPlistPath = quicklookPath.resolve("Contents/Info.plist");
+    assertTrue(Files.exists(quicklookBinaryPath));
+    assertTrue(Files.exists(quicklookInfoPlistPath));
+  }
+
+  @Test
   public void resourcesFromOtherCellsCanBeProperlyIncluded() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
@@ -1415,11 +1444,11 @@ public class AppleBundleIntegrationTest {
   @Test
   public void crossCellApplicationBundle() throws IOException, InterruptedException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "simple_cross_cell_application_bundle/primary", tmp.newFolder());
     workspace.setUp();
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "simple_cross_cell_application_bundle/secondary", tmp.newFolder());
     secondary.setUp();
 

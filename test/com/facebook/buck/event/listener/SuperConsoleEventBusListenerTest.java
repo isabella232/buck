@@ -29,6 +29,16 @@ import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEventFetchData;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.test.event.TestRunEvent;
+import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
@@ -52,19 +62,9 @@ import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.TestRunEvent;
-import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestCaseSummary;
@@ -1960,7 +1960,6 @@ public class SuperConsoleEventBusListenerTest {
             noisySummaryVerbosity,
             new DefaultExecutionEnvironment(
                 ImmutableMap.copyOf(System.getenv()), System.getProperties()),
-            Optional.empty(),
             Locale.US,
             logPath,
             timeZone,
@@ -2782,7 +2781,6 @@ public class SuperConsoleEventBusListenerTest {
             silentSummaryVerbosity,
             new DefaultExecutionEnvironment(
                 ImmutableMap.copyOf(System.getenv()), System.getProperties()),
-            Optional.empty(),
             Locale.US,
             logPath,
             timeZone,

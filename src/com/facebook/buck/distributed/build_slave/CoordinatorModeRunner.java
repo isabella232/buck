@@ -16,12 +16,12 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.EventListener;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.trace.uploader.launcher.UploaderLauncher;
@@ -202,29 +202,28 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
     }
 
     private void dumpAndUploadChromeTrace() {
-      try {
-        Path traceFilePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
-        this.server.generateTrace().dumpToChromeTrace(traceFilePath);
-
-        if (!clientBuildId.isPresent()) {
-          LOG.warn("Not uploading distbuild chrome trace because original build uuid is unset");
-          return;
-        }
-
-        if (!traceUploadUri.isPresent()) {
-          LOG.info("Not uploading distbuild chrome trace because traceUploadUri is unset");
-          return;
-        }
-
-        BuildId buildId = clientBuildId.get();
-        URI uploadUri = traceUploadUri.get();
-
-        Path uploadLogFile = logDirectoryPath.resolve("upload-dist-build-build-trace.log");
-        UploaderLauncher.uploadInBackground(
-            buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile, CompressionType.GZIP);
-      } catch (IOException e) {
-        LOG.warn(e, "Failed to write or upload distbuild chrome trace.");
+      Path traceFilePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
+      if (!this.server.exportChromeTraceIfSuccess(traceFilePath)) {
+        // Do nothing if no file was exported.
+        return;
       }
+
+      if (!clientBuildId.isPresent()) {
+        LOG.warn("Not uploading distbuild chrome trace because original build uuid is unset");
+        return;
+      }
+
+      if (!traceUploadUri.isPresent()) {
+        LOG.info("Not uploading distbuild chrome trace because traceUploadUri is unset");
+        return;
+      }
+
+      BuildId buildId = clientBuildId.get();
+      URI uploadUri = traceUploadUri.get();
+
+      Path uploadLogFile = logDirectoryPath.resolve("upload-dist-build-build-trace.log");
+      UploaderLauncher.uploadInBackground(
+          buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile, CompressionType.GZIP);
     }
   }
 }

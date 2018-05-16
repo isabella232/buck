@@ -18,7 +18,8 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.event.FlushConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.ProjectBuildFileParserFactory;
+import com.facebook.buck.parser.DefaultProjectBuildFileParserFactory;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -99,13 +100,13 @@ public class AuditRulesCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     try (ProjectBuildFileParser parser =
-        ProjectBuildFileParserFactory.createBuildFileParser(
-            params.getCell(),
-            new DefaultTypeCoercerFactory(),
-            params.getConsole(),
-            params.getBuckEventBus(),
-            params.getExecutableFinder(),
-            params.getKnownBuildRuleTypesProvider().get(params.getCell()).getDescriptions())) {
+        new DefaultProjectBuildFileParserFactory(
+                new DefaultTypeCoercerFactory(),
+                params.getConsole(),
+                new ParserPythonInterpreterProvider(
+                    params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                params.getKnownBuildRuleTypesProvider())
+            .createBuildFileParser(params.getBuckEventBus(), params.getCell())) {
       /*
        * The super console does a bunch of rewriting over the top of the console such that
        * simultaneously writing to stdout and stderr in an interactive session is problematic.
@@ -134,7 +135,7 @@ public class AuditRulesCommand extends AbstractCommand {
 
           // Parse the rules from the build file.
           List<Map<String, Object>> rawRules;
-          rawRules = parser.getAll(path, new AtomicLong());
+          rawRules = parser.getBuildFileManifest(path, new AtomicLong()).getTargets();
 
           // Format and print the rules from the raw data, filtered by type.
           ImmutableSet<String> types = getTypes();
@@ -238,7 +239,7 @@ public class AuditRulesCommand extends AbstractCommand {
   }
 
   /**
-   * @param value in a Map returned by {@link ProjectBuildFileParser#getAll(Path, AtomicLong)}.
+   * @param value a map representing a raw build target.
    * @return a string that represents the Python equivalent of the value.
    */
   @VisibleForTesting

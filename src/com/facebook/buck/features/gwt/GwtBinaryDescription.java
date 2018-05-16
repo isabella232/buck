@@ -16,22 +16,23 @@
 
 package com.facebook.buck.features.gwt;
 
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.features.gwt.GwtBinary.Style;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -100,7 +101,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
           gwtModule =
               Optional.of(
                   resolver.computeIfAbsent(
-                      BuildTarget.of(
+                      ImmutableBuildTarget.of(
                           javaLibrary.getBuildTarget().checkUnflavored(),
                           ImmutableSet.of(JavaLibrary.GWT_MODULE_FLAVOR)),
                       gwtModuleTarget -> {

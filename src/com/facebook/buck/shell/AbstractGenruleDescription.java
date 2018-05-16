@@ -19,17 +19,17 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
@@ -117,7 +117,8 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
         toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
         toolchainProvider.getByNameIfPresent(
-            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+        false);
   }
 
   /**

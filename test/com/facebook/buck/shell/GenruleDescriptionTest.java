@@ -16,22 +16,22 @@
 
 package com.facebook.buck.shell;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.macros.ClasspathMacro;
@@ -86,7 +86,7 @@ public class GenruleDescriptionTest {
             instance);
     TargetNode<GenruleDescriptionArg, GenruleDescription> targetNode =
         new TargetNodeFactory(new DefaultTypeCoercerFactory())
-            .create(
+            .createFromObject(
                 Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
                 genruleDescription,
                 constructorArg,

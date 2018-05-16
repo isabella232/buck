@@ -24,19 +24,19 @@ import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFact
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutor;
+import com.facebook.buck.core.build.engine.BuildEngineResult;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildEngineResult;
-import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
@@ -84,7 +84,7 @@ public class MinionModeRunnerIntegrationTest {
             STAMPEDE_ID,
             MINION_TYPE,
             new BuildSlaveRunId().setId("sl1"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
@@ -122,7 +122,7 @@ public class MinionModeRunnerIntegrationTest {
             STAMPEDE_ID,
             MINION_TYPE,
             new BuildSlaveRunId().setId("sl2"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
@@ -269,7 +269,7 @@ public class MinionModeRunnerIntegrationTest {
               STAMPEDE_ID,
               MINION_TYPE,
               new BuildSlaveRunId().setId("sl3"),
-              MAX_PARALLEL_WORK_UNITS,
+              new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
               checker,
               POLL_LOOP_INTERVAL_MILLIS,
               unexpectedCacheMissTracker,

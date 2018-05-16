@@ -17,6 +17,18 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.build.engine.impl.MetadataChecker;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.transformer.impl.FetchTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.file.HttpArchiveDescription;
 import com.facebook.buck.file.HttpFileDescription;
@@ -24,20 +36,9 @@ import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.StackedDownloader;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.MetadataChecker;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -65,13 +66,8 @@ public class FetchCommand extends BuildCommand {
       throw new CommandLineException("must specify at least one build target");
     }
 
-    // Post the build started event, setting it to the Parser recorded start time if appropriate.
     BuildEvent.Started started = BuildEvent.started(getArguments());
-    if (params.getParser().getParseStartTime().isPresent()) {
-      params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
-    } else {
-      params.getBuckEventBus().post(started);
-    }
+    params.getBuckEventBus().post(started);
 
     FetchTargetNodeToBuildRuleTransformer ruleGenerator = createFetchTransformer(params);
     ExitCode exitCode;

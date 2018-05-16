@@ -25,11 +25,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Splitter;
@@ -774,6 +774,22 @@ public class QueryCommandIntegrationTest {
     assertTrue(content.contains("# Parsed "));
     assertTrue(content.contains("# Highlights"));
     assertTrue(content.contains("# More details"));
+  }
+
+  @Test
+  public void testQueryProfileSkylark() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    Path skylarkProfile = tmp.newFile("skylark-profile");
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "query", "deps(//example:one)", "--skylark-profile-output=" + skylarkProfile);
+    result.assertSuccess();
+
+    byte[] content = Files.readAllBytes(skylarkProfile);
+    assertTrue("Profile should not be empty", content.length > 0);
   }
 
   @Test

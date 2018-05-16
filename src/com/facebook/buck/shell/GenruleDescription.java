@@ -20,8 +20,9 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -29,7 +30,6 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxConfig;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -91,7 +91,8 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           args.getEnvironmentExpansionSeparator(),
           androidPlatformTarget,
           androidNdk,
-          androidSdkLocation);
+          androidSdkLocation,
+          args.getNoRemote().orElse(false));
     } else {
       return new GenruleBinary(
           buildTarget,
@@ -109,7 +110,8 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           args.getEnvironmentExpansionSeparator(),
           androidPlatformTarget,
           androidNdk,
-          androidSdkLocation);
+          androidSdkLocation,
+          args.getNoRemote().orElse(false));
     }
   }
 
@@ -132,5 +134,11 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
      * attribute
      */
     Optional<Boolean> getCacheable();
+
+    /**
+     * This functionality only exists to facilitate migration of projects to distributed building.
+     * It will likely go away in the future.
+     */
+    Optional<Boolean> getNoRemote();
   }
 }

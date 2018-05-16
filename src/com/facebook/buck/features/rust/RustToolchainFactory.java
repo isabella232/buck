@@ -16,9 +16,9 @@
 
 package com.facebook.buck.features.rust;
 
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -27,8 +27,6 @@ import java.util.Optional;
 
 /** Constructs {@link RustToolchain}s. */
 public class RustToolchainFactory implements ToolchainFactory<RustToolchain> {
-
-  private static final String SECTION = "rust";
 
   @Override
   public Optional<RustToolchain> createToolchain(
@@ -47,7 +45,9 @@ public class RustToolchainFactory implements ToolchainFactory<RustToolchain> {
             "Rust Platforms",
             RichStream.from(cxxPlatforms.getValues())
                 // TODO: Allow overlaying flavor-specific section configuration.
-                .map(cxxPlatform -> platformFactory.getPlatform(SECTION, cxxPlatform))
+                .map(
+                    cxxPlatform ->
+                        platformFactory.getPlatform(cxxPlatform.getFlavor().getName(), cxxPlatform))
                 .toImmutableList());
     RustPlatform defaultRustPlatform = rustPlatforms.getValue(defaultCxxPlatform.getFlavor());
 

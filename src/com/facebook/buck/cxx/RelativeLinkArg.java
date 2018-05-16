@@ -16,10 +16,10 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;

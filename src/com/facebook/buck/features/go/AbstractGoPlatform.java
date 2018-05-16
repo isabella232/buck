@@ -16,13 +16,13 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorConvertible;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import org.immutables.value.Value;
@@ -42,8 +42,6 @@ abstract class AbstractGoPlatform implements FlavorConvertible, AddsToRuleKey {
   public abstract Flavor getFlavor();
 
   public abstract Path getGoRoot();
-
-  public abstract Path getToolDir();
 
   public abstract ImmutableList<Path> getAssemblerIncludeDirs();
 

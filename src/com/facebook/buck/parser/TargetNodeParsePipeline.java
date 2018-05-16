@@ -16,16 +16,17 @@
 
 package com.facebook.buck.parser;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -56,7 +57,7 @@ public class TargetNodeParsePipeline
 
   private static final Logger LOG = Logger.get(TargetNodeParsePipeline.class);
 
-  private final ParserTargetNodeFactory<TargetNode<?, ?>> delegate;
+  private final ParserTargetNodeFactory<Map<String, Object>> delegate;
   private final boolean speculativeDepsTraversal;
   private final RawNodeParsePipeline rawNodeParsePipeline;
   private final SimplePerfEvent.Scope targetNodePipelineLifetimeEventScope;
@@ -74,7 +75,7 @@ public class TargetNodeParsePipeline
    */
   public TargetNodeParsePipeline(
       Cache<BuildTarget, TargetNode<?, ?>> cache,
-      ParserTargetNodeFactory<TargetNode<?, ?>> targetNodeDelegate,
+      ParserTargetNodeFactory<Map<String, Object>> targetNodeDelegate,
       ListeningExecutorService executorService,
       BuckEventBus eventBus,
       boolean speculativeDepsTraversal,
@@ -93,7 +94,7 @@ public class TargetNodeParsePipeline
   @Override
   protected BuildTarget getBuildTarget(
       Path root, Optional<String> cellName, Path buildFile, Map<String, Object> from) {
-    return BuildTarget.of(
+    return ImmutableBuildTarget.of(
         RawNodeParsePipeline.parseBuildTargetFromRawRule(root, cellName, from, buildFile));
   }
 
@@ -140,7 +141,7 @@ public class TargetNodeParsePipeline
                     getNodeJob(
                         depCell,
                         depKnownBuildRuleTypes,
-                        BuildTarget.of(depTarget.getUnflavoredBuildTarget()),
+                        ImmutableBuildTarget.of(depTarget.getUnflavoredBuildTarget()),
                         processedBytes);
                   }
                   getNodeJob(depCell, depKnownBuildRuleTypes, depTarget, processedBytes);

@@ -16,23 +16,25 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.Dot;
 import com.facebook.buck.graph.Dot.Builder;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.PerBuildStateFactory;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -161,17 +163,19 @@ public class QueryCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Query", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildState(
-                params.getTypeCoercerFactory(),
-                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                params.getParser().getPermState(),
-                params.getBuckEventBus(),
-                params.getExecutableFinder(),
-                pool.getListeningExecutorService(),
-                params.getCell(),
-                params.getKnownBuildRuleTypesProvider(),
-                getEnableParserProfiling(),
-                PerBuildState.SpeculativeParsing.ENABLED)) {
+            new PerBuildStateFactory()
+                .create(
+                    params.getTypeCoercerFactory(),
+                    params.getParser().getPermState(),
+                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    params.getBuckEventBus(),
+                    new ParserPythonInterpreterProvider(
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    pool.getListeningExecutorService(),
+                    params.getCell(),
+                    params.getKnownBuildRuleTypesProvider(),
+                    getEnableParserProfiling(),
+                    SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(params, parserState, executor, getEnableParserProfiling());
@@ -309,8 +313,7 @@ public class QueryCommand extends AbstractCommand {
         Dot.builder(env.getTargetGraph(), "result_graph")
             .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
             .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
-            .setNodeToTypeName(
-                targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+            .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
             .setBfsSorted(shouldGenerateBFSOutput());
     if (shouldOutputAttributes()) {
       PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
@@ -515,9 +518,9 @@ public class QueryCommand extends AbstractCommand {
       BuckQueryEnvironment env,
       PatternsMatcher patternsMatcher,
       TargetNode<?, ?> node) {
-    SortedMap<String, Object> sortedTargetRule =
-        params.getParser().getRawTargetNode(env.getParserState(), params.getCell(), node);
-    if (sortedTargetRule == null) {
+    SortedMap<String, Object> targetNodeAttributes =
+        params.getParser().getTargetNodeRawAttributes(env.getParserState(), params.getCell(), node);
+    if (targetNodeAttributes == null) {
       params
           .getConsole()
           .printErrorText(
@@ -526,10 +529,10 @@ public class QueryCommand extends AbstractCommand {
     }
     SortedMap<String, Object> attributes = new TreeMap<>();
     if (patternsMatcher.hasPatterns()) {
-      for (String key : sortedTargetRule.keySet()) {
+      for (String key : targetNodeAttributes.keySet()) {
         String snakeCaseKey = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, key);
         if (patternsMatcher.matches(snakeCaseKey)) {
-          attributes.put(snakeCaseKey, sortedTargetRule.get(key));
+          attributes.put(snakeCaseKey, targetNodeAttributes.get(key));
         }
       }
     }

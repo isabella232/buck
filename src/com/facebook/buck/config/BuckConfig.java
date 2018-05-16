@@ -18,20 +18,20 @@ package com.facebook.buck.config;
 
 import static java.lang.Integer.parseInt;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKeyDiagnosticsMode;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PatternAndMessage;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.config.Config;
@@ -59,6 +59,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -1031,5 +1032,25 @@ public class BuckConfig implements ConfigPathGetter {
   /** The timeout to apply to entire test rules. */
   public Optional<Long> getDefaultTestRuleTimeoutMs() {
     return config.getLong(TEST_SECTION_HEADER, "rule_timeout");
+  }
+
+  /** List of error message replacements to make things more friendly for humans */
+  public Map<Pattern, String> getErrorMessageAugmentations() throws HumanReadableException {
+    return config
+        .getMap("ui", "error_message_augmentations")
+        .entrySet()
+        .stream()
+        .collect(
+            ImmutableMap.toImmutableMap(
+                e -> {
+                  try {
+                    return Pattern.compile(e.getKey(), Pattern.MULTILINE | Pattern.DOTALL);
+                  } catch (Exception ex) {
+                    throw new HumanReadableException(
+                        "Could not parse regular expression %s from buckconfig: %s",
+                        e.getKey(), ex.getMessage());
+                  }
+                },
+                Entry::getValue));
   }
 }

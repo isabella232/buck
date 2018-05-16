@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +71,7 @@ public class GoTestCoverStep extends ShellStep {
         ImmutableList.<String>builder()
             .addAll(generatorCommandPrefix)
             .add("-mode", coverageMode.getMode())
-            .add("-var", "Var_" + targetFile.getFileName().toString().replace(".go", ""))
+            .add("-var", GoTestCoverSource.getVarName(targetFile))
             .add("-o", targetFile.toString())
             .add(sourceFile.toString());
     return command.build();

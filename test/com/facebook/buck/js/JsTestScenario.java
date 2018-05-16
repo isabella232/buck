@@ -17,15 +17,15 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.apple.AppleLibraryBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.shell.FakeWorkerBuilder;

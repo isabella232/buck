@@ -16,12 +16,12 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.config.Config;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
@@ -51,8 +51,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
         root,
         extractIgnorePaths(root, config, buckPaths),
         buckPaths,
-        ProjectFilesystemDelegateFactory.newInstance(root, config),
-        config.getBooleanValue("project", "windows_symlinks", false));
+        ProjectFilesystemDelegateFactory.newInstance(root, config));
   }
 
   @Override
@@ -123,7 +122,10 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
               .get()
               .getEmbeddedCellsBuckOutBaseDir()
               .resolve(embeddedCellBuckOutInfo.get().getCellName());
-      buckPaths = buckPaths.withConfiguredBuckOut(rootPath.relativize(cellBuckOut));
+      buckPaths =
+          buckPaths
+              .withConfiguredBuckOut(rootPath.relativize(cellBuckOut))
+              .withBuckOut(rootPath.relativize(cellBuckOut));
     } else if (configuredBuckOut.isPresent()) {
       buckPaths =
           buckPaths.withConfiguredBuckOut(

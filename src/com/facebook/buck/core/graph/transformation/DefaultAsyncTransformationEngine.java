@@ -63,8 +63,8 @@ import java.util.function.Function;
  * whole graph computation will be tail recursive, eliminating stack use.
  *
  * <p>Currently, we only use the engine for {@link com.facebook.buck.rules.TargetGraph} to {@link
- * com.facebook.buck.rules.ActionGraph}, but theoretically this can be extended to work with any
- * computation.
+ * com.facebook.buck.core.model.actiongraph.ActionGraph}, but theoretically this can be extended to
+ * work with any computation.
  */
 public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
     implements AsyncTransformationEngine<ComputeKey, ComputeResult> {
@@ -171,28 +171,33 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
       return CompletableFuture.completedFuture(result.get());
     }
 
-    return computationIndex.computeIfAbsent(
-        key,
-        mapKey -> {
-          // recheck the resultCache in event that the cache got populated while we were waiting to
-          // access the computationIndex.
-          Optional<ComputeResult> cachedResult = resultCache.get(mapKey);
-          if (cachedResult.isPresent()) {
-            return CompletableFuture.completedFuture(cachedResult.get());
-          }
+    return computationIndex
+        .computeIfAbsent(
+            key,
+            mapKey -> {
+              // recheck the resultCache in event that the cache got populated while we were waiting
+              // to access the computationIndex.
+              Optional<ComputeResult> cachedResult = resultCache.get(mapKey);
+              if (cachedResult.isPresent()) {
+                return CompletableFuture.completedFuture(cachedResult.get());
+              }
 
-          LOG.verbose("Result cache miss. Computing transformation for requested key: %s", key);
-          return CompletableFuture.supplyAsync(() -> mapKey)
-              .thenComposeAsync(computeKey -> transformer.transform(computeKey, env))
-              .thenApplyAsync(
-                  computedResult -> {
-                    // add to the result cache first then remove from the computationIndex to ensure
-                    // the result is reused.
-                    resultCache.put(mapKey, computedResult);
-                    computationIndex.remove(mapKey);
-                    return computedResult;
-                  });
-        });
+              LOG.verbose("Result cache miss. Computing transformation for requested key: %s", key);
+              return CompletableFuture.supplyAsync(() -> mapKey)
+                  .thenComposeAsync(computeKey -> transformer.transform(computeKey, env))
+                  .thenApplyAsync(
+                      computedResult -> {
+                        resultCache.put(mapKey, computedResult);
+                        return computedResult;
+                      });
+            })
+        .thenApplyAsync(
+            computedResult -> {
+              // Remove the stored Future so we don't keep a reference to a heavy weight future
+              // since the value is already in the resultCache
+              computationIndex.remove(key);
+              return computedResult;
+            });
   }
 
   static final <K, V> CompletableFuture<ImmutableMap<K, V>> collectFutures(

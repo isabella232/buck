@@ -16,23 +16,26 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.test.rule.TestRule;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.features.go.GoTestCoverStep.Mode;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.ExternalTestRunnerRule;
-import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestRule;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -66,7 +69,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
+public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
   private static final Pattern TEST_START_PATTERN = Pattern.compile("^=== RUN\\s+(?<name>.*)$");
   private static final Pattern TEST_FINISHED_PATTERN =
@@ -82,6 +85,7 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSet<String> contacts;
   private final boolean runTestsSeparately;
   private final ImmutableSortedSet<SourcePath> resources;
+  private final Mode coverageMode;
 
   public GoTest(
       BuildTarget buildTarget,
@@ -92,7 +96,8 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
       ImmutableSet<String> contacts,
       Optional<Long> testRuleTimeoutMs,
       boolean runTestsSeparately,
-      ImmutableSortedSet<SourcePath> resources) {
+      ImmutableSortedSet<SourcePath> resources,
+      Mode coverageMode) {
     super(buildTarget, projectFilesystem, buildRuleParams);
     this.testMain = testMain;
     this.labels = labels;
@@ -100,6 +105,7 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
     this.testRuleTimeoutMs = testRuleTimeoutMs;
     this.runTestsSeparately = runTestsSeparately;
     this.resources = resources;
+    this.coverageMode = coverageMode;
   }
 
   @Override
@@ -117,6 +123,11 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
     args.addAll(
         testMain.getExecutableCommand().getCommandPrefix(buildContext.getSourcePathResolver()));
     args.add("-test.v");
+    if (coverageMode != Mode.NONE) {
+      Path coverProfile =
+          getProjectFilesystem().resolve(getPathToTestOutputDirectory()).resolve("coverage");
+      args.add("-test.coverprofile", coverProfile.toString());
+    }
     if (testRuleTimeoutMs.isPresent()) {
       args.add("-test.timeout", testRuleTimeoutMs.get() + "ms");
     }
@@ -171,11 +182,13 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
             getProjectFilesystem().resolve(getPathToTestResults()), Charsets.UTF_8)) {
       Set<String> currentTests = new HashSet<>();
       List<String> stdout = new ArrayList<>();
-      String line;
-      while ((line = reader.readLine()) != null) {
+      List<String> stackTrace = new ArrayList<>();
+      String line = reader.readLine();
+      while (line != null) {
         Matcher matcher;
         if ((matcher = TEST_START_PATTERN.matcher(line)).matches()) {
           currentTests.add(matcher.group("name"));
+          line = reader.readLine();
         } else if ((matcher = TEST_FINISHED_PATTERN.matcher(line)).matches()) {
           if (!currentTests.contains(matcher.group("name"))) {
             throw new RuntimeException(
@@ -197,7 +210,16 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
           } catch (NumberFormatException ex) {
             Throwables.throwIfUnchecked(ex);
           }
-
+          line = reader.readLine();
+          // Looking ahead to capture error messages
+          while (line != null
+              && !TEST_START_PATTERN.matcher(line).matches()
+              && !TEST_FINISHED_PATTERN.matcher(line).matches()
+              && !line.equals("PASS")
+              && !line.equals("FAIL")) {
+            stackTrace.add(line);
+            line = reader.readLine();
+          }
           summariesBuilder.add(
               new TestResultSummary(
                   "go_test",
@@ -205,14 +227,16 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
                   result,
                   (long) (timeTaken * 1000),
                   "",
-                  "",
+                  Joiner.on(System.lineSeparator()).join(stackTrace),
                   Joiner.on(System.lineSeparator()).join(stdout),
                   ""));
 
           currentTests.remove(matcher.group("name"));
           stdout.clear();
+          stackTrace.clear();
         } else {
           stdout.add(line);
+          line = reader.readLine();
         }
       }
 
@@ -261,6 +285,17 @@ public class GoTest extends NoopBuildRuleWithDeclaredAndExtraDeps
   @Override
   public Path getPathToTestOutputDirectory() {
     return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__test_%s_output__");
+  }
+
+  @Override
+  public ImmutableList<? extends Step> getBuildSteps(
+      BuildContext context, BuildableContext buildableContext) {
+    return ImmutableList.of();
+  }
+
+  @Override
+  public SourcePath getSourcePathToOutput() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToTestOutputDirectory());
   }
 
   protected Path getPathToTestResults() {

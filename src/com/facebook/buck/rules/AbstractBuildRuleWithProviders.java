@@ -16,11 +16,13 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
 import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
 import com.facebook.buck.core.rules.provider.MissingProviderException;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.google.common.base.Preconditions;
 import java.util.Objects;
 
@@ -116,6 +118,11 @@ public abstract class AbstractBuildRuleWithProviders implements BuildRule {
   @Override
   public boolean isCacheable() {
     return providers.getDefaultProvider().isCacheable();
+  }
+
+  @Override
+  public boolean hasBuildSteps() {
+    return true;
   }
 
   @Override

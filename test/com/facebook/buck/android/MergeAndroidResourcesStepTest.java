@@ -30,15 +30,15 @@ import com.facebook.buck.android.MergeAndroidResourcesStep.DuplicateResourceExce
 import com.facebook.buck.android.aapt.FakeRDotTxtEntryWithID;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.TestExecutionContext;
@@ -139,6 +139,7 @@ public class MergeAndroidResourcesStepTest {
             sharedPackageName,
             "a-R.txt",
             ImmutableList.of(
+                "int attr android_layout 0x010100f2",
                 "int attr buttonPanelSideLayout 0x7f01003a",
                 "int attr listLayout 0x7f01003b",
                 "int[] styleable AlertDialog { 0x7f01003a, 0x7f01003b, 0x010100f2 }",
@@ -214,7 +215,7 @@ public class MergeAndroidResourcesStepTest {
             new FakeRDotTxtEntryWithID(INT, STYLEABLE, "AlertDialog_buttonPanelSideLayout", "1"),
             new FakeRDotTxtEntryWithID(INT, STYLEABLE, "AlertDialog_multiChoiceItemLayout", "2"),
             new FakeRDotTxtEntryWithID(
-                INT_ARRAY, STYLEABLE, "PercentLayout_Layout", "{ 0,0x07f01009 }"),
+                INT_ARRAY, STYLEABLE, "PercentLayout_Layout", "{ 0x00000000,0x07f01009 }"),
             new FakeRDotTxtEntryWithID(
                 INT, STYLEABLE, "PercentLayout_Layout_layout_aspectRatio", "0"),
             new FakeRDotTxtEntryWithID(

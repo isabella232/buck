@@ -17,6 +17,8 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.SamplingCounter;
@@ -26,8 +28,6 @@ import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;

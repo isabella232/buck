@@ -20,6 +20,11 @@ import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
@@ -30,18 +35,14 @@ import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -51,7 +52,6 @@ import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
@@ -147,7 +147,7 @@ public class IjProjectCommandHelper {
                       enableParserProfiling,
                       executor,
                       argsParser.apply(targets),
-                      PerBuildState.SpeculativeParsing.ENABLED,
+                      SpeculativeParsing.ENABLED,
                       parserConfig.getDefaultFlavorsMode())));
       projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
     } catch (BuildFileParseException e) {

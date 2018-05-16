@@ -16,6 +16,15 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.features.go.GoListStep.FileType;
 import com.facebook.buck.file.WriteFile;
@@ -23,21 +32,13 @@ import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -256,7 +257,7 @@ abstract class GoDescriptors {
 
     LOG.verbose("Symlink tree for linking of %s: %s", buildTarget, symlinkTree);
 
-    Optional<Linker> cxxLinker = Optional.of(platform.getCxxPlatform().getLd().resolve(resolver));
+    Linker cxxLinker = platform.getCxxPlatform().getLd().resolve(resolver);
     return new GoBinary(
         buildTarget,
         projectFilesystem,
@@ -266,9 +267,10 @@ abstract class GoDescriptors {
                     .addAll(ruleFinder.filterBuildRuleInputs(symlinkTree.getLinks().values()))
                     .add(symlinkTree)
                     .add(library)
+                    .addAll(BuildableSupport.getDepsCollection(cxxLinker, ruleFinder))
                     .build())
             .withoutExtraDeps(),
-        cxxLinker,
+        Optional.of(cxxLinker),
         symlinkTree,
         library,
         platform.getLinker(),

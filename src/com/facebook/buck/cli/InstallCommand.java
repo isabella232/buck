@@ -35,34 +35,34 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.DescriptionCache;
 import com.facebook.buck.rules.HasInstallHelpers;
 import com.facebook.buck.rules.InstallTrigger;
 import com.facebook.buck.rules.NoopInstallable;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
@@ -363,7 +363,7 @@ public class InstallCommand extends BuildCommand {
                           getEnableParserProfiling(),
                           executor,
                           ImmutableList.of(spec),
-                          PerBuildState.SpeculativeParsing.DISABLED,
+                          SpeculativeParsing.DISABLED,
                           parserConfig.getDefaultFlavorsMode()))
               .transformAndConcat(Functions.identity())
               .first()
@@ -380,8 +380,8 @@ public class InstallCommand extends BuildCommand {
                   target);
 
       if (node != null
-          && Description.getBuildRuleType(node.getDescription())
-              .equals(Description.getBuildRuleType(AppleBundleDescription.class))) {
+          && node.getBuildRuleType()
+              .equals(DescriptionCache.getBuildRuleType(AppleBundleDescription.class))) {
         for (Flavor flavor : node.getBuildTarget().getFlavors()) {
           if (ApplePlatform.needsInstallHelper(flavor.getName())) {
             AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);

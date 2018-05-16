@@ -23,15 +23,16 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.ConstantToolProvider;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Suppliers;
@@ -195,5 +196,22 @@ public class CxxPlatformsTest {
         "WINDOWS archiver was not a GnuArchiver instance",
         getPlatformArchiver(Platform.WINDOWS),
         instanceOf(WindowsArchiver.class));
+  }
+
+  @Test
+  public void sharedLibraryExtensionOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    String extension = ".foo";
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("shared_library_extension", extension));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertThat(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getSharedLibraryExtension(),
+        equalTo(extension));
   }
 }

@@ -17,9 +17,11 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.xcode.XCScheme;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -52,6 +54,12 @@ public class XcodeWorkspaceConfigBuilder
     return this;
   }
 
+  public XcodeWorkspaceConfigBuilder setExtraShallowTargets(
+      ImmutableSortedSet<BuildTarget> extraShallowTargets) {
+    getArgForPopulating().setExtraShallowTargets(extraShallowTargets);
+    return this;
+  }
+
   public XcodeWorkspaceConfigBuilder setWorkspaceName(Optional<String> workspaceName) {
     getArgForPopulating().setWorkspaceName(workspaceName);
     return this;
@@ -71,6 +79,16 @@ public class XcodeWorkspaceConfigBuilder
   public XcodeWorkspaceConfigBuilder setLaunchStyle(
       Optional<XCScheme.LaunchAction.LaunchStyle> launchStyle) {
     getArgForPopulating().setLaunchStyle(launchStyle);
+    return this;
+  }
+
+  public XcodeWorkspaceConfigBuilder setAdditionalSchemeActions(
+      Optional<
+              ImmutableMap<
+                  SchemeActionType,
+                  ImmutableMap<XCScheme.AdditionalActions, ImmutableList<String>>>>
+          additionalSchemeActions) {
+    getArgForPopulating().setAdditionalSchemeActions(additionalSchemeActions);
     return this;
   }
 }

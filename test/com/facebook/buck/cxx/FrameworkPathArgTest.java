@@ -18,19 +18,19 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.util.function.Consumer;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -39,7 +39,7 @@ public class FrameworkPathArgTest {
 
   private static class TestFrameworkPathArg extends FrameworkPathArg {
     public TestFrameworkPathArg(FrameworkPath frameworkPath) {
-      super(ImmutableSet.of(frameworkPath));
+      super(ImmutableSortedSet.of(frameworkPath));
     }
 
     @Override

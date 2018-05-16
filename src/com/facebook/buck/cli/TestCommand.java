@@ -20,34 +20,34 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.build.engine.impl.MetadataChecker;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildEngine;
-import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.ExternalTestRunnerRule;
-import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.MetadataChecker;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
-import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
@@ -458,13 +458,8 @@ public class TestCommand extends BuildCommand {
             new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()));
         CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
             getForkJoinPoolSupplier(params.getBuckConfig())) {
-      // Post the build started event, setting it to the Parser recorded start time if appropriate.
       BuildEvent.Started started = BuildEvent.started(getArguments());
-      if (params.getParser().getParseStartTime().isPresent()) {
-        params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
-      } else {
-        params.getBuckEventBus().post(started);
-      }
+      params.getBuckEventBus().post(started);
 
       // The first step is to parse all of the build files. This will populate the parser and find
       // all of the test rules.

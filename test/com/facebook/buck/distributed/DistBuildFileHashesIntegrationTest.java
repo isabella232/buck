@@ -23,6 +23,14 @@ import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.config.IncrementalActionGraphMode;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
@@ -33,20 +41,14 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -111,12 +113,13 @@ public class DistBuildFileHashesIntegrationTest {
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
-        new Parser(
+        new DefaultParser(
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
             knownBuildRuleTypesProvider,
-            new ExecutableFinder());
+            new ExecutableFinder(),
+            new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -186,12 +189,13 @@ public class DistBuildFileHashesIntegrationTest {
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
-        new Parser(
+        new DefaultParser(
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
             knownBuildRuleTypesProvider,
-            new ExecutableFinder());
+            new ExecutableFinder(),
+            new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),

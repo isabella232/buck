@@ -21,11 +21,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
@@ -40,7 +47,6 @@ import com.facebook.buck.step.fs.SymlinkTreeMergeStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -62,7 +68,6 @@ import java.nio.file.Paths;
 import java.util.stream.Stream;
 import org.hamcrest.Matchers;
 import org.hamcrest.junit.ExpectedException;
-import org.hamcrest.text.MatchesPattern;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -639,13 +644,7 @@ public class SymlinkTreeTest {
 
   @Test
   public void failsOnMergeConflicts() throws IOException {
-    exception.expect(HumanReadableException.class);
-    if (Platform.detect() != Platform.WINDOWS) {
-      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already links to.*"));
-    } else {
-      // Windows doesn't return true from 'isSymlink', so error is slightly different
-      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already exists.*"));
-    }
+    exception.expectMessage("Tried to link");
 
     BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
     Path dir1 = Paths.get("test", "dir1");
@@ -710,13 +709,7 @@ public class SymlinkTreeTest {
 
   @Test
   public void failsOnMergeConflictsFromExplicitlyListedFiles() throws IOException {
-    exception.expect(HumanReadableException.class);
-    if (Platform.detect() != Platform.WINDOWS) {
-      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already links to.*"));
-    } else {
-      // Windows doesn't return true from 'isSymlink', so error is slightly different
-      exception.expectMessage(MatchesPattern.matchesPattern("Tried to link.*already exists.*"));
-    }
+    exception.expectMessage("Tried to link");
 
     BuildTarget exportFileTarget1 = BuildTargetFactory.newInstance("//test:dir1");
     Path dir1 = Paths.get("test", "dir1");

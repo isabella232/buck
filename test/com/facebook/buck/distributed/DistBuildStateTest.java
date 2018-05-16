@@ -24,6 +24,18 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -33,32 +45,22 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.module.BuckModuleManager;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.rules.TestBuildRuleResolver;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
@@ -255,12 +257,13 @@ public class DistBuildStateTest {
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
-        new Parser(
+        new DefaultParser(
             buckConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
             knownBuildRuleTypesProvider,
-            executableFinder);
+            executableFinder,
+            new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -432,7 +435,7 @@ public class DistBuildStateTest {
             try {
               return parser
                   .get()
-                  .getRawTargetNode(
+                  .getTargetNodeRawAttributes(
                       eventBus,
                       cell.getCell(input.getBuildTarget()),
                       /* enableProfiling */ false,
@@ -448,7 +451,7 @@ public class DistBuildStateTest {
 
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
-    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),

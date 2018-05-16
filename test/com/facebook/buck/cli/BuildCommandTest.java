@@ -16,24 +16,24 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.rules.BuildRuleSuccessType.BUILT_LOCALLY;
-import static com.facebook.buck.rules.BuildRuleSuccessType.FETCHED_FROM_CACHE;
+import static com.facebook.buck.core.build.engine.BuildRuleSuccessType.BUILT_LOCALLY;
+import static com.facebook.buck.core.build.engine.BuildRuleSuccessType.FETCHED_FROM_CACHE;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.command.BuildExecutionResult;
 import com.facebook.buck.command.BuildReport;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.CapturingPrintStream;

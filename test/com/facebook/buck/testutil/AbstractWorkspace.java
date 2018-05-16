@@ -19,7 +19,7 @@ package com.facebook.buck.testutil;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.model.BuckVersion;
+import com.facebook.buck.rules.keys.config.impl.BuckVersion;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -136,15 +136,19 @@ public abstract class AbstractWorkspace {
   }
 
   private void saveBuckConfigLocal() throws IOException {
+    writeContentsToPath(convertToBuckConfig(localConfigs), ".buckconfig.local");
+  }
+
+  protected static String convertToBuckConfig(Map<String, Map<String, String>> configs) {
     StringBuilder contents = new StringBuilder();
-    for (Map.Entry<String, Map<String, String>> section : localConfigs.entrySet()) {
+    for (Map.Entry<String, Map<String, String>> section : configs.entrySet()) {
       contents.append("[").append(section.getKey()).append("]\n\n");
       for (Map.Entry<String, String> option : section.getValue().entrySet()) {
         contents.append(option.getKey()).append(" = ").append(option.getValue()).append("\n");
       }
       contents.append("\n");
     }
-    writeContentsToPath(contents.toString(), ".buckconfig.local");
+    return contents.toString();
   }
 
   /**

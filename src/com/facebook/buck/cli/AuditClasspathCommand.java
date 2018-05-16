@@ -17,26 +17,25 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.Dot;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.versions.VersionException;
@@ -155,8 +154,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       Dot.builder(targetGraph, "target_graph")
           .setNodeToName(
               targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"")
-          .setNodeToTypeName(
-              targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+          .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
           .build()
           .writeOutput(params.getConsole().getStdOut());
     } catch (IOException e) {

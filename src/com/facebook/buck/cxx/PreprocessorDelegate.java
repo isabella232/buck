@@ -16,35 +16,54 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyAppendable;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.HasCustomDepsLogic;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.modern.CustomClassSerialization;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
+import com.facebook.buck.rules.modern.ValueVisitor;
+import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.WeakMemoizer;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.reflect.TypeToken;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /** Helper class for handling preprocessing related tasks of a cxx compilation rule. */
-final class PreprocessorDelegate implements AddsToRuleKey {
+@CustomClassBehavior(PreprocessorDelegate.SerializationBehavior.class)
+final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogic {
 
   // Fields that are added to rule key as is.
   @AddToRuleKey private final Preprocessor preprocessor;
@@ -58,7 +77,8 @@ final class PreprocessorDelegate implements AddsToRuleKey {
   @AddToRuleKey private final PreprocessorFlags preprocessorFlags;
 
   // Fields that are not added to the rule key.
-  private final Path workingDir;
+  private final PathSourcePath workingDir;
+
   private final Optional<SymlinkTree> sandbox;
 
   /**
@@ -70,16 +90,22 @@ final class PreprocessorDelegate implements AddsToRuleKey {
 
   private final PathShortener minLengthPathRepresentation;
 
-  private WeakMemoizer<HeaderPathNormalizer> headerPathNormalizer = new WeakMemoizer<>();
+  private final Optional<BuildRule> aggregatedDeps;
+
+  private final WeakMemoizer<HeaderPathNormalizer> headerPathNormalizer = new WeakMemoizer<>();
+
+  private final Supplier<Optional<ConflictingHeadersResult>> lazyConflictingHeadersCheckResult =
+      Suppliers.memoize(this::checkConflictingHeadersUncached);
 
   public PreprocessorDelegate(
       HeaderVerification headerVerification,
-      Path workingDir,
+      PathSourcePath workingDir,
       Preprocessor preprocessor,
       PreprocessorFlags preprocessorFlags,
       RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction,
       Optional<SymlinkTree> sandbox,
-      Optional<CxxIncludePaths> leadingIncludePaths) {
+      Optional<CxxIncludePaths> leadingIncludePaths,
+      Optional<BuildRule> aggregatedDeps) {
     this.preprocessor = preprocessor;
     this.preprocessorFlags = preprocessorFlags;
     this.headerVerification = headerVerification;
@@ -88,6 +114,7 @@ final class PreprocessorDelegate implements AddsToRuleKey {
     this.frameworkPathSearchPathFunction = frameworkPathSearchPathFunction;
     this.sandbox = sandbox;
     this.leadingIncludePaths = leadingIncludePaths;
+    this.aggregatedDeps = aggregatedDeps;
   }
 
   public PreprocessorDelegate withLeadingIncludePaths(CxxIncludePaths leadingIncludePaths) {
@@ -98,7 +125,8 @@ final class PreprocessorDelegate implements AddsToRuleKey {
         this.preprocessorFlags,
         this.frameworkPathSearchPathFunction,
         this.sandbox,
-        Optional.of(leadingIncludePaths));
+        Optional.of(leadingIncludePaths),
+        this.aggregatedDeps);
   }
 
   public Preprocessor getPreprocessor() {
@@ -137,9 +165,12 @@ final class PreprocessorDelegate implements AddsToRuleKey {
    * Get the command for standalone preprocessor calls.
    *
    * @param compilerFlags flags to append.
+   * @param pch
    */
   public ImmutableList<Arg> getCommand(
-      CxxToolFlags compilerFlags, Optional<CxxPrecompiledHeader> pch, SourcePathResolver resolver) {
+      CxxToolFlags compilerFlags,
+      Optional<PrecompiledHeaderData> pch,
+      SourcePathResolver resolver) {
     return ImmutableList.<Arg>builder()
         .addAll(StringArg.from(getCommandPrefix(resolver)))
         .addAll(getArguments(compilerFlags, pch, resolver))
@@ -151,7 +182,9 @@ final class PreprocessorDelegate implements AddsToRuleKey {
   }
 
   public ImmutableList<Arg> getArguments(
-      CxxToolFlags compilerFlags, Optional<CxxPrecompiledHeader> pch, SourcePathResolver resolver) {
+      CxxToolFlags compilerFlags,
+      Optional<PrecompiledHeaderData> pch,
+      SourcePathResolver resolver) {
     return ImmutableList.copyOf(
         CxxToolFlags.concat(getFlagsWithSearchPaths(pch, resolver), compilerFlags).getAllFlags());
   }
@@ -161,7 +194,7 @@ final class PreprocessorDelegate implements AddsToRuleKey {
   }
 
   public CxxToolFlags getFlagsWithSearchPaths(
-      Optional<CxxPrecompiledHeader> pch, SourcePathResolver resolver) {
+      Optional<PrecompiledHeaderData> pch, SourcePathResolver resolver) {
     CxxToolFlags leadingFlags;
     if (leadingIncludePaths.isPresent()) {
       leadingFlags =
@@ -195,9 +228,8 @@ final class PreprocessorDelegate implements AddsToRuleKey {
     return preprocessorFlags.getCxxIncludePaths();
   }
 
-  public CxxToolFlags getNonIncludePathFlags(
-      Optional<CxxPrecompiledHeader> pch, SourcePathResolver resolver) {
-    return preprocessorFlags.getNonIncludePathFlags(resolver, pch, preprocessor);
+  public CxxToolFlags getNonIncludePathFlags(SourcePathResolver resolver) {
+    return preprocessorFlags.getNonIncludePathFlags(resolver, Optional.empty(), preprocessor);
   }
 
   /**
@@ -284,10 +316,138 @@ final class PreprocessorDelegate implements AddsToRuleKey {
     return preprocessorFlags;
   }
 
-  public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    return ImmutableList.<BuildRule>builder()
-        .addAll(BuildableSupport.getDepsCollection(getPreprocessor(), ruleFinder))
-        .addAll(getPreprocessorFlags().getDeps(ruleFinder))
-        .build();
+  /**
+   * Returns whether there are conflicting headers in the includes given to this object.
+   *
+   * <p>Conflicting headers are different header files that can be accessed by the same include
+   * directive. In a C++ compiler, the header that appears in the first header search path is used,
+   * but in buck, we mandate that there are no conflicts at all.
+   *
+   * <p>Since buck manages the header search paths of a library based on its transitive
+   * dependencies, this constraint prevents spooky behavior where a dependency change may affect
+   * header resolution of far-away libraries. It also enables buck to perform various optimizations
+   * that would be impossible if it has to respect header search path ordering.
+   */
+  public Optional<ConflictingHeadersResult> checkConflictingHeaders() {
+    return lazyConflictingHeadersCheckResult.get();
+  }
+
+  @Override
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    if (sandbox.isPresent()) {
+      ImmutableMap<Path, SourcePath> links = sandbox.get().getLinks();
+      for (Path path : ImmutableSortedSet.copyOf(links.keySet())) {
+        SourcePath source = links.get(path);
+        sink.setReflectively("sandbox(" + path + ")", source);
+      }
+    }
+  }
+
+  @Override
+  public Stream<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    Preconditions.checkState(aggregatedDeps.isPresent());
+    return new DepsBuilder(ruleFinder).add(aggregatedDeps.get()).add(this).build().stream();
+  }
+
+  private Optional<ConflictingHeadersResult> checkConflictingHeadersUncached() {
+    Iterable<CxxHeaders> allHeaders = preprocessorFlags.getIncludes();
+    int estimatedSize =
+        RichStream.from(allHeaders)
+            .filter(CxxSymlinkTreeHeaders.class)
+            .mapToInt(cxxHeaders -> cxxHeaders.getNameToPathMap().size())
+            .sum();
+    Map<Path, SourcePath> headers = new HashMap<>(estimatedSize);
+    for (CxxHeaders cxxHeaders : allHeaders) {
+      if (cxxHeaders instanceof CxxSymlinkTreeHeaders) {
+        CxxSymlinkTreeHeaders symlinkTreeHeaders = (CxxSymlinkTreeHeaders) cxxHeaders;
+        for (Map.Entry<Path, SourcePath> entry : symlinkTreeHeaders.getNameToPathMap().entrySet()) {
+          SourcePath original = headers.put(entry.getKey(), entry.getValue());
+          if (original != null && !original.equals(entry.getValue())) {
+            return Optional.of(
+                new ConflictingHeadersResult(entry.getKey(), original, entry.getValue()));
+          }
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Result of a conflicting headers check.
+   *
+   * @see #checkConflictingHeaders()
+   */
+  public static class ConflictingHeadersResult {
+    private final Path includeFilePath;
+    private final SourcePath headerPath1;
+    private final SourcePath headerPath2;
+
+    private ConflictingHeadersResult(
+        Path includeFilePath, SourcePath headerPath1, SourcePath headerPath2) {
+      this.includeFilePath = includeFilePath;
+      this.headerPath1 = headerPath1;
+      this.headerPath2 = headerPath2;
+    }
+
+    /** Throw an exception with a user friendly message detailing the conflict. */
+    public HumanReadableException throwHumanReadableExceptionWithContext(BuildTarget buildTarget) {
+      throw new HumanReadableException(
+          "Target '%s' has dependencies using headers that can be included using the same path.\n\n"
+              + "'%s' maps to the following header files:\n"
+              + "- %s\n"
+              + "- and %s\n\n"
+              + "Please rename one of them or export one of them to a different path.",
+          buildTarget, includeFilePath, headerPath1, headerPath2);
+    }
+  }
+
+  /** Custom serialization. */
+  static class SerializationBehavior implements CustomClassSerialization<PreprocessorDelegate> {
+    static final ValueTypeInfo<Preprocessor> PREPROCESSOR_TYPE_INFO =
+        ValueTypeInfoFactory.forTypeToken(new TypeToken<Preprocessor>() {});
+    static final ValueTypeInfo<RuleKeyAppendableFunction<FrameworkPath, Path>>
+        FRAMEWORK_PATH_FUNCTION_TYPE_INFO =
+            ValueTypeInfoFactory.forTypeToken(
+                new TypeToken<RuleKeyAppendableFunction<FrameworkPath, Path>>() {});
+    static final ValueTypeInfo<HeaderVerification> HEADER_VERIFICATION_TYPE_INFO =
+        ValueTypeInfoFactory.forTypeToken(new TypeToken<HeaderVerification>() {});
+    static final ValueTypeInfo<PreprocessorFlags> PREPROCESSOR_FLAGS_TYPE_INFO =
+        ValueTypeInfoFactory.forTypeToken(new TypeToken<PreprocessorFlags>() {});
+
+    @Override
+    public void serialize(PreprocessorDelegate instance, ValueVisitor<IOException> serializer)
+        throws IOException {
+      PREPROCESSOR_TYPE_INFO.visit(instance.preprocessor, serializer);
+      FRAMEWORK_PATH_FUNCTION_TYPE_INFO.visit(instance.frameworkPathSearchPathFunction, serializer);
+      HEADER_VERIFICATION_TYPE_INFO.visit(instance.headerVerification, serializer);
+      PREPROCESSOR_FLAGS_TYPE_INFO.visit(instance.preprocessorFlags, serializer);
+      serializer.visitSourcePath(instance.workingDir);
+      Preconditions.checkState(!instance.leadingIncludePaths.isPresent());
+      Preconditions.checkState(!instance.sandbox.isPresent());
+    }
+
+    @Override
+    public PreprocessorDelegate deserialize(ValueCreator<IOException> deserializer)
+        throws IOException {
+      Preprocessor preprocessor = PREPROCESSOR_TYPE_INFO.createNotNull(deserializer);
+      RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction =
+          FRAMEWORK_PATH_FUNCTION_TYPE_INFO.createNotNull(deserializer);
+      HeaderVerification headerVerification =
+          HEADER_VERIFICATION_TYPE_INFO.createNotNull(deserializer);
+      PreprocessorFlags preprocessorFlags =
+          PREPROCESSOR_FLAGS_TYPE_INFO.createNotNull(deserializer);
+      SourcePath workingDirSourcePath = deserializer.createSourcePath();
+      Preconditions.checkState(workingDirSourcePath instanceof PathSourcePath);
+      PathSourcePath workingDir = (PathSourcePath) workingDirSourcePath;
+      return new PreprocessorDelegate(
+          headerVerification,
+          workingDir,
+          preprocessor,
+          preprocessorFlags,
+          frameworkPathSearchPathFunction,
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty());
+    }
   }
 }

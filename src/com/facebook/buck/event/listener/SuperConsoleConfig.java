@@ -17,8 +17,8 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import java.util.Optional;
 
@@ -80,6 +80,10 @@ public class SuperConsoleConfig {
 
   public boolean shouldShowSlowRulesInConsole() {
     return delegate.getBooleanValue(SECTION_NAME, "show_slow_rules_in_console", false);
+  }
+
+  public Optional<Integer> getThreadLineOutputMaxColumns() {
+    return delegate.getInteger(SECTION_NAME, "thread_line_output_max_columns");
   }
 
   private Optional<Integer> getPositiveInt(String sectionName, String propertyName) {

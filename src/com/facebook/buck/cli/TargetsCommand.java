@@ -16,6 +16,19 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
@@ -28,27 +41,18 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.PerBuildState.SpeculativeParsing;
+import com.facebook.buck.parser.PerBuildStateFactory;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RuleDepsCache;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -63,12 +67,10 @@ import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.facebook.buck.util.hashing.FilePathHashLoader;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionException;
@@ -767,23 +769,25 @@ public class TargetsCommand extends AbstractCommand {
     Iterator<TargetNode<?, ?>> targetNodeIterator = targetNodes.iterator();
 
     try (PerBuildState state =
-        new PerBuildState(
-            params.getTypeCoercerFactory(),
-            new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-            params.getParser().getPermState(),
-            params.getBuckEventBus(),
-            params.getExecutableFinder(),
-            executor,
-            params.getCell(),
-            params.getKnownBuildRuleTypesProvider(),
-            getEnableParserProfiling(),
-            SpeculativeParsing.DISABLED)) {
+        new PerBuildStateFactory()
+            .create(
+                params.getTypeCoercerFactory(),
+                params.getParser().getPermState(),
+                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                params.getBuckEventBus(),
+                new ParserPythonInterpreterProvider(
+                    params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                executor,
+                params.getCell(),
+                params.getKnownBuildRuleTypesProvider(),
+                getEnableParserProfiling(),
+                SpeculativeParsing.DISABLED)) {
 
       while (targetNodeIterator.hasNext()) {
         TargetNode<?, ?> targetNode = targetNodeIterator.next();
-        Map<String, Object> rawTargetNode =
-            params.getParser().getRawTargetNode(state, params.getCell(), targetNode);
-        if (rawTargetNode == null) {
+        Map<String, Object> targetNodeAttributes =
+            params.getParser().getTargetNodeRawAttributes(state, params.getCell(), targetNode);
+        if (targetNodeAttributes == null) {
           params
               .getConsole()
               .printErrorText(
@@ -798,13 +802,13 @@ public class TargetsCommand extends AbstractCommand {
             field
                 .getter
                 .apply(targetResult)
-                .ifPresent(value -> rawTargetNode.put(field.name, value));
+                .ifPresent(value -> targetNodeAttributes.put(field.name, value));
           }
         }
-        rawTargetNode.put(
+        targetNodeAttributes.put(
             "fully_qualified_name", targetNode.getBuildTarget().getFullyQualifiedName());
         if (isShowCellPath) {
-          rawTargetNode.put("buck.cell_path", targetNode.getBuildTarget().getCellPath());
+          targetNodeAttributes.put("buck.cell_path", targetNode.getBuildTarget().getCellPath());
         }
 
         // Print the build rule information as JSON.
@@ -813,7 +817,8 @@ public class TargetsCommand extends AbstractCommand {
           ObjectMappers.WRITER
               .withDefaultPrettyPrinter()
               .writeValue(
-                  stringWriter, attributesPatternsMatcher.filterMatchingMapKeys(rawTargetNode));
+                  stringWriter,
+                  attributesPatternsMatcher.filterMatchingMapKeys(targetNodeAttributes));
         } catch (IOException e) {
           // Shouldn't be possible while writing to a StringWriter...
           throw new RuntimeException(e);
@@ -918,7 +923,7 @@ public class TargetsCommand extends AbstractCommand {
                             ruleFinder,
                             ruleKeyCacheScope.getCache(),
                             Optional.ofNullable(ruleKeyLogger)),
-                        new RuleDepsCache(buildRuleResolver.get()),
+                        new DefaultRuleDepsCache(buildRuleResolver.get()),
                         (eventBus, rule) -> () -> {}));
           }
         }

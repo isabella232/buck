@@ -16,6 +16,11 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.DistBuildCachingEngineDelegate;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
@@ -24,15 +29,9 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.CachingBuildEngineDelegate;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -54,6 +53,7 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ForkJoinPool;
 
@@ -239,7 +239,7 @@ public class DelegateAndGraphsInitializer {
     // hack so that the coercer does not check for existence of these unrecorded files.
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
-    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
@@ -251,7 +251,7 @@ public class DelegateAndGraphsInitializer {
         input -> {
           try {
             return args.getParser()
-                .getRawTargetNode(
+                .getTargetNodeRawAttributes(
                     args.getBuckEventBus(),
                     args.getState().getRootCell().getCell(input.getBuildTarget()),
                     /* enableProfiling */ false,

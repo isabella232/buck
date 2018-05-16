@@ -17,20 +17,20 @@
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.engine.BuildExecutorRunner;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildExecutorRunner;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
-import com.facebook.buck.rules.modern.builders.InputsDigestBuilder.DefaultDelegate;
+import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.function.ThrowingFunction;
@@ -42,9 +42,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.Hasher;
+import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -68,6 +70,7 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
   private final ThrowingFunction<Path, HashCode, IOException> fileHasher;
   private final Serializer serializer;
   private final Map<Optional<String>, byte[]> cellToConfig;
+  private final Map<Optional<String>, String> configHashes;
   private final Path cellPathPrefix;
   private final Set<Optional<String>> cellNames;
   private final Map<HashCode, Node> nodeMap;
@@ -86,12 +89,7 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
 
     Delegate delegate =
         (instance, data, children) -> {
-          Hasher hasher = Hashing.murmur3_128().newHasher();
-          hasher.putBytes(data);
-          for (HashCode child : children) {
-            hasher.putBytes(child.asBytes());
-          }
-          HashCode hash = hasher.hash();
+          HashCode hash = Hashing.sha1().hashBytes(data);
           Node node =
               new Node(
                   data,
@@ -126,6 +124,16 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
                                 .getCellProvider()
                                 .getCellByPath(cellResolver.getCellPath(name).get())
                                 .getBuckConfig())));
+
+    HashFunction hasher = Hashing.sha1();
+    this.configHashes =
+        cellToConfig
+            .entrySet()
+            .stream()
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    entry -> entry.getKey(),
+                    entry -> hasher.hashBytes(entry.getValue()).toString()));
 
     this.cellPathPrefix =
         MorePaths.splitOnCommonPrefix(
@@ -168,8 +176,7 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
     Buildable original = converted.getBuildable();
     HashCode hash = serializer.serialize(new BuildableAndTarget(original, rule.getBuildTarget()));
 
-    InputsDigestBuilder inputsBuilder =
-        new InputsDigestBuilder(new DefaultDelegate(cellPathPrefix, fileHasher));
+    FileTreeBuilder inputsBuilder = new FileTreeBuilder();
     addBuckConfigInputs(inputsBuilder);
     addDeserializationInputs(hash, inputsBuilder);
     addRuleInputs(inputsBuilder, converted, buildRuleBuildContext);
@@ -190,15 +197,24 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
     converted.recordOutputs(buildableContext);
   }
 
-  private void addBuckConfigInputs(InputsDigestBuilder inputsBuilder) {
+  private void addBuckConfigInputs(FileTreeBuilder inputsBuilder) throws IOException {
     for (Optional<String> cell : cellNames) {
       Path configPath = getPrefixRelativeCellPath(cell).resolve(".buckconfig");
-      inputsBuilder.addFile(configPath, () -> cellToConfig.get(cell), false);
+      inputsBuilder.addFile(
+          configPath,
+          () -> {
+            byte[] data = Preconditions.checkNotNull(cellToConfig.get(cell));
+            return new InputFile(
+                Preconditions.checkNotNull(configHashes.get(cell)),
+                data.length,
+                false,
+                () -> new ByteArrayInputStream(data));
+          });
     }
   }
 
   private void addRuleInputs(
-      InputsDigestBuilder inputsBuilder, ModernBuildRule<?> converted, BuildContext buildContext)
+      FileTreeBuilder inputsBuilder, ModernBuildRule<?> converted, BuildContext buildContext)
       throws IOException {
     class InputsAdder {
       Set<Path> linkedDirs = new HashSet<>();
@@ -223,7 +239,14 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
             }
           }
         } else {
-          inputsBuilder.addFile(path, Files.isExecutable(source));
+          inputsBuilder.addFile(
+              path,
+              () ->
+                  new InputFile(
+                      fileHasher.apply(source).toString(),
+                      (int) Files.size(source),
+                      Files.isExecutable(source),
+                      () -> new FileInputStream(source.toFile())));
         }
       }
     }
@@ -231,26 +254,34 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
     for (SourcePath inputSourcePath : converted.computeInputs()) {
       Path resolved =
           buildContext.getSourcePathResolver().getAbsolutePath(inputSourcePath).normalize();
-      if (!resolved.startsWith(cellPathPrefix)) {
-        System.err.println("Skipping absolute path " + resolved);
-        // TODO(cjhopman): Should we map absolute paths to platform requirements?
-      } else {
+
+      // TODO(cjhopman): Should we map absolute paths to platform requirements?
+      if (resolved.startsWith(cellPathPrefix)) {
         inputsAdder.addInput(cellPathPrefix.relativize(resolved));
       }
     }
   }
 
-  private void addDeserializationInputs(HashCode hash, InputsDigestBuilder inputsBuilder) {
+  private void addDeserializationInputs(HashCode hash, FileTreeBuilder inputsBuilder)
+      throws IOException {
     class DataAdder {
-      void addData(Path root, Node node) {
-        inputsBuilder.addFile(root.resolve("__value__"), () -> node.data, false);
+      void addData(Path root, String hash, Node node) throws IOException {
+        inputsBuilder.addFile(
+            root.resolve("__value__"),
+            () ->
+                new InputFile(
+                    hash, node.data.length, false, () -> new ByteArrayInputStream(node.data)));
         for (Map.Entry<String, Node> child : node.children.entrySet()) {
-          addData(root.resolve(child.getKey()), child.getValue());
+          addData(root.resolve(child.getKey()), child.getKey(), child.getValue());
         }
       }
     }
 
-    new DataAdder().addData(Paths.get("__data__").resolve(hash.toString()), nodeMap.get(hash));
+    new DataAdder()
+        .addData(
+            Paths.get("__data__").resolve(hash.toString()),
+            hash.toString(),
+            Preconditions.checkNotNull(nodeMap.get(hash)));
   }
 
   private static class Node {

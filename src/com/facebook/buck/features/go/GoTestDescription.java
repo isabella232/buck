@@ -16,37 +16,37 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasContacts;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.arg.HasSrcs;
+import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.features.go.GoListStep.FileType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasContacts;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.HasSrcs;
-import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
@@ -185,9 +185,17 @@ public class GoTestDescription
 
     GoTestCoverStep.Mode coverageMode;
     ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
-    ImmutableSet.Builder<SourcePath> srcs = ImmutableSet.builder();
+    ImmutableSet.Builder<SourcePath> srcs;
     ImmutableMap<String, Path> coverVariables;
 
+    ImmutableSet.Builder<SourcePath> rawSrcs = ImmutableSet.builder();
+    rawSrcs.addAll(args.getSrcs());
+    if (args.getLibrary().isPresent()) {
+      GoLibraryDescriptionArg libraryArg =
+          resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
+
+      rawSrcs.addAll(libraryArg.getSrcs());
+    }
     if (args.getCoverageMode().isPresent()) {
       coverageMode = args.getCoverageMode().get();
       GoTestCoverStep.Mode coverage = coverageMode;
@@ -203,15 +211,16 @@ public class GoTestDescription
                           ruleFinder,
                           pathResolver,
                           platform,
-                          args.getSrcs(),
+                          rawSrcs.build(),
                           platform.getCover(),
                           coverage));
 
       coverVariables = coverSource.getVariables();
+      srcs = ImmutableSet.builder();
       srcs.addAll(coverSource.getCoveredSources()).addAll(coverSource.getTestSources());
       extraDeps.add(coverSource);
     } else {
-      srcs.addAll(args.getSrcs());
+      srcs = rawSrcs;
       coverVariables = ImmutableMap.of();
       coverageMode = GoTestCoverStep.Mode.NONE;
     }
@@ -251,7 +260,8 @@ public class GoTestDescription
             .map(Optional::of)
             .orElse(goBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getRunTestSeparately(),
-        args.getResources());
+        args.getResources(),
+        coverageMode);
   }
 
   private GoBinary createTestMainRule(
@@ -380,7 +390,7 @@ public class GoTestDescription
               resolver,
               goBuckConfig,
               packageName,
-              ImmutableSet.<SourcePath>builder().addAll(libraryArg.getSrcs()).addAll(srcs).build(),
+              ImmutableSet.<SourcePath>builder().addAll(srcs).build(),
               ImmutableList.<String>builder()
                   .addAll(libraryArg.getCompilerFlags())
                   .addAll(args.getCompilerFlags())

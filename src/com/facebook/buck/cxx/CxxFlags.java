@@ -16,8 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -138,21 +142,27 @@ public class CxxFlags {
   public static class TranslateMacrosAppendableFunction
       implements RuleKeyAppendableFunction<String, String> {
 
+    @CustomFieldBehavior(DefaultFieldSerialization.class)
     private final ImmutableSortedMap<String, String> flagMacros;
-    private final CxxPlatform cxxPlatform;
+
+    @AddToRuleKey private final DebugPathSanitizer compilerDebugPathSanitizer;
 
     public TranslateMacrosAppendableFunction(
         ImmutableSortedMap<String, String> flagMacros, CxxPlatform cxxPlatform) {
+      this(flagMacros, cxxPlatform.getCompilerDebugPathSanitizer());
+    }
+
+    public TranslateMacrosAppendableFunction(
+        ImmutableSortedMap<String, String> flagMacros, DebugPathSanitizer pathSanitizer) {
       this.flagMacros = flagMacros;
-      this.cxxPlatform = cxxPlatform;
+      this.compilerDebugPathSanitizer = pathSanitizer;
     }
 
     @Override
     public void appendToRuleKey(RuleKeyObjectSink sink) {
       SortedMap<String, String> sanitizedMap =
           Maps.transformValues(
-              flagMacros,
-              cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty())::apply);
+              flagMacros, compilerDebugPathSanitizer.sanitize(Optional.empty())::apply);
       sink.setReflectively("flagMacros", sanitizedMap);
     }
 

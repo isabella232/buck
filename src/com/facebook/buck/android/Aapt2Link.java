@@ -17,17 +17,17 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
@@ -53,7 +53,10 @@ import javax.annotation.Nullable;
 
 /** Perform the "aapt2 link" step of building an Android app. */
 public class Aapt2Link extends AbstractBuildRule {
+  @AddToRuleKey private final boolean includesVectorDrawables;
   @AddToRuleKey private final boolean noAutoVersion;
+  @AddToRuleKey private final boolean noVersionTransitions;
+  @AddToRuleKey private final boolean noAutoAddOverlay;
   @AddToRuleKey private final ImmutableList<Aapt2Compile> compileRules;
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
@@ -71,7 +74,10 @@ public class Aapt2Link extends AbstractBuildRule {
       SourcePath manifest,
       ManifestEntries manifestEntries,
       ImmutableList<SourcePath> dependencyResourceApks,
+      boolean includesVectorDrawables,
       boolean noAutoVersion,
+      boolean noVersionTransitions,
+      boolean noAutoAddOverlay,
       AndroidPlatformTarget androidPlatformTarget) {
     super(buildTarget, projectFilesystem);
     this.androidPlatformTarget = androidPlatformTarget;
@@ -79,7 +85,10 @@ public class Aapt2Link extends AbstractBuildRule {
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
     this.dependencyResourceApks = dependencyResourceApks;
+    this.includesVectorDrawables = includesVectorDrawables;
     this.noAutoVersion = noAutoVersion;
+    this.noVersionTransitions = noVersionTransitions;
+    this.noAutoAddOverlay = noAutoAddOverlay;
     this.buildDepsSupplier =
         MoreSuppliers.memoize(
             () ->
@@ -241,10 +250,21 @@ public class Aapt2Link extends AbstractBuildRule {
         builder.add("-v");
       }
 
+      if (includesVectorDrawables) {
+        builder.add("--no-version-vectors");
+      }
+
       if (noAutoVersion) {
         builder.add("--no-auto-version");
       }
-      builder.add("--auto-add-overlay");
+
+      if (noVersionTransitions) {
+        builder.add("--no-version-transitions");
+      }
+
+      if (!noAutoAddOverlay) {
+        builder.add("--auto-add-overlay");
+      }
 
       ProjectFilesystem pf = getProjectFilesystem();
       builder.add("-o", pf.resolve(getResourceApkPath()).toString());

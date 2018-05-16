@@ -19,20 +19,20 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -107,8 +107,8 @@ public class RuleKeyLoggerListenerTest {
   private BuildRuleEvent.Finished createBuildEvent() {
     BuildRule rule =
         new FakeBuildRule(
-            BuildTarget.of(
-                UnflavoredBuildTarget.of(
+            ImmutableBuildTarget.of(
+                ImmutableUnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(),
                     Optional.empty(),
                     "//topspin",

@@ -21,6 +21,8 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.UPLOAD_MISSING_FILES;
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.UPLOAD_TARGET_GRAPH;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.thrift.AppendBuildSlaveEventsRequest;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
@@ -72,13 +74,12 @@ import com.facebook.buck.distributed.thrift.StartBuildRequest;
 import com.facebook.buck.distributed.thrift.StoreBuildGraphRequest;
 import com.facebook.buck.distributed.thrift.StoreBuildSlaveFinishedStatsRequest;
 import com.facebook.buck.distributed.thrift.StoreLocalChangesRequest;
+import com.facebook.buck.distributed.thrift.UpdateBuildSlaveBuildStatusRequest;
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusRequest;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
@@ -339,7 +340,7 @@ public class DistBuildService implements Closeable {
         buildMode == BuildMode.REMOTE_BUILD
             || buildMode == BuildMode.DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR
             || buildMode == BuildMode.DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR,
-        "BuildMode [%s=%d] is currently not supported.",
+        "BuildType [%s=%d] is currently not supported.",
         buildMode.toString(),
         buildMode.ordinal());
 
@@ -624,6 +625,26 @@ public class DistBuildService implements Closeable {
     FrontendRequest frontendRequest = new FrontendRequest();
     frontendRequest.setType(FrontendRequestType.APPEND_BUILD_SLAVE_EVENTS);
     frontendRequest.setAppendBuildSlaveEventsRequest(request);
+    makeRequestChecked(frontendRequest);
+  }
+
+  /**
+   * Sets the build status for minion with given run ID.
+   *
+   * @throws IOException
+   */
+  public void updateBuildSlaveBuildStatus(
+      StampedeId stampedeId, String runIdStr, BuildStatus status) throws IOException {
+    UpdateBuildSlaveBuildStatusRequest request = new UpdateBuildSlaveBuildStatusRequest();
+    request.setStampedeId(stampedeId);
+    BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
+    buildSlaveRunId.setId(runIdStr);
+    request.setRunId(buildSlaveRunId);
+    request.setBuildStatus(status);
+
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.UPDATE_BUILD_SLAVE_BUILD_STATUS);
+    frontendRequest.setUpdateBuildSlaveBuildStatusRequest(request);
     makeRequestChecked(frontendRequest);
   }
 

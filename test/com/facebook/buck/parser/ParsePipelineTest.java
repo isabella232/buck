@@ -21,22 +21,24 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.stringContainsInOrder;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -49,13 +51,11 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -366,16 +366,14 @@ public class ParsePipelineTest {
         scenario,
         MoreExecutors.listeningDecorator(
             MostExecutors.newMultiThreadExecutor("ParsePipelineTest", 4)),
-        PerBuildState.SpeculativeParsing.ENABLED);
+        SpeculativeParsing.ENABLED);
   }
 
   // Use this method to make sure the Pipeline doesn't execute stuff on another thread, useful
   // if you're poking at the cache state directly.
   private Fixture createSynchronousExecutionFixture(String scenario) throws Exception {
     return new Fixture(
-        scenario,
-        MoreExecutors.newDirectExecutorService(),
-        PerBuildState.SpeculativeParsing.DISABLED);
+        scenario, MoreExecutors.newDirectExecutorService(), SpeculativeParsing.DISABLED);
   }
 
   private class Fixture implements AutoCloseable {
@@ -397,7 +395,7 @@ public class ParsePipelineTest {
     public Fixture(
         String scenario,
         ListeningExecutorService executorService,
-        PerBuildState.SpeculativeParsing speculativeParsing)
+        SpeculativeParsing speculativeParsing)
         throws Exception {
       this.workspace = TestDataHelper.createProjectWorkspaceForScenario(this, scenario, tmp);
       this.eventBus = BuckEventBusForTests.newInstance();
@@ -422,16 +420,16 @@ public class ParsePipelineTest {
       projectBuildFileParserPool =
           new ProjectBuildFileParserPool(
               4, // max parsers
-              input -> {
+              (buckEventBus, input) -> {
                 CloseRecordingProjectBuildFileParserDecorator buildFileParser =
                     new CloseRecordingProjectBuildFileParserDecorator(
-                        ProjectBuildFileParserFactory.createBuildFileParser(
-                            input,
-                            coercerFactory,
-                            console,
-                            eventBus,
-                            new ExecutableFinder(),
-                            knownBuildRuleTypes.getDescriptions()));
+                        new DefaultProjectBuildFileParserFactory(
+                                coercerFactory,
+                                console,
+                                new ParserPythonInterpreterProvider(
+                                    input.getBuckConfig(), new ExecutableFinder()),
+                                KnownBuildRuleTypesProvider.of(knownBuildRuleTypesFactory))
+                            .createBuildFileParser(eventBus, input));
                 synchronized (projectBuildFileParsers) {
                   projectBuildFileParsers.add(buildFileParser);
                 }
@@ -466,7 +464,7 @@ public class ParsePipelineTest {
                   TestRuleKeyConfigurationFactory.create()),
               this.executorService,
               this.eventBus,
-              speculativeParsing == PerBuildState.SpeculativeParsing.ENABLED,
+              speculativeParsing == SpeculativeParsing.ENABLED,
               this.rawNodeParsePipeline,
               KnownBuildRuleTypesProvider.of(knownBuildRuleTypesFactory));
     }
@@ -535,16 +533,9 @@ public class ParsePipelineTest {
     }
 
     @Override
-    public ImmutableList<Map<String, Object>> getAll(Path buildFile, AtomicLong processedBytes)
+    public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes)
         throws BuildFileParseException, InterruptedException, IOException {
-      return delegate.getAll(buildFile, processedBytes);
-    }
-
-    @Override
-    public ImmutableList<Map<String, Object>> getAllRulesAndMetaRules(
-        Path buildFile, AtomicLong processedBytes)
-        throws BuildFileParseException, InterruptedException, IOException {
-      return delegate.getAll(buildFile, processedBytes);
+      return delegate.getBuildFileManifest(buildFile, processedBytes);
     }
 
     @Override

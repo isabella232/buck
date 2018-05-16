@@ -17,6 +17,9 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.counters.Counter;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.TagSetCounter;
@@ -26,14 +29,11 @@ import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
@@ -48,7 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.MapDifference;
-import com.google.common.collect.Maps;
+import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -226,10 +226,7 @@ public class DaemonicParserState {
         } else if (rawNode.containsKey(CONFIGS_META_RULE)) {
         } else if (rawNode.containsKey(ENV_META_RULE)) {
           env =
-              ImmutableMap.copyOf(
-                  Maps.transformValues(
-                      Preconditions.checkNotNull((Map<String, String>) rawNode.get(ENV_META_RULE)),
-                      Optional::ofNullable));
+              ((Optional<ImmutableMap<String, Optional<String>>>) rawNode.get(ENV_META_RULE)).get();
         } else {
           withoutMetaIncludesBuilder.add(rawNode);
         }
@@ -400,6 +397,7 @@ public class DaemonicParserState {
     }
   }
 
+  @Subscribe
   public void invalidateBasedOn(WatchmanOverflowEvent event) {
     // Non-path change event, likely an overflow due to many change events: invalidate everything.
     LOG.debug("Received non-path change event %s, assuming overflow and checking caches.", event);
@@ -410,7 +408,10 @@ public class DaemonicParserState {
     }
   }
 
+  @Subscribe
   public void invalidateBasedOn(WatchmanPathEvent event) {
+    LOG.verbose("Parser watched event %s %s", event.getKind(), event.getPath());
+
     filesChangedCounter.inc();
 
     Path path = event.getPath();

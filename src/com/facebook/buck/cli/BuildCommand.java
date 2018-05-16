@@ -32,6 +32,20 @@ import com.facebook.buck.command.Build;
 import com.facebook.buck.command.LocalBuildExecutor;
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.type.BuildType;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.AnalysisResults;
 import com.facebook.buck.distributed.BuckVersionUtil;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
@@ -56,7 +70,6 @@ import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
-import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
@@ -66,7 +79,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
@@ -74,23 +86,10 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.rules.ActionAndTargetGraphs;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -105,7 +104,6 @@ import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -130,6 +128,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -324,16 +323,16 @@ public class BuildCommand extends AbstractCommand {
     this.arguments.addAll(arguments);
   }
 
-  public Optional<CachingBuildEngine.BuildMode> getBuildEngineMode() {
-    Optional<CachingBuildEngine.BuildMode> mode = Optional.empty();
+  public Optional<BuildType> getBuildEngineMode() {
+    Optional<BuildType> mode = Optional.empty();
     if (deepBuild) {
-      mode = Optional.of(CachingBuildEngine.BuildMode.DEEP);
+      mode = Optional.of(BuildType.DEEP);
     }
     if (populateCacheOnly) {
-      mode = Optional.of(CachingBuildEngine.BuildMode.POPULATE_FROM_REMOTE_CACHE);
+      mode = Optional.of(BuildType.POPULATE_FROM_REMOTE_CACHE);
     }
     if (shallowBuild) {
-      mode = Optional.of(CachingBuildEngine.BuildMode.SHALLOW);
+      mode = Optional.of(BuildType.SHALLOW);
     }
     return mode;
   }
@@ -487,13 +486,8 @@ public class BuildCommand extends AbstractCommand {
   }
 
   private BuildEvent.Started postBuildStartedEvent(CommandRunnerParams params) {
-    // Post the build started event, setting it to the Parser recorded start time if appropriate.
     BuildEvent.Started started = BuildEvent.started(getArguments());
-    if (params.getParser().getParseStartTime().isPresent()) {
-      params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
-    } else {
-      params.getBuckEventBus().post(started);
-    }
+    params.getBuckEventBus().post(started);
     return started;
   }
 
@@ -705,7 +699,7 @@ public class BuildCommand extends AbstractCommand {
       Path destPath = lastOutputDirPath.relativize(absolutePath);
       Path linkPath = lastOutputDirPath.resolve(absolutePath.getFileName());
       // Don't overwrite existing symlink in case there are duplicate names.
-      if (!Files.exists(linkPath)) {
+      if (!Files.exists(linkPath, LinkOption.NOFOLLOW_LINKS)) {
         ProjectFilesystem projectFilesystem = rule.getProjectFilesystem();
         projectFilesystem.createSymLink(linkPath, destPath, false);
       }
@@ -780,7 +774,7 @@ public class BuildCommand extends AbstractCommand {
 
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
-    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
@@ -792,7 +786,7 @@ public class BuildCommand extends AbstractCommand {
             input -> {
               return params
                   .getParser()
-                  .getRawTargetNode(
+                  .getTargetNodeRawAttributes(
                       params.getBuckEventBus(),
                       params.getCell().getCell(input.getBuildTarget()),
                       false /* enableProfiling */,
@@ -887,12 +881,6 @@ public class BuildCommand extends AbstractCommand {
         && !distBuildConfig.getMinionQueue().isPresent()) {
       throw new HumanReadableException(
           "Stampede Minion Queue name must be specified to use Local Coordinator Mode.");
-    }
-
-    if (distBuildConfig.getSchedulingEnvironmentType() == SchedulingEnvironmentType.MIXED_HARDWARE
-        && !distBuildConfig.getLowSpecMinionQueue().isPresent()) {
-      throw new HumanReadableException(
-          "Stampede Low Spec Minion Queue name must be specified to used mixed hardware environment");
     }
 
     BuildEvent.DistBuildStarted started = BuildEvent.distBuildStarted();

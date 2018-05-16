@@ -29,6 +29,13 @@ import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEventStoreData;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
@@ -50,15 +57,8 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.buck.util.timing.SettableFakeClock;
@@ -637,5 +637,37 @@ public class DistBuildSlaveEventBusListenerTest {
     listener.close();
     verify(distBuildServiceMock);
     Assert.assertEquals(expectedFinishedStats, capturedStats.getValue());
+  }
+
+  @Test
+  public void testUnlockedEventsAreSent() throws IOException {
+    distBuildServiceMock.updateBuildSlaveStatus(eq(stampedeId), eq(buildSlaveRunId), anyObject());
+    expectLastCall().anyTimes();
+    distBuildServiceMock.storeBuildSlaveFinishedStats(
+        eq(stampedeId), eq(buildSlaveRunId), anyObject());
+    expectLastCall().anyTimes();
+
+    Capture<List<BuildSlaveEvent>> capturedEventsLists = Capture.newInstance(CaptureType.ALL);
+    distBuildServiceMock.uploadBuildSlaveEvents(
+        eq(stampedeId), eq(buildSlaveRunId), capture(capturedEventsLists));
+    expectLastCall().atLeastOnce();
+    replay(distBuildServiceMock);
+
+    ImmutableList<String> unlockedTargets = ImmutableList.of("unlock_1", "unlock2");
+    setUpDistBuildSlaveEventBusListener();
+    listener.createBuildRuleUnlockedEvents(unlockedTargets);
+    listener.close();
+
+    verify(distBuildServiceMock);
+    List<String> capturedEventsTargets =
+        capturedEventsLists
+            .getValues()
+            .stream()
+            .flatMap(List::stream)
+            .filter(event -> event.eventType.equals(BuildSlaveEventType.BUILD_RULE_UNLOCKED_EVENT))
+            .map(event -> event.getBuildRuleUnlockedEvent().getBuildTarget())
+            .collect(Collectors.toList());
+    Assert.assertEquals(capturedEventsTargets.size(), 2);
+    Assert.assertTrue(capturedEventsTargets.containsAll(unlockedTargets));
   }
 }

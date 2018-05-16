@@ -16,14 +16,16 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.visibility.ObeysVisibility;
 import com.facebook.buck.rules.visibility.VisibilityChecker;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -154,6 +156,10 @@ abstract class AbstractTargetNode<T, U extends Description<T>>
     } else {
       return Optional.empty();
     }
+  }
+
+  public BuildRuleType getBuildRuleType() {
+    return DescriptionCache.getBuildRuleType(getDescription());
   }
 
   @Override

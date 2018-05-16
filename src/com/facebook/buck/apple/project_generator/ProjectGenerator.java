@@ -73,6 +73,19 @@ import com.facebook.buck.apple.xcode.xcodeproj.ProductTypes;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.apple.xcode.xcodeproj.XCVersionGroup;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescription.CommonArg;
@@ -98,23 +111,11 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -134,7 +135,6 @@ import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCommonArg;
 import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
@@ -194,6 +194,7 @@ public class ProjectGenerator {
   private static final Logger LOG = Logger.get(ProjectGenerator.class);
   private static final ImmutableList<String> DEFAULT_CFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_CXXFLAGS = ImmutableList.of();
+  private static final ImmutableList<String> DEFAULT_LDFLAGS = ImmutableList.of();
   private static final ImmutableList<String> DEFAULT_SWIFTFLAGS = ImmutableList.of();
   private static final String PRODUCT_NAME = "PRODUCT_NAME";
 
@@ -206,49 +207,6 @@ public class ProjectGenerator {
 
   private static final ImmutableSet<AppleBundleExtension> APPLE_NATIVE_BUNDLE_EXTENSIONS =
       ImmutableSet.of(AppleBundleExtension.APP, AppleBundleExtension.FRAMEWORK);
-
-  public enum Option {
-    /** Use short BuildTarget name instead of full name for targets */
-    USE_SHORT_NAMES_FOR_TARGETS,
-
-    /** Put targets into groups reflecting directory structure of their BUCK files */
-    CREATE_DIRECTORY_STRUCTURE,
-
-    /** Generate read-only project files */
-    GENERATE_READ_ONLY_FILES,
-
-    /** Include tests that test root targets in the scheme */
-    INCLUDE_TESTS,
-
-    /** Include dependencies tests in the scheme */
-    INCLUDE_DEPENDENCIES_TESTS,
-
-    /** Don't use header maps as header search paths */
-    DISABLE_HEADER_MAPS,
-
-    /**
-     * Generate one header map containing all the headers it's using and reference only this header
-     * map in the header search paths.
-     */
-    MERGE_HEADER_MAPS,
-
-    /** Generates only headers symlink trees. */
-    GENERATE_HEADERS_SYMLINK_TREES_ONLY,
-
-    /** Generate an umbrella header for modular targets without one for use in a modulemap */
-    GENERATE_MISSING_UMBRELLA_HEADER,
-
-    /** Add linker flags to OTHER_LDFLAGS to force load of libraries with link_whole = true */
-    FORCE_LOAD_LINK_WHOLE_LIBRARIES,
-  }
-
-  /** Standard options for generating a separated project */
-  public static final ImmutableSet<Option> SEPARATED_PROJECT_OPTIONS =
-      ImmutableSet.of(Option.USE_SHORT_NAMES_FOR_TARGETS);
-
-  /** Standard options for generating a combined project */
-  public static final ImmutableSet<Option> COMBINED_PROJECT_OPTIONS =
-      ImmutableSet.of(Option.CREATE_DIRECTORY_STRUCTURE, Option.USE_SHORT_NAMES_FOR_TARGETS);
 
   private static final FileAttribute<?> READ_ONLY_FILE_ATTRIBUTE =
       PosixFilePermissions.asFileAttribute(
@@ -269,7 +227,7 @@ public class ProjectGenerator {
   private final PathRelativizer pathRelativizer;
 
   private final String buildFileName;
-  private final ImmutableSet<Option> options;
+  private final ProjectGeneratorOptions options;
   private final CxxPlatform defaultCxxPlatform;
 
   // These fields are created/filled when creating the projects.
@@ -305,6 +263,8 @@ public class ProjectGenerator {
   private final ImmutableSet.Builder<Path> xcconfigPathsBuilder = ImmutableSet.builder();
   private final ImmutableList.Builder<CopyInXcode> filesToCopyInXcodeBuilder =
       ImmutableList.builder();
+  private final ImmutableList.Builder<SourcePath> genruleFiles = ImmutableList.builder();
+  private final ImmutableSet.Builder<SourcePath> filesAddedBuilder = ImmutableSet.builder();
 
   public ProjectGenerator(
       TargetGraph targetGraph,
@@ -315,7 +275,7 @@ public class ProjectGenerator {
       Path outputDirectory,
       String projectName,
       String buildFileName,
-      Set<Option> options,
+      ProjectGeneratorOptions options,
       RuleKeyConfiguration ruleKeyConfiguration,
       boolean isMainProject,
       Optional<BuildTarget> workspaceTarget,
@@ -338,7 +298,7 @@ public class ProjectGenerator {
     this.outputDirectory = outputDirectory;
     this.projectName = projectName;
     this.buildFileName = buildFileName;
-    this.options = ImmutableSet.copyOf(options);
+    this.options = options;
     this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.isMainProject = isMainProject;
     this.workspaceTarget = workspaceTarget;
@@ -402,26 +362,10 @@ public class ProjectGenerator {
     return projectPath;
   }
 
-  private boolean isHeaderMapDisabled() {
-    return options.contains(Option.DISABLE_HEADER_MAPS);
-  }
-
   private boolean shouldMergeHeaderMaps() {
-    return options.contains(Option.MERGE_HEADER_MAPS)
+    return options.shouldMergeHeaderMaps()
         && workspaceTarget.isPresent()
-        && !isHeaderMapDisabled();
-  }
-
-  private boolean shouldGenerateHeaderSymlinkTreesOnly() {
-    return options.contains(Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
-  }
-
-  private boolean shouldGenerateMissingUmbrellaHeaders() {
-    return options.contains(Option.GENERATE_MISSING_UMBRELLA_HEADER);
-  }
-
-  private boolean shouldAddLinkerFlagsForLinkWholeLibraries() {
-    return options.contains(Option.FORCE_LOAD_LINK_WHOLE_LIBRARIES);
+        && options.shouldUseHeaderMaps();
   }
 
   public ImmutableMap<BuildTarget, PBXTarget> getBuildTargetToGeneratedTargetMap() {
@@ -481,8 +425,14 @@ public class ProjectGenerator {
         }
       }
 
+      addGenruleFiles();
+
       if (!hasAtLeastOneTarget && focusModules.hasFocus()) {
         return;
+      }
+
+      if (shouldMergeHeaderMaps() && isMainProject) {
+        createMergedHeaderMap();
       }
 
       for (String configName : targetConfigNamesBuilder.build()) {
@@ -494,7 +444,7 @@ public class ProjectGenerator {
         outputConfig.setBuildSettings(new NSDictionary());
       }
 
-      if (!shouldGenerateHeaderSymlinkTreesOnly()) {
+      if (!options.shouldGenerateHeaderSymlinkTreesOnly()) {
         writeProjectFile(project);
       }
 
@@ -510,6 +460,32 @@ public class ProjectGenerator {
         throw (HumanReadableException) e.getCause();
       } else {
         throw originalException;
+      }
+    }
+  }
+
+  /** Add all source files of genrules in a group "Other". */
+  private void addGenruleFiles() {
+    ImmutableSet<SourcePath> filesAdded = filesAddedBuilder.build();
+    PBXGroup group = project.getMainGroup();
+    ImmutableList<SourcePath> files = genruleFiles.build();
+    if (files.size() > 0) {
+      PBXGroup otherGroup = group.getOrCreateChildGroupByName("Other");
+      for (SourcePath sourcePath : files) {
+        // Make sure we don't add duplicates of existing files in this section.
+        if (filesAdded.contains(sourcePath)) {
+          continue;
+        }
+        Path path = pathRelativizer.outputPathToSourcePath(sourcePath);
+        ImmutableList<String> targetGroupPath = null;
+        PBXGroup sourceGroup = otherGroup;
+        if (path.getParent() != null) {
+          targetGroupPath =
+              RichStream.from(path.getParent()).map(Object::toString).toImmutableList();
+          sourceGroup = otherGroup.getOrCreateDescendantGroupByPath(targetGroupPath);
+        }
+        sourceGroup.getOrCreateFileReferenceBySourceTreePath(
+            new SourceTreePath(PBXReference.SourceTree.SOURCE_ROOT, path, Optional.empty()));
       }
     }
   }
@@ -589,7 +565,9 @@ public class ProjectGenerator {
                 HalideLibraryDescription.HALIDE_COMPILE_FLAVOR, defaultCxxPlatform.getFlavor()));
       }
     } else if (targetNode.getDescription() instanceof AbstractGenruleDescription) {
-      addGenruleFiles(project, (TargetNode<AbstractGenruleDescription.CommonArg, ?>) targetNode);
+      TargetNode<AbstractGenruleDescription.CommonArg, ?> genruleNode =
+          (TargetNode<AbstractGenruleDescription.CommonArg, ?>) targetNode;
+      genruleFiles.addAll(genruleNode.getConstructorArg().getSrcs());
     }
     buckEventBus.post(ProjectGenerationEvent.processed());
     return result;
@@ -1055,8 +1033,13 @@ public class ProjectGenerator {
     ImmutableMap.Builder<String, String> swiftDepsSettingsBuilder = ImmutableMap.builder();
     ImmutableList.Builder<String> swiftDebugLinkerFlagsBuilder = ImmutableList.builder();
 
-    if (!shouldGenerateHeaderSymlinkTreesOnly()) {
+    if (!options.shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
+        filesAddedBuilder.addAll(
+            arg.getSrcs()
+                .stream()
+                .map(s -> s.getSourcePath())
+                .collect(ImmutableList.toImmutableList()));
         mutator
             .setLangPreprocessorFlags(
                 ImmutableMap.copyOf(
@@ -1080,7 +1063,7 @@ public class ProjectGenerator {
 
       mutator.setBridgingHeader(arg.getBridgingHeader());
 
-      if (options.contains(Option.CREATE_DIRECTORY_STRUCTURE) && isFocusedOnTarget) {
+      if (options.shouldCreateDirectoryStructure() && isFocusedOnTarget) {
         mutator.setTargetGroupPath(
             RichStream.from(buildTarget.getBasePath()).map(Object::toString).toImmutableList());
       }
@@ -1231,7 +1214,7 @@ public class ProjectGenerator {
       publicCxxHeaders = ImmutableSortedMap.of();
     }
 
-    if (!shouldGenerateHeaderSymlinkTreesOnly()) {
+    if (!options.shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
         SourceTreePath buckFilePath =
             new SourceTreePath(
@@ -1491,6 +1474,7 @@ public class ProjectGenerator {
 
         Iterable<String> otherLdFlags =
             ImmutableList.<String>builder()
+                .addAll(cxxBuckConfig.getLdflags().orElse(DEFAULT_LDFLAGS))
                 .addAll(appleConfig.linkAllObjC() ? ImmutableList.of("-ObjC") : ImmutableList.of())
                 .addAll(
                     convertStringWithMacros(
@@ -1591,9 +1575,9 @@ public class ProjectGenerator {
         moduleName,
         getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC),
         arg.getXcodePublicHeadersSymlinks().orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled())
-            || isHeaderMapDisabled(),
+            || !options.shouldUseHeaderMaps(),
         !shouldMergeHeaderMaps(),
-        shouldGenerateMissingUmbrellaHeaders());
+        options.shouldGenerateMissingUmbrellaHeader());
     if (isFocusedOnTarget) {
       createHeaderSymlinkTree(
           getPrivateCxxHeaders(targetNode),
@@ -1602,25 +1586,24 @@ public class ProjectGenerator {
           getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PRIVATE),
           arg.getXcodePrivateHeadersSymlinks()
                   .orElse(cxxBuckConfig.getPrivateHeadersSymlinksEnabled())
-              || isHeaderMapDisabled(),
-          !isHeaderMapDisabled(),
-          shouldGenerateMissingUmbrellaHeaders());
-    }
-    if (shouldMergeHeaderMaps() && isMainProject) {
-      createMergedHeaderMap();
+              || !options.shouldUseHeaderMaps(),
+          options.shouldUseHeaderMaps(),
+          options.shouldGenerateMissingUmbrellaHeader());
     }
 
     Optional<TargetNode<AppleNativeTargetDescriptionArg, ?>> appleTargetNode =
         targetNode.castArg(AppleNativeTargetDescriptionArg.class);
     if (appleTargetNode.isPresent()
         && isFocusedOnTarget
-        && !shouldGenerateHeaderSymlinkTreesOnly()) {
+        && !options.shouldGenerateHeaderSymlinkTreesOnly()) {
       // Use Core Data models from immediate dependencies only.
       addCoreDataModelsIntoTarget(appleTargetNode.get(), targetGroup.get());
       addSceneKitAssetsIntoTarget(appleTargetNode.get(), targetGroup.get());
     }
 
-    if (bundle.isPresent() && isFocusedOnTarget && !shouldGenerateHeaderSymlinkTreesOnly()) {
+    if (bundle.isPresent()
+        && isFocusedOnTarget
+        && !options.shouldGenerateHeaderSymlinkTreesOnly()) {
       addEntitlementsPlistIntoTarget(bundle.get(), targetGroup.get());
     }
 
@@ -1684,6 +1667,7 @@ public class ProjectGenerator {
                             case XCTEST:
                             case PREFPANE:
                             case XPC:
+                            case QLGENERATOR:
                               // All of the above bundles can have loaders which do not contain
                               // a Swift runtime, so it must get bundled to ensure they run.
                               return true;
@@ -1868,22 +1852,6 @@ public class ProjectGenerator {
     return results.build();
   }
 
-  private void addGenruleFiles(
-      PBXProject project, TargetNode<AbstractGenruleDescription.CommonArg, ?> targetNode) {
-    PBXGroup group = project.getMainGroup();
-    for (SourcePath sourcePath : targetNode.getConstructorArg().getSrcs()) {
-      Path path = pathRelativizer.outputPathToSourcePath(sourcePath);
-      ImmutableList<String> targetGroupPath = null;
-      PBXGroup sourceGroup = group.getOrCreateChildGroupByName("Other");
-      if (path.getParent() != null) {
-        targetGroupPath = RichStream.from(path.getParent()).map(Object::toString).toImmutableList();
-        sourceGroup = sourceGroup.getOrCreateDescendantGroupByPath(targetGroupPath);
-      }
-      sourceGroup.getOrCreateFileReferenceBySourceTreePath(
-          new SourceTreePath(PBXReference.SourceTree.SOURCE_ROOT, path, Optional.empty()));
-    }
-  }
-
   private ImmutableSortedMap<Path, SourcePath> getPublicCxxHeaders(
       TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
     CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
@@ -2057,7 +2025,7 @@ public class ProjectGenerator {
       ImmutableMap<String, String> defaultBuildSettings,
       ImmutableMap<String, String> appendBuildSettings)
       throws IOException {
-    if (shouldGenerateHeaderSymlinkTreesOnly()) {
+    if (options.shouldGenerateHeaderSymlinkTreesOnly()) {
       return;
     }
 
@@ -2105,7 +2073,7 @@ public class ProjectGenerator {
           new ByteArrayInputStream(xcconfigContents.getBytes(Charsets.UTF_8)),
           xcconfigPath,
           projectFilesystem)) {
-        if (shouldGenerateReadOnlyFiles()) {
+        if (options.shouldGenerateReadOnlyFiles()) {
           projectFilesystem.writeContentsToPath(
               xcconfigContents, xcconfigPath, READ_ONLY_FILE_ATTRIBUTE);
         } else {
@@ -2533,6 +2501,12 @@ public class ProjectGenerator {
             return Optional.of(
                 CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.EXECUTABLES));
           }
+        case QLGENERATOR:
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.builder()
+                  .setDestination(PBXCopyFilesBuildPhase.Destination.QLGENERATOR)
+                  .setPath("$(CONTENTS_FOLDER_PATH)/Library/QuickLook")
+                  .build());
         case BUNDLE:
           return Optional.of(
               CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PLUGINS));
@@ -2649,7 +2623,7 @@ public class ProjectGenerator {
         serializedProject,
         projectFilesystem)) {
       LOG.debug("Regenerating project at %s", serializedProject);
-      if (shouldGenerateReadOnlyFiles()) {
+      if (options.shouldGenerateReadOnlyFiles()) {
         projectFilesystem.writeContentsToPath(
             contentsToWrite, serializedProject, READ_ONLY_FILE_ATTRIBUTE);
       } else {
@@ -2779,7 +2753,7 @@ public class ProjectGenerator {
   }
 
   private Path getHeaderSearchPathFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
-    if (isHeaderMapDisabled()) {
+    if (!options.shouldUseHeaderMaps()) {
       return headerSymlinkTreeRoot;
     } else {
       return getHeaderMapLocationFromSymlinkTreeRoot(headerSymlinkTreeRoot);
@@ -3129,7 +3103,7 @@ public class ProjectGenerator {
       TargetNode<?, ?> targetNode,
       Optional<TargetNode<AppleBundleDescriptionArg, ?>> bundleLoaderNode) {
 
-    if (shouldAddLinkerFlagsForLinkWholeLibraries()) {
+    if (options.shouldForceLoadLinkWholeLibraries()) {
       FluentIterable<TargetNode<?, ?>> allDeps =
           collectRecursiveLibraryDepTargetsWithOptions(targetNode, false);
 
@@ -3326,7 +3300,7 @@ public class ProjectGenerator {
   }
 
   private String getXcodeTargetName(BuildTarget target) {
-    return options.contains(Option.USE_SHORT_NAMES_FOR_TARGETS)
+    return options.shouldUseShortNamesForTargets()
         ? target.getShortName()
         : target.getFullyQualifiedName();
   }
@@ -3370,10 +3344,6 @@ public class ProjectGenerator {
     }
 
     return ProductTypes.BUNDLE;
-  }
-
-  private boolean shouldGenerateReadOnlyFiles() {
-    return options.contains(Option.GENERATE_READ_ONLY_FILES);
   }
 
   private static String getExtensionString(Either<AppleBundleExtension, String> extension) {

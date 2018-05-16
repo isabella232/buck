@@ -17,6 +17,10 @@
 package com.facebook.buck.features.python;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -27,11 +31,7 @@ import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.features.python.toolchain.impl.DefaultPexToolProvider;
 import com.facebook.buck.features.python.toolchain.impl.PythonInterpreterFromConfig;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.macros.StringWithMacros;

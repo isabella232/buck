@@ -15,9 +15,13 @@
  */
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
@@ -71,7 +75,7 @@ public class TargetNodeFactory implements NodeCopier {
   }
 
   @SuppressWarnings("unchecked")
-  public <T, U extends Description<T>> TargetNode<T, U> create(
+  private <T, U extends Description<T>> TargetNode<T, U> create(
       HashCode rawInputsHashCode,
       U description,
       T constructorArg,

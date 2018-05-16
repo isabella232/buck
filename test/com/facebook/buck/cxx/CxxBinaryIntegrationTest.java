@@ -33,6 +33,11 @@ import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -44,20 +49,15 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.InferHelper;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
@@ -1476,7 +1476,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testLinkMapIsCached() throws Exception {
+  public void testLinkMapIsNotCached() throws Exception {
     // Currently we only support Apple platforms for generating link maps.
     assumeTrue(Platform.detect() == Platform.MACOS);
 
@@ -1500,6 +1500,38 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally(target.toString());
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
+  }
+
+  @Test
+  public void testLinkMapIsCached() throws Exception {
+    // Currently we only support Apple platforms for generating link maps.
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+    workspace.setupCxxSandboxing(sandboxSources);
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath());
+
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
+    workspace
+        .runBuckCommand("build", "-c", "cxx.cache_binaries=true", target.getFullyQualifiedName())
+        .assertSuccess();
+
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+
+    /*
+     * Check that building after clean will use the cache
+     */
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
+    workspace
+        .runBuckCommand("build", "-c", "cxx.cache_binaries=true", target.toString())
+        .assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetWasFetchedFromCache(target.toString());
     assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
   }
 

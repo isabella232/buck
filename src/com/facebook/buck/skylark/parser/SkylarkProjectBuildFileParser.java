@@ -16,20 +16,21 @@
 
 package com.facebook.buck.skylark.parser;
 
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.skylark.function.Glob;
 import com.facebook.buck.skylark.function.SkylarkNativeModule;
-import com.facebook.buck.skylark.io.impl.SimpleGlobber;
+import com.facebook.buck.skylark.io.GlobberFactory;
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.packages.PackageFactory;
 import com.facebook.buck.skylark.parser.context.ParseContext;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -54,6 +55,7 @@ import com.google.devtools.build.lib.vfs.FileSystem;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -83,18 +85,21 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   private final EventHandler eventHandler;
   private final LoadingCache<LoadImport, ExtensionData> extensionDataCache;
   private final BuckGlobals buckGlobals;
+  private final GlobberFactory globberFactory;
 
   private SkylarkProjectBuildFileParser(
       ProjectBuildFileParserOptions options,
       BuckEventBus buckEventBus,
       FileSystem fileSystem,
       BuckGlobals buckGlobals,
-      EventHandler eventHandler) {
+      EventHandler eventHandler,
+      GlobberFactory globberFactory) {
     this.options = options;
     this.buckEventBus = buckEventBus;
     this.fileSystem = fileSystem;
     this.eventHandler = eventHandler;
     this.buckGlobals = buckGlobals;
+    this.globberFactory = globberFactory;
 
     this.extensionDataCache =
         CacheBuilder.newBuilder()
@@ -113,37 +118,25 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       BuckEventBus buckEventBus,
       FileSystem fileSystem,
       BuckGlobals buckGlobals,
-      EventHandler eventHandler) {
+      EventHandler eventHandler,
+      GlobberFactory globberFactory) {
     return new SkylarkProjectBuildFileParser(
-        options, buckEventBus, fileSystem, buckGlobals, eventHandler);
+        options, buckEventBus, fileSystem, buckGlobals, eventHandler, globberFactory);
   }
 
   @Override
-  public ImmutableList<Map<String, Object>> getAll(Path buildFile, AtomicLong processedBytes)
+  public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes)
       throws BuildFileParseException, InterruptedException, IOException {
-    return parseBuildFile(buildFile).getRawRules();
-  }
-
-  @Override
-  public ImmutableList<Map<String, Object>> getAllRulesAndMetaRules(
-      Path buildFile, AtomicLong processedBytes)
-      throws BuildFileParseException, InterruptedException, IOException {
-    // TODO(ttsugrii): add metadata rules
     ParseResult parseResult = parseBuildFile(buildFile);
-    // TODO(ttsugrii): find a way to reuse the same constants across Python DSL and Skylark parsers
-    return ImmutableList.<Map<String, Object>>builder()
-        .addAll(parseResult.getRawRules())
-        .add(
-            ImmutableMap.of(
-                "__includes",
-                parseResult
-                    .getLoadedPaths()
-                    .stream()
-                    .map(Object::toString)
-                    .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()))))
-        .add(ImmutableMap.of("__configs", parseResult.getReadConfigurationOptions()))
-        // TODO(ttsugrii): implement once environment variables are exposed via Skylark API
-        .add(ImmutableMap.of("__env", ImmutableMap.of()))
+    return BuildFileManifest.builder()
+        .setTargets(parseResult.getRawRules())
+        .setIncludes(
+            parseResult
+                .getLoadedPaths()
+                .stream()
+                .map(Object::toString)
+                .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())))
+        .setConfigs(parseResult.getReadConfigurationOptions())
         .build();
   }
 
@@ -210,7 +203,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   private ParserInputSource createInputSource(com.google.devtools.build.lib.vfs.Path buildFilePath)
       throws IOException {
     return ParserInputSource.create(
-        FileSystemUtils.readWithKnownFileSize(buildFilePath, buildFilePath.getFileSize()),
+        FileSystemUtils.readContent(buildFilePath, StandardCharsets.UTF_8),
         buildFilePath.asFragment());
   }
 
@@ -240,7 +233,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     env.setup("repository_name", SkylarkNativeModule.repositoryName);
     PackageContext packageContext =
         PackageContext.builder()
-            .setGlobber(SimpleGlobber.create(fileSystem.getPath(buildFile.getParent().toString())))
+            .setGlobber(globberFactory.create(fileSystem.getPath(buildFile.getParent().toString())))
             .setRawConfig(options.getRawConfig())
             .setPackageIdentifier(
                 PackageIdentifier.create(
@@ -272,6 +265,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     try {
       return skylarkImports
           .stream()
+          .distinct() // sometimes users include the same extension multiple times...
           .map(
               skylarkImport ->
                   LoadImport.builder()
@@ -318,7 +312,6 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       ImmutableList<ExtensionData> dependencies) {
     return dependencies
         .stream()
-        .distinct() // it's possible to have multiple loads from the same extension file
         .collect(
             ImmutableMap.toImmutableMap(
                 ExtensionData::getImportString, ExtensionData::getExtension));

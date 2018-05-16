@@ -16,6 +16,11 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -30,23 +35,16 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,8 +56,6 @@ import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -117,27 +113,15 @@ public class CxxLinkableEnhancer {
     // Add all arguments needed to link in the C/C++ platform runtime.
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(runtimeDepType)));
 
-    ImmutableList<Arg> allArgs = argsBuilder.build();
-
-    // Build the C/C++ link step.
-    Supplier<ImmutableSortedSet<BuildRule>> declaredDeps =
-        () ->
-            FluentIterable.from(allArgs)
-                .transformAndConcat(arg -> BuildableSupport.getDepsCollection(arg, ruleFinder))
-                .append(BuildableSupport.getDepsCollection(linker, ruleFinder))
-                .toSortedSet(Ordering.natural());
     return new CxxLink(
         target,
         projectFilesystem,
-        // Construct our link build rule params.  The important part here is combining the build
-        // rules that construct our object file inputs and also the deps that build our
-        // dependencies.
-        declaredDeps,
+        ruleFinder,
         cellPathResolver,
         linker,
         output,
         extraOutputs,
-        allArgs,
+        argsBuilder.build(),
         postprocessor,
         cxxBuckConfig.getLinkScheduleInfo(),
         cxxBuckConfig.shouldCacheLinks(),
@@ -358,7 +342,7 @@ public class CxxLinkableEnhancer {
   }
 
   private static class FrameworkLinkerArgs extends FrameworkPathArg {
-    @AddToRuleKey final Function<FrameworkPath, Path> frameworkPathToSearchPath;
+    @AddToRuleKey final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath;
 
     public FrameworkLinkerArgs(
         ImmutableSortedSet<FrameworkPath> allFrameworks,
@@ -420,7 +404,7 @@ public class CxxLinkableEnhancer {
   }
 
   private static class SharedLibraryLinkArgs extends FrameworkPathArg {
-    @AddToRuleKey final Function<FrameworkPath, Path> frameworkPathToSearchPath;
+    @AddToRuleKey final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath;
 
     public SharedLibraryLinkArgs(
         ImmutableSortedSet<FrameworkPath> allLibraries,

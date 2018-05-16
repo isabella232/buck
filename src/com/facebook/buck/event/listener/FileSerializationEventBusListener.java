@@ -16,10 +16,10 @@
 
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.test.event.IndividualTestEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.IndividualTestEvent;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.eventbus.Subscribe;
 import java.io.BufferedWriter;

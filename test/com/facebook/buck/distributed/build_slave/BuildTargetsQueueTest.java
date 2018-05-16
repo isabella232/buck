@@ -28,18 +28,18 @@ import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFact
 import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.createBuildGraphWithInterleavedUncacheables;
 import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.createBuildGraphWithUncachableLeaf;
 
+import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
 import com.facebook.buck.distributed.ArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.NoopArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.distributed.thrift.WorkUnit;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.RuleDepsCache;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
@@ -58,7 +58,11 @@ public class BuildTargetsQueueTest {
   private static BuildTargetsQueue createQueueWithoutRemoteCache(
       BuildRuleResolver resolver, Iterable<BuildTarget> topLevelTargets) {
     return new CacheOptimizedBuildTargetsQueueFactory(
-            resolver, new NoopArtifactCacheByBuildRule(), false, new RuleDepsCache(resolver))
+            resolver,
+            new NoopArtifactCacheByBuildRule(),
+            false,
+            new DefaultRuleDepsCache(resolver),
+            false)
         .createBuildTargetsQueue(
             topLevelTargets,
             new NoOpCoordinatorBuildRuleEventsPublisher(),
@@ -373,7 +377,7 @@ public class BuildTargetsQueueTest {
 
     CacheOptimizedBuildTargetsQueueFactory factory =
         new CacheOptimizedBuildTargetsQueueFactory(
-            resolver, artifactCache, true, new RuleDepsCache(resolver));
+            resolver, artifactCache, true, new DefaultRuleDepsCache(resolver), false);
 
     EasyMock.replay(artifactCache);
     factory.createBuildTargetsQueue(

@@ -16,24 +16,24 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.HasSupplementaryOutputs;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -58,6 +58,7 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSortedSet<BuildTarget> tests;
   private final ImmutableSortedSet<FrameworkPath> frameworks;
   private final BuildTarget platformlessTarget;
+  private final boolean cacheable;
 
   public CxxBinary(
       BuildTarget buildTarget,
@@ -68,7 +69,8 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Tool executable,
       Iterable<FrameworkPath> frameworks,
       Iterable<BuildTarget> tests,
-      BuildTarget platformlessTarget) {
+      BuildTarget platformlessTarget,
+      boolean cacheable) {
     super(buildTarget, projectFilesystem, params);
     this.cxxPlatform = cxxPlatform;
     this.linkRule = linkRule;
@@ -76,6 +78,7 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.tests = ImmutableSortedSet.copyOf(tests);
     this.frameworks = ImmutableSortedSet.copyOf(frameworks);
     this.platformlessTarget = platformlessTarget;
+    this.cacheable = cacheable;
     performChecks();
   }
 
@@ -155,7 +158,7 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public boolean isCacheable() {
-    return false; // CxxBinary is a wrapper rule, and takes < 1ms to complete.
+    return cacheable;
   }
 
   // This rule just delegates to the output of the `CxxLink` rule and so needs that available at

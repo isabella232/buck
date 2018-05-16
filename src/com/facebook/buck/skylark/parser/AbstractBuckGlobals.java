@@ -16,18 +16,18 @@
 
 package com.facebook.buck.skylark.parser;
 
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.skylark.function.Glob;
 import com.facebook.buck.skylark.function.HostInfo;
 import com.facebook.buck.skylark.function.ReadConfig;
 import com.facebook.buck.skylark.function.SkylarkExtensionFunctions;
 import com.facebook.buck.skylark.function.SkylarkNativeModule;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.devtools.build.lib.packages.BazelLibrary;
 import com.google.devtools.build.lib.packages.NativeProvider;
-import com.google.devtools.build.lib.syntax.BazelLibrary;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
 import com.google.devtools.build.lib.syntax.ClassObject;
 import com.google.devtools.build.lib.syntax.Environment;

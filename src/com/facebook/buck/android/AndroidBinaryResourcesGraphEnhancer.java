@@ -23,22 +23,22 @@ import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.ExportFileDirectoryAction;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -91,6 +91,8 @@ class AndroidBinaryResourcesGraphEnhancer {
   private final Optional<Arg> postFilterResourcesCmd;
   private final boolean exopackageForResources;
   private final boolean noAutoVersionResources;
+  private final boolean noVersionTransitionsResources;
+  private final boolean noAutoAddOverlayResources;
   private final APKModuleGraph apkModuleGraph;
 
   public AndroidBinaryResourcesGraphEnhancer(
@@ -117,6 +119,8 @@ class AndroidBinaryResourcesGraphEnhancer {
       ManifestEntries manifestEntries,
       Optional<Arg> postFilterResourcesCmd,
       boolean noAutoVersionResources,
+      boolean noVersionTransitionsResources,
+      boolean noAutoAddOverlayResources,
       APKModuleGraph apkModuleGraph) {
     this.androidPlatformTarget = androidPlatformTarget;
     this.buildTarget = buildTarget;
@@ -142,6 +146,8 @@ class AndroidBinaryResourcesGraphEnhancer {
     this.originalBuildTarget = originalBuildTarget;
     this.postFilterResourcesCmd = postFilterResourcesCmd;
     this.noAutoVersionResources = noAutoVersionResources;
+    this.noVersionTransitionsResources = noVersionTransitionsResources;
+    this.noAutoAddOverlayResources = noAutoAddOverlayResources;
     this.apkModuleGraph = apkModuleGraph;
   }
 
@@ -305,7 +311,10 @@ class AndroidBinaryResourcesGraphEnhancer {
                       moduleManifestMergeRule.getSourcePathToOutput(),
                       ManifestEntries.empty(),
                       ImmutableList.of(aaptOutputInfo.getPrimaryResourcesApkPath()),
+                      includesVectorDrawables,
                       noAutoVersionResources,
+                      noVersionTransitionsResources,
+                      noAutoAddOverlayResources,
                       androidPlatformTarget);
               ruleResolver.addToIndex(aapt2ModuleLink);
               resultBuilder.putModuleResourceApkPaths(
@@ -498,7 +507,10 @@ class AndroidBinaryResourcesGraphEnhancer {
         realManifest,
         manifestEntries,
         ImmutableList.of(),
+        includesVectorDrawables,
         noAutoVersionResources,
+        noVersionTransitionsResources,
+        noAutoAddOverlayResources,
         androidPlatformTarget);
   }
 

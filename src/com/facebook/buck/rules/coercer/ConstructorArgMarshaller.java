@@ -16,12 +16,13 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
 import com.facebook.buck.rules.visibility.VisibilityPatternParser;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -63,8 +64,7 @@ public class ConstructorArgMarshaller {
    *   <li>Boolean values are set to true or false.
    *   <li>{@link BuildTarget}s are resolved and will be fully qualified.
    *   <li>Numeric values are handled as if being cast from Long.
-   *   <li>{@link com.facebook.buck.rules.SourcePath} instances will be set to the appropriate
-   *       implementation.
+   *   <li>{@link SourcePath} instances will be set to the appropriate implementation.
    *   <li>{@link Path} declarations will be set to be relative to the project root.
    *   <li>Strings will be set "as is".
    *   <li>{@link List}s and {@link Set}s will be populated with the expected generic type, provided

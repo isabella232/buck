@@ -6,7 +6,14 @@ import sys
 
 class ExitCode(object):
     """Python equivalent of com.facebook.buck.util.ExitCode"""
+    SUCCESS = 0
+    COMMANDLINE_ERROR = 3
+    FATAL_GENERIC = 10
     FATAL_BOOTSTRAP = 11
+    FATAL_IO = 13
+    FATAL_DISK_FULL = 14
+    SIGNAL_INTERRUPT = 130
+    SIGNAL_PIPE = 141
 
 
 if sys.version_info < (2, 7):
@@ -27,7 +34,7 @@ import errno
 
 from buck_logging import setup_logging
 from buck_tool import ExecuteTarget, install_signal_handlers, \
-    BuckStatusReporter, BuckDaemonErrorException
+    get_java_path, BuckStatusReporter, BuckDaemonErrorException
 from buck_project import BuckProject, NoBuckConfigFoundException
 from tracing import Tracing
 from subprocutils import propagate_failure
@@ -44,7 +51,7 @@ def killall_buck(reporter):
         message = 'killall is not implemented on: ' + os.name
         logging.error(message)
         reporter.status_message = message
-        return 10  # FATAL_GENERIC
+        return ExitCode.COMMANDLINE_ERROR
 
     for line in os.popen('jps -l'):
         split = line.split()
@@ -62,17 +69,18 @@ def killall_buck(reporter):
             continue
 
         os.kill(pid, signal.SIGTERM)
-    return 0
+        # TODO(buck_team) clean .buckd directories
+    return ExitCode.SUCCESS
 
 
-def _get_java_version():
+def _get_java_version(java_path):
     """
     Returns a Java version string (e.g. "7", "8").
 
     Information is provided by java tool and parsing is based on
     http://www.oracle.com/technetwork/java/javase/versioning-naming-139433.html
     """
-    java_version = check_output(["java", "-version"], stderr=subprocess.STDOUT)
+    java_version = check_output([java_path, "-version"], stderr=subprocess.STDOUT)
     # extract java version from a string like 'java version "1.8.0_144"'
     match = re.search("java version \"(?P<version>.+)\"", java_version)
     if not match:
@@ -97,10 +105,23 @@ def _warn_about_wrong_java_version(required_version, actual_version):
         actual_version, required_version)
 
 
+def _try_to_verify_java_version():
+    """
+    Best effort check to make sure users have required Java version installed.
+    """
+    java_path = get_java_path()
+    try:
+        java_version = _get_java_version(java_path)
+        if java_version and java_version != REQUIRED_JAVA_VERSION:
+            _warn_about_wrong_java_version(REQUIRED_JAVA_VERSION, java_version)
+    except:
+        # checking Java version is brittle and as such is best effort
+        logging.warning("Cannot verify that installed Java version at '{}' \
+is correct.".format(java_path))
+
+
 def main(argv, reporter):
-    java_version = _get_java_version()
-    if java_version and java_version != REQUIRED_JAVA_VERSION:
-        _warn_about_wrong_java_version(REQUIRED_JAVA_VERSION, java_version)
+    _try_to_verify_java_version()
 
     def get_repo(p):
         # Try to detect if we're running a PEX by checking if we were invoked
@@ -119,7 +140,7 @@ def main(argv, reporter):
     install_signal_handlers()
     try:
         tracing_dir = None
-        build_id = str(uuid.uuid4())
+        build_id = os.environ.get('BUCK_BUILD_ID', str(uuid.uuid4()))
         reporter.build_id = build_id
         with Tracing("main"):
             with BuckProject.from_current_dir() as project:
@@ -130,7 +151,7 @@ def main(argv, reporter):
                     # process
                     if sys.argv[1:] == ['kill']:
                         buck_repo.kill_buckd()
-                        return 0
+                        return ExitCode.SUCCESS
                     return buck_repo.launch_buck(build_id)
     finally:
         if tracing_dir:
@@ -138,7 +159,7 @@ def main(argv, reporter):
 
 
 if __name__ == "__main__":
-    exit_code = 0
+    exit_code = ExitCode.SUCCESS
     reporter = BuckStatusReporter(sys.argv)
     fn_exec = None
     exception = None
@@ -152,28 +173,27 @@ if __name__ == "__main__":
     except NoBuckConfigFoundException:
         exc_type, exception, exc_traceback = sys.exc_info()
         # buck is started outside project root
-        exit_code = 3  # COMMANDLINE_ERROR
+        exit_code = ExitCode.COMMANDLINE_ERROR
     except BuckDaemonErrorException:
         reporter.status_message = 'Buck daemon disconnected unexpectedly'
         _, exception, _ = sys.exc_info()
         print(str(exception))
         exception = None
-        exit_code = 10  # FATAL_GENERIC
+        exit_code = ExitCode.FATAL_GENERIC
     except IOError as e:
         exc_type, exception, exc_traceback = sys.exc_info()
         if e.errno == errno.ENOSPC:
-            exit_code = 14  # FATAL_DISK_FULL
+            exit_code = ExitCode.FATAL_DISK_FULL
         elif e.errno == errno.EPIPE:
-            exit_code = 141  # SIGNAL_PIPE
+            exit_code = ExitCode.SIGNAL_PIPE
         else:
-            exit_code = 13  # FATAL_IO
+            exit_code = ExitCode.FATAL_IO
     except KeyboardInterrupt:
         reporter.status_message = 'Python wrapper keyboard interrupt'
-        exit_code = 130  # SIGNAL_INTERRUPT
+        exit_code = ExitCode.SIGNAL_INTERRUPT
     except Exception:
         exc_type, exception, exc_traceback = sys.exc_info()
-        # 11 is fatal bootstrapper error
-        exit_code = 11
+        exit_code = ExitCode.FATAL_BOOTSTRAP
 
     if exception is not None:
         logging.error(exception, exc_info=(exc_type, exception, exc_traceback))

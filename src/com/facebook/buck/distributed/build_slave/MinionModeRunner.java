@@ -17,6 +17,9 @@
 package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.command.BuildExecutor;
+import com.facebook.buck.core.build.engine.BuildEngineResult;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
@@ -25,10 +28,7 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildEngineResult;
-import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -96,7 +96,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
       StampedeId stampedeId,
       MinionType minionType,
       BuildSlaveRunId buildSlaveRunId,
-      int availableWorkUnitBuildCapacity,
+      CapacityTracker capacityTracker,
       BuildCompletionChecker buildCompletionChecker,
       long minionPollLoopIntervalMillis,
       MinionBuildProgressTracker minionBuildProgressTracker,
@@ -110,12 +110,13 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
         stampedeId,
         minionType,
         buildSlaveRunId,
-        availableWorkUnitBuildCapacity,
+        capacityTracker,
         buildCompletionChecker,
         minionPollLoopIntervalMillis,
         minionBuildProgressTracker,
         MostExecutors.newMultiThreadExecutor(
-            new CommandThreadFactory("MinionBuilderThread"), availableWorkUnitBuildCapacity),
+            new CommandThreadFactory("MinionBuilderThread"),
+            capacityTracker.getMaxAvailableCapacity()),
         eventBus);
   }
 
@@ -128,7 +129,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
       StampedeId stampedeId,
       MinionType minionType,
       BuildSlaveRunId buildSlaveRunId,
-      int maxWorkUnitBuildCapacity,
+      CapacityTracker capacityTracker,
       BuildCompletionChecker buildCompletionChecker,
       long minionPollLoopIntervalMillis,
       MinionBuildProgressTracker minionBuildProgressTracker,
@@ -147,12 +148,12 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     this.buildExecutorService = buildExecutorService;
     this.eventBus = eventBus;
     this.buildTracker =
-        new MinionLocalBuildStateTracker(maxWorkUnitBuildCapacity, minionBuildProgressTracker);
+        new MinionLocalBuildStateTracker(minionBuildProgressTracker, capacityTracker);
 
     LOG.info(
         String.format(
             "Started new minion that can build [%d] work units in parallel",
-            maxWorkUnitBuildCapacity));
+            capacityTracker.getMaxAvailableCapacity()));
   }
 
   @Override
@@ -176,7 +177,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     try (ThriftCoordinatorClient client = newStartedThriftCoordinatorClient();
         Closeable healthCheck =
             heartbeatService.addCallback(
-                "MinionIsAlive", createHeartbeatCallback(client, minionId))) {
+                "MinionIsAlive", createHeartbeatCallback(client, minionId, buildSlaveRunId))) {
       while (!finished.get()) {
         signalFinishedTargetsAndFetchMoreWork(minionId, client);
         Thread.sleep(minionPollLoopIntervalMillis);
@@ -207,12 +208,12 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   }
 
   private HeartbeatCallback createHeartbeatCallback(
-      ThriftCoordinatorClient client, String minionId) {
+      ThriftCoordinatorClient client, String minionId, BuildSlaveRunId runId) {
     return new HeartbeatCallback() {
       @Override
       public void runHeartbeat() throws IOException {
         LOG.debug(String.format("About to send keep alive heartbeat for Minion [%s]", minionId));
-        client.reportMinionAlive(minionId);
+        client.reportMinionAlive(minionId, runId);
       }
     };
   }
@@ -226,7 +227,9 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
       String minionId, ThriftCoordinatorClient client) throws IOException {
     List<String> targetsToSignal = buildTracker.getTargetsToSignal();
 
-    if (!buildTracker.capacityAvailable()
+    // Try to reserve available capacity
+    int reservedCapacity = buildTracker.reserveAllAvailableCapacity();
+    if (reservedCapacity == 0
         && exitCode.get() == ExitCode.SUCCESS
         && targetsToSignal.size() == 0) {
       return; // Making a request will not move the build forward, so wait a while and try again.
@@ -240,17 +243,13 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     try {
       GetWorkResponse response =
           client.getWork(
-              minionId,
-              minionType,
-              exitCode.get().getCode(),
-              targetsToSignal,
-              buildTracker.getAvailableCapacity());
+              minionId, minionType, exitCode.get().getCode(), targetsToSignal, reservedCapacity);
       if (!response.isContinueBuilding()) {
         LOG.info(String.format("Minion [%s] told to stop building.", minionId));
         finished.set(true);
       }
 
-      buildTracker.enqueueWorkUnitsForBuilding(response.getWorkUnits());
+      buildTracker.enqueueWorkUnitsForBuildingAndCommitCapacity(response.getWorkUnits());
     } catch (ThriftException ex) {
       handleThriftException(ex);
       return;

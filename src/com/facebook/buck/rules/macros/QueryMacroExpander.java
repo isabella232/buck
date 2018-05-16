@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.NoopQueryEvaluator;
@@ -25,13 +27,11 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.GraphEnhancementQueryEnvironment;
 import com.facebook.buck.rules.query.Query;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;

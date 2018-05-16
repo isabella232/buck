@@ -16,25 +16,27 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.RichStream;
@@ -43,6 +45,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -261,7 +264,7 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
       SourcePathResolver pathResolver) {
     return new PreprocessorDelegate(
         cxxPlatform.getHeaderVerification(),
-        getProjectFilesystem().getRootPath(),
+        PathSourcePath.of(getProjectFilesystem(), Paths.get("")),
         preprocessor,
         PreprocessorFlags.of(
             Optional.of(getHeaderSourcePath()),
@@ -270,7 +273,8 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
             getFrameworks(cxxPlatform, ruleResolver)),
         CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
         /* getSandboxTree() */ Optional.empty(),
-        /* leadingIncludePaths */ Optional.empty());
+        /* leadingIncludePaths */ Optional.empty(),
+        Optional.empty());
   }
 
   public abstract CxxPrecompiledHeader getPrecompiledHeader(
@@ -307,7 +311,7 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
       BuildRuleResolver ruleResolver) {
     return (CxxPrecompiledHeader)
         ruleResolver.computeIfAbsent(
-            BuildTarget.of(templateTarget, flavors),
+            ImmutableBuildTarget.of(templateTarget, flavors),
             target -> {
               // Give the PCH a filename that looks like a header file with .gch appended to it,
               // GCC-style.

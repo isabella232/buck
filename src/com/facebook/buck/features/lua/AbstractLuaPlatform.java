@@ -16,17 +16,18 @@
 
 package com.facebook.buck.features.lua;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorConvertible;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.AbstractCxxLibrary;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.ToolProvider;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.nio.file.Paths;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -39,8 +40,9 @@ abstract class AbstractLuaPlatform implements FlavorConvertible {
 
   private static final AbstractCxxLibrary SYSTEM_CXX_LIBRARY =
       new SystemLuaCxxLibrary(
-          BuildTarget.of(
-              UnflavoredBuildTarget.of(Paths.get(""), Optional.empty(), "//system", "lua")));
+          ImmutableBuildTarget.of(
+              ImmutableUnflavoredBuildTarget.of(
+                  Paths.get(""), Optional.empty(), "//system", "lua")));
 
   @Override
   public Flavor getFlavor() {

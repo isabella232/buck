@@ -16,18 +16,19 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.modern.annotations.CustomClassBehaviorTag;
-import com.facebook.buck.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.util.RichStream;
@@ -86,11 +87,12 @@ public class Serializer {
       SourcePathRuleFinder ruleFinder, CellPathResolver cellResolver, Delegate delegate) {
     this.ruleFinder = ruleFinder;
     this.delegate = delegate;
-    ImmutableMap.Builder<Path, Optional<String>> builder = ImmutableMap.builder();
-    cellResolver.getCellPaths().forEach((name, path) -> builder.put(path, Optional.of(name)));
-    builder.put(cellResolver.getCellPathOrThrow(Optional.empty()), Optional.empty());
-    this.cellMap = builder.build();
     this.rootCellPath = cellResolver.getCellPathOrThrow(Optional.empty());
+    this.cellMap =
+        cellResolver
+            .getKnownRoots()
+            .stream()
+            .collect(ImmutableMap.toImmutableMap(root -> root, cellResolver::getCanonicalCellName));
   }
 
   /**
@@ -108,7 +110,7 @@ public class Serializer {
   /** See Serialize(T instance) above. */
   public <T extends AddsToRuleKey> Either<HashCode, byte[]> serialize(
       T instance, ClassInfo<T> classInfo) throws IOException {
-    if (cache.contains(instance)) {
+    if (cache.containsKey(instance)) {
       return Preconditions.checkNotNull(cache.get(instance));
     }
     Visitor visitor = new Visitor(instance.getClass());
@@ -202,6 +204,8 @@ public class Serializer {
         ExplicitBuildTargetSourcePath buildTargetSourcePath = (ExplicitBuildTargetSourcePath) value;
         writeValue(buildTargetSourcePath.getTarget(), new TypeToken<BuildTarget>() {});
         writeString(buildTargetSourcePath.getResolvedPath().toString());
+      } else if (value instanceof ForwardingBuildTargetSourcePath) {
+        visitSourcePath(((ForwardingBuildTargetSourcePath) value).getDelegate());
       } else if (value instanceof PathSourcePath) {
         PathSourcePath pathSourcePath = (PathSourcePath) value;
         stream.writeBoolean(false);

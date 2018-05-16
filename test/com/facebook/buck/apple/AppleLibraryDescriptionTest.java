@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
@@ -23,21 +24,22 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
+import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -119,5 +121,34 @@ public class AppleLibraryDescriptionTest {
     SourcePath expectedSwiftSourcePath =
         metadata.get().getSwiftSources().iterator().next().getSourcePath();
     assertSame(swiftSourcePath, expectedSwiftSourcePath);
+  }
+
+  @Test
+  public void modularObjcFlags() {
+    BuildTarget libTarget = BuildTargetFactory.newInstance("//:library");
+    TargetNode<AppleLibraryDescriptionArg, ?> libNode =
+        new AppleLibraryBuilder(libTarget)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.m"))))
+            .setCompilerFlags(ImmutableList.of("-DDEBUG=1"))
+            .setModular(true)
+            .build();
+
+    BuildRuleResolver buildRuleResolver =
+        new TestBuildRuleResolver(TargetGraphFactory.newInstance(libNode));
+
+    final SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
+
+    CxxLibraryDescriptionArg.Builder delegateArgBuilder =
+        CxxLibraryDescriptionArg.builder().from(libNode.getConstructorArg());
+
+    AppleDescriptions.populateCxxLibraryDescriptionArg(
+        pathResolver, delegateArgBuilder, libNode.getConstructorArg(), libTarget);
+    CxxLibraryDescriptionArg delegateArg = delegateArgBuilder.build();
+    assertThat(
+        delegateArg.getCompilerFlags(),
+        containsInAnyOrder(
+            StringWithMacrosUtils.format("-fmodule-name=library"),
+            StringWithMacrosUtils.format("-DDEBUG=1")));
   }
 }

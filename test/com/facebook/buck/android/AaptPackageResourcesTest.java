@@ -18,20 +18,20 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertNotEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestBuildRuleResolver;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -115,14 +115,12 @@ public class AaptPackageResourcesTest {
     SourcePath manifest;
     FilteredResourcesProvider filteredResourcesProvider;
     ImmutableList<HasAndroidResourceDeps> hasAndroidResourceDeps;
-    AndroidBinary.PackageType packageType;
     ManifestEntries manifestEntries;
 
     AaptConstructorArgs() {
       manifest = createPathSourcePath("AndroidManifest.xml", "content");
       filteredResourcesProvider = new IdentityResourcesProvider(ImmutableList.of());
       hasAndroidResourceDeps = ImmutableList.of();
-      packageType = AndroidBinary.PackageType.DEBUG;
       manifestEntries = ManifestEntries.empty();
     }
   }

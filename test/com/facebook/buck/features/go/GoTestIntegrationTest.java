@@ -19,11 +19,11 @@ package com.facebook.buck.features.go;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -56,10 +56,15 @@ public class GoTestIntegrationTest {
     // This test should fail.
     ProcessResult result2 = workspace.runBuckCommand("test", "//:test-failure");
     result2.assertTestFailure();
+
     assertThat(
         "`buck test` should fail because TestAdd2() failed.",
         result2.getStderr(),
         containsString("TestAdd2"));
+    assertThat(
+        "`buck test` should print out error message",
+        result2.getStderr(),
+        containsString("1 + 2 != 3"));
   }
 
   @Test
@@ -106,6 +111,10 @@ public class GoTestIntegrationTest {
         "`buck test` should fail because TestPanic() failed.",
         result2.getStderr(),
         containsString("TestPanic"));
+    assertThat(
+        "`buck test` should print out the error message",
+        result2.getStderr(),
+        containsString("I can't take it anymore"));
   }
 
   @Test
@@ -137,6 +146,13 @@ public class GoTestIntegrationTest {
   @Test
   public void testGenRuleWithLibAsSrc() throws IOException {
     ProcessResult result = workspace.runBuckCommand("test", "//genrule_wtih_lib_as_src:test");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testHyphen() throws IOException {
+    // This test should pass.
+    ProcessResult result = workspace.runBuckCommand("test", "//:test-hyphen");
     result.assertSuccess();
   }
 }

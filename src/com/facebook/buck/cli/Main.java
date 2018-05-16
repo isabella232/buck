@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.rules.CellConfig.MalformedOverridesException;
+import static com.facebook.buck.core.cell.CellConfig.MalformedOverridesException;
 import static com.facebook.buck.util.AnsiEnvironmentChecking.NAILGUN_STDERR_ISTTY_ENV;
 import static com.facebook.buck.util.AnsiEnvironmentChecking.NAILGUN_STDOUT_ISTTY_ENV;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
@@ -24,7 +24,23 @@ import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorS
 
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
+import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
+import com.facebook.buck.cli.exceptions.handlers.HumanReadableExceptionAugmentor;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.LocalCellProviderFactory;
+import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.exceptions.handler.ExceptionHandlerRegistry;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.distributed.DistBuildConfig;
@@ -76,24 +92,14 @@ import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.module.BuckModuleManager;
 import com.facebook.buck.module.impl.BuckModuleJarHashProvider;
 import com.facebook.buck.module.impl.DefaultBuckModuleManager;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.LocalCellProviderFactory;
-import com.facebook.buck.rules.RelativeCellName;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -111,14 +117,11 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.BuckArgsMethods;
-import com.facebook.buck.util.BuckIsDyingException;
 import com.facebook.buck.util.CloseableWrapper;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.Libc;
 import com.facebook.buck.util.PkillProcessManager;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
@@ -142,7 +145,6 @@ import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.NetworkInfo;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.network.MacIpv6BugWorkaround;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.facebook.buck.util.perf.PerfStatsTracking;
@@ -317,6 +319,8 @@ public final class Main {
 
   private static final Logger LOG = Logger.get(Main.class);
 
+  private ExceptionHandlerRegistry<ExitCode> exceptionHandlerRegistry;
+
   private static boolean isSessionLeader;
   private static PluginManager pluginManager;
   private static BuckModuleManager moduleManager;
@@ -342,6 +346,8 @@ public final class Main {
   }
 
   private final KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
+
+  private Optional<BuckConfig> parsedRootConfig = Optional.empty();
 
   static {
     MacIpv6BugWorkaround.apply();
@@ -417,41 +423,22 @@ public final class Main {
               watchmanFreshInstanceAction,
               initTimestamp,
               ImmutableList.copyOf(args));
-    } catch (InterruptedException | ClosedByInterruptException e) {
-      exitCode = ExitCode.SIGNAL_INTERRUPT;
-      // Interrupts are usually triggered by user, so do not display anything to the console -
-      // this behavior is expected
-      LOG.info(e, "Execution of the command was interrupted (SIGINT)");
-    } catch (IOException e) {
-      if (e.getMessage().startsWith("No space left on device")) {
-        exitCode = ExitCode.FATAL_DISK_FULL;
-        console.printBuildFailure(e.getMessage());
-      } else {
-        exitCode = ExitCode.FATAL_IO;
-        console.printFailureWithStacktrace(e, e.getMessage());
-      }
-    } catch (OutOfMemoryError e) {
-      exitCode = ExitCode.FATAL_OOM;
-      console.printFailureWithStacktrace(
-          e, "Buck ran out of memory, you may consider increasing heap size with java args");
-    } catch (BuildFileParseException e) {
-      exitCode = ExitCode.PARSE_ERROR;
-      console.printBuildFailure(e.getHumanReadableErrorMessage());
-    } catch (CommandLineException e) {
-      exitCode = ExitCode.COMMANDLINE_ERROR;
-      console.printFailure(e, "BAD ARGUMENTS: " + e.getHumanReadableErrorMessage());
-    } catch (HumanReadableException e) {
-      exitCode = ExitCode.BUILD_ERROR;
-      console.printBuildFailure(e.getHumanReadableErrorMessage());
-    } catch (InterruptionFailedException e) { // Command could not be interrupted.
-      exitCode = ExitCode.SIGNAL_INTERRUPT;
-      context.ifPresent(ngContext -> ngContext.getNGServer().shutdown(false));
-    } catch (BuckIsDyingException e) {
-      exitCode = ExitCode.FATAL_GENERIC;
-      LOG.warn(e, "Fallout because buck was already dying");
     } catch (Throwable t) {
-      exitCode = ExitCode.FATAL_GENERIC;
-      console.printFailureWithStacktrace(t, "UNKNOWN ERROR: " + t.getMessage());
+
+      HumanReadableExceptionAugmentor augmentor;
+      try {
+        augmentor =
+            new HumanReadableExceptionAugmentor(
+                parsedRootConfig
+                    .map(BuckConfig::getErrorMessageAugmentations)
+                    .orElse(ImmutableMap.of()));
+      } catch (HumanReadableException e) {
+        console.printErrorText(e.getHumanReadableErrorMessage());
+        augmentor = new HumanReadableExceptionAugmentor(ImmutableMap.of());
+      }
+      exceptionHandlerRegistry =
+          ExceptionHandlerRegistryFactory.create(console, context, augmentor);
+      exitCode = exceptionHandlerRegistry.handleException(t);
     } finally {
       LOG.debug("Done.");
       LogConfig.flushLogs();
@@ -612,6 +599,9 @@ public final class Main {
       BuckConfig buckConfig =
           new BuckConfig(
               config, filesystem, architecture, platform, clientEnvironment, cellPathResolver);
+      // Set so that we can use some settings when we print out messages to users
+      parsedRootConfig = Optional.of(buckConfig);
+
       ImmutableSet<Path> projectWatchList =
           getProjectWatchList(canonicalRootPath, buckConfig, cellPathResolver);
 
@@ -731,7 +721,7 @@ public final class Main {
           context.isPresent() && (watchman != WatchmanFactory.NULL_WATCHMAN)
               ? Optional.of(
                   daemonLifecycleManager.getDaemon(
-                      rootCell, knownBuildRuleTypesProvider, executableFinder))
+                      rootCell, knownBuildRuleTypesProvider, executableFinder, console))
               : Optional.empty();
 
       // Used the cached provider, if present.
@@ -902,7 +892,6 @@ public final class Main {
                     console,
                     testConfig.getResultSummaryVerbosity(),
                     executionEnvironment,
-                    webServer,
                     locale,
                     filesystem.getBuckPaths().getLogDir().resolve("test.log"),
                     buckConfig.isLogBuildIdToConsoleEnabled()
@@ -1108,9 +1097,8 @@ public final class Main {
           // we need to manually register its counters after it's created.
           //
           // The counters will be unregistered once the counter registry is closed.
-          counterRegistry.registerCounters(parserAndCaches.getParser().getCounters());
-
-          JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
+          counterRegistry.registerCounters(
+              parserAndCaches.getParser().getPermState().getCounters());
 
           Optional<ProcessManager> processManager;
           if (platform == Platform.WINDOWS) {
@@ -1301,12 +1289,13 @@ public final class Main {
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
       parserAndCaches =
           ParserAndCaches.of(
-              new Parser(
+              new DefaultParser(
                   parserConfig,
                   typeCoercerFactory,
                   new ConstructorArgMarshaller(typeCoercerFactory),
                   knownBuildRuleTypesProvider,
-                  executableFinder),
+                  executableFinder,
+                  new TargetSpecResolver()),
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(
                   new VersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
@@ -1642,7 +1631,7 @@ public final class Main {
             .add(new LoggingBuildListener());
 
     if (buckConfig.getBooleanValue("log", "jul_build_log", false)) {
-      eventListenersBuilder.add(new JavaUtilsLoggingBuildListener());
+      eventListenersBuilder.add(new JavaUtilsLoggingBuildListener(projectFilesystem));
     }
 
     ChromeTraceBuckConfig chromeTraceConfig = buckConfig.getView(ChromeTraceBuckConfig.class);
@@ -1733,7 +1722,6 @@ public final class Main {
       Console console,
       TestResultSummaryVerbosity testResultSummaryVerbosity,
       ExecutionEnvironment executionEnvironment,
-      Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath,
       Optional<BuildId> buildId) {
@@ -1745,7 +1733,6 @@ public final class Main {
               clock,
               testResultSummaryVerbosity,
               executionEnvironment,
-              webServer,
               locale,
               testLogPath,
               TimeZone.getDefault(),
@@ -1811,13 +1798,12 @@ public final class Main {
           }
 
           // Do not log anything in case we do not have space on the disk
-          if (exitCode == ExitCode.FATAL_DISK_FULL) {
+          if (exitCode != ExitCode.FATAL_DISK_FULL) {
             LOG.error(e, "Uncaught exception from thread %s", t);
           }
 
           if (context.isPresent()) {
             // Shut down the Nailgun server and make sure it stops trapping System.exit().
-            //
             // We pass false for exitVM because otherwise Nailgun exits with code 0.
             context.get().getNGServer().shutdown(/* exitVM */ false);
           }

@@ -16,6 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
@@ -26,21 +32,14 @@ import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 import java.util.Optional;
 
 public class CxxBinaryFactory {
@@ -82,12 +81,12 @@ public class CxxBinaryFactory {
     CxxPlatform cxxPlatform =
         CxxPlatforms.getCxxPlatform(cxxPlatformsProvider, target, args.getDefaultPlatform());
     if (flavors.contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)) {
-      flavors =
-          ImmutableSet.copyOf(
-              Sets.difference(
-                  flavors, ImmutableSet.of(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)));
       return createHeaderSymlinkTreeBuildRule(
-          target.withFlavors(flavors), projectFilesystem, resolver, cxxPlatform, args);
+          target.withoutFlavors(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
+          projectFilesystem,
+          resolver,
+          cxxPlatform,
+          args);
     }
 
     if (flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
@@ -184,7 +183,8 @@ public class CxxBinaryFactory {
         cxxLinkAndCompileRules.executable,
         args.getFrameworks(),
         args.getTests(),
-        target.withoutFlavors(cxxPlatforms.getFlavors()));
+        target.withoutFlavors(cxxPlatforms.getFlavors()),
+        cxxBuckConfig.shouldCacheBinaries());
   }
 
   private CxxPlatformsProvider getCxxPlatformsProvider() {
