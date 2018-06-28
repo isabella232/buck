@@ -61,7 +61,7 @@ public interface CellPathResolver {
    * <p>Note: this is not the inverse of {@link #getCellPath(Optional)}, which returns the current,
    * rather than the root, cell path if the cell name is empty.
    *
-   * @throws IllegalArgumentException if cell path is not known to the cell path resolver.
+   * @throws IllegalArgumentException if cell path is not known to the CellPathResolver.
    */
   Optional<String> getCanonicalCellName(Path cellPath);
 

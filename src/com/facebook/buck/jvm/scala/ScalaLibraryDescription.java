@@ -17,9 +17,14 @@
 package com.facebook.buck.jvm.scala;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
@@ -28,16 +33,12 @@ import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaSourceJar;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
@@ -48,7 +49,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class ScalaLibraryDescription
-    implements Description<ScalaLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<ScalaLibraryDescriptionArg>,
         Flavored,
         ImplicitDepsInferringDescription<
             ScalaLibraryDescription.AbstractScalaLibraryDescriptionArg> {
@@ -81,7 +82,7 @@ public class ScalaLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams rawParams,
       ScalaLibraryDescriptionArg args) {
@@ -123,7 +124,7 @@ public class ScalaLibraryDescription
                 .getJavacOptions(),
             buildTarget,
             context.getProjectFilesystem(),
-            context.getBuildRuleResolver(),
+            context.getActionGraphBuilder(),
             args);
 
     DefaultJavaLibraryRules scalaLibraryBuilder =
@@ -132,11 +133,12 @@ public class ScalaLibraryDescription
                 context.getProjectFilesystem(),
                 context.getToolchainProvider(),
                 rawParams,
-                context.getBuildRuleResolver(),
+                context.getActionGraphBuilder(),
                 context.getCellPathResolver(),
                 scalaBuckConfig,
                 javaBuckConfig,
-                args)
+                args,
+                JavacFactory.getDefault(toolchainProvider))
             .setJavacOptions(javacOptions)
             .build();
 
@@ -149,7 +151,7 @@ public class ScalaLibraryDescription
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultScalaLibrary;
     } else {
-      context.getBuildRuleResolver().addToIndex(defaultScalaLibrary);
+      context.getActionGraphBuilder().addToIndex(defaultScalaLibrary);
       return MavenUberJar.create(
           defaultScalaLibrary,
           buildTargetWithMavenFlavor,

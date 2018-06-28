@@ -21,27 +21,23 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.json.JsonObjectHashing;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuckPyFunction;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
+import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.google.common.base.Joiner;
+import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
@@ -51,7 +47,6 @@ import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -61,25 +56,29 @@ import java.util.function.Function;
 public class DefaultParserTargetNodeFactory
     implements ParserTargetNodeFactory<Map<String, Object>> {
 
-  private static final Logger LOG = Logger.get(DefaultParserTargetNodeFactory.class);
-
   private final ConstructorArgMarshaller marshaller;
-  private final Optional<LoadingCache<Cell, BuildFileTree>> buildFileTrees;
+  private final PackageBoundaryChecker packageBoundaryChecker;
   private final TargetNodeListener<TargetNode<?, ?>> nodeListener;
   private final TargetNodeFactory targetNodeFactory;
+  private final VisibilityPatternFactory visibilityPatternFactory;
   private final RuleKeyConfiguration ruleKeyConfiguration;
+  private final BuiltTargetVerifier builtTargetVerifier;
 
   private DefaultParserTargetNodeFactory(
       ConstructorArgMarshaller marshaller,
-      Optional<LoadingCache<Cell, BuildFileTree>> buildFileTrees,
+      PackageBoundaryChecker packageBoundaryChecker,
       TargetNodeListener<TargetNode<?, ?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
-      RuleKeyConfiguration ruleKeyConfiguration) {
+      VisibilityPatternFactory visibilityPatternFactory,
+      RuleKeyConfiguration ruleKeyConfiguration,
+      BuiltTargetVerifier builtTargetVerifier) {
     this.marshaller = marshaller;
-    this.buildFileTrees = buildFileTrees;
+    this.packageBoundaryChecker = packageBoundaryChecker;
     this.nodeListener = nodeListener;
     this.targetNodeFactory = targetNodeFactory;
+    this.visibilityPatternFactory = visibilityPatternFactory;
     this.ruleKeyConfiguration = ruleKeyConfiguration;
+    this.builtTargetVerifier = builtTargetVerifier;
   }
 
   public static ParserTargetNodeFactory<Map<String, Object>> createForParser(
@@ -87,27 +86,33 @@ public class DefaultParserTargetNodeFactory
       LoadingCache<Cell, BuildFileTree> buildFileTrees,
       TargetNodeListener<TargetNode<?, ?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
+      VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
         marshaller,
-        Optional.of(buildFileTrees),
+        new ThrowingPackageBoundaryChecker(buildFileTrees),
         nodeListener,
         targetNodeFactory,
-        ruleKeyConfiguration);
+        visibilityPatternFactory,
+        ruleKeyConfiguration,
+        new BuiltTargetVerifier());
   }
 
   public static ParserTargetNodeFactory<Map<String, Object>> createForDistributedBuild(
       ConstructorArgMarshaller marshaller,
       TargetNodeFactory targetNodeFactory,
+      VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
         marshaller,
-        Optional.empty(),
+        new NoopPackageBoundaryChecker(),
         (buildFile, node) -> {
           // No-op.
         },
         targetNodeFactory,
-        ruleKeyConfiguration);
+        visibilityPatternFactory,
+        ruleKeyConfiguration,
+        new BuiltTargetVerifier());
   }
 
   @Override
@@ -121,9 +126,10 @@ public class DefaultParserTargetNodeFactory
     BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(knownBuildRuleTypes, rawNode);
 
     // Because of the way that the parser works, we know this can never return null.
-    Description<?> description = knownBuildRuleTypes.getDescription(buildRuleType);
+    DescriptionWithTargetGraph<?> description = knownBuildRuleTypes.getDescription(buildRuleType);
 
-    verifyUnflavoredBuildTarget(cell, buildRuleType, buildFile, target, description, rawNode);
+    builtTargetVerifier.verifyBuildTarget(
+        cell, buildRuleType, buildFile, target, description, rawNode);
 
     Preconditions.checkState(cell.equals(cell.getCell(target)));
     Object constructorArg;
@@ -142,10 +148,10 @@ public class DefaultParserTargetNodeFactory
                 declaredDeps,
                 rawNode);
         visibilityPatterns =
-            ConstructorArgMarshaller.populateVisibilityPatterns(
+            visibilityPatternFactory.createFromStringList(
                 cell.getCellPathResolver(), "visibility", rawNode.get("visibility"), target);
         withinViewPatterns =
-            ConstructorArgMarshaller.populateVisibilityPatterns(
+            visibilityPatternFactory.createFromStringList(
                 cell.getCellPathResolver(), "within_view", rawNode.get("within_view"), target);
       }
 
@@ -169,58 +175,11 @@ public class DefaultParserTargetNodeFactory
     }
   }
 
-  private static void verifyUnflavoredBuildTarget(
-      Cell cell,
-      BuildRuleType buildRuleType,
-      Path buildFile,
-      BuildTarget target,
-      Description<?> description,
-      Map<String, Object> rawNode) {
-    UnflavoredBuildTarget unflavoredBuildTarget = target.getUnflavoredBuildTarget();
-    if (target.isFlavored()) {
-      if (description instanceof Flavored) {
-        if (!((Flavored) description).hasFlavors(ImmutableSet.copyOf(target.getFlavors()))) {
-          throw UnexpectedFlavorException.createWithSuggestions(
-              (Flavored) description, cell, target);
-        }
-      } else {
-        LOG.warn(
-            "Target %s (type %s) must implement the Flavored interface "
-                + "before we can check if it supports flavors: %s",
-            unflavoredBuildTarget, buildRuleType, target.getFlavors());
-        ImmutableSet<String> invalidFlavorsStr =
-            target
-                .getFlavors()
-                .stream()
-                .map(Flavor::toString)
-                .collect(ImmutableSet.toImmutableSet());
-        String invalidFlavorsDisplayStr = String.join(", ", invalidFlavorsStr);
-        throw new HumanReadableException(
-            "The following flavor(s) are not supported on target %s:\n"
-                + "%s.\n\n"
-                + "Please try to remove them when referencing this target.",
-            unflavoredBuildTarget, invalidFlavorsDisplayStr);
-      }
-    }
-
-    UnflavoredBuildTarget unflavoredBuildTargetFromRawData =
-        RawNodeParsePipeline.parseBuildTargetFromRawRule(
-            cell.getRoot(), cell.getCanonicalName(), rawNode, buildFile);
-    if (!unflavoredBuildTarget.equals(unflavoredBuildTargetFromRawData)) {
-      throw new IllegalStateException(
-          String.format(
-              "Inconsistent internal state, target from data: %s, expected: %s, raw data: %s",
-              unflavoredBuildTargetFromRawData,
-              unflavoredBuildTarget,
-              Joiner.on(',').withKeyValueSeparator("->").join(rawNode)));
-    }
-  }
-
   private TargetNode<?, ?> createTargetNodeFromObject(
       Cell cell,
       Path buildFile,
       BuildTarget target,
-      Description<?> description,
+      DescriptionWithTargetGraph<?> description,
       Object constructorArg,
       Map<String, Object> rawNode,
       ImmutableSet<BuildTarget> declaredDeps,
@@ -240,11 +199,7 @@ public class DefaultParserTargetNodeFactory
               visibilityPatterns,
               withinViewPatterns,
               cell.getCellPathResolver());
-      if (buildFileTrees.isPresent()
-          && cell.isEnforcingBuckPackageBoundaries(target.getBasePath())) {
-        enforceBuckPackageBoundaries(
-            cell, target, buildFileTrees.get().getUnchecked(cell), node.getInputs());
-      }
+      packageBoundaryChecker.enforceBuckPackageBoundaries(cell, target, node.getInputs());
       nodeListener.onCreate(buildFile, node);
       return node;
     }
@@ -255,49 +210,6 @@ public class DefaultParserTargetNodeFactory
     hasher.putString(ruleKeyConfiguration.getCoreKey(), UTF_8);
     JsonObjectHashing.hashJsonObject(hasher, rawNode);
     return hasher.hash();
-  }
-
-  protected void enforceBuckPackageBoundaries(
-      Cell targetCell, BuildTarget target, BuildFileTree buildFileTree, ImmutableSet<Path> paths) {
-    Path basePath = target.getBasePath();
-
-    for (Path path : paths) {
-      if (!basePath.toString().isEmpty() && !path.startsWith(basePath)) {
-        throw new HumanReadableException(
-            "'%s' in '%s' refers to a parent directory.", basePath.relativize(path), target);
-      }
-
-      Optional<Path> ancestor = buildFileTree.getBasePathOfAncestorTarget(path);
-      // It should not be possible for us to ever get an Optional.empty() for this because that
-      // would require one of two conditions:
-      // 1) The source path references parent directories, which we check for above.
-      // 2) You don't have a build file above this file, which is impossible if it is referenced in
-      //    a build file *unless* you happen to be referencing something that is ignored.
-      if (!ancestor.isPresent()) {
-        throw new IllegalStateException(
-            String.format(
-                "Target '%s' refers to file '%s', which doesn't belong to any package",
-                target, path));
-      }
-      if (!ancestor.get().equals(basePath)) {
-        String buildFileName = targetCell.getBuildFileName();
-        Path buckFile = ancestor.get().resolve(buildFileName);
-        // TODO(cjhopman): If we want to manually split error message lines ourselves, we should
-        // have a utility to do it correctly after formatting instead of doing it manually.
-        throw new HumanReadableException(
-            "The target '%1$s' tried to reference '%2$s'.\n"
-                + "This is not allowed because '%2$s' can only be referenced from '%3$s' \n"
-                + "which is its closest parent '%4$s' file.\n"
-                + "\n"
-                + "You should find or create the rule in '%3$s' that references\n"
-                + "'%2$s' and use that in '%1$s'\n"
-                + "instead of directly referencing '%2$s'.\n"
-                + "\n"
-                + "This may also be due to a bug in buckd's caching.\n"
-                + "Please check whether using `buck kill` will resolve it.",
-            target, path, buckFile, buildFileName);
-      }
-    }
   }
 
   private static BuildRuleType parseBuildRuleTypeFromRawRule(

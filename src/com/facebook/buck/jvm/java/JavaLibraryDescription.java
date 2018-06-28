@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasProvidedDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -24,6 +25,11 @@ import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -34,12 +40,6 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
 import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
@@ -51,7 +51,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class JavaLibraryDescription
-    implements Description<JavaLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<JavaLibraryDescriptionArg>,
         Flavored,
         VersionPropagator<JavaLibraryDescriptionArg> {
 
@@ -86,12 +86,12 @@ public class JavaLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JavaLibraryDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
 
@@ -100,7 +100,7 @@ public class JavaLibraryDescription
 
     if (flavors.contains(Javadoc.DOC_JAR)) {
       BuildTarget unflavored = ImmutableBuildTarget.of(buildTarget.getUnflavoredBuildTarget());
-      BuildRule baseLibrary = resolver.requireRule(unflavored);
+      BuildRule baseLibrary = graphBuilder.requireRule(unflavored);
 
       JarShape shape =
           buildTarget.getFlavors().contains(JavaLibrary.MAVEN_JAR)
@@ -175,12 +175,13 @@ public class JavaLibraryDescription
 
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
-            toolchainProvider
+            context
+                .getToolchainProvider()
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
             projectFilesystem,
-            resolver,
+            graphBuilder,
             args);
 
     DefaultJavaLibraryRules defaultJavaLibraryRules =
@@ -189,9 +190,10 @@ public class JavaLibraryDescription
                 projectFilesystem,
                 context.getToolchainProvider(),
                 params,
-                resolver,
+                graphBuilder,
                 context.getCellPathResolver(),
-                new JavaConfiguredCompilerFactory(javaBuckConfig),
+                new JavaConfiguredCompilerFactory(
+                    javaBuckConfig, JavacFactory.getDefault(toolchainProvider)),
                 javaBuckConfig,
                 args)
             .setJavacOptions(javacOptions)
@@ -207,7 +209,7 @@ public class JavaLibraryDescription
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;
     } else {
-      resolver.addToIndex(defaultJavaLibrary);
+      graphBuilder.addToIndex(defaultJavaLibrary);
       return MavenUberJar.create(
           defaultJavaLibrary,
           buildTargetWithMavenFlavor,

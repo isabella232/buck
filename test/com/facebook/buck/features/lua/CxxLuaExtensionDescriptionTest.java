@@ -18,11 +18,11 @@ package com.facebook.buck.features.lua;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import java.nio.file.Paths;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -34,9 +34,9 @@ public class CxxLuaExtensionDescriptionTest {
     CxxLuaExtensionBuilder builder =
         new CxxLuaExtensionBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setBaseModule("hello.world");
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(TargetGraphFactory.newInstance(builder.build()));
-    CxxLuaExtension extension = builder.build(resolver);
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(TargetGraphFactory.newInstance(builder.build()));
+    CxxLuaExtension extension = builder.build(graphBuilder);
     assertThat(
         Paths.get(extension.getModule(CxxPlatformUtils.DEFAULT_PLATFORM)),
         Matchers.equalTo(Paths.get("hello/world/rule.so")));

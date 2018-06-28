@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -139,7 +140,9 @@ public class DaemonIntegrationTest {
             createRunnableCommand(ExitCode.SUCCESS, "build", "//:sleep"), 0, TimeUnit.MILLISECONDS);
     Future<?> secondThread =
         executorService.schedule(
-            createRunnableCommand(ExitCode.SUCCESS, "targets"), 500L, TimeUnit.MILLISECONDS);
+            createRunnableCommand(ExitCode.SUCCESS, "targets", "//..."),
+            500L,
+            TimeUnit.MILLISECONDS);
     firstThread.get();
     secondThread.get();
   }
@@ -168,7 +171,7 @@ public class DaemonIntegrationTest {
             new Main(
                 new CapturingPrintStream(),
                 new CapturingPrintStream(),
-                new ByteArrayInputStream("".getBytes("UTF-8")),
+                new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
                 Optional.of(new TestContext()));
         ExitCode exitCode =
             main.runMainWithExitCode(

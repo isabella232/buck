@@ -30,6 +30,7 @@ import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildArtifactCacheImpl;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.MinionType;
@@ -76,7 +77,8 @@ public class MultiSlaveBuildModeRunnerFactory {
       ArtifactCache remoteCache,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> asyncRuleKeyCalculator,
       HealthCheckStatsTracker healthCheckStatsTracker,
-      Optional<BuildSlaveTimingStatsTracker> timingStatsTracker) {
+      Optional<BuildSlaveTimingStatsTracker> timingStatsTracker,
+      Optional<String> coordinatorMinionId) {
 
     ListenableFuture<BuildTargetsQueue> queueFuture =
         Futures.transformAsync(
@@ -90,7 +92,7 @@ public class MultiSlaveBuildModeRunnerFactory {
                       BuildTargetsQueue queue;
                       try (ArtifactCacheByBuildRule artifactCache =
                           new DistBuildArtifactCacheImpl(
-                              graphs.getActionGraphAndResolver().getResolver(),
+                              graphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                               executorService,
                               remoteCache,
                               eventBus,
@@ -98,7 +100,7 @@ public class MultiSlaveBuildModeRunnerFactory {
                               Optional.empty())) {
                         queue =
                             new CacheOptimizedBuildTargetsQueueFactory(
-                                    graphs.getActionGraphAndResolver().getResolver(),
+                                    graphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                                     artifactCache,
                                     distBuildConfig.isDeepRemoteBuildEnabled(),
                                     ruleKeyCalculator.getRuleDepsCache(),
@@ -128,12 +130,17 @@ public class MultiSlaveBuildModeRunnerFactory {
 
     CoordinatorEventListener listenerAndMinionCountProvider =
         new CoordinatorEventListener(
-            distBuildService, stampedeId, minionQueueProvider, isLocalMinionAlsoRunning);
+            distBuildService,
+            stampedeId,
+            distBuildConfig.getBuildLabel(),
+            minionQueueProvider,
+            isLocalMinionAlsoRunning);
     MinionHealthTracker minionHealthTracker =
         new MinionHealthTracker(
             new DefaultClock(),
             distBuildConfig.getMaxMinionSilenceMillis(),
-            distBuildConfig.getHearbeatServiceRateMillis(),
+            distBuildConfig.getMaxConsecutiveSlowDeadMinionChecks(),
+            distBuildConfig.getHeartbeatServiceRateMillis(),
             distBuildConfig.getSlowHeartbeatWarningThresholdMillis(),
             healthCheckStatsTracker);
 
@@ -152,7 +159,9 @@ public class MultiSlaveBuildModeRunnerFactory {
         clientBuildId,
         traceUploadUri,
         minionHealthTracker,
-        listenerAndMinionCountProvider);
+        listenerAndMinionCountProvider,
+        coordinatorMinionId,
+        distBuildConfig.isReleasingMinionsEarlyEnabled());
   }
 
   /**
@@ -247,7 +256,8 @@ public class MultiSlaveBuildModeRunnerFactory {
                 buildExecutor -> buildExecutor.getCachingBuildEngine().getRuleKeyCalculator(),
                 executorService),
             healthCheckStatsTracker,
-            Optional.of(timingStatsTracker)),
+            Optional.of(timingStatsTracker),
+            Optional.of(DistBuildUtil.generateMinionId(buildSlaveRunId))),
         createMinion(
             localBuildExecutor,
             distBuildService,

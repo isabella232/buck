@@ -132,12 +132,13 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     Path fetchedContents = tmpDir.newFile();
     CacheResult cacheResult =
         Futures.getUnchecked(
-            serverBackedCache.fetchAsync(A_FILE_RULE_KEY, LazyPath.ofInstance(fetchedContents)));
+            serverBackedCache.fetchAsync(
+                null, A_FILE_RULE_KEY, LazyPath.ofInstance(fetchedContents)));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(true));
     assertThat(cacheResult.getMetadata(), Matchers.equalTo(A_FILE_METADATA));
     assertThat(
@@ -200,16 +201,16 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.ERROR));
 
     // Try again to make sure the exception didn't kill the server.
     cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.HIT));
   }
 
@@ -236,11 +237,11 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get(), 3));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt(), 3));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.ERROR));
   }
 
@@ -267,11 +268,11 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get(), 4));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt(), 4));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.HIT));
   }
 
@@ -293,11 +294,11 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.MISS));
   }
 
@@ -307,11 +308,11 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.empty());
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents));
     assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.ERROR));
   }
 
@@ -321,23 +322,23 @@ public class ServedCacheIntegrationTest {
     webServer.updateAndStartIfNeeded(Optional.empty());
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     assertThat(
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents))
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents))
             .getType(),
         Matchers.equalTo(CacheResultType.ERROR));
 
     webServer.updateAndStartIfNeeded(Optional.of(dirCache));
     assertThat(
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents))
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents))
             .getType(),
         Matchers.equalTo(CacheResultType.HIT));
 
     webServer.updateAndStartIfNeeded(Optional.empty());
     assertThat(
-        Futures.getUnchecked(serverBackedCache.fetchAsync(A_FILE_RULE_KEY, fetchedContents))
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, A_FILE_RULE_KEY, fetchedContents))
             .getType(),
         Matchers.equalTo(CacheResultType.ERROR));
   }
@@ -355,7 +356,7 @@ public class ServedCacheIntegrationTest {
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     RuleKey ruleKey = new RuleKey("00111222333444");
     ImmutableMap<String, String> metadata = ImmutableMap.of("some key", "some value");
@@ -365,14 +366,15 @@ public class ServedCacheIntegrationTest {
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
 
     serverBackedCache.store(
         ArtifactInfo.builder().addRuleKeys(ruleKey).setMetadata(metadata).build(),
         BorrowablePath.notBorrowablePath(originalDataPath));
 
-    cacheResult = Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+    cacheResult =
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(true));
     assertThat(cacheResult.getMetadata(), Matchers.equalTo(metadata));
     assertThat(
@@ -392,7 +394,7 @@ public class ServedCacheIntegrationTest {
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     RuleKey ruleKey = new RuleKey("00111222333444");
     ImmutableMap<String, String> metadata = ImmutableMap.of("some key", "some value");
@@ -402,14 +404,15 @@ public class ServedCacheIntegrationTest {
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
 
     serverBackedCache.store(
         ArtifactInfo.builder().addRuleKeys(ruleKey).setMetadata(metadata).build(),
         BorrowablePath.borrowablePath(originalDataPath));
 
-    cacheResult = Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+    cacheResult =
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(true));
     assertThat(cacheResult.getMetadata(), Matchers.equalTo(metadata));
     assertThat(
@@ -429,7 +432,7 @@ public class ServedCacheIntegrationTest {
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
-        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().get()));
+        createArtifactCache(createMockLocalHttpCacheConfig(webServer.getPort().getAsInt()));
 
     RuleKey ruleKey = new RuleKey("00111222333444");
     ImmutableMap<String, String> metadata = ImmutableMap.of("some key", "some value");
@@ -439,14 +442,15 @@ public class ServedCacheIntegrationTest {
 
     LazyPath fetchedContents = LazyPath.ofInstance(tmpDir.newFile());
     CacheResult cacheResult =
-        Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
 
     serverBackedCache.store(
         ArtifactInfo.builder().addRuleKeys(ruleKey).setMetadata(metadata).build(),
         BorrowablePath.notBorrowablePath(originalDataPath));
 
-    cacheResult = Futures.getUnchecked(serverBackedCache.fetchAsync(ruleKey, fetchedContents));
+    cacheResult =
+        Futures.getUnchecked(serverBackedCache.fetchAsync(null, ruleKey, fetchedContents));
     assertThat(cacheResult.getType().isSuccess(), Matchers.is(false));
   }
 
@@ -470,7 +474,7 @@ public class ServedCacheIntegrationTest {
                 "two_level_cache_enabled=true",
                 "two_level_cache_minimum_size=0b",
                 "dir = server-backed-dir-cache",
-                String.format("http_url = http://127.0.0.1:%d/", webServer.getPort().get())));
+                String.format("http_url = http://127.0.0.1:%d/", webServer.getPort().getAsInt())));
 
     ArtifactCache serverBackedDirCache =
         createArtifactCache(
@@ -502,7 +506,7 @@ public class ServedCacheIntegrationTest {
   private boolean containsKey(ArtifactCache cache, RuleKey ruleKey) throws Exception {
     Path fetchedContents = tmpDir.newFile();
     CacheResult cacheResult =
-        Futures.getUnchecked(cache.fetchAsync(ruleKey, LazyPath.ofInstance(fetchedContents)));
+        Futures.getUnchecked(cache.fetchAsync(null, ruleKey, LazyPath.ofInstance(fetchedContents)));
     assertThat(cacheResult.getType(), Matchers.oneOf(CacheResultType.HIT, CacheResultType.MISS));
     return cacheResult.getType().isSuccess();
   }

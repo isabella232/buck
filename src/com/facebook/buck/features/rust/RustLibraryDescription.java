@@ -19,15 +19,23 @@ package com.facebook.buck.features.rust;
 import static com.facebook.buck.features.rust.RustCompileUtils.ruleToCrateName;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -39,13 +47,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -65,7 +66,7 @@ import java.util.function.Function;
 import org.immutables.value.Value;
 
 public class RustLibraryDescription
-    implements Description<RustLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<RustLibraryDescriptionArg>,
         ImplicitDepsInferringDescription<RustLibraryDescription.AbstractRustLibraryDescriptionArg>,
         Flavored,
         VersionPropagator<RustLibraryDescriptionArg> {
@@ -91,7 +92,7 @@ public class RustLibraryDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       RustPlatform rustPlatform,
@@ -107,7 +108,7 @@ public class RustLibraryDescription
     Pair<SourcePath, ImmutableSortedSet<SourcePath>> rootModuleAndSources =
         RustCompileUtils.getRootModuleAndSources(
             buildTarget,
-            resolver,
+            graphBuilder,
             pathResolver,
             ruleFinder,
             rustPlatform.getCxxPlatform(),
@@ -119,7 +120,7 @@ public class RustLibraryDescription
         buildTarget,
         projectFilesystem,
         params,
-        resolver,
+        graphBuilder,
         ruleFinder,
         rustPlatform,
         rustBuckConfig,
@@ -138,12 +139,12 @@ public class RustLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       RustLibraryDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CxxDeps allDeps =
@@ -195,7 +196,7 @@ public class RustLibraryDescription
           buildTarget,
           projectFilesystem,
           params,
-          resolver,
+          graphBuilder,
           pathResolver,
           ruleFinder,
           platform,
@@ -207,7 +208,7 @@ public class RustLibraryDescription
           crateType,
           depType,
           args,
-          allDeps.get(resolver, platform.getCxxPlatform()));
+          allDeps.get(graphBuilder, platform.getCxxPlatform()));
     }
 
     // Common case - we're being invoked to satisfy some other rule's dependency.
@@ -267,7 +268,7 @@ public class RustLibraryDescription
                 buildTarget,
                 projectFilesystem,
                 params,
-                resolver,
+                graphBuilder,
                 pathResolver,
                 ruleFinder,
                 rustPlatform,
@@ -279,7 +280,7 @@ public class RustLibraryDescription
                 crateType,
                 depType,
                 args,
-                allDeps.get(resolver, rustPlatform.getCxxPlatform()));
+                allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
         SourcePath rlib = rule.getSourcePathToOutput();
         return new RustLibraryArg(crate, rlib, direct);
       }
@@ -306,7 +307,7 @@ public class RustLibraryDescription
                 buildTarget,
                 projectFilesystem,
                 params,
-                resolver,
+                graphBuilder,
                 pathResolver,
                 ruleFinder,
                 rustPlatform,
@@ -318,14 +319,14 @@ public class RustLibraryDescription
                 CrateType.DYLIB,
                 Linker.LinkableDepType.SHARED,
                 args,
-                allDeps.get(resolver, rustPlatform.getCxxPlatform()));
+                allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
         libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
         return libs.build();
       }
 
       @Override
       public Iterable<BuildRule> getRustLinakbleDeps(RustPlatform rustPlatform) {
-        return allDeps.get(resolver, rustPlatform.getCxxPlatform());
+        return allDeps.get(graphBuilder, rustPlatform.getCxxPlatform());
       }
 
       // NativeLinkable
@@ -345,14 +346,14 @@ public class RustLibraryDescription
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         // We want to skip over all the transitive Rust deps, and only return non-Rust
         // deps at the edge of the graph
         ImmutableList.Builder<NativeLinkable> nativedeps = ImmutableList.builder();
 
         RustPlatform rustPlatform =
             getRustToolchain().getRustPlatforms().getValue(cxxPlatform.getFlavor());
-        new AbstractBreadthFirstTraversal<BuildRule>(allDeps.get(resolver, cxxPlatform)) {
+        new AbstractBreadthFirstTraversal<BuildRule>(allDeps.get(graphBuilder, cxxPlatform)) {
           @Override
           public Iterable<BuildRule> visit(BuildRule rule) {
             if (rule instanceof RustLinkable) {
@@ -375,7 +376,7 @@ public class RustLibraryDescription
           Linker.LinkableDepType depType,
           boolean forceLinkWhole,
           ImmutableSet<LanguageExtensions> languageExtensions,
-          BuildRuleResolver ruleResolver) {
+          ActionGraphBuilder graphBuilder) {
         CrateType crateType;
 
         switch (depType) {
@@ -400,7 +401,7 @@ public class RustLibraryDescription
                 buildTarget,
                 projectFilesystem,
                 params,
-                resolver,
+                graphBuilder,
                 pathResolver,
                 ruleFinder,
                 rustPlatform,
@@ -412,7 +413,7 @@ public class RustLibraryDescription
                 crateType,
                 depType,
                 args,
-                allDeps.get(resolver, rustPlatform.getCxxPlatform()));
+                allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
 
         SourcePath lib = rule.getSourcePathToOutput();
         SourcePathArg arg = SourcePathArg.of(lib);
@@ -421,13 +422,13 @@ public class RustLibraryDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         return args.getPreferredLinkage();
       }
 
       @Override
       public ImmutableMap<String, SourcePath> getSharedLibraries(
-          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
             CrateType.DYLIB.filenameFor(getBuildTarget(), crate, cxxPlatform);
@@ -438,7 +439,7 @@ public class RustLibraryDescription
                 buildTarget,
                 projectFilesystem,
                 params,
-                resolver,
+                graphBuilder,
                 pathResolver,
                 ruleFinder,
                 rustPlatform,
@@ -450,7 +451,7 @@ public class RustLibraryDescription
                 CrateType.CDYLIB,
                 Linker.LinkableDepType.SHARED,
                 args,
-                allDeps.get(resolver, rustPlatform.getCxxPlatform()));
+                allDeps.get(graphBuilder, rustPlatform.getCxxPlatform()));
         libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
         return libs.build();
       }

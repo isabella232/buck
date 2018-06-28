@@ -19,6 +19,7 @@ package com.facebook.buck.rules.modern;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
 import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
@@ -28,7 +29,6 @@ import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.util.RichStream;
@@ -211,7 +211,7 @@ public class Serializer {
         stream.writeBoolean(false);
         writeValue(
             getCellName(pathSourcePath.getFilesystem()), new TypeToken<Optional<String>>() {});
-        writeString(pathSourcePath.getRelativePathName());
+        writeString(pathSourcePath.getRelativePath().toString());
       } else {
         throw new IllegalStateException(
             String.format("Cannot serialize SourcePath of type %s.", value.getClass().getName()));
@@ -235,6 +235,7 @@ public class Serializer {
           ValueTypeInfo<T> typeInfo =
               (ValueTypeInfo<T>)
                   ValueTypeInfoFactory.forTypeToken(TypeToken.of(field.getGenericType()));
+
           typeInfo.visit(value, this);
           return;
         }

@@ -36,9 +36,10 @@ import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBus;
@@ -54,7 +55,6 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -653,7 +653,7 @@ public class InterCellIntegrationTest {
 
     NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(primary.asCell().getFilesystem());
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
         new SymbolGetter(
@@ -698,7 +698,7 @@ public class InterCellIntegrationTest {
 
     NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(primary.asCell().getFilesystem());
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
         new SymbolGetter(

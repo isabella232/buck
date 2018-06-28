@@ -19,29 +19,26 @@ package com.facebook.buck.core.rules.graphbuilder;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.graph.transformation.TransformationEnvironment;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContext;
 import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
 import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Maps;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
-import org.immutables.value.Value;
-import org.immutables.value.Value.Style.ImplementationVisibility;
 
 /**
  * Context information used for construction of ActionGraph in {@link
- * com.facebook.buck.graph.transformationengine.AsyncTransformationEngine}.
+ * com.facebook.buck.core.graph.transformation.AsyncTransformationEngine}.
  *
  * <p>This wraps the {@link BuildRuleCreationContext} needed for constructing {@link BuildRule}s
  * with {@link TransformationEnvironment} from the {@link
- * com.facebook.buck.graph.transformationengine.AsyncTransformationEngine}.
+ * com.facebook.buck.core.graph.transformation.AsyncTransformationEngine}.
  *
  * <p>Access to the {@link TransformationEnvironment} is limited to restrict access of BuildRule
  * construction logic to {@link BuildRule}s. Construction phase can only access information to
@@ -52,61 +49,32 @@ import org.immutables.value.Value.Style.ImplementationVisibility;
  * should not be part of the identifier of what {@link BuildRule} to compute.
  *
  * <p>Instances should only be created in {@link
- * com.facebook.buck.graph.transformationengine.AsyncTransformer#transform(Object,
+ * com.facebook.buck.core.graph.transformation.AsyncTransformer#transform(Object,
  * TransformationEnvironment)} implementation for ActionGraph construction. Hence, we have
  * package-private implementation which hides constructor.
  */
-@Value.Immutable(builder = false, copy = false, prehash = false)
-@Value.Style(visibility = ImplementationVisibility.PACKAGE)
-public abstract class BuildRuleContextWithEnvironment {
+public interface BuildRuleContextWithEnvironment {
 
-  @Value.Parameter
-  protected abstract BuildRuleKey getKey();
+  ProjectFilesystem getProjectFilesystem();
 
-  protected BuildRuleCreationContext getCreationContext() {
-    return getKey().getBuildRuleCreationContext();
-  }
+  CellPathResolver getCellPathResolver();
 
-  /** @return the {@link TargetNode} of the current desired {@link BuildRule} */
-  protected TargetNode<?, ?> getCurrentNode() {
-    return getKey().getTargetNode();
-  }
-
-  @Value.Parameter
-  protected abstract TransformationEnvironment<BuildRuleKey, BuildRule> getEnv();
-
-  public ProjectFilesystem getProjectFilesystem() {
-    return getCreationContext().getProjectFilesystem();
-  }
-
-  public CellPathResolver getCellPathResolver() {
-    return getCreationContext().getCellPathResolver();
-  }
-
-  public ToolchainProvider getToolchainProvider() {
-    return getCreationContext().getToolchainProvider();
-  }
+  ToolchainProvider getToolchainProvider();
 
   /**
-   * Access to {@link com.facebook.buck.rules.TargetGraph} and {@link TargetNode} is limited during
-   * ActionGraph construction. The list of target graph dependencies can only be accessed through
-   * this context via the three methods below.
+   * Access to {@link TargetGraph} and {@link TargetNode} is limited during ActionGraph
+   * construction. The list of target graph dependencies can only be accessed through this context
+   * via the three methods below.
    */
 
   /** @return The {@link TargetNode#getDeclaredDeps()} */
-  public ImmutableSet<BuildTarget> getDeclaredDeps() {
-    return getCurrentNode().getDeclaredDeps();
-  }
+  ImmutableSet<BuildTarget> getDeclaredDeps();
 
   /** @return The {@link TargetNode#getExtraDeps()} */
-  public ImmutableSortedSet<BuildTarget> getExtraDeps() {
-    return getCurrentNode().getExtraDeps();
-  }
+  ImmutableSortedSet<BuildTarget> getExtraDeps();
 
   /** @return The {@link TargetNode#getTargetGraphOnlyDeps()} ()} */
-  public ImmutableSortedSet<BuildTarget> getTargetGraphOnlyDeps() {
-    return getCurrentNode().getTargetGraphOnlyDeps();
-  }
+  ImmutableSortedSet<BuildTarget> getTargetGraphOnlyDeps();
 
   /**
    * Access to {@link TransformationEnvironment} and dependencies as {@link BuildRule}s is limited.
@@ -126,16 +94,9 @@ public abstract class BuildRuleContextWithEnvironment {
    *     {@link BuildRule}
    * @return a future of the {@link BuildRule} to be created
    */
-  public CompletionStage<BuildRule> getProviderCollectionForDep(
+  CompletionStage<BuildRule> getProviderCollectionForDep(
       BuildRuleKey depKey,
-      Function<BuildRuleInfoProviderCollection, BuildRule> createBuildRuleWithDep) {
-    return getEnv()
-        .evaluate(
-            depKey,
-            depBuildRule -> {
-              return createBuildRuleWithDep.apply(depBuildRule.getProviderCollection());
-            });
-  }
+      Function<BuildRuleInfoProviderCollection, BuildRule> createBuildRuleWithDep);
 
   /**
    * A method for Action Graph construction phase to access information from many dependencies by
@@ -150,17 +111,8 @@ public abstract class BuildRuleContextWithEnvironment {
    *     {@link BuildRule}
    * @return a future of the {@link BuildRule} to be created
    */
-  public CompletionStage<BuildRule> getProviderCollectionForDeps(
+  CompletionStage<BuildRule> getProviderCollectionForDeps(
       Iterable<BuildRuleKey> depKeys,
       Function<ImmutableMap<BuildRuleKey, BuildRuleInfoProviderCollection>, BuildRule>
-          createBuildRuleWithDeps) {
-    return getEnv()
-        .evaluateAll(
-            depKeys,
-            depBuildRules -> {
-              return createBuildRuleWithDeps.apply(
-                  ImmutableMap.copyOf(
-                      Maps.transformValues(depBuildRules, rule -> rule.getProviderCollection())));
-            });
-  }
+          createBuildRuleWithDeps);
 }

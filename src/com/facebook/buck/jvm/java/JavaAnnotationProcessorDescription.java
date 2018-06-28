@@ -16,19 +16,19 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
@@ -39,7 +39,7 @@ import org.immutables.value.Value;
  * javax.annotation.processing.Processor} or TODO(jkeljo): a {@link com.sun.source.util.Plugin}).
  */
 public class JavaAnnotationProcessorDescription
-    implements Description<JavaAnnotationProcessorDescriptionArg>,
+    implements DescriptionWithTargetGraph<JavaAnnotationProcessorDescriptionArg>,
         VersionPropagator<JavaAnnotationProcessorDescriptionArg> {
   @Override
   public Class<JavaAnnotationProcessorDescriptionArg> getConstructorArgType() {
@@ -48,7 +48,7 @@ public class JavaAnnotationProcessorDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JavaAnnotationProcessorDescriptionArg args) {
@@ -84,7 +84,7 @@ public class JavaAnnotationProcessorDescription
     JavacPluginProperties properties = propsBuilder.build();
 
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getActionGraphBuilder()));
     return new JavaAnnotationProcessor(
         buildTarget,
         context.getProjectFilesystem(),

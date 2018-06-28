@@ -19,20 +19,20 @@ package com.facebook.buck.cli;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.NoopInstallable;
+import com.facebook.buck.core.rules.common.InstallTrigger;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.InstallTrigger;
-import com.facebook.buck.rules.NoopInstallable;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -91,7 +91,7 @@ public class InstallTriggerIntegrationTest {
   }
 
   private static class InstallTriggerDescription
-      implements Description<InstallTriggerDescriptionArg> {
+      implements DescriptionWithTargetGraph<InstallTriggerDescriptionArg> {
     @Override
     public Class<InstallTriggerDescriptionArg> getConstructorArgType() {
       return InstallTriggerDescriptionArg.class;
@@ -99,7 +99,7 @@ public class InstallTriggerIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         InstallTriggerDescriptionArg args) {

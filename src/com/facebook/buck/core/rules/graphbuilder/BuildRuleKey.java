@@ -17,41 +17,27 @@
 package com.facebook.buck.core.rules.graphbuilder;
 
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.TargetNode;
-import org.immutables.value.Value;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.BuildRule;
 
 /**
  * An Immutable Key to a {@link BuildRule} for computation in {@link
- * com.facebook.buck.graph.transformationengine.AsyncTransformationEngine}. The Key is used to
- * represent what {@link com.facebook.buck.rules.BuildRule} subgraph we are attempting to compute.
+ * com.facebook.buck.core.graph.transformation.AsyncTransformationEngine}. The Key is used to
+ * represent what {@link BuildRule} subgraph we are attempting to compute.
  *
- * <p>The {@link com.facebook.buck.rules.BuildRule} subgraph is identified by:
+ * <p>The {@link BuildRule} subgraph is identified by:
  *
  * <ul>
- *   <li>the {@link com.facebook.buck.rules.TargetNode} corresponding to the {@link BuildTarget}
- *       which contains information about the desired {@link BuildTarget}, including flavour
- *       information, and cell path, etc.
+ *   <li>the {@link TargetNode} corresponding to the {@link BuildTarget} which contains information
+ *       about the desired {@link BuildTarget}, including flavour information, and cell path, etc.
  * </ul>
  */
-@Value.Immutable(builder = false, copy = false, prehash = true)
-public abstract class BuildRuleKey {
+public interface BuildRuleKey {
 
-  @Value.Parameter
-  @Value.Auxiliary
-  public abstract BuildTarget getBuildTarget();
+  BuildTarget getBuildTarget();
 
-  @Value.Derived
-  protected TargetNodeWrapper getTargetNodeWrapper() {
-    return TargetNodeWrapper.of(
-        getBuildRuleCreationContext().getTargetGraph().get(getBuildTarget()));
-  }
+  TargetNode<?, ?> getTargetNode();
 
-  public TargetNode<?, ?> getTargetNode() {
-    return getTargetNodeWrapper().getTargetNode();
-  }
-
-  @Value.Parameter
-  @Value.Auxiliary
-  public abstract BuildRuleCreationContext getBuildRuleCreationContext();
+  BuildRuleCreationContextWithTargetGraph getBuildRuleCreationContext();
 }

@@ -16,8 +16,11 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.DelegatingTool;
@@ -26,9 +29,6 @@ import com.facebook.buck.cxx.toolchain.objectfile.LcUuidContentsScrubber;
 import com.facebook.buck.cxx.toolchain.objectfile.OsoSymbolsContentsScrubber;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.base.Charsets;
@@ -41,6 +41,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -125,7 +126,7 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       ImmutableList<? extends SourcePath> symbolFiles) {
@@ -160,6 +161,11 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   @Override
   public SharedLibraryLoadingType getSharedLibraryLoadingType() {
     return SharedLibraryLoadingType.RPATH;
+  }
+
+  @Override
+  public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
+    return Optional.empty();
   }
 
   /**

@@ -41,6 +41,7 @@ import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
+import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
@@ -48,6 +49,7 @@ import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.events.EventCollector;
 import com.google.devtools.build.lib.events.EventHandler;
@@ -152,6 +154,8 @@ public class SkylarkProjectBuildFileParserTest {
 
   @Test
   public void detectsDuplicateRuleDefinition() throws Exception {
+    EventCollector eventCollector = new EventCollector(EnumSet.allOf(EventKind.class));
+    parser = createParser(eventCollector);
     Path buildFile = projectFilesystem.resolve("src").resolve("BUCK");
     Files.createDirectories(buildFile.getParent());
     Files.write(
@@ -159,13 +163,17 @@ public class SkylarkProjectBuildFileParserTest {
         Arrays.asList(
             "prebuilt_jar(name='guava', binary_jar='guava.jar')",
             "prebuilt_jar(name='guava', binary_jar='guava.jar')"));
-
-    thrown.expectMessage(
-        "Multiple entries with same key: "
-            + "guava={buck.base_path=src, buck.type=prebuilt_jar, name=guava, binaryJar=guava.jar}"
-            + " and "
-            + "guava={buck.base_path=src, buck.type=prebuilt_jar, name=guava, binaryJar=guava.jar}");
-    parser.getBuildFileManifest(buildFile, new AtomicLong());
+    try {
+      parser.getBuildFileManifest(buildFile, new AtomicLong());
+      fail();
+    } catch (BuildFileParseException e) {
+      Event event = Iterables.getOnlyElement(eventCollector);
+      assertThat(event.getKind(), is(EventKind.ERROR));
+      assertThat(
+          event.getMessage(),
+          is(
+              "Cannot register rule guava with content {buck.base_path=src, buck.type=prebuilt_jar, name=guava, binaryJar=guava.jar} again."));
+    }
   }
 
   @Test
@@ -222,6 +230,31 @@ public class SkylarkProjectBuildFileParserTest {
     assertThat(
         Type.STRING_LIST.convert(rule.get("licenses"), "license"),
         equalTo(ImmutableList.of("file1", "file2")));
+  }
+
+  @Test
+  public void globManifestIsCapturedFunction() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Path buildFile = directory.resolve("BUCK");
+    Files.createDirectories(directory);
+    Files.write(
+        buildFile,
+        Arrays.asList("prebuilt_jar(name='guava', binary_jar='foo.jar', licenses=glob(['f*']))"));
+    Files.createFile(directory.resolve("file1"));
+    Files.createFile(directory.resolve("file2"));
+    Files.createFile(directory.resolve("bad_file"));
+    BuildFileManifest buildFileManifest = parser.getBuildFileManifest(buildFile, new AtomicLong());
+    assertThat(buildFileManifest.getTargets(), Matchers.hasSize(1));
+    assertThat(
+        buildFileManifest.getGlobManifest(),
+        equalTo(
+            ImmutableMap.of(
+                GlobSpec.builder()
+                    .setInclude(ImmutableList.of("f*"))
+                    .setExclude(ImmutableList.of())
+                    .setExcludeDirectories(true)
+                    .build(),
+                ImmutableSet.of("file1", "file2"))));
   }
 
   @Test
@@ -311,6 +344,48 @@ public class SkylarkProjectBuildFileParserTest {
     Event printEvent = eventCollector.iterator().next();
     assertThat(printEvent.getMessage(), equalTo("hello world"));
     assertThat(printEvent.getKind(), equalTo(EventKind.DEBUG));
+  }
+
+  @Test
+  public void nativeFunctionUsageAtTopLevelIsReportedAsAnError() throws Exception {
+    EventCollector eventCollector = new EventCollector(EnumSet.allOf(EventKind.class));
+    parser = createParser(eventCollector);
+    Path buildFile = projectFilesystem.resolve("BUCK");
+    Files.write(buildFile, Arrays.asList("load('//:ext.bzl', 'ext')"));
+    Path extensionFile = projectFilesystem.resolve("ext.bzl");
+    Files.write(extensionFile, Arrays.asList("ext = read_config('foo', 'bar')"));
+    try {
+      parser.getBuildFileManifest(buildFile, new AtomicLong());
+      fail("Parsing should have failed.");
+    } catch (BuildFileParseException e) {
+      Event printEvent = eventCollector.iterator().next();
+      assertThat(
+          printEvent.getMessage(),
+          equalTo(
+              "Top-level invocations of read_config are not allowed in .bzl files. "
+                  + "Wrap it in a macro and call it from a BUCK file."));
+      assertThat(printEvent.getKind(), equalTo(EventKind.ERROR));
+    }
+  }
+
+  @Test
+  public void nativeReadConfigFunctionCanBeInvokedFromExtensionFile() throws Exception {
+    Path buildFileDirectory = projectFilesystem.resolve("test");
+    Files.createDirectories(buildFileDirectory);
+    Path buildFile = buildFileDirectory.resolve("BUCK");
+    Path extensionFileDirectory = buildFileDirectory.resolve("ext");
+    Files.createDirectories(extensionFileDirectory);
+    Path extensionFile = extensionFileDirectory.resolve("build_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//test/ext:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(
+        extensionFile,
+        Arrays.asList("def get_name():", "  return native.read_config('foo', 'bar', 'baz')"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("baz"));
   }
 
   @Test
@@ -594,6 +669,58 @@ public class SkylarkProjectBuildFileParserTest {
   }
 
   @Test
+  public void testCanLoadExtensionFromBuildFileUsingRelativeLabel() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    Path extensionFile = directory.resolve("build_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load(':build_rules.bzl', 'jar')", "prebuilt_jar(name='foo', binary_jar=jar)"));
+    Files.write(extensionFile, Arrays.asList("jar = 'jar.jar'"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("jar.jar"));
+  }
+
+  @Test
+  public void testCannotLoadExtensionFromANestedDirectory() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    Path extensionFile = directory.resolve("build_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load(':foo/build_rules.bzl', 'jar')", "prebuilt_jar(name='foo', binary_jar=jar)"));
+    Files.write(extensionFile, Arrays.asList("jar = 'jar.jar'"));
+    thrown.expect(BuildFileParseException.class);
+    thrown.expectMessage(
+        "Relative loads work only for files in the same directory but "
+            + ":foo/build_rules.bzl is trying to load a file from a nested directory. "
+            + "Please use absolute label instead ([cell]//pkg[/pkg]:target).");
+    getSingleRule(buildFile);
+  }
+
+  @Test
+  public void testCanLoadExtensionFromExtensionUsingRelativeLabel() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    Path extensionFile = directory.resolve("build_rules.bzl");
+    Path extensionExtensionFile = directory.resolve("extension_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//src/test:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(extensionExtensionFile, Arrays.asList("def get_name():", "  return 'jar'"));
+    Files.write(extensionFile, Arrays.asList("load(':extension_rules.bzl', 'get_name')"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("jar"));
+  }
+
+  @Test
   public void parsingOfExtensionWithSyntacticErrorsFails() throws Exception {
     Path directory = projectFilesystem.resolve("src").resolve("test");
     Files.createDirectories(directory);
@@ -847,6 +974,75 @@ public class SkylarkProjectBuildFileParserTest {
       assertThat(event.getMessage(), containsString("extension.bzl\", line 2, in make_jar"));
       throw e;
     }
+  }
+
+  @Test
+  public void ruleDoesNotExistIfNotDefined() throws Exception {
+    Path buildFile = projectFilesystem.resolve("pkg").resolve("BUCK");
+    Files.createDirectories(buildFile.getParent());
+    Files.write(
+        buildFile, Arrays.asList("prebuilt_jar(name=str(rule_exists('r')), binary_jar='foo')"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("name"), equalTo("False"));
+  }
+
+  @Test
+  public void ruleDoesNotExistIfNotDefinedWhenUsedFromExtensionFile() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    Path extensionFile = directory.resolve("build_rules.bzl");
+    Path extensionExtensionFile = directory.resolve("extension_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//src/test:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(
+        extensionExtensionFile,
+        Arrays.asList("def get_name():", "  return str(native.rule_exists('does_not_exist'))"));
+    Files.write(extensionFile, Arrays.asList("load('//src/test:extension_rules.bzl', 'get_name')"));
+    Map<String, Object> rule = getSingleRule(buildFile);
+    assertThat(rule.get("binaryJar"), equalTo("False"));
+  }
+
+  @Test
+  public void ruleExistsIfDefined() throws Exception {
+    Path buildFile = projectFilesystem.resolve("pkg").resolve("BUCK");
+    Files.createDirectories(buildFile.getParent());
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "prebuilt_jar(name='foo', binary_jar='binary.jar')",
+            "prebuilt_jar(name=str(rule_exists('foo')), binary_jar='foo')"));
+    BuildFileManifest buildFileManifest = parser.getBuildFileManifest(buildFile, new AtomicLong());
+    assertThat(buildFileManifest.getTargets(), Matchers.hasSize(2));
+    Map<String, Object> rule = buildFileManifest.getTargets().get(1);
+    assertThat(rule.get("name"), equalTo("True"));
+  }
+
+  @Test
+  public void ruleExistsIfDefinedWhenUsedFromExtensionFile() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    Path extensionFile = directory.resolve("build_rules.bzl");
+    Path extensionExtensionFile = directory.resolve("extension_rules.bzl");
+    Files.write(
+        buildFile,
+        Arrays.asList(
+            "load('//src/test:build_rules.bzl', 'get_name')",
+            "prebuilt_jar(name='exists', binary_jar='binary.jar')",
+            "prebuilt_jar(name='foo', binary_jar=get_name())"));
+    Files.write(
+        extensionExtensionFile,
+        Arrays.asList("def get_name():", "  return str(native.rule_exists('exists'))"));
+    Files.write(extensionFile, Arrays.asList("load('//src/test:extension_rules.bzl', 'get_name')"));
+    BuildFileManifest buildFileManifest = parser.getBuildFileManifest(buildFile, new AtomicLong());
+    assertThat(buildFileManifest.getTargets(), Matchers.hasSize(2));
+    Map<String, Object> rule = buildFileManifest.getTargets().get(0);
+    assertThat(rule.get("name"), is("foo"));
+    assertThat(rule.get("binaryJar"), equalTo("True"));
   }
 
   private Map<String, Object> getSingleRule(Path buildFile)

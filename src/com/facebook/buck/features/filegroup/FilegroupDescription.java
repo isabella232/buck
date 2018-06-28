@@ -16,19 +16,19 @@
 
 package com.facebook.buck.features.filegroup;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import org.immutables.value.Value;
 
-public class FilegroupDescription implements Description<FileGroupDescriptionArg> {
+public class FilegroupDescription implements DescriptionWithTargetGraph<FileGroupDescriptionArg> {
 
   @Override
   public Class<FileGroupDescriptionArg> getConstructorArgType() {
@@ -37,14 +37,19 @@ public class FilegroupDescription implements Description<FileGroupDescriptionArg
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       FileGroupDescriptionArg args) {
     String name = args.getName();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getActionGraphBuilder());
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     return new Filegroup(buildTarget, projectFilesystem, ruleFinder, name, args.getSrcs());
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable

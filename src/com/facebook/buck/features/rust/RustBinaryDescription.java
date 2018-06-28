@@ -17,26 +17,26 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
@@ -50,7 +50,7 @@ import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 public class RustBinaryDescription
-    implements Description<RustBinaryDescriptionArg>,
+    implements DescriptionWithTargetGraph<RustBinaryDescriptionArg>,
         ImplicitDepsInferringDescription<RustBinaryDescription.AbstractRustBinaryDescriptionArg>,
         Flavored,
         VersionRoot<RustBinaryDescriptionArg> {
@@ -73,7 +73,7 @@ public class RustBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       RustBinaryDescriptionArg args) {
@@ -94,7 +94,7 @@ public class RustBinaryDescription
         buildTarget,
         context.getProjectFilesystem(),
         params,
-        context.getBuildRuleResolver(),
+        context.getActionGraphBuilder(),
         rustBuckConfig,
         rustPlatform,
         args.getCrate(),
@@ -109,7 +109,7 @@ public class RustBinaryDescription
         args.getCrateRoot(),
         ImmutableSet.of("main.rs"),
         isCheck,
-        allDeps.get(context.getBuildRuleResolver(), rustPlatform.getCxxPlatform()));
+        allDeps.get(context.getActionGraphBuilder(), rustPlatform.getCxxPlatform()));
   }
 
   @Override

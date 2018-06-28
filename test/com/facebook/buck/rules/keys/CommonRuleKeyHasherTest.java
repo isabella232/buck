@@ -32,7 +32,6 @@ import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Container;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Wrapper;
@@ -165,6 +164,7 @@ public final class CommonRuleKeyHasherTest {
                 pair.apply("Container<MAP, 42>", h -> h.putContainer(Container.MAP, 42)),
                 pair.apply("Wrapper<SUPPLIER>", h -> h.putWrapper(Wrapper.SUPPLIER)),
                 pair.apply("Wrapper<OPTIONAL>", h -> h.putWrapper(Wrapper.OPTIONAL)),
+                pair.apply("Wrapper<OPTIONAL_INT>", h -> h.putWrapper(Wrapper.OPTIONAL_INT)),
                 pair.apply("Wrapper<EITHER_LEFT>", h -> h.putWrapper(Wrapper.EITHER_LEFT)),
                 pair.apply("Wrapper<EITHER_RIGHT>", h -> h.putWrapper(Wrapper.EITHER_RIGHT)),
                 pair.apply("Wrapper<BUILD_RULE>", h -> h.putWrapper(Wrapper.BUILD_RULE)),

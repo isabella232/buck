@@ -23,8 +23,14 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -40,13 +46,7 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -72,7 +72,8 @@ import org.junit.Test;
 /** Reports targets that own a specified list of files. */
 public class OwnersReportTest {
 
-  public static class FakeRuleDescription implements Description<FakeRuleDescriptionArg> {
+  public static class FakeRuleDescription
+      implements DescriptionWithTargetGraph<FakeRuleDescriptionArg> {
 
     @Override
     public Class<FakeRuleDescriptionArg> getConstructorArgType() {
@@ -81,7 +82,7 @@ public class OwnersReportTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         FakeRuleDescriptionArg args) {

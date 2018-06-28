@@ -17,15 +17,23 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.description.arg.HasSrcs;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.tool.BinaryWrapperRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
@@ -33,14 +41,6 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
@@ -54,7 +54,7 @@ import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 public class RustTestDescription
-    implements Description<RustTestDescriptionArg>,
+    implements DescriptionWithTargetGraph<RustTestDescriptionArg>,
         ImplicitDepsInferringDescription<RustTestDescription.AbstractRustTestDescriptionArg>,
         Flavored,
         VersionRoot<RustTestDescriptionArg> {
@@ -74,7 +74,7 @@ public class RustTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       RustTestDescriptionArg args) {
@@ -88,20 +88,20 @@ public class RustTestDescription
 
     boolean isCheck = type.map(t -> t.getValue().isCheck()).orElse(false);
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     RustPlatform rustPlatform =
         RustCompileUtils.getRustPlatform(getRustToolchain(), buildTarget, args);
 
     BinaryWrapperRule testExeBuild =
         (BinaryWrapperRule)
-            resolver.computeIfAbsent(
+            graphBuilder.computeIfAbsent(
                 exeTarget,
                 target ->
                     RustCompileUtils.createBinaryBuildRule(
                         target,
                         projectFilesystem,
                         params,
-                        resolver,
+                        graphBuilder,
                         rustBuckConfig,
                         rustPlatform,
                         args.getCrate(),
@@ -119,9 +119,9 @@ public class RustTestDescription
                         args.getCrateRoot(),
                         ImmutableSet.of("lib.rs", "main.rs"),
                         isCheck,
-                        allDeps.get(resolver, rustPlatform.getCxxPlatform())));
+                        allDeps.get(graphBuilder, rustPlatform.getCxxPlatform())));
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     Tool testExe = testExeBuild.getExecutableCommand();
 

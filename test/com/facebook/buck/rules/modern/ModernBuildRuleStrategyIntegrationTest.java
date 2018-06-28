@@ -22,22 +22,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.builders.grpc.server.GrpcServer;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -99,7 +99,8 @@ public class ModernBuildRuleStrategyIntegrationTest {
     String getOut();
   }
 
-  private static class TouchOutputDescription implements Description<TouchOutputDescriptionArg> {
+  private static class TouchOutputDescription
+      implements DescriptionWithTargetGraph<TouchOutputDescriptionArg> {
     @Override
     public Class<TouchOutputDescriptionArg> getConstructorArgType() {
       return TouchOutputDescriptionArg.class;
@@ -107,14 +108,14 @@ public class ModernBuildRuleStrategyIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext creationContext,
+        BuildRuleCreationContextWithTargetGraph creationContext,
         BuildTarget buildTarget,
         BuildRuleParams params,
         TouchOutputDescriptionArg args) {
       return new TouchOutput(
           buildTarget,
           creationContext.getProjectFilesystem(),
-          new SourcePathRuleFinder(creationContext.getBuildRuleResolver()),
+          new SourcePathRuleFinder(creationContext.getActionGraphBuilder()),
           args.getOut());
     }
   }
@@ -129,7 +130,8 @@ public class ModernBuildRuleStrategyIntegrationTest {
     String getValue();
   }
 
-  private static class LargeDynamicsDescription implements Description<LargeDynamicsArg> {
+  private static class LargeDynamicsDescription
+      implements DescriptionWithTargetGraph<LargeDynamicsArg> {
     @Override
     public Class<LargeDynamicsArg> getConstructorArgType() {
       return LargeDynamicsArg.class;
@@ -137,20 +139,20 @@ public class ModernBuildRuleStrategyIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         LargeDynamicsArg args) {
-      BuildRuleResolver resolver = context.getBuildRuleResolver();
+      ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
       Optional<LargeDynamics> firstRef =
-          args.getFirstRef().map(resolver::requireRule).map(LargeDynamics.class::cast);
+          args.getFirstRef().map(graphBuilder::requireRule).map(LargeDynamics.class::cast);
       Optional<LargeDynamics> secondRef =
-          args.getSecondRef().map(resolver::requireRule).map(LargeDynamics.class::cast);
+          args.getSecondRef().map(graphBuilder::requireRule).map(LargeDynamics.class::cast);
 
       return new LargeDynamics(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(resolver),
+          new SourcePathRuleFinder(graphBuilder),
           firstRef,
           secondRef,
           args.getValue().charAt(0));
@@ -163,7 +165,8 @@ public class ModernBuildRuleStrategyIntegrationTest {
     boolean getStepFailure();
   }
 
-  private static class FailingRuleDescription implements Description<FailingRuleArg> {
+  private static class FailingRuleDescription
+      implements DescriptionWithTargetGraph<FailingRuleArg> {
     @Override
     public Class<FailingRuleArg> getConstructorArgType() {
       return FailingRuleArg.class;
@@ -171,14 +174,14 @@ public class ModernBuildRuleStrategyIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         FailingRuleArg args) {
       return new FailingRule(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(context.getBuildRuleResolver()),
+          new SourcePathRuleFinder(context.getActionGraphBuilder()),
           args.getStepFailure());
     }
   }

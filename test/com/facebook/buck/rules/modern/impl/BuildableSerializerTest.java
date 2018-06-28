@@ -29,6 +29,8 @@ import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
 import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
@@ -36,8 +38,6 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.CustomClassSerialization;
 import com.facebook.buck.rules.modern.CustomFieldSerialization;
@@ -194,6 +194,12 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Override
   public void optional() throws IOException {
     test(new WithOptional());
+  }
+
+  @Test
+  @Override
+  public void optionalInt() throws Exception {
+    test(new WithOptionalInt());
   }
 
   @Test
@@ -361,16 +367,16 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   private static class SpecialClassSerialization
       implements CustomClassSerialization<WithCustomClassBehavior> {
     @Override
-    public void serialize(WithCustomClassBehavior instance, ValueVisitor<IOException> serializer)
-        throws IOException {
+    public <E extends Exception> void serialize(
+        WithCustomClassBehavior instance, ValueVisitor<E> serializer) throws E {
       assertEquals("value", instance.value);
       assertEquals(3, instance.number);
       serializer.visitString("special");
     }
 
     @Override
-    public WithCustomClassBehavior deserialize(ValueCreator<IOException> deserializer)
-        throws IOException {
+    public <E extends Exception> WithCustomClassBehavior deserialize(ValueCreator<E> deserializer)
+        throws E {
       assertEquals("special", deserializer.createString());
       return new WithCustomClassBehavior();
     }

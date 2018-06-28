@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.Dot;
@@ -31,7 +32,6 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -42,6 +42,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -54,6 +55,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -105,25 +107,46 @@ public class QueryCommand extends AbstractCommand {
   }
 
   @Option(
-    name = "--output",
-    usage =
-        "Output format (default: label). "
-            + "minrank/maxrank: Sort the output in rank order and output the ranks "
-            + "according to the length of the shortest or longest path from a root node, "
-            + "respectively. This does not apply to --dot or --json."
-  )
+      name = "--output",
+      usage =
+          "Output format (default: label). "
+              + "minrank/maxrank: Sort the output in rank order and output the ranks "
+              + "according to the length of the shortest or longest path from a root node, "
+              + "respectively. This does not apply to --dot or --json.")
   private OutputFormat outputFormat = OutputFormat.LABEL;
 
   @Option(
-    name = "--output-attributes",
-    usage =
-        "List of attributes to output, --output-attributes attr1 att2 ... attrN. "
-            + "Attributes can be regular expressions. ",
-    handler = StringSetOptionHandler.class
-  )
+      name = "--output-attributes",
+      usage =
+          "Deprecated: List of attributes to output, --output-attributes attr1 att2 ... attrN. "
+              + "Attributes can be regular expressions. The preferred replacement is "
+              + "--output-attribute.",
+      handler = StringSetOptionHandler.class,
+      forbids = {"--output-attribute"})
   @SuppressFieldNotInitialized
   @VisibleForTesting
-  Supplier<ImmutableSet<String>> outputAttributes;
+  Supplier<ImmutableSet<String>> outputAttributesDeprecated =
+      Suppliers.ofInstance(ImmutableSet.of());
+
+  // Two options are kept to not break the UI and scripts
+  @Option(
+      name = "--output-attribute",
+      usage =
+          "List of attributes to output, --output-attributes attr1. Attributes can be "
+              + "regular expressions. Multiple attributes may be selected by specifying this option "
+              + "multiple times.",
+      handler = SingleStringSetOptionHandler.class,
+      forbids = {"--output-attributes"})
+  @SuppressFieldNotInitialized
+  @VisibleForTesting
+  Supplier<ImmutableSet<String>> outputAttributesSane = Suppliers.ofInstance(ImmutableSet.of());
+
+  private ImmutableSet<String> outputAttributes() {
+    // There's no easy way apparently to ensure that an option has not been set
+    ImmutableSet<String> deprecated = outputAttributesDeprecated.get();
+    ImmutableSet<String> sane = outputAttributesSane.get();
+    return sane.size() > deprecated.size() ? sane : deprecated;
+  }
 
   public boolean shouldGenerateJsonOutput() {
     return generateJsonOutput;
@@ -142,7 +165,7 @@ public class QueryCommand extends AbstractCommand {
   }
 
   public boolean shouldOutputAttributes() {
-    return !outputAttributes.get().isEmpty();
+    return !outputAttributes().isEmpty();
   }
 
   @Argument(handler = QueryMultiSetOptionHandler.class)
@@ -194,7 +217,8 @@ public class QueryCommand extends AbstractCommand {
       return runSingleQueryWithSet(params, env, queryFormat, formatArgs);
     }
     if (queryFormat.contains("%s")) {
-      return runMultipleQuery(params, env, queryFormat, formatArgs, shouldGenerateJsonOutput());
+      return runMultipleQuery(
+          params, env, queryFormat, formatArgs, shouldGenerateJsonOutput(), outputAttributes());
     }
     if (formatArgs.size() > 0) {
       // TODO: buck_team: return ExitCode.COMMANDLINE_ERROR
@@ -252,7 +276,8 @@ public class QueryCommand extends AbstractCommand {
       BuckQueryEnvironment env,
       String queryFormat,
       List<String> inputsFormattedAsBuildTargets,
-      boolean generateJsonOutput)
+      boolean generateJsonOutput,
+      ImmutableSet<String> attributesFilter)
       throws IOException, InterruptedException, QueryException {
     if (inputsFormattedAsBuildTargets.isEmpty()) {
       throw new CommandLineException(
@@ -279,7 +304,19 @@ public class QueryCommand extends AbstractCommand {
     }
 
     LOG.debug("Printing out the following targets: " + queryResultMap);
-    if (generateJsonOutput) {
+
+    if (attributesFilter.size() > 0) {
+      collectAndPrintAttributesAsJson(
+          params,
+          env,
+          queryResultMap
+              .asMap()
+              .values()
+              .stream()
+              .flatMap(Collection::stream)
+              .collect(ImmutableSet.toImmutableSet()),
+          attributesFilter);
+    } else if (generateJsonOutput) {
       CommandHelper.printJSON(params, queryResultMap);
     } else {
       CommandHelper.printToConsole(params, queryResultMap);
@@ -297,7 +334,7 @@ public class QueryCommand extends AbstractCommand {
     } else if (shouldGenerateDotOutput()) {
       printDotOutput(params, env, queryResult);
     } else if (shouldOutputAttributes()) {
-      collectAndPrintAttributesAsJson(params, env, queryResult);
+      collectAndPrintAttributesAsJson(params, env, queryResult, outputAttributes());
     } else if (shouldGenerateJsonOutput()) {
       CommandHelper.printJSON(params, queryResult);
     } else {
@@ -316,7 +353,7 @@ public class QueryCommand extends AbstractCommand {
             .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
             .setBfsSorted(shouldGenerateBFSOutput());
     if (shouldOutputAttributes()) {
-      PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
+      PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
       dotBuilder.setNodeToAttributes(
           node ->
               getAttributes(params, env, patternsMatcher, node)
@@ -387,7 +424,7 @@ public class QueryCommand extends AbstractCommand {
           BuckQueryEnvironment env,
           OutputFormat outputFormat,
           Set<Entry<TargetNode<?, ?>, Integer>> rankEntries) {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
+    PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
     // since some nodes differ in their flavors but ultimately have the same attributes, immutable
     // resulting map is created only after duplicates are merged by using regular HashMap
     Map<String, Integer> rankIndex =
@@ -457,15 +494,18 @@ public class QueryCommand extends AbstractCommand {
     return ranks;
   }
 
-  private void collectAndPrintAttributesAsJson(
-      CommandRunnerParams params, BuckQueryEnvironment env, Set<QueryTarget> queryResult)
+  private static void collectAndPrintAttributesAsJson(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      Set<QueryTarget> queryResult,
+      ImmutableSet<String> attributes)
       throws QueryException {
     ImmutableSortedMap<String, SortedMap<String, Object>> result =
-        collectAttributes(params, env, queryResult);
+        collectAttributes(params, env, queryResult, attributes);
     printAttributesAsJson(result, params.getConsole().getStdOut());
   }
 
-  private <T extends SortedMap<String, Object>> void printAttributesAsJson(
+  private static <T extends SortedMap<String, Object>> void printAttributesAsJson(
       ImmutableSortedMap<String, T> result, PrintStream outputStream) {
     StringWriter stringWriter = new StringWriter();
     try {
@@ -478,10 +518,13 @@ public class QueryCommand extends AbstractCommand {
     outputStream.println(output);
   }
 
-  private ImmutableSortedMap<String, SortedMap<String, Object>> collectAttributes(
-      CommandRunnerParams params, BuckQueryEnvironment env, Set<QueryTarget> queryResult)
+  private static ImmutableSortedMap<String, SortedMap<String, Object>> collectAttributes(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      Set<QueryTarget> queryResult,
+      ImmutableSet<String> attrs)
       throws QueryException {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
+    PatternsMatcher patternsMatcher = new PatternsMatcher(attrs);
     // use HashMap instead of ImmutableSortedMap.Builder to allow duplicates
     // TODO(buckteam): figure out if duplicates should actually be allowed. It seems like the only
     // reason why duplicates may occur is because TargetNode's unflavored name is used as a key,
@@ -513,7 +556,7 @@ public class QueryCommand extends AbstractCommand {
         .build();
   }
 
-  private Optional<SortedMap<String, Object>> getAttributes(
+  private static Optional<SortedMap<String, Object>> getAttributes(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       PatternsMatcher patternsMatcher,
@@ -539,7 +582,7 @@ public class QueryCommand extends AbstractCommand {
     return Optional.of(attributes);
   }
 
-  private String toPresentationForm(TargetNode<?, ?> node) {
+  private static String toPresentationForm(TargetNode<?, ?> node) {
     return node.getBuildTarget().getUnflavoredBuildTarget().getFullyQualifiedName();
   }
 

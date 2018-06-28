@@ -17,16 +17,18 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class RustLibraryBuilder
     extends AbstractNodeBuilder<
-        RustLibraryDescriptionArg.Builder, RustLibraryDescriptionArg, RustLibraryDescription,
+        RustLibraryDescriptionArg.Builder,
+        RustLibraryDescriptionArg,
+        RustLibraryDescription,
         RustLibrary> {
 
   private RustLibraryBuilder(RustLibraryDescription description, BuildTarget target) {

@@ -18,8 +18,14 @@ package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -29,13 +35,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.shell.SymlinkFilesIntoDirectoryStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -149,10 +149,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                                     a ->
                                         a.stream()
                                             .flatMap(
-                                                arg ->
-                                                    BuildableSupport.getDepsCollection(
-                                                            arg, ruleFinder)
-                                                        .stream()))
+                                                arg -> BuildableSupport.getDeps(arg, ruleFinder)))
                                 .iterator())
                         .addAll(ruleFinder.filterBuildRuleInputs(ImmutableList.of(rootModule)))
                         .addAll(ruleFinder.filterBuildRuleInputs(sources))

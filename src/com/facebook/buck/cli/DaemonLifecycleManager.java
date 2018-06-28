@@ -26,6 +26,7 @@ import com.facebook.buck.util.Console;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalInt;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -73,7 +74,7 @@ class DaemonLifecycleManager {
           daemon.getRootCell().isCompatibleForCaching(rootCell);
       if (cacheCompat != Cell.IsCompatibleForCaching.IS_COMPATIBLE) {
         LOG.warn(
-            "Shutting down and restarting daemon on config or directory resolver change (%s != %s)",
+            "Shutting down and restarting daemon on config or directory graphBuilder change (%s != %s)",
             daemon.getRootCell(), rootCell);
         // Use the raw stream because otherwise this will stop superconsole from ever printing again
         console
@@ -114,9 +115,9 @@ class DaemonLifecycleManager {
     if (newCell == null || daemon == null) {
       return false;
     }
-    Optional<Integer> portFromOldConfig =
+    OptionalInt portFromOldConfig =
         Daemon.getValidWebServerPort(daemon.getRootCell().getBuckConfig());
-    Optional<Integer> portFromUpdatedConfig = Daemon.getValidWebServerPort(newCell.getBuckConfig());
+    OptionalInt portFromUpdatedConfig = Daemon.getValidWebServerPort(newCell.getBuckConfig());
 
     return portFromOldConfig.equals(portFromUpdatedConfig);
   }

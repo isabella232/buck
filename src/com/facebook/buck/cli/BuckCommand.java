@@ -64,15 +64,14 @@ public class BuckCommand extends AbstractContainerCommand {
 
   // --version is handled in python, but leave it here for --help
   @Option(
-    name = "--version",
-    aliases = {"-V"},
-    usage = "Show version number."
-  )
+      name = "--version",
+      aliases = {"-V"},
+      usage = "Show version number.")
   private boolean version;
 
   @Override
   public Optional<ExitCode> runHelp(PrintStream stream) {
-    if (subcommand != null && subcommand instanceof HelpCommand) {
+    if (subcommand instanceof HelpCommand) {
       return Optional.of(((HelpCommand) subcommand).run(stream));
     }
     return super.runHelp(stream);

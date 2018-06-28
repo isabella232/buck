@@ -26,6 +26,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
@@ -41,12 +42,18 @@ import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -66,12 +73,8 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -196,12 +199,11 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -293,12 +295,11 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathResolver resolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -386,12 +387,11 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -480,8 +480,7 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     assertEquals(
         InternalFlavor.of("__in__va_id_-cha_rs"), appleCxxPlatform.getCxxPlatform().getFlavor());
@@ -543,8 +542,7 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
@@ -591,8 +589,7 @@ public class AppleCxxPlatformsTest {
         appleSdkPaths,
         buckConfig,
         new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-        new AppleCxxPlatforms.XcodeBuildVersionCache(),
-        Optional.empty());
+        new AppleCxxPlatforms.XcodeBuildVersionCache());
   }
 
   @Test
@@ -641,8 +638,7 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
@@ -696,8 +692,7 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
@@ -752,8 +747,7 @@ public class AppleCxxPlatformsTest {
             appleSdkPaths,
             buckConfig,
             new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-            new AppleCxxPlatforms.XcodeBuildVersionCache(),
-            Optional.empty());
+            new AppleCxxPlatforms.XcodeBuildVersionCache());
 
     CxxPlatform cxxPlatform = appleCxxPlatform.getCxxPlatform();
 
@@ -769,8 +763,8 @@ public class AppleCxxPlatformsTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructCompileRuleKeys(
       Operation operation, ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws IOException {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     String source = "source.cpp";
     DefaultRuleKeyFactory ruleKeyFactory =
@@ -789,7 +783,7 @@ public class AppleCxxPlatformsTest {
           CxxSourceRuleFactory.builder()
               .setProjectFilesystem(projectFilesystem)
               .setBaseBuildTarget(target)
-              .setResolver(resolver)
+              .setActionGraphBuilder(graphBuilder)
               .setPathResolver(pathResolver)
               .setRuleFinder(ruleFinder)
               .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
@@ -827,8 +821,8 @@ public class AppleCxxPlatformsTest {
   // Create and return some rule keys from a dummy source for the given platforms.
   private ImmutableMap<Flavor, RuleKey> constructLinkRuleKeys(
       ImmutableMap<Flavor, AppleCxxPlatform> cxxPlatforms) throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new TestDefaultRuleKeyFactory(
@@ -846,7 +840,7 @@ public class AppleCxxPlatformsTest {
               CxxPlatformUtils.DEFAULT_CONFIG,
               entry.getValue().getCxxPlatform(),
               new FakeProjectFilesystem(),
-              resolver,
+              graphBuilder,
               pathResolver,
               ruleFinder,
               target,
@@ -903,8 +897,7 @@ public class AppleCxxPlatformsTest {
         appleSdkPaths,
         config,
         new XcodeToolFinder(config.getView(AppleConfig.class)),
-        FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
-        Optional.empty());
+        FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE);
   }
 
   private AppleCxxPlatform buildAppleCxxPlatform(Path root) {
@@ -920,7 +913,7 @@ public class AppleCxxPlatformsTest {
   @Test
   public void byDefaultCodesignToolIsConstant() {
     AppleCxxPlatform appleCxxPlatform = buildAppleCxxPlatform();
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
@@ -969,9 +962,9 @@ public class AppleCxxPlatformsTest {
             return codesign;
           }
         };
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
-    buildRuleResolver.computeIfAbsent(buildTarget, target -> buildRule);
-    assertThat(appleCxxPlatform.getCodesignProvider().resolve(buildRuleResolver), is(codesign));
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    graphBuilder.computeIfAbsent(buildTarget, target -> buildRule);
+    assertThat(appleCxxPlatform.getCodesignProvider().resolve(graphBuilder), is(codesign));
   }
 
   @Test
@@ -985,7 +978,7 @@ public class AppleCxxPlatformsTest {
                 .setFilesystem(projectFilesystem)
                 .setSections("[apple]", "codesign = " + codesignPath)
                 .build());
-    BuildRuleResolver buildRuleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
@@ -1085,7 +1078,7 @@ public class AppleCxxPlatformsTest {
   @Test
   public void appleCxxPlatformWhenNoSwiftToolchainPreferredShouldUseDefaultSwift()
       throws IOException {
-    AppleCxxPlatform platformWithDefaultSwift = buildAppleCxxPlatformWithSwiftToolchain(true);
+    AppleCxxPlatform platformWithDefaultSwift = buildAppleCxxPlatformWithSwiftToolchain();
     Optional<SwiftPlatform> swiftPlatformOptional = platformWithDefaultSwift.getSwiftPlatform();
     assertThat(swiftPlatformOptional.isPresent(), is(true));
     Tool swiftcTool = swiftPlatformOptional.get().getSwiftc();
@@ -1094,29 +1087,14 @@ public class AppleCxxPlatformsTest {
     assertEquals(projectFilesystem, path.getFilesystem());
     assertEquals(
         "/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
-        path.getRelativePathName());
+        path.getRelativePath().toString());
 
     assertThat(swiftPlatformOptional.get().getSwiftRuntimePaths(), Matchers.empty());
   }
 
   @Test
-  public void appleCxxPlatformShouldUsePreferredSwiftVersion() throws IOException {
-    AppleCxxPlatform platformWithConfiguredSwift = buildAppleCxxPlatformWithSwiftToolchain(false);
-    Optional<SwiftPlatform> swiftPlatformOptional = platformWithConfiguredSwift.getSwiftPlatform();
-    assertThat(swiftPlatformOptional.isPresent(), is(true));
-    Tool swiftcTool = swiftPlatformOptional.get().getSwiftc();
-    PathSourcePath path = ((VersionedTool) swiftcTool).getPath();
-    assertEquals(projectFilesystem, path.getFilesystem());
-    assertEquals("/TEMP_ROOT/usr/bin/swiftc", path.getRelativePathName());
-
-    assertThat(
-        swiftPlatformOptional.get().getSwiftRuntimePaths(),
-        equalTo(ImmutableSet.of(projectFilesystem.getPath("/TEMP_ROOT/usr/lib/swift/iphoneos"))));
-  }
-
-  @Test
-  public void checkSwiftPlatformUsesCorrectMinTargetSdk() throws IOException {
-    AppleCxxPlatform platformWithConfiguredSwift = buildAppleCxxPlatformWithSwiftToolchain(true);
+  public void checkSwiftPlatformUsesCorrectMinTargetSdk() {
+    AppleCxxPlatform platformWithConfiguredSwift = buildAppleCxxPlatformWithSwiftToolchain();
     Tool swiftc = platformWithConfiguredSwift.getSwiftPlatform().get().getSwiftc();
     assertThat(swiftc, notNullValue());
     assertThat(swiftc, instanceOf(VersionedTool.class));
@@ -1145,21 +1123,53 @@ public class AppleCxxPlatformsTest {
     assertEquals(Optional.of("9F9999"), cache.lookup(developerDir));
   }
 
-  private AppleCxxPlatform buildAppleCxxPlatformWithSwiftToolchain(boolean useDefaultSwift)
-      throws IOException {
-    Path tempRoot = projectFilesystem.getPath("/TEMP_ROOT");
-    AppleToolchain swiftToolchain =
-        AppleToolchain.builder()
-            .setIdentifier("com.apple.dt.XcodeDefault")
-            .setPath(tempRoot)
-            .setVersion("1")
-            .build();
-    touchFile(tempRoot.resolve("usr/bin/swiftc"));
-    touchFile(tempRoot.resolve("usr/bin/swift-stdlib-tool"));
-    Files.createDirectories(tempRoot.resolve("usr/lib/swift/iphoneos"));
-    Files.createDirectories(tempRoot.resolve("usr/lib/swift_static/iphoneos"));
-    Optional<AppleToolchain> selectedSwiftToolChain =
-        useDefaultSwift ? Optional.empty() : Optional.of(swiftToolchain);
+  @Test
+  public void testXcodeToolVersionOverride() {
+    AppleCxxPlatform appleCxxPlatform1 =
+        buildAppleCxxPlatform(
+            projectFilesystem.getPath("/Developer1"), FakeBuckConfig.builder().build());
+
+    AppleCxxPlatform appleCxxPlatform2 =
+        buildAppleCxxPlatform(
+            projectFilesystem.getPath("/Developer2"),
+            FakeBuckConfig.builder()
+                .setSections("[apple]", "ibtool_version_override = custom_ibtool_version")
+                .build());
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(ImmutableMap.of());
+
+    RuleKey actoolRuleKey1 =
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
+            .newBuilderForTesting(new FakeBuildRule("//:test"))
+            .setReflectively("tool", appleCxxPlatform1.getActool())
+            .build(RuleKey::new);
+
+    RuleKey actoolRuleKey2 =
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
+            .newBuilderForTesting(new FakeBuildRule("//:test"))
+            .setReflectively("tool", appleCxxPlatform2.getActool())
+            .build(RuleKey::new);
+
+    assertEquals(actoolRuleKey1, actoolRuleKey2);
+
+    RuleKey ibtoolRuleKey1 =
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
+            .newBuilderForTesting(new FakeBuildRule("//:test"))
+            .setReflectively("tool", appleCxxPlatform1.getIbtool())
+            .build(RuleKey::new);
+
+    RuleKey ibtoolRuleKey2 =
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
+            .newBuilderForTesting(new FakeBuildRule("//:test"))
+            .setReflectively("tool", appleCxxPlatform2.getIbtool())
+            .build(RuleKey::new);
+
+    assertNotEquals(ibtoolRuleKey1, ibtoolRuleKey2);
+  }
+
+  private AppleCxxPlatform buildAppleCxxPlatformWithSwiftToolchain() {
     ImmutableSet<Path> knownPaths =
         ImmutableSet.<Path>builder()
             .addAll(getCommonKnownPaths(developerDir))
@@ -1186,7 +1196,6 @@ public class AppleCxxPlatformsTest {
             .build(),
         buckConfig,
         new XcodeToolFinder(buckConfig.getView(AppleConfig.class)),
-        FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
-        selectedSwiftToolChain);
+        FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE);
   }
 }

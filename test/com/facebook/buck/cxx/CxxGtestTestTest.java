@@ -20,14 +20,14 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.test.TestResultSummary;
@@ -36,7 +36,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -88,7 +87,7 @@ public class CxxGtestTestTest {
 
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     BuildTarget linkTarget = BuildTargetFactory.newInstance("//:link");
     CxxGtestTest test =
@@ -111,10 +110,10 @@ public class CxxGtestTestTest {
                 /* thinLto */ false),
             new CommandTool.Builder().addArg(StringArg.of("")).build(),
             ImmutableMap.of(),
-            Suppliers.ofInstance(ImmutableList.of()),
+            ImmutableList.of(),
             ImmutableSortedSet.of(),
             ImmutableSet.of(),
-            Suppliers.ofInstance(ImmutableSortedSet.of()),
+            unused -> ImmutableSortedSet.of(),
             ImmutableSet.of(),
             ImmutableSet.of(),
             /* runTestSeparately */ false,

@@ -16,9 +16,15 @@
 
 package com.facebook.buck.features.gwt;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.features.gwt.GwtBinary.Style;
@@ -26,21 +32,16 @@ import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.immutables.value.Value;
 
-public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg> {
+public class GwtBinaryDescription implements DescriptionWithTargetGraph<GwtBinaryDescriptionArg> {
 
   /** Default value for {@link GwtBinaryDescriptionArg#style}. */
   private static final Style DEFAULT_STYLE = Style.OBF;
@@ -70,19 +71,20 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       GwtBinaryDescriptionArg args) {
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
 
     // Find all of the reachable JavaLibrary rules and grab their associated GwtModules.
     ImmutableSortedSet.Builder<SourcePath> gwtModuleJarsBuilder = ImmutableSortedSet.naturalOrder();
-    ImmutableSortedSet<BuildRule> moduleDependencies = resolver.getAllRules(args.getModuleDeps());
+    ImmutableSortedSet<BuildRule> moduleDependencies =
+        graphBuilder.getAllRules(args.getModuleDeps());
     new AbstractBreadthFirstTraversal<BuildRule>(moduleDependencies) {
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) {
@@ -100,7 +102,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
         if (javaLibrary.getSourcePathToOutput() != null) {
           gwtModule =
               Optional.of(
-                  resolver.computeIfAbsent(
+                  graphBuilder.computeIfAbsent(
                       ImmutableBuildTarget.of(
                           javaLibrary.getBuildTarget().checkUnflavored(),
                           ImmutableSet.of(JavaLibrary.GWT_MODULE_FLAVOR)),
@@ -176,10 +178,10 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescriptionArg
     Optional<Boolean> getDraftCompile();
 
     /** This will be passed to the GWT Compiler's {@code -optimize} flag. */
-    Optional<Integer> getOptimize();
+    OptionalInt getOptimize();
 
     /** This will be passed to the GWT Compiler's {@code -localWorkers} flag. */
-    Optional<Integer> getLocalWorkers();
+    OptionalInt getLocalWorkers();
 
     /** If {@code true}, the GWT Compiler's {@code -strict} flag will be set. */
     Optional<Boolean> getStrict();

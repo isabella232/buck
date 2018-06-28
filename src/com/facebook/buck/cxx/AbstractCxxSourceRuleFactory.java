@@ -23,6 +23,11 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -41,11 +46,6 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -97,7 +97,7 @@ abstract class AbstractCxxSourceRuleFactory {
   protected abstract BuildTarget getBaseBuildTarget();
 
   @Value.Parameter
-  protected abstract BuildRuleResolver getResolver();
+  protected abstract ActionGraphBuilder getActionGraphBuilder();
 
   @Value.Parameter
   protected abstract SourcePathResolver getPathResolver();
@@ -146,7 +146,7 @@ abstract class AbstractCxxSourceRuleFactory {
     return getCxxBuckConfig().isPCHEnabled()
         && sourceType.getPrecompiledHeaderLanguage().isPresent()
         && CxxSourceTypes.getPreprocessor(getCxxPlatform(), sourceType)
-            .resolve(getResolver())
+            .resolve(getActionGraphBuilder())
             .supportsPrecompiledHeaders();
   }
 
@@ -162,7 +162,7 @@ abstract class AbstractCxxSourceRuleFactory {
     return PreIncludeFactory.of(
             getProjectFilesystem(),
             getBaseBuildTarget(),
-            getResolver(),
+            getActionGraphBuilder(),
             getPathResolver(),
             getRuleFinder(),
             getCxxPlatform(),
@@ -175,7 +175,7 @@ abstract class AbstractCxxSourceRuleFactory {
   protected ImmutableSortedSet<BuildRule> getPreprocessDeps() {
     ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
     for (CxxPreprocessorInput input : getCxxPreprocessorInput()) {
-      builder.addAll(input.getDeps(getResolver(), getRuleFinder()));
+      builder.addAll(input.getDeps(getActionGraphBuilder(), getRuleFinder()));
     }
     if (getPreInclude().isPresent()) {
       builder.addAll(
@@ -200,12 +200,10 @@ abstract class AbstractCxxSourceRuleFactory {
 
   @Value.Lazy
   protected ImmutableList<CxxHeaders> getIncludes() {
-    ImmutableList<CxxHeaders> result =
-        getCxxPreprocessorInput()
-            .stream()
-            .flatMap(input -> input.getIncludes().stream())
-            .collect(ImmutableList.toImmutableList());
-    return result;
+    return getCxxPreprocessorInput()
+        .stream()
+        .flatMap(input -> input.getIncludes().stream())
+        .collect(ImmutableList.toImmutableList());
   }
 
   private final Function<CxxSource.Type, ImmutableList<Arg>> rulePreprocessorFlags =
@@ -222,7 +220,7 @@ abstract class AbstractCxxSourceRuleFactory {
               key -> {
                 Preprocessor preprocessor =
                     CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
-                        .resolve(getResolver());
+                        .resolve(getActionGraphBuilder());
                 // TODO(cjhopman): The aggregated deps logic should move into PreprocessorDelegate
                 // itself.
                 BuildRule aggregatedDeps = requireAggregatedPreprocessDepsRule();
@@ -240,7 +238,8 @@ abstract class AbstractCxxSourceRuleFactory {
                             getCxxPlatform(), getPathResolver()),
                         getSandboxTree(),
                         /* leadingIncludePaths */ Optional.empty(),
-                        Optional.of(aggregatedDeps));
+                        Optional.of(aggregatedDeps),
+                        getCxxPlatform().getConflictingHeaderBasenameWhitelist());
                 return new PreprocessorDelegateCacheValue(
                     delegate, getSanitizerForSourceType(key.getSourceType()));
               });
@@ -253,7 +252,7 @@ abstract class AbstractCxxSourceRuleFactory {
    * files in a target, and m is the number of targets.
    */
   private BuildRule requireAggregatedPreprocessDepsRule() {
-    return getResolver()
+    return getActionGraphBuilder()
         .computeIfAbsent(
             createAggregatedPreprocessDepsBuildTarget(),
             target ->
@@ -277,7 +276,7 @@ abstract class AbstractCxxSourceRuleFactory {
 
   /** @return the object file name for the given source name. */
   private String getCompileOutputName(String name) {
-    Linker ld = getCxxPlatform().getLd().resolve(getResolver());
+    Linker ld = getCxxPlatform().getLd().resolve(getActionGraphBuilder());
     String outName = ld.hasFilePathSizeLimitations() ? "out" : getOutputName(name);
     return outName + "." + getCxxPlatform().getObjectFileExtension();
   }
@@ -375,7 +374,8 @@ abstract class AbstractCxxSourceRuleFactory {
     BuildTarget target = createCompileBuildTarget(name);
 
     Compiler compiler =
-        CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType()).resolve(getResolver());
+        CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType())
+            .resolve(getActionGraphBuilder());
 
     // Build up the list of compiler flags.
     CxxToolFlags flags =
@@ -411,7 +411,7 @@ abstract class AbstractCxxSourceRuleFactory {
   public CxxPreprocessAndCompile requireCompileBuildRule(String name, CxxSource source) {
     CxxPreprocessAndCompile rule =
         (CxxPreprocessAndCompile)
-            getResolver()
+            getActionGraphBuilder()
                 .computeIfAbsent(
                     createCompileBuildTarget(name), target -> createCompileBuildRule(name, source));
     Preconditions.checkState(
@@ -425,7 +425,7 @@ abstract class AbstractCxxSourceRuleFactory {
       CxxSource.Type type, ImmutableList<String> sourceFlags) {
     Compiler compiler =
         CxxSourceTypes.getCompiler(getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(type))
-            .resolve(getResolver());
+            .resolve(getActionGraphBuilder());
     return CxxToolFlags.explicitBuilder()
         .addAllPlatformFlags(StringArg.from(getPicType().getFlags(compiler)))
         .addAllPlatformFlags(getPlatformPreprocessorFlags(type))
@@ -445,7 +445,7 @@ abstract class AbstractCxxSourceRuleFactory {
                 getPicType()
                     .getFlags(
                         CxxSourceTypes.getCompiler(getCxxPlatform(), outputType)
-                            .resolve(getResolver()))))
+                            .resolve(getActionGraphBuilder()))))
         // Add in the platform specific compiler flags.
         .addAllPlatformFlags(getPlatformCompileFlags(outputType))
         .addAllRuleFlags(getRuleCompileFlags(outputType))
@@ -456,7 +456,7 @@ abstract class AbstractCxxSourceRuleFactory {
   private CxxInferCapture requireInferCaptureBuildRule(
       String name, CxxSource source, InferBuckConfig inferConfig) {
     return (CxxInferCapture)
-        getResolver()
+        getActionGraphBuilder()
             .computeIfAbsent(
                 createInferCaptureBuildTarget(name),
                 target -> {
@@ -514,7 +514,7 @@ abstract class AbstractCxxSourceRuleFactory {
             getCxxPlatform().getCompilerDebugPathSanitizer(),
             CxxSourceTypes.getCompiler(
                     getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(source.getType()))
-                .resolve(getResolver()),
+                .resolve(getActionGraphBuilder()),
             computeCompilerFlags(source.getType(), source.getFlags()));
 
     PreprocessorDelegateCacheValue preprocessorDelegateValue =
@@ -560,7 +560,7 @@ abstract class AbstractCxxSourceRuleFactory {
             preprocessorDelegateValue,
             source.getType(),
             source.getFlags(),
-            getResolver(),
+            getActionGraphBuilder(),
             getRuleFinder(),
             getPathResolver()));
   }
@@ -570,7 +570,7 @@ abstract class AbstractCxxSourceRuleFactory {
       String name, CxxSource source) {
     CxxPreprocessAndCompile rule =
         (CxxPreprocessAndCompile)
-            getResolver()
+            getActionGraphBuilder()
                 .computeIfAbsent(
                     createCompileBuildTarget(name),
                     target -> createPreprocessAndCompileBuildRule(name, source));
@@ -604,7 +604,7 @@ abstract class AbstractCxxSourceRuleFactory {
       PreprocessorDelegateCacheValue preprocessorDelegateCacheValue,
       CxxSource.Type sourceType,
       ImmutableList<String> sourceFlags,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver) {
 
@@ -622,7 +622,7 @@ abstract class AbstractCxxSourceRuleFactory {
         getCxxPlatform(),
         sourceType,
         sourceFlags,
-        ruleResolver,
+        graphBuilder,
         ruleFinder,
         pathResolver);
   }

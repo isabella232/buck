@@ -18,6 +18,7 @@ package com.facebook.buck.core.model.actiongraph.computation;
 
 import static junit.framework.TestCase.assertSame;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
@@ -34,49 +35,62 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
+import com.facebook.buck.cxx.CxxTestBuilder;
 import com.facebook.buck.cxx.CxxTestUtils;
 import com.facebook.buck.cxx.SharedLibraryInterfacePlatforms;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.features.filegroup.FilegroupBuilder;
+import com.facebook.buck.features.lua.LuaBinaryBuilder;
+import com.facebook.buck.features.lua.LuaLibraryBuilder;
+import com.facebook.buck.features.lua.LuaTestUtils;
 import com.facebook.buck.features.python.CxxPythonExtensionBuilder;
 import com.facebook.buck.features.python.PythonBinaryBuilder;
 import com.facebook.buck.features.python.PythonBuckConfig;
 import com.facebook.buck.features.python.PythonLibraryBuilder;
+import com.facebook.buck.features.python.PythonTestBuilder;
 import com.facebook.buck.features.python.TestPythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.macros.LocationMacro;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
@@ -88,6 +102,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Map;
@@ -96,9 +111,13 @@ import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class IncrementalActionGraphScenarioTest {
+  @Rule public ExpectedException expectedException = ExpectedException.none();
+
   private static final PythonPlatform PY2 = createPy2Platform(Optional.empty());
   private static final PythonPlatform PY3 = createPy3Platform(Optional.empty());
 
@@ -128,7 +147,7 @@ public class IncrementalActionGraphScenarioTest {
             },
             ignored -> {});
     fieldLoader = new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
-    cache = new ActionGraphCache(1);
+    cache = new ActionGraphCache(0);
   }
 
   @Test
@@ -159,11 +178,11 @@ public class IncrementalActionGraphScenarioTest {
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())))
             .setDeps(ImmutableSortedSet.of(libraryTarget1));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
@@ -200,10 +219,10 @@ public class IncrementalActionGraphScenarioTest {
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())))
             .setDeps(ImmutableSortedSet.of(libraryTarget1));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     // don't query for deps the first time, resulting in different caching behavior
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(newResult);
 
@@ -238,7 +257,7 @@ public class IncrementalActionGraphScenarioTest {
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())))
             .setDeps(ImmutableSortedSet.of(libraryTarget1));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(result);
 
@@ -250,7 +269,7 @@ public class IncrementalActionGraphScenarioTest {
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of()),
                     SourceWithFlags.of(FakeSourcePath.of("new.cpp"), ImmutableList.of())))
             .setDeps(ImmutableSortedSet.of(libraryTarget1));
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(newBinaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(newResult);
 
@@ -287,7 +306,7 @@ public class IncrementalActionGraphScenarioTest {
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())))
             .setDeps(ImmutableSortedSet.of(libraryTarget1));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(binaryBuilder, libraryBuilder1, libraryBuilder2);
     queryTransitiveDeps(result);
 
@@ -299,7 +318,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("library2.cpp"), ImmutableList.of()),
                     SourceWithFlags.of(FakeSourcePath.of("new.cpp"), ImmutableList.of())));
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(binaryBuilder, libraryBuilder1, newLibraryBuilder2);
     queryTransitiveDeps(newResult);
 
@@ -363,10 +382,10 @@ public class IncrementalActionGraphScenarioTest {
                 new ForkJoinPool(),
                 new DefaultTypeCoercerFactory())
             .getTargetGraph();
-    ActionGraphAndResolver result = createActionGraph(versionedTargetGraph);
+    ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult = createActionGraph(versionedTargetGraph);
+    ActionGraphAndBuilder newResult = createActionGraph(versionedTargetGraph);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
 
@@ -388,10 +407,10 @@ public class IncrementalActionGraphScenarioTest {
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(binaryTarget).setDeps(ImmutableSortedSet.of(libraryTarget));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
 
@@ -432,7 +451,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("bin.cpp"), ImmutableList.of())));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, sharedLibraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, sharedLibraryBuilder);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
 
     // Make sure we actually created the shared library interface.
@@ -441,14 +460,14 @@ public class IncrementalActionGraphScenarioTest {
             sharedLibraryTarget, testPlatform.get().getFlavor(), Linker.LinkType.SHARED);
     assertTrue(
         "shared library interface didn't get created",
-        result.getResolver().getRuleOptional(sharedLibraryInterfaceTarget).isPresent());
+        result.getActionGraphBuilder().getRuleOptional(sharedLibraryInterfaceTarget).isPresent());
 
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, sharedLibraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, sharedLibraryBuilder);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
 
     // Don't query transitive deps until after the second time, so we stress the cases where build
     // rules have to generate their deps (which they sometimes cache) using the new build rule
-    // resolver.
+    // graphBuilder.
     queryTransitiveDeps(newResult);
 
     assertBuildRulesSame(result, newResult);
@@ -474,7 +493,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("bin.cpp"), ImmutableList.of())));
 
-    ActionGraphAndResolver result = createActionGraph(compilationDatabaseBuilder, libraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(compilationDatabaseBuilder, libraryBuilder);
 
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(binaryTarget)
@@ -483,7 +502,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("bin.cpp"), ImmutableList.of())));
 
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(newResult);
 
     assertBuildRulesSame(result, newResult, libraryTarget.getUnflavoredBuildTarget());
@@ -535,7 +554,7 @@ public class IncrementalActionGraphScenarioTest {
                 new DefaultTypeCoercerFactory())
             .getTargetGraph();
 
-    ActionGraphAndResolver result = createActionGraph(versionedTargetGraph);
+    ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
 
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(binaryTarget)
@@ -559,7 +578,7 @@ public class IncrementalActionGraphScenarioTest {
                 new DefaultTypeCoercerFactory())
             .getTargetGraph();
 
-    ActionGraphAndResolver newResult = createActionGraph(newVersionedTargetGraph);
+    ActionGraphAndBuilder newResult = createActionGraph(newVersionedTargetGraph);
     queryTransitiveDeps(newResult);
 
     assertBuildRulesSame(result, newResult, libraryTarget.getUnflavoredBuildTarget());
@@ -569,7 +588,7 @@ public class IncrementalActionGraphScenarioTest {
   public void testPythonBinaryAndLibraryLoadedFromCache() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:python_library");
     PythonLibraryBuilder libraryBuilder =
-        new PythonLibraryBuilder(libraryTarget)
+        new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
                 SourceList.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
@@ -581,10 +600,10 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(libraryTarget));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
 
@@ -596,7 +615,7 @@ public class IncrementalActionGraphScenarioTest {
   public void testChangedPythonBinaryOnlyLibraryLoadedFromCache() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:python_library");
     PythonLibraryBuilder libraryBuilder =
-        new PythonLibraryBuilder(libraryTarget)
+        new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
                 SourceList.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
@@ -608,14 +627,14 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(libraryTarget));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(result);
     PythonBinaryBuilder newBinaryBuilder =
         PythonBinaryBuilder.create(binaryTarget, pythonBuckConfig, pythonPlatforms)
             .setMainModule("new")
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(libraryTarget));
-    ActionGraphAndResolver newResult = createActionGraph(newBinaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(newBinaryBuilder, libraryBuilder);
     queryTransitiveDeps(newResult);
 
     assertCommonBuildRulesNotSame(result, newResult, binaryTarget.getUnflavoredBuildTarget());
@@ -626,7 +645,7 @@ public class IncrementalActionGraphScenarioTest {
   public void testChangedPythonLibraryNotLoadedFromCache() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:python_library");
     PythonLibraryBuilder libraryBuilder =
-        new PythonLibraryBuilder(libraryTarget)
+        new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
                 SourceList.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
@@ -638,15 +657,15 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(libraryTarget));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, libraryBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, libraryBuilder);
     queryTransitiveDeps(result);
     PythonLibraryBuilder newLibraryBuilder =
-        new PythonLibraryBuilder(libraryTarget)
+        new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
                 SourceList.ofUnnamedSources(
                     ImmutableSortedSet.of(
                         FakeSourcePath.of("something.py"), FakeSourcePath.of("new.py"))));
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, newLibraryBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, newLibraryBuilder);
     queryTransitiveDeps(newResult);
 
     assertCommonBuildRulesNotSame(result, newResult, binaryTarget.getUnflavoredBuildTarget());
@@ -681,11 +700,11 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionTarget));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(pythonBinaryBuilder, extensionBuilder, cxxLibraryBuilder);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(pythonBinaryBuilder, extensionBuilder, cxxLibraryBuilder);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
@@ -724,7 +743,7 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionTarget));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(pythonBinaryBuilder, extensionBuilder, cxxLibraryBuilder);
     queryTransitiveDeps(result);
 
@@ -733,7 +752,7 @@ public class IncrementalActionGraphScenarioTest {
             .setMainModule("new")
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionTarget));
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(newPythonBinaryBuilder, extensionBuilder, cxxLibraryBuilder);
     queryTransitiveDeps(newResult);
 
@@ -771,7 +790,7 @@ public class IncrementalActionGraphScenarioTest {
             .setPlatform(PY2.getFlavor().toString())
             .setDeps(ImmutableSortedSet.of(extensionTarget));
 
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         createActionGraph(pythonBinaryBuilder, extensionBuilder, cxxLibraryBuilder);
     queryTransitiveDeps(result);
 
@@ -783,7 +802,7 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("something.cpp"), ImmutableList.of()),
                     SourceWithFlags.of(FakeSourcePath.of("new.cpp"), ImmutableList.of())));
-    ActionGraphAndResolver newResult =
+    ActionGraphAndBuilder newResult =
         createActionGraph(pythonBinaryBuilder, extensionBuilder, newCxxLibraryBuilder);
     queryTransitiveDeps(newResult);
 
@@ -806,10 +825,10 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, genruleBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, genruleBuilder);
     queryTransitiveDeps(result);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, genruleBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, genruleBuilder);
     queryTransitiveDeps(newResult);
     ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
 
@@ -831,27 +850,296 @@ public class IncrementalActionGraphScenarioTest {
                 ImmutableSortedSet.of(
                     SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
 
-    ActionGraphAndResolver result = createActionGraph(binaryBuilder, genruleBuilder);
+    ActionGraphAndBuilder result = createActionGraph(binaryBuilder, genruleBuilder);
 
     GenruleBuilder newGenruleBuilder =
         GenruleBuilder.newGenruleBuilder(genruleTarget).setCmd("cmd2").setOut("out");
-    ActionGraphAndResolver newResult = createActionGraph(binaryBuilder, newGenruleBuilder);
+    ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, newGenruleBuilder);
     queryTransitiveDeps(newResult);
 
     assertCommonBuildRulesNotSame(result, newResult, binaryTarget.getUnflavoredBuildTarget());
     assertCommonBuildRulesNotSame(result, newResult, genruleTarget.getUnflavoredBuildTarget());
   }
 
+  @Test
+  public void testFilegroupLoadedFromCache() {
+    BuildTarget target = BuildTargetFactory.newInstance("//:group");
+    FilegroupBuilder builder =
+        FilegroupBuilder.createBuilder(target)
+            .setSrcs(ImmutableSortedSet.of(FakeSourcePath.of("file.txt")));
+
+    ActionGraphAndBuilder result = createActionGraph(builder);
+    ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
+    ActionGraphAndBuilder newResult = createActionGraph(builder);
+    queryTransitiveDeps(newResult);
+    ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
+
+    assertBuildRulesSame(result, newResult);
+    assertEquals(ruleKeys, newRuleKeys);
+  }
+
+  @Test
+  public void testPrebuiltJarLoadedFromCache() {
+    BuildTarget target = BuildTargetFactory.newInstance("//:jar");
+    PrebuiltJarBuilder builder =
+        PrebuiltJarBuilder.createBuilder(target).setBinaryJar(FakeSourcePath.of("app.jar"));
+
+    ActionGraphAndBuilder result = createActionGraph(builder);
+    ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
+    ActionGraphAndBuilder newResult = createActionGraph(builder);
+    queryTransitiveDeps(newResult);
+    ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
+
+    assertBuildRulesSame(result, newResult);
+    assertEquals(ruleKeys, newRuleKeys);
+  }
+
+  @Test
+  public void testLuaBinaryAndLibraryOnlyLibraryLoadedFromCache() {
+    BuildTarget cxxLibraryTarget = BuildTargetFactory.newInstance("//:cxxlib");
+    CxxLibraryBuilder cxxLibraryBuilder =
+        new CxxLibraryBuilder(cxxLibraryTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("something.cpp"), ImmutableList.of())));
+
+    BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:lib");
+    LuaLibraryBuilder libraryBuilder =
+        new LuaLibraryBuilder(libraryTarget)
+            .setSrcs(ImmutableSortedSet.of(FakeSourcePath.of("lib.lua")))
+            .setDeps(ImmutableSortedSet.of(cxxLibraryTarget));
+
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:bin");
+    Tool override = new CommandTool.Builder().addArg("override").build();
+    LuaBinaryBuilder binaryBuilder =
+        new LuaBinaryBuilder(
+                binaryTarget,
+                LuaTestUtils.DEFAULT_PLATFORM
+                    .withLua(new ConstantToolProvider(override))
+                    .withExtension(".override"))
+            .setMainModule("main")
+            .setDeps(ImmutableSortedSet.of(libraryTarget));
+
+    ActionGraphAndBuilder result =
+        createActionGraph(binaryBuilder, libraryBuilder, cxxLibraryBuilder);
+    ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
+
+    ActionGraphAndBuilder newResult =
+        createActionGraph(binaryBuilder, libraryBuilder, cxxLibraryBuilder);
+    queryTransitiveDeps(newResult);
+    ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
+
+    assertBuildRulesSame(result, newResult, libraryTarget.getUnflavoredBuildTarget());
+    assertBuildRulesSame(result, newResult, cxxLibraryTarget.getUnflavoredBuildTarget());
+    assertCommonBuildRulesNotSame(result, newResult, binaryTarget.getUnflavoredBuildTarget());
+    assertEquals(ruleKeys, newRuleKeys);
+  }
+
+  @Test
+  public void testCxxTestWithMacroAndBinaryLoadedFromCache() {
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder binaryBuilder =
+        new CxxBinaryBuilder(binaryTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("bin.cpp"), ImmutableList.of())));
+
+    BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
+    CxxTestBuilder testBuilder =
+        new CxxTestBuilder(testTarget, cxxBuckConfig)
+            .setDeps(ImmutableSortedSet.of(binaryTarget))
+            .setEnv(
+                ImmutableMap.of(
+                    "TEST",
+                    StringWithMacrosUtils.format("value %s", LocationMacro.of(binaryTarget))))
+            .setArgs(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format("value %s", LocationMacro.of(binaryTarget))))
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("test.cpp"), ImmutableList.of())));
+
+    ActionGraphAndBuilder result = createActionGraph(testBuilder, binaryBuilder);
+    ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
+
+    ActionGraphAndBuilder newResult = createActionGraph(testBuilder, binaryBuilder);
+    queryTransitiveDeps(newResult);
+    ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
+
+    assertBuildRulesSame(result, newResult);
+    assertEquals(ruleKeys, newRuleKeys);
+  }
+
+  @Test
+  public void testCxxTestWithMacroAndBinaryLoadedFromCache_DelayRuleKeys() {
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder binaryBuilder =
+        new CxxBinaryBuilder(binaryTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("bin.cpp"), ImmutableList.of())));
+
+    BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
+    CxxTestBuilder testBuilder =
+        new CxxTestBuilder(testTarget, cxxBuckConfig)
+            .setDeps(ImmutableSortedSet.of(binaryTarget))
+            .setEnv(
+                ImmutableMap.of(
+                    "TEST",
+                    StringWithMacrosUtils.format("value %s", LocationMacro.of(binaryTarget))))
+            .setArgs(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format("value %s", LocationMacro.of(binaryTarget))))
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("test.cpp"), ImmutableList.of())));
+
+    ActionGraphAndBuilder result = createActionGraph(testBuilder, binaryBuilder);
+
+    // Calculating rulekeys immediately caches some things in the CxxTest. Make sure we compute them
+    // for the first time only the second time around to check that we don't try to access an
+    // invalidated BuildRuleResolver during the computation.
+    ActionGraphAndBuilder newResult = createActionGraph(testBuilder, binaryBuilder);
+    queryTransitiveDeps(newResult);
+    getRuleKeys(newResult);
+
+    assertBuildRulesSame(result, newResult);
+  }
+
+  @Test
+  public void testPythonTestLoadedFromCache() {
+    BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:lib");
+    PythonLibraryBuilder libraryBuilder =
+        PythonLibraryBuilder.createBuilder(libraryTarget)
+            .setSrcs(
+                SourceList.ofUnnamedSources(ImmutableSortedSet.of(FakeSourcePath.of("lib.py"))));
+
+    BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
+    PythonTestBuilder testBuilder =
+        PythonTestBuilder.create(testTarget)
+            .setDeps(ImmutableSortedSet.of(libraryTarget))
+            .setSrcs(
+                SourceList.ofUnnamedSources(ImmutableSortedSet.of(FakeSourcePath.of("test.py"))));
+
+    ActionGraphAndBuilder result = createActionGraph(testBuilder, libraryBuilder);
+    ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
+
+    ActionGraphAndBuilder newResult = createActionGraph(testBuilder, libraryBuilder);
+    queryTransitiveDeps(newResult);
+    ImmutableMap<BuildRule, RuleKey> newRuleKeys = getRuleKeys(newResult);
+
+    assertEquals(ruleKeys, newRuleKeys);
+    assertBuildRulesSame(result, newResult);
+  }
+
+  @Test
+  public void testChangeSkipActionGraphCacheValue() {
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder builder =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
+
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+
+    CxxBinaryBuilder builder2 =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary2.cpp"), ImmutableList.of())));
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder2)), true);
+
+    ActionGraphAndBuilder lastResult =
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+    assertFalse(Iterables.isEmpty(lastResult.getActionGraphBuilder().getBuildRules()));
+  }
+
+  @Test
+  public void testBuildRuleResolverInActionGraphCacheNotInvalidated() {
+    cache = new ActionGraphCache(2);
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder builder =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
+
+    createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+
+    CxxBinaryBuilder builder2 =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary2.cpp"), ImmutableList.of())));
+    createActionGraph(builder2);
+
+    ActionGraphAndBuilder lastResult =
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), false);
+    assertFalse(Iterables.isEmpty(lastResult.getActionGraphBuilder().getBuildRules()));
+  }
+
+  @Test
+  public void testBuildRuleResolverNotInActionGraphCacheInvalidated() {
+    expectedException.expect(IllegalStateException.class);
+
+    cache = new ActionGraphCache(2);
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder builder =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
+
+    ActionGraphAndBuilder originalResult = createActionGraph(builder);
+
+    CxxBinaryBuilder builder2 =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary2.cpp"), ImmutableList.of())));
+    createActionGraph(builder2);
+
+    CxxBinaryBuilder builder3 =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary3.cpp"), ImmutableList.of())));
+    createActionGraph(builder3);
+
+    originalResult.getActionGraphBuilder().getBuildRules();
+  }
+
+  @Test
+  public void testIncrementalityDisabledOnSkipActionGraphCache() {
+    BuildTarget target = BuildTargetFactory.newInstance("//:bin");
+    CxxBinaryBuilder builder =
+        new CxxBinaryBuilder(target)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("binary.cpp"), ImmutableList.of())));
+
+    ActionGraphAndBuilder firstResult =
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), true);
+
+    ActionGraphAndBuilder lastResult =
+        createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)), true);
+
+    assertCommonBuildRulesNotSame(firstResult, lastResult, target.getUnflavoredBuildTarget());
+  }
+
   private void assertBuildRulesSame(
-      ActionGraphAndResolver expectedActionGraph, ActionGraphAndResolver actualActionGraph) {
+      ActionGraphAndBuilder expectedActionGraph, ActionGraphAndBuilder actualActionGraph) {
     assertBuildRulesSame(
         expectedActionGraph.getActionGraph().getNodes(),
         actualActionGraph.getActionGraph().getNodes());
   }
 
   private void assertBuildRulesSame(
-      ActionGraphAndResolver expectedActionGraph,
-      ActionGraphAndResolver actualActionGraph,
+      ActionGraphAndBuilder expectedActionGraph,
+      ActionGraphAndBuilder actualActionGraph,
       UnflavoredBuildTarget unflavoredTarget) {
     assertBuildRulesSame(
         filterRules(expectedActionGraph, unflavoredTarget),
@@ -885,8 +1173,8 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private void assertCommonBuildRulesNotSame(
-      ActionGraphAndResolver lastActionGraph,
-      ActionGraphAndResolver newActionGraph,
+      ActionGraphAndBuilder lastActionGraph,
+      ActionGraphAndBuilder newActionGraph,
       UnflavoredBuildTarget unflavoredTarget) {
     ImmutableMap<BuildRule, BuildRule> lastBuildRuleMap =
         buildBuildRuleMap(filterRules(lastActionGraph, unflavoredTarget));
@@ -899,7 +1187,7 @@ public class IncrementalActionGraphScenarioTest {
   }
 
   private Iterable<BuildRule> filterRules(
-      ActionGraphAndResolver actionGraph, UnflavoredBuildTarget unflavoredTarget) {
+      ActionGraphAndBuilder actionGraph, UnflavoredBuildTarget unflavoredTarget) {
     return RichStream.from(actionGraph.getActionGraph().getNodes())
         .filter(
             x ->
@@ -910,9 +1198,9 @@ public class IncrementalActionGraphScenarioTest {
         .collect(Collectors.toList());
   }
 
-  private void queryTransitiveDeps(ActionGraphAndResolver result) {
+  private void queryTransitiveDeps(ActionGraphAndBuilder result) {
     Set<BuildRule> visited = new HashSet<>();
-    RuleDepsCache depsCache = new DefaultRuleDepsCache(result.getResolver());
+    RuleDepsCache depsCache = new DefaultRuleDepsCache(result.getActionGraphBuilder());
     for (BuildRule buildRule : result.getActionGraph().getNodes()) {
       queryTransitiveDeps(buildRule, depsCache, visited);
     }
@@ -937,8 +1225,8 @@ public class IncrementalActionGraphScenarioTest {
     return builder.build();
   }
 
-  private ImmutableMap<BuildRule, RuleKey> getRuleKeys(ActionGraphAndResolver result) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getResolver());
+  private ImmutableMap<BuildRule, RuleKey> getRuleKeys(ActionGraphAndBuilder result) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ContentAgnosticRuleKeyFactory factory =
         new ContentAgnosticRuleKeyFactory(fieldLoader, pathResolver, ruleFinder, Optional.empty());
@@ -951,44 +1239,52 @@ public class IncrementalActionGraphScenarioTest {
     return builder.build();
   }
 
-  private ActionGraphAndResolver createActionGraph(TargetGraph targetGraph) {
-    ActionGraphAndResolver result =
+  private ActionGraphAndBuilder createActionGraph(TargetGraph targetGraph) {
+    return createActionGraph(targetGraph, false);
+  }
+
+  private ActionGraphAndBuilder createActionGraph(
+      TargetGraph targetGraph, boolean skipActionGraphCache) {
+    ActionGraphAndBuilder result =
         cache.getActionGraph(
             eventBus,
             false, /* checkActionGraphs */
-            true, /* skipActionGraphCache */
+            skipActionGraphCache,
             targetGraph,
             new TestCellBuilder().build().getCellProvider(),
             TestRuleKeyConfigurationFactory.createWithSeed(0),
             ActionGraphParallelizationMode.DISABLED,
             false,
             IncrementalActionGraphMode.ENABLED,
+            ImmutableMap.of(),
             fakePoolSupplier);
     // Grab a copy of the data since we invalidate the collections in previous BuildRuleResolvers.
-    return ActionGraphAndResolver.of(
+    return ActionGraphAndBuilder.of(
         new ActionGraph(
             RichStream.from(result.getActionGraph().getNodes()).collect(Collectors.toList())),
-        result.getResolver());
+        result.getActionGraphBuilder());
   }
 
-  private ActionGraphAndResolver createActionGraph(TargetNode<?, ?>... nodes) {
+  private ActionGraphAndBuilder createActionGraph(TargetNode<?, ?>... nodes) {
     // Use newInstanceExact for cases where we don't want unflavored versions of nodes to get added
     // implicitly.
     return createActionGraph(TargetGraphFactory.newInstanceExact(nodes));
   }
 
-  private ActionGraphAndResolver createActionGraph(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
-    ActionGraphAndResolver result =
-        createActionGraph(
-            RichStream.from(builders)
-                .map(builder -> builder.build(filesystem))
-                .toArray(TargetNode<?, ?>[]::new));
+  private ActionGraphAndBuilder createActionGraph(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
+    ActionGraphAndBuilder result = createActionGraph(buildNodes(builders));
 
     // Grab a copy of the data since we invalidate the collections in previous BuildRuleResolvers.
-    return ActionGraphAndResolver.of(
+    return ActionGraphAndBuilder.of(
         new ActionGraph(
             RichStream.from(result.getActionGraph().getNodes()).collect(Collectors.toList())),
-        result.getResolver());
+        result.getActionGraphBuilder());
+  }
+
+  private TargetNode<?, ?>[] buildNodes(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
+    return RichStream.from(builders)
+        .map(builder -> builder.build(filesystem))
+        .toArray(TargetNode<?, ?>[]::new);
   }
 
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {

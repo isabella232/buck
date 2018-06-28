@@ -16,9 +16,8 @@
 
 package com.facebook.buck.skylark.parser;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.skylark.function.Glob;
 import com.facebook.buck.skylark.function.HostInfo;
 import com.facebook.buck.skylark.function.ReadConfig;
 import com.facebook.buck.skylark.function.SkylarkExtensionFunctions;
@@ -27,10 +26,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.packages.BazelLibrary;
-import com.google.devtools.build.lib.packages.NativeProvider;
+import com.google.devtools.build.lib.packages.StructProvider;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
 import com.google.devtools.build.lib.syntax.ClassObject;
 import com.google.devtools.build.lib.syntax.Environment;
+import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.Mutability;
 import com.google.devtools.build.lib.syntax.Runtime;
 import org.immutables.value.Value;
@@ -77,7 +77,7 @@ abstract class AbstractBuckGlobals {
   abstract RuleFunctionFactory getRuleFunctionFactory();
 
   /** @return A set of rules supported by Buck. */
-  abstract ImmutableSet<Description<?>> getDescriptions();
+  abstract ImmutableSet<DescriptionWithTargetGraph<?>> getDescriptions();
 
   /**
    * @return The list of functions supporting all native Buck functions like {@code java_library}.
@@ -99,17 +99,18 @@ abstract class AbstractBuckGlobals {
   @Lazy
   ClassObject getNativeModule() {
     ImmutableMap.Builder<String, Object> builder = new ImmutableMap.Builder<>();
-    BuiltinFunction packageName = SkylarkNativeModule.packageName;
-    builder.put(packageName.getName(), packageName);
-    BuiltinFunction glob = Glob.create();
-    builder.put(glob.getName(), glob);
     for (BuiltinFunction ruleFunction : getBuckRuleFunctions()) {
       builder.put(ruleFunction.getName(), ruleFunction);
     }
     builder.put("host_info", HostInfo.create());
-    BuiltinFunction repositoryName = SkylarkNativeModule.repositoryName;
-    builder.put(repositoryName.getName(), repositoryName);
-    return NativeProvider.STRUCT.create(builder.build(), "no native function or rule '%s'");
+    // TODO(T30129174): move read_config to SkylarkNativeModule
+    builder.put("read_config", ReadConfig.create());
+    for (String nativeFunction : FuncallExpression.getMethodNames(SkylarkNativeModule.class)) {
+      builder.put(
+          nativeFunction,
+          FuncallExpression.getBuiltinCallable(SkylarkNativeModule.NATIVE_MODULE, nativeFunction));
+    }
+    return StructProvider.STRUCT.create(builder.build(), "no native function or rule '%s'");
   }
 
   /**

@@ -32,6 +32,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -519,6 +520,26 @@ public class QueryCommandIntegrationTest {
   }
 
   @Test
+  public void testOutputAttribute() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "query",
+            "//example:one + //example:four",
+            "--output-attribute",
+            "name",
+            "--output-attribute",
+            "deps");
+    result.assertSuccess();
+    assertThat(
+        parseJSON(result.getStdout()),
+        is(equalTo(parseJSON(workspace.getFileContents("stdout-name-deps-multi-attr-out.json")))));
+  }
+
+  @Test
   public void testResolveAliasOutputAttributes() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
@@ -975,5 +996,62 @@ public class QueryCommandIntegrationTest {
     assertThat(
         output,
         Matchers.not(Matchers.hasItems("//example:one", "//example:one-tests", "//example:four")));
+  }
+
+  @Test
+  public void testMultiQueryWorksWithOutputAttributes() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    String expectedString =
+        workspace.getFileContents("stdout-output-attributes-and-multi-query.json");
+    JsonNode expectedNode = new ObjectMapper().readTree(expectedString);
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "query",
+            "deps(%s)",
+            "//example:",
+            "//example:one",
+            "//example:two",
+            "--output-attributes",
+            "name",
+            "--output-attributes",
+            "srcs");
+    result.assertSuccess();
+
+    JsonNode jsonNode = new ObjectMapper().readTree(result.getStdout());
+
+    assertEquals(expectedNode, jsonNode);
+  }
+
+  @Test
+  public void testMultiQueryWorksWithOutputAttribute() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
+    workspace.setUp();
+
+    String expectedString =
+        workspace.getFileContents("stdout-output-attributes-and-multi-query.json");
+
+    JsonNode expectedNode = new ObjectMapper().readTree(expectedString);
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "query",
+            "--output-attribute",
+            "name",
+            "--output-attribute",
+            "srcs",
+            "deps(%s)",
+            "//example:",
+            "//example:one",
+            "//example:two");
+    result.assertSuccess();
+
+    JsonNode jsonNode = new ObjectMapper().readTree(result.getStdout());
+
+    assertEquals(expectedNode, jsonNode);
   }
 }

@@ -16,8 +16,6 @@
 
 package com.facebook.buck.skylark.function;
 
-import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
 import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.skylarkinterface.Param;
@@ -47,36 +45,32 @@ public class ReadConfig {
   private ReadConfig() {}
 
   @SkylarkSignature(
-    name = FUNCTION_NAME,
-    objectType = Object.class,
-    returnType = Object.class,
-    doc =
-        "Returns a configuration value of <code>.buckconfig</code> or <code>--config</code> flag."
-            + " For example, <code>read_config('foo', 'bar', 'baz')</code> returns"
-            + " <code>bazz</code> if Buck is invoked with <code>--config foo.bar=bazz</code> flag.",
-    parameters = {
-      @Param(
-        name = "section",
-        type = String.class,
-        doc = "the name of the .buckconfig section with the desired value."
-      ),
-      @Param(
-        name = "field",
-        type = String.class,
-        doc = "the name of the .buckconfig field with the desired value."
-      ),
-      @Param(
-        name = "defaultValue",
-        noneable = true,
-        type = String.class,
-        defaultValue = "None",
-        doc = "the value to return if the desired value is not set in the .buckconfig."
-      ),
-    },
-    documented = false, // this is an API that we should remove once select is available
-    useAst = true,
-    useEnvironment = true
-  )
+      name = FUNCTION_NAME,
+      objectType = Object.class,
+      returnType = Object.class,
+      doc =
+          "Returns a configuration value of <code>.buckconfig</code> or <code>--config</code> flag."
+              + " For example, <code>read_config('foo', 'bar', 'baz')</code> returns"
+              + " <code>bazz</code> if Buck is invoked with <code>--config foo.bar=bazz</code> flag.",
+      parameters = {
+        @Param(
+            name = "section",
+            type = String.class,
+            doc = "the name of the .buckconfig section with the desired value."),
+        @Param(
+            name = "field",
+            type = String.class,
+            doc = "the name of the .buckconfig field with the desired value."),
+        @Param(
+            name = "defaultValue",
+            noneable = true,
+            type = String.class,
+            defaultValue = "None",
+            doc = "the value to return if the desired value is not set in the .buckconfig."),
+      },
+      documented = false, // this is an API that we should remove once select is available
+      useAst = true,
+      useEnvironment = true)
   private static final BuiltinFunction readConfig =
       new BuiltinFunction(FUNCTION_NAME) {
         @SuppressWarnings("unused")
@@ -87,11 +81,15 @@ public class ReadConfig {
             FuncallExpression ast,
             Environment env)
             throws EvalException {
-          PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
+          ParseContext parseContext = ParseContext.getParseContext(env, ast);
           @Nullable
           String value =
-              packageContext.getRawConfig().getOrDefault(section, ImmutableMap.of()).get(field);
-          ParseContext parseContext = ParseContext.getParseContext(env, ast);
+              parseContext
+                  .getPackageContext()
+                  .getRawConfig()
+                  .getOrDefault(section, ImmutableMap.of())
+                  .get(field);
+
           parseContext.recordReadConfigurationOption(section, field, value);
           return value != null ? value : defaultValue;
         }

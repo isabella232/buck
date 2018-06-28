@@ -17,17 +17,27 @@
 package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -36,16 +46,6 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.features.go.GoListStep.FileType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
@@ -62,7 +62,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class GoTestDescription
-    implements Description<GoTestDescriptionArg>,
+    implements DescriptionWithTargetGraph<GoTestDescriptionArg>,
         Flavored,
         MetadataProvidingDescription<GoTestDescriptionArg>,
         ImplicitDepsInferringDescription<GoTestDescription.AbstractGoTestDescriptionArg>,
@@ -92,7 +92,7 @@ public class GoTestDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       GoTestDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
@@ -104,9 +104,9 @@ public class GoTestDescription
         && buildTarget.getFlavors().contains(TEST_LIBRARY_FLAVOR)) {
       Preconditions.checkState(platform.isPresent());
 
-      Path packageName = getGoPackageName(resolver, buildTarget, args);
+      Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
 
-      SourcePath output = resolver.requireRule(buildTarget).getSourcePathToOutput();
+      SourcePath output = graphBuilder.requireRule(buildTarget).getSourcePathToOutput();
       return Optional.of(
           metadataClass.cast(
               GoLinkable.builder().setGoLinkInput(ImmutableMap.of(packageName, output)).build()));
@@ -117,7 +117,9 @@ public class GoTestDescription
       ImmutableSet<BuildTarget> deps;
       if (args.getLibrary().isPresent()) {
         GoLibraryDescriptionArg libraryArg =
-            resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
+            graphBuilder
+                .requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class)
+                .get();
         deps =
             ImmutableSortedSet.<BuildTarget>naturalOrder()
                 .addAll(args.getDeps())
@@ -130,7 +132,7 @@ public class GoTestDescription
       return Optional.of(
           metadataClass.cast(
               GoDescriptors.requireTransitiveGoLinkables(
-                  buildTarget, resolver, platform.get(), deps, /* includeSelf */ true)));
+                  buildTarget, graphBuilder, platform.get(), deps, /* includeSelf */ true)));
     } else {
       return Optional.empty();
     }
@@ -140,18 +142,24 @@ public class GoTestDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GoPlatform platform,
       ImmutableSet<SourcePath> srcs,
       ImmutableMap<Path, ImmutableMap<String, Path>> coverVariables,
       GoTestCoverStep.Mode coverageMode,
       Path packageName,
-      ImmutableSortedSet<BuildTarget> cgoDeps) {
+      Optional<BuildTarget> cgoBuildTarget) {
     Tool testMainGenerator =
         GoDescriptors.getTestMainGenerator(
-            goBuckConfig, platform, buildTarget, projectFilesystem, params, resolver, cgoDeps);
+            goBuckConfig,
+            platform,
+            buildTarget,
+            projectFilesystem,
+            params,
+            graphBuilder,
+            cgoBuildTarget);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     GoTestMain generatedTestMain =
         new GoTestMain(
@@ -164,22 +172,23 @@ public class GoTestDescription
             testMainGenerator,
             srcs,
             packageName,
+            platform,
             coverVariables,
             coverageMode);
-    resolver.addToIndex(generatedTestMain);
+    graphBuilder.addToIndex(generatedTestMain);
     return generatedTestMain;
   }
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       GoTestDescriptionArg args) {
     GoPlatform platform = getGoPlatform(buildTarget, args);
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
@@ -192,7 +201,9 @@ public class GoTestDescription
     rawSrcs.addAll(args.getSrcs());
     if (args.getLibrary().isPresent()) {
       GoLibraryDescriptionArg libraryArg =
-          resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
+          graphBuilder
+              .requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class)
+              .get();
 
       rawSrcs.addAll(libraryArg.getSrcs());
     }
@@ -202,7 +213,7 @@ public class GoTestDescription
 
       GoTestCoverSource coverSource =
           (GoTestCoverSource)
-              resolver.computeIfAbsent(
+              graphBuilder.computeIfAbsent(
                   buildTarget.withAppendedFlavors(InternalFlavor.of("gen-cover")),
                   target ->
                       new GoTestCoverSource(
@@ -230,7 +241,7 @@ public class GoTestDescription
           buildTarget,
           projectFilesystem,
           params.copyAppendingExtraDeps(extraDeps.build()),
-          resolver,
+          graphBuilder,
           srcs.build(),
           args,
           platform);
@@ -241,13 +252,13 @@ public class GoTestDescription
             buildTarget,
             projectFilesystem,
             params.copyAppendingExtraDeps(extraDeps.build()),
-            resolver,
+            graphBuilder,
             srcs.build(),
             coverVariables,
             coverageMode,
             args,
             platform);
-    resolver.addToIndex(testMain);
+    graphBuilder.addToIndex(testMain);
 
     return new GoTest(
         buildTarget,
@@ -260,6 +271,7 @@ public class GoTestDescription
             .map(Optional::of)
             .orElse(goBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getRunTestSeparately(),
+        goBuckConfig.getDelegate().getExternalTestRunner().isPresent(),
         args.getResources(),
         coverageMode);
   }
@@ -268,31 +280,31 @@ public class GoTestDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableSet<SourcePath> srcs,
       ImmutableMap<String, Path> coverVariables,
       GoTestCoverStep.Mode coverageMode,
       GoTestDescriptionArg args,
       GoPlatform platform) {
-    Path packageName = getGoPackageName(resolver, buildTarget, args);
+    Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
 
     BuildRule testLibrary =
         new NoopBuildRuleWithDeclaredAndExtraDeps(
             buildTarget.withAppendedFlavors(TEST_LIBRARY_FLAVOR), projectFilesystem, params);
-    resolver.addToIndex(testLibrary);
+    graphBuilder.addToIndex(testLibrary);
 
     BuildRule generatedTestMain =
         requireTestMainGenRule(
             buildTarget,
             projectFilesystem,
             params,
-            resolver,
+            graphBuilder,
             platform,
             srcs,
             ImmutableMap.of(packageName, coverVariables),
             coverageMode,
             packageName,
-            args.getCgoDeps());
+            args.getCgo());
     GoBinary testMain =
         GoDescriptors.createGoBinaryRule(
             buildTarget.withAppendedFlavors(InternalFlavor.of("test-main")),
@@ -300,25 +312,25 @@ public class GoTestDescription
             params
                 .withDeclaredDeps(ImmutableSortedSet.of(testLibrary))
                 .withExtraDeps(ImmutableSortedSet.of(generatedTestMain)),
-            resolver,
+            graphBuilder,
             goBuckConfig,
             ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
             args.getCompilerFlags(),
             args.getAssemblerFlags(),
             args.getLinkerFlags(),
             platform,
-            args.getCgoDeps());
-    resolver.addToIndex(testMain);
+            args.getCgo());
+    graphBuilder.addToIndex(testMain);
     return testMain;
   }
 
   private Path getGoPackageName(
-      BuildRuleResolver resolver, BuildTarget target, GoTestDescriptionArg args) {
+      ActionGraphBuilder graphBuilder, BuildTarget target, GoTestDescriptionArg args) {
     target = target.withFlavors(); // remove flavors.
 
     if (args.getLibrary().isPresent()) {
       Optional<GoLibraryDescriptionArg> libraryArg =
-          resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class);
+          graphBuilder.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class);
       if (!libraryArg.isPresent()) {
         throw new HumanReadableException(
             "Library specified in %s (%s) is not a go_library rule.",
@@ -354,16 +366,18 @@ public class GoTestDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableSet<SourcePath> srcs,
       GoTestDescriptionArg args,
       GoPlatform platform) {
-    Path packageName = getGoPackageName(resolver, buildTarget, args);
+    Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
     GoCompile testLibrary;
     if (args.getLibrary().isPresent()) {
       // We should have already type-checked the arguments in the base rule.
       GoLibraryDescriptionArg libraryArg =
-          resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
+          graphBuilder
+              .requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class)
+              .get();
 
       BuildRuleParams testTargetParams =
           params
@@ -371,11 +385,11 @@ public class GoTestDescription
                   () ->
                       ImmutableSortedSet.<BuildRule>naturalOrder()
                           .addAll(params.getDeclaredDeps().get())
-                          .addAll(resolver.getAllRules(libraryArg.getDeps()))
+                          .addAll(graphBuilder.getAllRules(libraryArg.getDeps()))
                           .build())
               .withExtraDeps(
                   () -> {
-                    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+                    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
                     return ImmutableSortedSet.<BuildRule>naturalOrder()
                         .addAll(params.getExtraDeps().get())
                         // Make sure to include dynamically generated sources as deps.
@@ -387,7 +401,7 @@ public class GoTestDescription
               buildTarget,
               projectFilesystem,
               testTargetParams,
-              resolver,
+              graphBuilder,
               goBuckConfig,
               packageName,
               ImmutableSet.<SourcePath>builder().addAll(srcs).build(),
@@ -406,10 +420,7 @@ public class GoTestDescription
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              ImmutableSortedSet.<BuildTarget>naturalOrder()
-                  .addAll(libraryArg.getCgoDeps())
-                  .addAll(args.getCgoDeps())
-                  .build(),
+              libraryArg.getCgo(),
               Arrays.asList(FileType.GoFiles, FileType.TestGoFiles));
     } else {
       testLibrary =
@@ -417,7 +428,7 @@ public class GoTestDescription
               buildTarget,
               projectFilesystem,
               params,
-              resolver,
+              graphBuilder,
               goBuckConfig,
               packageName,
               srcs,
@@ -430,7 +441,7 @@ public class GoTestDescription
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              args.getCgoDeps(),
+              args.getCgo(),
               Arrays.asList(FileType.GoFiles, FileType.TestGoFiles, FileType.XTestGoFiles));
     }
 

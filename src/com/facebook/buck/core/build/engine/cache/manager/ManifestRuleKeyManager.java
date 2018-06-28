@@ -26,16 +26,16 @@ import com.facebook.buck.core.build.engine.manifest.ManifestLoadResult;
 import com.facebook.buck.core.build.engine.manifest.ManifestStoreResult;
 import com.facebook.buck.core.build.engine.type.DepFiles;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
@@ -45,6 +45,7 @@ import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -221,12 +222,23 @@ public class ManifestRuleKeyManager {
           // Download is successful, so move the manifest into place.
           rule.getProjectFilesystem().createParentDirs(path);
           rule.getProjectFilesystem().deleteFileAtPathIfExists(path);
-          rule.getProjectFilesystem().move(tempPath.get(), path);
+
+          Path tempManifestPath = Files.createTempFile("buck.", "MANIFEST");
+          ungzip(tempPath.get(), tempManifestPath);
+          rule.getProjectFilesystem().move(tempManifestPath, path);
 
           LOG.verbose("%s: cache hit on manifest %s", rule.getBuildTarget(), key);
 
           return Futures.immediateFuture(cacheResult);
         });
+  }
+
+  private void ungzip(Path source, Path destination) throws IOException {
+    try (InputStream inputStream =
+            new GZIPInputStream(new BufferedInputStream(Files.newInputStream(source)));
+        OutputStream outputStream = rule.getProjectFilesystem().newFileOutputStream(destination)) {
+      ByteStreams.copy(inputStream, outputStream);
+    }
   }
 
   public ManifestLoadResult loadManifest(RuleKey key) {
@@ -238,8 +250,7 @@ public class ManifestRuleKeyManager {
     Manifest manifest;
     // Keep the file input stream in a separate variable so that it gets closed if the
     // GZIPInputStream constructor throws.
-    try (InputStream manifestFile = rule.getProjectFilesystem().newFileInputStream(path);
-        InputStream input = new GZIPInputStream(manifestFile)) {
+    try (InputStream input = rule.getProjectFilesystem().newFileInputStream(path)) {
       manifest = new Manifest(input);
     } catch (Exception e) {
       LOG.warn(

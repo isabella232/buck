@@ -18,14 +18,16 @@ package com.facebook.buck.features.ocaml;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class OcamlLibraryBuilder
     extends AbstractNodeBuilder<
-        OcamlLibraryDescriptionArg.Builder, OcamlLibraryDescriptionArg, OcamlLibraryDescription,
+        OcamlLibraryDescriptionArg.Builder,
+        OcamlLibraryDescriptionArg,
+        OcamlLibraryDescription,
         OcamlLibrary> {
 
   public OcamlLibraryBuilder(

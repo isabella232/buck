@@ -24,6 +24,7 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -38,7 +39,6 @@ import com.facebook.buck.jvm.java.JavacPluginJsr199Fields;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.ResolvedJavacPluginProperties;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.CopyStep.DirectoryMode;
@@ -145,6 +145,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     Path genOutput =
         BuildTargets.getGenPath(
             projectFilesystem, invokingRule, "__%s_gen_sources__/generated" + SRC_ZIP);
+    boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
 
     // Only invoke kotlinc if we have kotlin files.
     if (sourceFilePaths.stream().anyMatch(PathMatchers.KOTLIN_PATH_MATCHER::matches)) {
@@ -172,7 +173,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
               .addAll(kotlinHomeLibraries)
               .build();
 
-      boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
       if (generatingCode) {
 
         addAnnotationGenFolderStep(
@@ -233,8 +233,14 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
               Optional.of(parameters.getWorkingDirectory())));
     }
 
-    ImmutableSortedSet<Path> sources =
-        ImmutableSortedSet.<Path>naturalOrder().add(genOutput).addAll(sourceFilePaths).build();
+    ImmutableSortedSet.Builder<Path> sourceBuilder =
+        ImmutableSortedSet.<Path>naturalOrder().addAll(sourceFilePaths);
+
+    if (generatingCode) {
+      sourceBuilder.add(genOutput);
+    }
+
+    ImmutableSortedSet<Path> sources = sourceBuilder.build();
 
     ImmutableSortedSet<Path> javaSourceFiles =
         ImmutableSortedSet.copyOf(

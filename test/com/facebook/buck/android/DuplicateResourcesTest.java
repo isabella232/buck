@@ -21,11 +21,14 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -37,14 +40,10 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
@@ -249,7 +248,7 @@ public class DuplicateResourcesTest {
             library,
             keystore);
 
-    ActionGraphAndResolver actionGraphAndResolver =
+    ActionGraphAndBuilder actionGraphAndBuilder =
         new ActionGraphCache(1)
             .getFreshActionGraph(
                 BuckEventBusForTests.newInstance(
@@ -264,7 +263,6 @@ public class DuplicateResourcesTest {
                     .getCellProvider(),
                 ActionGraphParallelizationMode.DISABLED,
                 false,
-                IncrementalActionGraphMode.DISABLED,
                 CloseableMemoizedSupplier.of(
                     () -> {
                       throw new IllegalStateException(
@@ -274,10 +272,10 @@ public class DuplicateResourcesTest {
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
+            new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder()));
 
     ImmutableSet<ImmutableList<Step>> ruleSteps =
-        RichStream.from(actionGraphAndResolver.getActionGraph().getNodes())
+        RichStream.from(actionGraphAndBuilder.getActionGraph().getNodes())
             .filter(AaptPackageResources.class)
             .filter(
                 r ->

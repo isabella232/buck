@@ -24,8 +24,11 @@ import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDeleg
 import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
 import com.facebook.buck.core.build.engine.type.BuildType;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.resolver.impl.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -35,9 +38,6 @@ import com.facebook.buck.jvm.java.autodeps.JavaDepsFinder;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -122,7 +122,7 @@ final class JavaBuildGraphProcessor {
       }
 
       BuildRuleResolver buildRuleResolver =
-          new SingleThreadedBuildRuleResolver(
+          new SingleThreadedActionGraphBuilder(
               graph,
               new DefaultTargetNodeToBuildRuleTransformer(),
               params.getCell().getCellProvider());

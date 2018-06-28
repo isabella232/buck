@@ -23,8 +23,13 @@ import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
@@ -42,10 +47,6 @@ import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
@@ -174,7 +175,7 @@ public class IjProjectCommandHelper {
     try {
       targetGraphAndTargets =
           createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty(), executor);
-    } catch (BuildFileParseException | TargetGraph.NoSuchNodeException | VersionException e) {
+    } catch (BuildFileParseException | NoSuchTargetException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -193,7 +194,7 @@ public class IjProjectCommandHelper {
     return runIntellijProjectGenerator(targetGraphAndTargets);
   }
 
-  private ActionGraphAndResolver getActionGraph(TargetGraph targetGraph) {
+  private ActionGraphAndBuilder getActionGraph(TargetGraph targetGraph) {
     try (CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier =
         CloseableMemoizedSupplier.of(
             () ->
@@ -256,10 +257,10 @@ public class IjProjectCommandHelper {
 
   private ImmutableSet<BuildTarget> writeProjectAndGetRequiredBuildTargets(
       TargetGraphAndTargets targetGraphAndTargets) throws IOException {
-    ActionGraphAndResolver result =
+    ActionGraphAndBuilder result =
         Preconditions.checkNotNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
 
-    BuildRuleResolver ruleResolver = result.getResolver();
+    ActionGraphBuilder graphBuilder = result.getActionGraphBuilder();
 
     JavacOptions javacOptions = buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions();
 
@@ -268,7 +269,7 @@ public class IjProjectCommandHelper {
             targetGraphAndTargets,
             getJavaPackageFinder(buckConfig),
             JavaFileParser.createJavaFileParser(javacOptions),
-            ruleResolver,
+            graphBuilder,
             cell.getFilesystem(),
             projectConfig);
 

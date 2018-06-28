@@ -22,6 +22,7 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
@@ -49,7 +50,6 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
@@ -85,6 +85,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutionException;
@@ -221,7 +222,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
               "build.*.trace",
               PathListing.GET_PATH_MODIFIED_TIME,
               PathListing.FilterMode.EXCLUDE,
-              Optional.of(config.getMaxTraces()),
+              OptionalInt.of(config.getMaxTraces()),
               Optional.empty())) {
         projectFilesystem.deleteFileAtPath(path);
       }
@@ -576,7 +577,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         "buck",
         started.getCategory(),
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.of("rule_key", Joiner.on(", ").join(started.getRuleKeys())),
+        ImmutableMap.of(
+            "rule_key", Joiner.on(", ").join(started.getRuleKeys()),
+            "rule", started.getTarget().orElse("unknown")),
         started);
   }
 
@@ -585,7 +588,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     ImmutableMap.Builder<String, String> argumentsBuilder =
         ImmutableMap.<String, String>builder()
             .put("success", Boolean.toString(finished.isSuccess()))
-            .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()));
+            .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()))
+            .put("rule", finished.getTarget().orElse("unknown"));
     Optionals.putIfPresent(
         finished.getCacheResult().map(Object::toString), "cache_result", argumentsBuilder);
 

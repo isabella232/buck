@@ -78,8 +78,17 @@ import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasTests;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -113,12 +122,6 @@ import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -198,7 +201,7 @@ public class ProjectGenerator {
   private static final ImmutableList<String> DEFAULT_SWIFTFLAGS = ImmutableList.of();
   private static final String PRODUCT_NAME = "PRODUCT_NAME";
 
-  private static final ImmutableSet<Class<? extends Description<?>>>
+  private static final ImmutableSet<Class<? extends DescriptionWithTargetGraph<?>>>
       APPLE_NATIVE_DESCRIPTION_CLASSES =
           ImmutableSet.of(
               AppleBinaryDescription.class,
@@ -239,7 +242,7 @@ public class ProjectGenerator {
   private final List<Path> headerSymlinkTrees;
   private final ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder =
       ImmutableSet.builder();
-  private final Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode;
+  private final Function<? super TargetNode<?, ?>, ActionGraphBuilder> actionGraphBuilderForNode;
   private final SourcePathResolver defaultPathResolver;
   private final BuckEventBus buckEventBus;
   private final RuleKeyConfiguration ruleKeyConfiguration;
@@ -251,7 +254,7 @@ public class ProjectGenerator {
   private final ImmutableSet.Builder<String> targetConfigNamesBuilder;
 
   private final GidGenerator gidGenerator;
-  private final ImmutableSet<String> appleCxxFlavors;
+  private final ImmutableSet<Flavor> appleCxxFlavors;
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
@@ -265,6 +268,7 @@ public class ProjectGenerator {
       ImmutableList.builder();
   private final ImmutableList.Builder<SourcePath> genruleFiles = ImmutableList.builder();
   private final ImmutableSet.Builder<SourcePath> filesAddedBuilder = ImmutableSet.builder();
+  private final Set<BuildTarget> generatedTargets = new HashSet<>();
 
   public ProjectGenerator(
       TargetGraph targetGraph,
@@ -282,8 +286,8 @@ public class ProjectGenerator {
       ImmutableSet<BuildTarget> targetsInRequiredProjects,
       FocusedModuleTargetMatcher focusModules,
       CxxPlatform defaultCxxPlatform,
-      ImmutableSet<String> appleCxxFlavors,
-      Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
+      ImmutableSet<Flavor> appleCxxFlavors,
+      Function<? super TargetNode<?, ?>, ActionGraphBuilder> actionGraphBuilderForNode,
       BuckEventBus buckEventBus,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
@@ -305,11 +309,11 @@ public class ProjectGenerator {
     this.targetsInRequiredProjects = targetsInRequiredProjects;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.appleCxxFlavors = appleCxxFlavors;
-    this.buildRuleResolverForNode = buildRuleResolverForNode;
+    this.actionGraphBuilderForNode = actionGraphBuilderForNode;
     this.defaultPathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
+                new SingleThreadedActionGraphBuilder(
                     TargetGraph.EMPTY,
                     new DefaultTargetNodeToBuildRuleTransformer(),
                     cell.getCellProvider())));
@@ -496,6 +500,14 @@ public class ProjectGenerator {
     Preconditions.checkState(
         isBuiltByCurrentProject(targetNode.getBuildTarget()),
         "should not generate rule if it shouldn't be built by current project");
+
+    BuildTarget targetWithoutAppleCxxFlavors =
+        targetNode.getBuildTarget().withoutFlavors(appleCxxFlavors);
+    if (generatedTargets.contains(targetWithoutAppleCxxFlavors)) {
+      return Optional.empty();
+    }
+    generatedTargets.add(targetWithoutAppleCxxFlavors);
+
     Optional<PBXTarget> result = Optional.empty();
     if (targetNode.getDescription() instanceof AppleLibraryDescription) {
       result =
@@ -900,7 +912,8 @@ public class ProjectGenerator {
   private ImmutableList<String> convertStringWithMacros(
       TargetNode<?, ?> node, Iterable<StringWithMacros> flags) {
 
-    // TODO(cjhopman): This seems really broken, it's totally inconsistent about what resolver is
+    // TODO(cjhopman): This seems really broken, it's totally inconsistent about what graphBuilder
+    // is
     // provided. This should either just do rule resolution like normal or maybe do its own custom
     // MacroReplacer<>.
     LocationMacroExpander locationMacroExpander =
@@ -909,16 +922,16 @@ public class ProjectGenerator {
           public Arg expandFrom(
               BuildTarget target,
               CellPathResolver cellNames,
-              BuildRuleResolver ignored,
+              ActionGraphBuilder graphBuilder,
               LocationMacro input)
               throws MacroException {
             BuildTarget locationMacroTarget = input.getTarget();
 
-            BuildRuleResolver resolver =
-                buildRuleResolverForNode.apply(targetGraph.get(locationMacroTarget));
+            ActionGraphBuilder builderFromNode =
+                actionGraphBuilderForNode.apply(targetGraph.get(locationMacroTarget));
             try {
-              resolver.requireRule(locationMacroTarget);
-            } catch (TargetGraph.NoSuchNodeException e) {
+              builderFromNode.requireRule(locationMacroTarget);
+            } catch (NoSuchTargetException e) {
               throw new MacroException(
                   String.format(
                       "couldn't find rule referenced by location macro: %s", e.getMessage()),
@@ -928,25 +941,24 @@ public class ProjectGenerator {
             requiredBuildTargetsBuilder.add(locationMacroTarget);
             return StringArg.of(
                 Arg.stringify(
-                    super.expandFrom(target, cellNames, resolver, input),
-                    DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))));
+                    super.expandFrom(target, cellNames, builderFromNode, input),
+                    DefaultSourcePathResolver.from(new SourcePathRuleFinder(builderFromNode))));
           }
         };
 
-    BuildRuleResolver emptyBuildRuleResolver =
-        new SingleThreadedBuildRuleResolver(
+    ActionGraphBuilder emptyGraphBuilder =
+        new SingleThreadedActionGraphBuilder(
             TargetGraph.EMPTY,
             new DefaultTargetNodeToBuildRuleTransformer(),
             projectCell.getCellProvider());
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.of(
-            node.getBuildTarget(),
-            node.getCellNames(),
-            emptyBuildRuleResolver,
-            ImmutableList.of(locationMacroExpander));
+            node.getBuildTarget(), node.getCellNames(), ImmutableList.of(locationMacroExpander));
     for (StringWithMacros flag : flags) {
-      macrosConverter.convert(flag).appendToCommandLine(result::add, defaultPathResolver);
+      macrosConverter
+          .convert(flag, emptyGraphBuilder)
+          .appendToCommandLine(result::add, defaultPathResolver);
     }
     return result.build();
   }
@@ -958,7 +970,8 @@ public class ProjectGenerator {
         ImmutableMultimap.builder();
 
     for (PatternMatchedCollection<ImmutableList<StringWithMacros>> matcher : matchers) {
-      for (String platform : appleCxxFlavors) {
+      for (Flavor flavor : appleCxxFlavors) {
+        String platform = flavor.toString();
         for (ImmutableList<StringWithMacros> flags : matcher.getMatchingValues(platform)) {
           flagsBuilder.put(platform, convertStringWithMacros(node, flags));
         }
@@ -1175,18 +1188,18 @@ public class ProjectGenerator {
         ImmutableList<TargetNode<?, ?>> postScriptPhases = postScriptPhasesBuilder.build();
 
         mutator.setPreBuildRunScriptPhasesFromTargetNodes(
-            preScriptPhases, buildRuleResolverForNode);
+            preScriptPhases, actionGraphBuilderForNode::apply);
         if (copyFilesPhases.isPresent()) {
           mutator.setCopyFilesPhases(copyFilesPhases.get());
         }
         mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-            postScriptPhases, buildRuleResolverForNode);
+            postScriptPhases, actionGraphBuilderForNode::apply);
 
         ImmutableList<TargetNode<?, ?>> scriptPhases =
             Stream.concat(preScriptPhases.stream(), postScriptPhases.stream())
                 .collect(ImmutableList.toImmutableList());
         mutator.collectFilesToCopyInXcode(
-            filesToCopyInXcodeBuilder, scriptPhases, projectCell, buildRuleResolverForNode);
+            filesToCopyInXcodeBuilder, scriptPhases, projectCell, actionGraphBuilderForNode::apply);
       }
     }
 
@@ -1864,13 +1877,13 @@ public class ProjectGenerator {
               targetNode.getBuildTarget(), this::resolveSourcePath, headerPathPrefix, arg);
       return convertMapKeysToPaths(cxxHeaders);
     } else {
-      BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+      ActionGraphBuilder graphBuilder = actionGraphBuilderForNode.apply(targetNode);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       return ImmutableSortedMap.copyOf(
           CxxDescriptionEnhancer.parseExportedHeaders(
               targetNode.getBuildTarget(),
-              resolver,
+              graphBuilder,
               ruleFinder,
               pathResolver,
               Optional.empty(),
@@ -1890,13 +1903,13 @@ public class ProjectGenerator {
               targetNode.getBuildTarget(), this::resolveSourcePath, headerPathPrefix, arg);
       return convertMapKeysToPaths(cxxHeaders);
     } else {
-      BuildRuleResolver resolver = buildRuleResolverForNode.apply(targetNode);
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+      ActionGraphBuilder graphBuilder = actionGraphBuilderForNode.apply(targetNode);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       return ImmutableSortedMap.copyOf(
           CxxDescriptionEnhancer.parseHeaders(
               targetNode.getBuildTarget(),
-              resolver,
+              graphBuilder,
               ruleFinder,
               pathResolver,
               Optional.empty(),
@@ -2792,7 +2805,7 @@ public class ProjectGenerator {
   private static Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> getAppleNativeNodeOfType(
       TargetGraph targetGraph,
       TargetNode<?, ?> targetNode,
-      Set<Class<? extends Description<?>>> nodeTypes,
+      Set<Class<? extends DescriptionWithTargetGraph<?>>> nodeTypes,
       Set<AppleBundleExtension> bundleExtensions) {
     Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> nativeNode = Optional.empty();
     if (nodeTypes.contains(targetNode.getDescription().getClass())) {
@@ -2993,7 +3006,7 @@ public class ProjectGenerator {
                 Optional.of(dependenciesCache),
                 AppleBuildRules.RecursiveDependenciesMode.LINKING,
                 targetNode,
-                ImmutableSet.<Class<? extends Description<?>>>builder()
+                ImmutableSet.<Class<? extends DescriptionWithTargetGraph<?>>>builder()
                     .addAll(AppleBuildRules.XCODE_TARGET_DESCRIPTION_CLASSES)
                     .add(PrebuiltAppleFrameworkDescription.class)
                     .build()))
@@ -3315,7 +3328,8 @@ public class ProjectGenerator {
 
       boolean nodeIsAppleLibrary = binaryNode.getDescription() instanceof AppleLibraryDescription;
       boolean nodeIsCxxLibrary =
-          ((Description<?>) binaryNode.getDescription()) instanceof CxxLibraryDescription;
+          ((DescriptionWithTargetGraph<?>) binaryNode.getDescription())
+              instanceof CxxLibraryDescription;
       if (nodeIsAppleLibrary || nodeIsCxxLibrary) {
         if (binaryNode
             .getBuildTarget()
@@ -3387,7 +3401,7 @@ public class ProjectGenerator {
     Optional<TargetNode<ExportFileDescriptionArg, ?>> exportFileNode =
         node.castArg(ExportFileDescriptionArg.class);
     if (!exportFileNode.isPresent()) {
-      BuildRuleResolver resolver = buildRuleResolverForNode.apply(node);
+      BuildRuleResolver resolver = actionGraphBuilderForNode.apply(node);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
       Path output = pathResolver.getAbsolutePath(sourcePath);
@@ -3486,7 +3500,7 @@ public class ProjectGenerator {
     BuildTargetSourcePath pchTargetSourcePath = (BuildTargetSourcePath) pchPath;
     BuildTarget pchTarget = pchTargetSourcePath.getTarget();
     TargetNode<?, ?> node = targetGraph.get(pchTarget);
-    BuildRuleResolver resolver = buildRuleResolverForNode.apply(node);
+    BuildRuleResolver resolver = actionGraphBuilderForNode.apply(node);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     BuildRule rule = ruleFinder.getRule(pchTargetSourcePath);
     Preconditions.checkArgument(rule instanceof CxxPrecompiledHeaderTemplate);

@@ -19,8 +19,8 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -34,10 +34,9 @@ import org.immutables.value.Value;
  */
 @Value.Immutable
 @Value.Style(
-  overshadowImplementation = true,
-  init = "set*",
-  visibility = Value.Style.ImplementationVisibility.PACKAGE
-)
+    overshadowImplementation = true,
+    init = "set*",
+    visibility = Value.Style.ImplementationVisibility.PACKAGE)
 public abstract class JavaLibraryDeps {
   public static JavaLibraryDeps newInstance(
       JavaLibraryDescription.CoreArg args, BuildRuleResolver resolver) {

@@ -33,6 +33,7 @@ import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.CoordinatorModeRunner;
 import com.facebook.buck.distributed.build_slave.DelegateAndGraphs;
@@ -124,7 +125,7 @@ public class BuildPhase {
   private final int waitForAllWorkerFinalStatusTimeoutMillis;
   private final int waitForAllBuildEventsTimeoutMillis;
 
-  private volatile long firstFinishedBuildStatusReceviedTs = -1;
+  private volatile long firstFinishedBuildStatusReceivedTs = -1;
 
   @VisibleForTesting
   protected BuildPhase(
@@ -207,7 +208,7 @@ public class BuildPhase {
     ListenableFuture<DelegateAndGraphs> delegateAndGraphs =
         Futures.immediateFuture(
             DelegateAndGraphs.builder()
-                .setActionGraphAndResolver(buildGraphs.getActionGraphAndResolver())
+                .setActionGraphAndBuilder(buildGraphs.getActionGraphAndBuilder())
                 .setCachingBuildEngineDelegate(cachingBuildEngineDelegate.get())
                 .setTargetGraph(buildGraphs.getTargetGraphForDistributedBuild().getTargetGraph())
                 .build());
@@ -265,6 +266,7 @@ public class BuildPhase {
             // TODO(shivanker): Make health-check stats work.
             new HealthCheckStatsTracker(),
             // TODO(shivanker): Make timing stats work.
+            Optional.empty(),
             Optional.empty());
 
     executorService.submit(
@@ -283,14 +285,21 @@ public class BuildPhase {
       ListeningExecutorService executorService,
       StampedeId stampedeId,
       BuildMode buildMode,
+      DistLocalBuildMode distLocalBuildMode,
       InvocationInfo invocationInfo,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> localRuleKeyCalculator)
       throws IOException, InterruptedException {
     distBuildClientStats.startTimer(PERFORM_DISTRIBUTED_BUILD);
+
     BuildJob job =
         distBuildService.startBuild(
             stampedeId, !buildMode.equals(DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR));
     LOG.info("Started job. Build status: " + job.getStatus());
+
+    if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
+      LOG.info("Fire-and-forget mode: returning after build status is:started. " + job.getStatus());
+      return new BuildResult(job, ImmutableList.of());
+    }
 
     nextEventIdBySlaveRunId.clear();
     ScheduledFuture<?> distBuildStatusUpdatingFuture =
@@ -424,9 +433,7 @@ public class BuildPhase {
         networkExecutorService.submit(
             () -> {
               try {
-                List<BuildSlaveEventWrapper> events =
-                    distBuildService.multiGetBuildSlaveEvents(fetchEventQueries);
-                return events;
+                return distBuildService.multiGetBuildSlaveEvents(fetchEventQueries);
               } catch (IOException e) {
                 LOG.error(e, "Fetching build slave events failed. Returning empty list.");
                 return Lists.newArrayList();
@@ -543,12 +550,12 @@ public class BuildPhase {
     if (BuildStatusUtil.isTerminalBuildStatus(job.getStatus())) {
       // Make a record of the first time we received terminal build job status, so that
       // if we still need to fetch more events, we have a reference point for timeouts.
-      if (firstFinishedBuildStatusReceviedTs == -1) {
-        firstFinishedBuildStatusReceviedTs = currentTimeMillis;
+      if (firstFinishedBuildStatusReceivedTs == -1) {
+        firstFinishedBuildStatusReceivedTs = currentTimeMillis;
       }
 
       long elapseMillisSinceFirstFinishedStatus =
-          currentTimeMillis - firstFinishedBuildStatusReceviedTs;
+          currentTimeMillis - firstFinishedBuildStatusReceivedTs;
 
       // Top level build was set to finished status, however individual slaves might not yet
       // have marked themselves finished, so wait for this to happen before returning.
@@ -650,7 +657,7 @@ public class BuildPhase {
             slaveStatusList
                 .stream()
                 .filter(Optional::isPresent)
-                .map(x -> x.get())
+                .map(Optional::get)
                 .collect(Collectors.toList()),
         MoreExecutors.directExecutor());
   }

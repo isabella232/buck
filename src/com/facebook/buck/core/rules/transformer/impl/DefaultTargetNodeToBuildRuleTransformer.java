@@ -16,20 +16,19 @@
 
 package com.facebook.buck.core.rules.transformer.impl;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.ImmutableBuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImmutableBuildRuleCreationContext;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Suppliers;
 import java.util.Set;
 
@@ -42,10 +41,10 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
   }
 
   @Override
-  public <T, U extends Description<T>> BuildRule transform(
-      CellProvider cellProvider,
+  public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+      ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       TargetNode<T, U> targetNode) {
     U description = targetNode.getDescription();
     T arg = targetNode.getConstructorArg();
@@ -58,7 +57,7 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
             arg,
             targetNode.getBuildTarget(),
             cache,
-            ruleResolver,
+            graphBuilder,
             targetNode.getCellNames(),
             targetGraph);
     arg =
@@ -66,7 +65,7 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
             arg,
             targetNode.getBuildTarget(),
             cache,
-            ruleResolver,
+            graphBuilder,
             targetNode.getCellNames(),
             targetGraph);
 
@@ -75,19 +74,17 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
     // via a SourcePath.
     BuildRuleParams params =
         new BuildRuleParams(
-            Suppliers.ofInstance(ruleResolver.requireAllRules(targetNode.getDeclaredDeps())),
-            Suppliers.ofInstance(ruleResolver.requireAllRules(extraDeps)),
-            ruleResolver.requireAllRules(targetGraphOnlyDeps));
+            Suppliers.ofInstance(graphBuilder.requireAllRules(targetNode.getDeclaredDeps())),
+            Suppliers.ofInstance(graphBuilder.requireAllRules(extraDeps)),
+            graphBuilder.requireAllRules(targetGraphOnlyDeps));
 
-    Cell targetCell = cellProvider.getBuildTargetCell(targetNode.getBuildTarget());
-
-    BuildRuleCreationContext context =
-        ImmutableBuildRuleCreationContext.of(
+    BuildRuleCreationContextWithTargetGraph context =
+        ImmutableBuildRuleCreationContextWithTargetGraph.of(
             targetGraph,
-            ruleResolver,
+            graphBuilder,
             targetNode.getFilesystem(),
             targetNode.getCellNames(),
-            targetCell.getToolchainProvider());
+            toolchainProvider);
 
     return description.createBuildRule(context, targetNode.getBuildTarget(), params, arg);
   }

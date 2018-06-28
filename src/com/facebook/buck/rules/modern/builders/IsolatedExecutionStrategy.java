@@ -22,10 +22,11 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildExecutorRunner;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.Serializer;
@@ -33,6 +34,7 @@ import com.facebook.buck.rules.modern.Serializer.Delegate;
 import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
+import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.function.ThrowingFunction;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -46,7 +48,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.ByteArrayInputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,7 +57,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * This wraps an IsolatedExecution implementation into a BuildRuleStrategy implementation. This
@@ -172,18 +175,29 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
       BuildContext buildRuleBuildContext,
       BuildableContext buildableContext)
       throws IOException, StepFailedException, InterruptedException {
-    ModernBuildRule<?> converted = (ModernBuildRule<?>) rule;
-    Buildable original = converted.getBuildable();
-    HashCode hash = serializer.serialize(new BuildableAndTarget(original, rule.getBuildTarget()));
+    Set<Path> outputs;
+    HashCode hash;
+    FileTreeBuilder inputsBuilder;
+    ModernBuildRule<?> converted;
 
-    FileTreeBuilder inputsBuilder = new FileTreeBuilder();
-    addBuckConfigInputs(inputsBuilder);
-    addDeserializationInputs(hash, inputsBuilder);
-    addRuleInputs(inputsBuilder, converted, buildRuleBuildContext);
+    try (Scope ignored = LeafEvents.scope(executionContext.getBuckEventBus(), "serializing")) {
+      converted = (ModernBuildRule<?>) rule;
+      Buildable original = converted.getBuildable();
+      hash = serializer.serialize(new BuildableAndTarget(original, rule.getBuildTarget()));
+    }
 
-    Set<Path> outputs = new HashSet<>();
-    converted.recordOutputs(
-        path -> outputs.add(cellPathPrefix.relativize(rule.getProjectFilesystem().resolve(path))));
+    try (Scope ignored =
+        LeafEvents.scope(executionContext.getBuckEventBus(), "constructing_inputs_tree")) {
+      inputsBuilder = new FileTreeBuilder();
+      addBuckConfigInputs(inputsBuilder);
+      addDeserializationInputs(hash, inputsBuilder);
+      addRuleInputs(inputsBuilder, converted, buildRuleBuildContext);
+
+      outputs = new HashSet<>();
+      converted.recordOutputs(
+          path ->
+              outputs.add(cellPathPrefix.relativize(rule.getProjectFilesystem().resolve(path))));
+    }
 
     executionStrategy.build(
         executionContext,
@@ -216,49 +230,75 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
   private void addRuleInputs(
       FileTreeBuilder inputsBuilder, ModernBuildRule<?> converted, BuildContext buildContext)
       throws IOException {
-    class InputsAdder {
-      Set<Path> linkedDirs = new HashSet<>();
 
-      void addInput(Path path) throws IOException {
-        Preconditions.checkState(!path.isAbsolute(), "Expected relative path: " + path);
-        Path source = cellPathPrefix.resolve(path);
-        Preconditions.checkState(
-            source.normalize().startsWith(cellPathPrefix),
-            String.format(
-                "Expected path starting with %s. Got %s (%s).",
-                cellPathPrefix, source, source.normalize()));
-        if (Files.isDirectory(source) && linkedDirs.contains(source)) {
-          return;
-        }
-
-        if (Files.isDirectory(source)) {
-          linkedDirs.add(source);
-          try (Stream<Path> children = Files.list(source)) {
-            for (Path child : (Iterable<Path>) children::iterator) {
-              addInput(cellPathPrefix.relativize(child));
-            }
-          }
-        } else {
-          inputsBuilder.addFile(
-              path,
-              () ->
-                  new InputFile(
-                      fileHasher.apply(source).toString(),
-                      (int) Files.size(source),
-                      Files.isExecutable(source),
-                      () -> new FileInputStream(source.toFile())));
-        }
-      }
-    }
-    InputsAdder inputsAdder = new InputsAdder();
+    FileInputsAdder inputsAdder =
+        new FileInputsAdder(
+            inputsBuilder,
+            cellPathPrefix,
+            fileHasher,
+            this::getDirectoryContents,
+            this::getSymlinkTarget);
     for (SourcePath inputSourcePath : converted.computeInputs()) {
       Path resolved =
           buildContext.getSourcePathResolver().getAbsolutePath(inputSourcePath).normalize();
+      inputsAdder.addInput(resolved);
+    }
+  }
 
-      // TODO(cjhopman): Should we map absolute paths to platform requirements?
-      if (resolved.startsWith(cellPathPrefix)) {
-        inputsAdder.addInput(cellPathPrefix.relativize(resolved));
-      }
+  private Map<Path, Path> symlinkTargets = new ConcurrentHashMap<>();
+  private Map<Path, Iterable<Path>> directoryContents = new ConcurrentHashMap<>();
+
+  @Nullable
+  private Path getSymlinkTarget(Path path) throws IOException {
+    try {
+      Preconditions.checkState(path.startsWith(cellPathPrefix));
+      return symlinkTargets.computeIfAbsent(
+          path,
+          ignored -> {
+            try {
+              if (!Files.isSymbolicLink(path)) {
+                return null;
+              }
+
+              return Files.readSymbolicLink(path);
+            } catch (IOException e) {
+              throw new WrappedIOException(e);
+            }
+          });
+    } catch (WrappedIOException e) {
+      throw e.getCause();
+    }
+  }
+
+  @Nullable
+  private Iterable<Path> getDirectoryContents(Path path) throws IOException {
+    try {
+      Preconditions.checkState(path.startsWith(cellPathPrefix));
+      return directoryContents.computeIfAbsent(
+          path,
+          ignored -> {
+            if (!Files.isDirectory(path)) {
+              return null;
+            }
+            try (Stream<Path> list = Files.list(path)) {
+              return list.collect(Collectors.toList());
+            } catch (IOException e) {
+              throw new WrappedIOException(e);
+            }
+          });
+    } catch (WrappedIOException e) {
+      throw e.getCause();
+    }
+  }
+
+  private static class WrappedIOException extends RuntimeException {
+    private WrappedIOException(IOException cause) {
+      super(cause);
+    }
+
+    @Override
+    public synchronized IOException getCause() {
+      return (IOException) super.getCause();
     }
   }
 

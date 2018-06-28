@@ -25,15 +25,16 @@ import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorS
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
-import com.facebook.buck.cli.exceptions.handlers.HumanReadableExceptionAugmentor;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.LocalCellProviderFactory;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.ExceptionHandlerRegistry;
+import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -54,6 +55,7 @@ import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
+import com.facebook.buck.event.listener.BuildTargetDurationListener;
 import com.facebook.buck.event.listener.CacheRateStatsListener;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
@@ -117,6 +119,7 @@ import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.BgProcessKiller;
 import com.facebook.buck.util.BuckArgsMethods;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CloseableWrapper;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
@@ -211,6 +214,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -615,19 +619,23 @@ public final class Main {
       DistBuildConfig distBuildConfig = new DistBuildConfig(buckConfig);
       boolean isUsingDistributedBuild = false;
 
+      ExecutionEnvironment executionEnvironment =
+          new DefaultExecutionEnvironment(clientEnvironment, System.getProperties());
+
       // Automatically use distributed build for supported repositories and users.
-      if (command.subcommand != null && command.subcommand instanceof BuildCommand) {
+      if (command.subcommand instanceof BuildCommand) {
         BuildCommand subcommand = (BuildCommand) command.subcommand;
         isUsingDistributedBuild = subcommand.isUsingDistributedBuild();
-        if (!isUsingDistributedBuild && distBuildConfig.shouldUseDistributedBuild(buildId)) {
+        if (!isUsingDistributedBuild
+            && (distBuildConfig.shouldUseDistributedBuild(
+                buildId, executionEnvironment.getUsername(), subcommand.getArguments()))) {
           isUsingDistributedBuild = subcommand.tryConvertingToStampede(distBuildConfig);
         }
       }
 
       // Switch to async file logging, if configured. A few log samples will have already gone
       // via the regular file logger, but that's OK.
-      boolean isDistBuildCommand =
-          command.subcommand != null && command.subcommand instanceof DistBuildCommand;
+      boolean isDistBuildCommand = command.subcommand instanceof DistBuildCommand;
       if (isDistBuildCommand) {
         LogConfig.setUseAsyncFileLogging(distBuildConfig.isAsyncLoggingEnabled());
       }
@@ -737,8 +745,6 @@ public final class Main {
       }
 
       ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
-      ExecutionEnvironment executionEnvironment =
-          new DefaultExecutionEnvironment(clientEnvironment, System.getProperties());
 
       ImmutableList.Builder<ProjectFileHashCache> allCaches = ImmutableList.builder();
 
@@ -820,6 +826,16 @@ public final class Main {
               GlobalStateManager.singleton()
                   .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
           DefaultBuckEventBus buildEventBus = new DefaultBuckEventBus(clock, buildId);
+          // We use a new executor service beyond client connection lifetime since it can take a
+          // long time to stat and cleanup large disk artifact cache directories
+          // See https://github.com/facebook/buck/issues/1842
+          // TODO(buck_team) switch this to delayed tasks framework
+          ThrowingCloseableWrapper<ExecutorService, InterruptedException>
+              dirArtifactExecutorService =
+                  getExecutorWrapper(
+                      MostExecutors.newSingleThreadExecutor("Dir Artifact"),
+                      "Dir Artifact",
+                      EXECUTOR_SERVICES_TIMEOUT_SECONDS);
           ) {
 
         try (ThrowingCloseableWrapper<ExecutorService, InterruptedException> diskIoExecutorService =
@@ -929,7 +945,7 @@ public final class Main {
                     httpWriteExecutorService.get(),
                     httpFetchExecutorService.get(),
                     stampedeSyncBuildHttpFetchExecutorService.get(),
-                    diskIoExecutorService.get());
+                    dirArtifactExecutorService.get());
 
             // Once command completes it should be safe to not wait for executors and other stateful
             // objects to terminate and release semaphore right away. It will help to retry
@@ -1163,7 +1179,8 @@ public final class Main {
                         processExecutor,
                         executableFinder,
                         pluginManager,
-                        moduleManager));
+                        moduleManager,
+                        getForkJoinPoolSupplier(buckConfig)));
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
             throw e;
@@ -1461,12 +1478,11 @@ public final class Main {
 
   private static ListeningExecutorService getHttpWriteExecutorService(
       ArtifactCacheBuckConfig buckConfig, boolean isUsingDistributedBuild) {
-    if (isUsingDistributedBuild || buckConfig.hasAtLeastOneWriteableCache()) {
+    if (isUsingDistributedBuild || buckConfig.hasAtLeastOneWriteableRemoteCache()) {
       // Distributed builds need to upload from the local cache to the remote cache.
       ExecutorService executorService =
           MostExecutors.newMultiThreadExecutor(
               "HTTP Write", buckConfig.getHttpMaxConcurrentWrites());
-
       return listeningDecorator(executorService);
     } else {
       return newDirectExecutorService();
@@ -1696,7 +1712,14 @@ public final class Main {
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
     eventListenersBuilder.add(new CacheRateStatsListener(buckEventBus));
     eventListenersBuilder.add(new WatchmanDiagnosticEventListener(buckEventBus));
-
+    if (buckConfig.isCriticalPathAnalysisEnabled()) {
+      eventListenersBuilder.add(
+          new BuildTargetDurationListener(
+              invocationInfo,
+              projectFilesystem,
+              MostExecutors.newSingleThreadExecutor(
+                  new CommandThreadFactory(BuildTargetDurationListener.class.getName()))));
+    }
     eventListenersBuilder.addAll(commandSpecificEventListeners);
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
@@ -1776,6 +1799,20 @@ public final class Main {
       specifiedBuildId = UUID.randomUUID().toString();
     }
     return new BuildId(specifiedBuildId);
+  }
+
+  /**
+   * @param buckConfig the configuration for resources
+   * @return a memoized supplier for a ForkJoinPool that will be closed properly if initialized
+   */
+  @VisibleForTesting
+  static CloseableMemoizedSupplier<ForkJoinPool> getForkJoinPoolSupplier(BuckConfig buckConfig) {
+    ResourcesConfig resource = buckConfig.getView(ResourcesConfig.class);
+    return CloseableMemoizedSupplier.of(
+        () ->
+            MostExecutors.forkJoinPoolWithThreadLimit(
+                resource.getMaximumResourceAmounts().getCpu(), 16),
+        ForkJoinPool::shutdownNow);
   }
 
   private static void installUncaughtExceptionHandler(Optional<NGContext> context) {

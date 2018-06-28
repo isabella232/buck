@@ -36,9 +36,18 @@ import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.description.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasInstallHelpers;
+import com.facebook.buck.core.rules.attr.NoopInstallable;
+import com.facebook.buck.core.rules.common.InstallTrigger;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -51,14 +60,6 @@ import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DescriptionCache;
-import com.facebook.buck.rules.HasInstallHelpers;
-import com.facebook.buck.rules.InstallTrigger;
-import com.facebook.buck.rules.NoopInstallable;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
@@ -117,10 +118,9 @@ public class InstallCommand extends BuildCommand {
   @VisibleForTesting static final String UNINSTALL_SHORT_ARG = "-u";
 
   @Option(
-    name = UNINSTALL_LONG_ARG,
-    aliases = {UNINSTALL_SHORT_ARG},
-    usage = "Uninstall the existing version before installing."
-  )
+      name = UNINSTALL_LONG_ARG,
+      aliases = {UNINSTALL_SHORT_ARG},
+      usage = "Uninstall the existing version before installing.")
   private boolean uninstallFirst = false;
 
   @AdditionalOptions @SuppressFieldNotInitialized private UninstallOptions uninstallOptions;
@@ -131,49 +131,43 @@ public class InstallCommand extends BuildCommand {
   private TargetDeviceCommandLineOptions deviceOptions;
 
   @Option(
-    name = "--",
-    usage = "Arguments passed when running with -r. Only valid for Apple targets.",
-    handler = ConsumeAllOptionsHandler.class,
-    depends = "-r"
-  )
+      name = "--",
+      usage = "Arguments passed when running with -r. Only valid for Apple targets.",
+      handler = ConsumeAllOptionsHandler.class,
+      depends = "-r")
   private List<String> runArgs = new ArrayList<>();
 
   @Option(
-    name = RUN_LONG_ARG,
-    aliases = {RUN_SHORT_ARG},
-    usage = "Run an activity (the default activity for package unless -a is specified)."
-  )
+      name = RUN_LONG_ARG,
+      aliases = {RUN_SHORT_ARG},
+      usage = "Run an activity (the default activity for package unless -a is specified).")
   private boolean run = false;
 
   @Option(
-    name = WAIT_FOR_DEBUGGER_LONG_ARG,
-    aliases = {WAIT_FOR_DEBUGGER_SHORT_ARG},
-    usage = "Have the launched process wait for the debugger"
-  )
+      name = WAIT_FOR_DEBUGGER_LONG_ARG,
+      aliases = {WAIT_FOR_DEBUGGER_SHORT_ARG},
+      usage = "Have the launched process wait for the debugger")
   private boolean waitForDebugger = false;
 
   @Option(
-    name = INSTALL_VIA_SD_LONG_ARG,
-    aliases = {INSTALL_VIA_SD_SHORT_ARG},
-    usage = "Copy package to external storage (SD) instead of /data/local/tmp before installing."
-  )
+      name = INSTALL_VIA_SD_LONG_ARG,
+      aliases = {INSTALL_VIA_SD_SHORT_ARG},
+      usage = "Copy package to external storage (SD) instead of /data/local/tmp before installing.")
   private boolean installViaSd = false;
 
   @Option(
-    name = ACTIVITY_LONG_ARG,
-    aliases = {ACTIVITY_SHORT_ARG},
-    metaVar = "<pkg/activity>",
-    usage = "Activity to launch e.g. com.facebook.katana/.LoginActivity. Implies -r."
-  )
+      name = ACTIVITY_LONG_ARG,
+      aliases = {ACTIVITY_SHORT_ARG},
+      metaVar = "<pkg/activity>",
+      usage = "Activity to launch e.g. com.facebook.katana/.LoginActivity. Implies -r.")
   @Nullable
   private String activity = null;
 
   @Option(
-    name = PROCESS_LONG_ARG,
-    aliases = {PROCESS_SHORT_ARG},
-    metaVar = "<pkg:process>",
-    usage = "Process to kill after install e.g. com.facebook.katana[:proc1]. Implies -r."
-  )
+      name = PROCESS_LONG_ARG,
+      aliases = {PROCESS_SHORT_ARG},
+      metaVar = "<pkg:process>",
+      usage = "Process to kill after install e.g. com.facebook.katana[:proc1]. Implies -r.")
   @Nullable
   private String process = null;
 
@@ -246,7 +240,7 @@ public class InstallCommand extends BuildCommand {
   protected Iterable<BuildTarget> getAdditionalTargetsToBuild(
       GraphsAndBuildTargets graphsAndBuildTargets) {
     BuildRuleResolver resolver =
-        graphsAndBuildTargets.getGraphs().getActionGraphAndResolver().getResolver();
+        graphsAndBuildTargets.getGraphs().getActionGraphAndBuilder().getActionGraphBuilder();
     ImmutableList.Builder<BuildTarget> builder = ImmutableList.builder();
     builder.addAll(super.getAdditionalTargetsToBuild(graphsAndBuildTargets));
     for (BuildTarget target : graphsAndBuildTargets.getBuildTargets()) {
@@ -278,9 +272,9 @@ public class InstallCommand extends BuildCommand {
 
     for (BuildTarget buildTarget : buildRunResult.getBuildTargets()) {
 
-      BuildRule buildRule = build.getRuleResolver().requireRule(buildTarget);
+      BuildRule buildRule = build.getGraphBuilder().requireRule(buildTarget);
       SourcePathResolver pathResolver =
-          DefaultSourcePathResolver.from(new SourcePathRuleFinder(build.getRuleResolver()));
+          DefaultSourcePathResolver.from(new SourcePathRuleFinder(build.getGraphBuilder()));
 
       if (buildRule instanceof HasInstallableApk) {
         exitCode =
@@ -510,8 +504,8 @@ public class InstallCommand extends BuildCommand {
     Path helperPath;
     Optional<BuildTarget> helperTarget = appleConfig.getAppleDeviceHelperTarget();
     if (helperTarget.isPresent()) {
-      BuildRuleResolver resolver = getBuild().getRuleResolver();
-      BuildRule buildRule = resolver.requireRule(helperTarget.get());
+      ActionGraphBuilder graphBuilder = getBuild().getGraphBuilder();
+      BuildRule buildRule = graphBuilder.requireRule(helperTarget.get());
       if (buildRule == null) {
         params
             .getConsole()

@@ -19,8 +19,11 @@ package com.facebook.buck.features.go;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.features.go.GoListStep.FileType;
@@ -28,9 +31,6 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -38,10 +38,10 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -126,7 +126,7 @@ public class GoDescriptorsTest {
 
   @Test
   public void testBuildRuleAsSrcAddsRuleToDependencies() {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     GoPlatform goPlatform = GoTestUtils.DEFAULT_PLATFORM.withGoArch("amd64").withGoOs("linux");
     ProjectFilesystem filesystem =
@@ -138,7 +138,7 @@ public class GoDescriptorsTest {
     GenruleBuilder.newGenruleBuilder(srcTarget)
         .setOut("out.go")
         .setCmd("echo 'test' > $OUT")
-        .build(resolver);
+        .build(graphBuilder);
 
     BuildRuleParams params = TestBuildRuleParams.create();
     GoBuckConfig goBuckConfig = new GoBuckConfig(FakeBuckConfig.builder().build());
@@ -148,7 +148,7 @@ public class GoDescriptorsTest {
             target,
             filesystem,
             params,
-            resolver,
+            graphBuilder,
             goBuckConfig,
             Paths.get("package"),
             ImmutableSet.of(
@@ -158,7 +158,7 @@ public class GoDescriptorsTest {
             ImmutableList.of(),
             goPlatform,
             ImmutableList.of(),
-            ImmutableSortedSet.of(),
+            Optional.empty(),
             Arrays.asList(FileType.GoFiles));
 
     Assert.assertTrue(
@@ -172,7 +172,7 @@ public class GoDescriptorsTest {
 
   @Test
   public void testBuildRuleAsSrcAddsRuleToDependenciesOfBinary() {
-    BuildRuleResolver resolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     GoPlatform goPlatform = GoTestUtils.DEFAULT_PLATFORM;
     ProjectFilesystem filesystem =
@@ -184,7 +184,7 @@ public class GoDescriptorsTest {
     GenruleBuilder.newGenruleBuilder(srcTarget)
         .setOut("out.go")
         .setCmd("echo 'test' > $OUT")
-        .build(resolver);
+        .build(graphBuilder);
 
     BuildRuleParams params = TestBuildRuleParams.create();
     GoBuckConfig goBuckConfig = new GoBuckConfig(FakeBuckConfig.builder().build());
@@ -194,7 +194,7 @@ public class GoDescriptorsTest {
             target,
             filesystem,
             params,
-            resolver,
+            graphBuilder,
             goBuckConfig,
             ImmutableSet.of(
                 PathSourcePath.of(filesystem, Paths.get("not_build_target.go")),
@@ -203,7 +203,7 @@ public class GoDescriptorsTest {
             ImmutableList.of(),
             ImmutableList.of(),
             goPlatform,
-            ImmutableSortedSet.of());
+            Optional.empty());
 
     System.out.println(binary.getBuildDeps());
     GoCompile compile =

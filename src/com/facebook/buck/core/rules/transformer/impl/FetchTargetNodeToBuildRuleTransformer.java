@@ -16,25 +16,26 @@
 
 package com.facebook.buck.core.rules.transformer.impl;
 
-import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.description.DescriptionCache;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSet;
 
 public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildRuleTransformer {
 
-  private final ImmutableSet<Description<?>> descriptions;
+  private final ImmutableSet<DescriptionWithTargetGraph<?>> descriptions;
   // TODO(simons): Allow the TargetToActionGraph to be stateless.
   private final ImmutableSet.Builder<BuildTarget> downloadableTargets;
   private final DefaultTargetNodeToBuildRuleTransformer delegate;
 
-  public FetchTargetNodeToBuildRuleTransformer(ImmutableSet<Description<?>> descriptions) {
+  public FetchTargetNodeToBuildRuleTransformer(
+      ImmutableSet<DescriptionWithTargetGraph<?>> descriptions) {
     this.descriptions = descriptions;
 
     this.downloadableTargets = ImmutableSet.builder();
@@ -42,13 +43,13 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
   }
 
   @Override
-  public <T, U extends Description<T>> BuildRule transform(
-      CellProvider cellProvider,
+  public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+      ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       TargetNode<T, U> targetNode) {
     TargetNode<?, ?> node = substituteTargetNodeIfNecessary(targetNode);
-    return delegate.transform(cellProvider, targetGraph, ruleResolver, node);
+    return delegate.transform(toolchainProvider, targetGraph, graphBuilder, node);
   }
 
   public ImmutableSet<BuildTarget> getDownloadableTargets() {
@@ -56,7 +57,7 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
   }
 
   private TargetNode<?, ?> substituteTargetNodeIfNecessary(TargetNode<?, ?> node) {
-    for (Description<?> description : descriptions) {
+    for (DescriptionWithTargetGraph<?> description : descriptions) {
       if (node.getBuildRuleType().equals(DescriptionCache.getBuildRuleType(description))) {
         downloadableTargets.add(node.getBuildTarget());
         return node.copyWithDescription(description);

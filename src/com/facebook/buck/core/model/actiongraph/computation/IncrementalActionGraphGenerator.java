@@ -18,14 +18,16 @@ package com.facebook.buck.core.model.actiongraph.computation;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.event.ActionGraphEvent;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,25 +37,26 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * Provides a way to incrementally construct a new {@link BuildRuleResolver} from a previous one.
+ * Provides a way to incrementally construct a new {@link ActionGraphBuilder} from a previous one.
  *
- * <p>This works by grabbing all the build rules from the previous {@link BuildRuleResolver} with
+ * <p>This works by grabbing all the build rules from the previous {@link ActionGraphBuilder} with
  * unflavored targets that were not invalidated when doing a target graph walk to check for changes.
  */
 public class IncrementalActionGraphGenerator {
   private static final Logger LOG = Logger.get(IncrementalActionGraphGenerator.class);
 
-  @Nullable private BuildRuleResolver lastRuleResolver;
+  @Nullable private ActionGraphBuilder lastActionGraphBuilder;
   @Nullable private TargetGraph lastTargetGraph;
 
   /**
-   * Populates the given {@link BuildRuleResolver} with the rules from the previously used {@link
-   * BuildRuleResolver} that are deemed usable after checking for invalidations with a target graph
+   * Populates the given {@link ActionGraphBuilder} with the rules from the previously used {@link
+   * ActionGraphBuilder} that are deemed usable after checking for invalidations with a target graph
    * walk.
    */
-  public void populateRuleResolverWithCachedRules(
-      TargetGraph targetGraph, BuildRuleResolver ruleResolver) {
-    if (lastRuleResolver != null) {
+  public void populateActionGraphBuilderWithCachedRules(
+      BuckEventBus eventBus, TargetGraph targetGraph, ActionGraphBuilder graphBuilder) {
+    int reusedRuleCount = 0;
+    if (lastActionGraphBuilder != null) {
       // We figure out which build rules we can reuse from the last action graph by performing an
       // invalidation walk over the new target graph.
       Map<BuildTarget, Boolean> explored = new HashMap<>();
@@ -64,37 +67,40 @@ public class IncrementalActionGraphGenerator {
 
       // Now we can load in all build rules whose unflavored targets weren't invalidated for
       // incremental action graph generation.
-      addValidRulesToRuleResolver(ruleResolver, validTargets);
+      reusedRuleCount = addValidRulesToActionGraphBuilder(graphBuilder, validTargets);
 
-      // Invalidate the previous {@see BuildRuleResolver}, which we no longer need, to make sure
+      // Invalidate the previous {@see ActionGraphBuilder}, which we no longer need, to make sure
       // nobody unexpectedly accesses it after this point.
-      lastRuleResolver.invalidate();
+      lastActionGraphBuilder.invalidate();
     }
 
     lastTargetGraph = targetGraph;
-    lastRuleResolver = ruleResolver;
+    lastActionGraphBuilder = graphBuilder;
+    eventBus.post(new ActionGraphEvent.IncrementalLoad(reusedRuleCount));
   }
 
-  private void addValidRulesToRuleResolver(
-      BuildRuleResolver ruleResolver, Set<UnflavoredBuildTarget> validTargets) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+  private int addValidRulesToActionGraphBuilder(
+      ActionGraphBuilder graphBuilder, Set<UnflavoredBuildTarget> validTargets) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     int totalRuleCount = 0;
-    int loadedRuleCount = 0;
-    for (BuildRule buildRule : lastRuleResolver.getBuildRules()) {
+    int reusedRuleCount = 0;
+    for (BuildRule buildRule : lastActionGraphBuilder.getBuildRules()) {
       if (validTargets.contains(buildRule.getBuildTarget().getUnflavoredBuildTarget())) {
-        ruleResolver.addToIndex(buildRule);
+        graphBuilder.addToIndex(buildRule);
 
         // Update build rule resolvers for all reused rules. Build rules may use build rule
         // resolvers to locate and construct other build rules during construction. Furthermore, if
         // we didn't update them, we'd leak previous action graphs.
-        buildRule.updateBuildRuleResolver(ruleResolver, ruleFinder, pathResolver);
+        buildRule.updateBuildRuleResolver(graphBuilder, ruleFinder, pathResolver);
 
-        loadedRuleCount++;
+        reusedRuleCount++;
       }
       totalRuleCount++;
     }
-    LOG.debug("loaded %d out of %d build rules incrementally", loadedRuleCount, totalRuleCount);
+
+    LOG.debug("reused %d of %d build rules", reusedRuleCount, totalRuleCount);
+    return reusedRuleCount;
   }
 
   private boolean invalidateChangedTargets(
@@ -135,7 +141,7 @@ public class IncrementalActionGraphGenerator {
           lastTargetGraph.getExactOptional(targetNode.getBuildTarget());
       if (previousTargetNode.isPresent()) {
         Preconditions.checkState(
-            lastRuleResolver.getRuleOptional(targetNode.getBuildTarget()).isPresent());
+            lastActionGraphBuilder.getRuleOptional(targetNode.getBuildTarget()).isPresent());
         // If the target node has changed, then invalidate parent chains, as ancestors might
         // generate their subgraphs differently given the change.
         if (!targetNode.equals(previousTargetNode.get())) {
@@ -148,7 +154,8 @@ public class IncrementalActionGraphGenerator {
         }
       }
     }
-    // Incremental caching is only supported for {@link Description}s known to be safe. This is
+    // Incremental caching is only supported for {@link Description}s known to
+    // be safe. This is
     // because we cannot generally guarantee that descriptions won't do crazy things that violate
     // our assumptions during their construction.
     if (!targetNode.getDescription().producesCacheableSubgraph()) {

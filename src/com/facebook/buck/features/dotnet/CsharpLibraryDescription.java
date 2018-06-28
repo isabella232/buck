@@ -16,22 +16,23 @@
 
 package com.facebook.buck.features.dotnet;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.immutables.value.Value;
 
-public class CsharpLibraryDescription implements Description<CsharpLibraryDescriptionArg> {
+public class CsharpLibraryDescription
+    implements DescriptionWithTargetGraph<CsharpLibraryDescriptionArg> {
 
   @Override
   public Class<CsharpLibraryDescriptionArg> getConstructorArgType() {
@@ -40,12 +41,12 @@ public class CsharpLibraryDescription implements Description<CsharpLibraryDescri
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       CsharpLibraryDescriptionArg args) {
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    BuildRuleResolver resolver = context.getActionGraphBuilder();
     ImmutableList.Builder<Either<BuildRule, String>> refsAsRules = ImmutableList.builder();
     for (Either<BuildTarget, String> ref : args.getDeps()) {
       if (ref.isLeft()) {

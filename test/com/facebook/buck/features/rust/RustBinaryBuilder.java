@@ -17,17 +17,19 @@
 package com.facebook.buck.features.rust;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class RustBinaryBuilder
     extends AbstractNodeBuilder<
-        RustBinaryDescriptionArg.Builder, RustBinaryDescriptionArg, RustBinaryDescription,
+        RustBinaryDescriptionArg.Builder,
+        RustBinaryDescriptionArg,
+        RustBinaryDescription,
         BuildRule> {
 
   private RustBinaryBuilder(RustBinaryDescription description, BuildTarget target) {

@@ -19,13 +19,13 @@ package com.facebook.buck.rules.tool.config;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleResolver;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -51,7 +51,12 @@ abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
     } else {
       return Optional.of(
           new ConstantToolProvider(
-              new HashedFileTool(() -> getDelegate().getPathSourcePath(Paths.get(value.get())))));
+              new HashedFileTool(
+                  () ->
+                      getDelegate()
+                          .getPathSourcePath(
+                              Paths.get(value.get()),
+                              String.format("Overridden %s:%s path not found", section, field)))));
     }
   }
 

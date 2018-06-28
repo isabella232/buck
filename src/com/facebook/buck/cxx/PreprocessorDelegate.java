@@ -16,11 +16,18 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyAppendable;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
+import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -30,11 +37,7 @@ import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.HasCustomDepsLogic;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
@@ -45,6 +48,7 @@ import com.facebook.buck.rules.modern.ValueTypeInfo;
 import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.WeakMemoizer;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -52,7 +56,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.reflect.TypeToken;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -75,6 +78,8 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
 
   // Fields that added to the rule key with some processing.
   @AddToRuleKey private final PreprocessorFlags preprocessorFlags;
+
+  @AddToRuleKey private final ImmutableSortedSet<String> conflictingHeadersBasenameWhitelist;
 
   // Fields that are not added to the rule key.
   private final PathSourcePath workingDir;
@@ -105,7 +110,8 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
       RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction,
       Optional<SymlinkTree> sandbox,
       Optional<CxxIncludePaths> leadingIncludePaths,
-      Optional<BuildRule> aggregatedDeps) {
+      Optional<BuildRule> aggregatedDeps,
+      ImmutableSortedSet<String> conflictingHeaderBasenameWhitelist) {
     this.preprocessor = preprocessor;
     this.preprocessorFlags = preprocessorFlags;
     this.headerVerification = headerVerification;
@@ -115,6 +121,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
     this.sandbox = sandbox;
     this.leadingIncludePaths = leadingIncludePaths;
     this.aggregatedDeps = aggregatedDeps;
+    this.conflictingHeadersBasenameWhitelist = conflictingHeaderBasenameWhitelist;
   }
 
   public PreprocessorDelegate withLeadingIncludePaths(CxxIncludePaths leadingIncludePaths) {
@@ -126,38 +133,42 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
         this.frameworkPathSearchPathFunction,
         this.sandbox,
         Optional.of(leadingIncludePaths),
-        this.aggregatedDeps);
+        this.aggregatedDeps,
+        conflictingHeadersBasenameWhitelist);
   }
 
   public Preprocessor getPreprocessor() {
     return preprocessor;
   }
 
-  public HeaderPathNormalizer getHeaderPathNormalizer(SourcePathResolver pathResolver) {
+  public HeaderPathNormalizer getHeaderPathNormalizer(BuildContext context) {
     return headerPathNormalizer.get(
         () -> {
-          // Cache the value using the first SourcePathResolver that we're called with. We expect
-          // this whole object to be recreated in cases where this computation would produce
-          // different results.
-          HeaderPathNormalizer.Builder builder = new HeaderPathNormalizer.Builder(pathResolver);
-          for (CxxHeaders include : preprocessorFlags.getIncludes()) {
-            include.addToHeaderPathNormalizer(builder);
+          try (Scope ignored = LeafEvents.scope(context.getEventBus(), "header_path_normalizer")) {
+            // Cache the value using the first SourcePathResolver that we're called with. We expect
+            // this whole object to be recreated in cases where this computation would produce
+            // different results.
+            HeaderPathNormalizer.Builder builder =
+                new HeaderPathNormalizer.Builder(context.getSourcePathResolver());
+            for (CxxHeaders include : preprocessorFlags.getIncludes()) {
+              include.addToHeaderPathNormalizer(builder);
+            }
+            for (FrameworkPath frameworkPath : preprocessorFlags.getFrameworkPaths()) {
+              frameworkPath.getSourcePath().ifPresent(builder::addHeaderDir);
+            }
+            if (preprocessorFlags.getPrefixHeader().isPresent()) {
+              SourcePath headerPath = preprocessorFlags.getPrefixHeader().get();
+              builder.addPrefixHeader(headerPath);
+            }
+            if (sandbox.isPresent()) {
+              ExplicitBuildTargetSourcePath root =
+                  ExplicitBuildTargetSourcePath.of(
+                      sandbox.get().getBuildTarget(),
+                      sandbox.get().getProjectFilesystem().relativize(sandbox.get().getRoot()));
+              builder.addSymlinkTree(root, sandbox.get().getLinks());
+            }
+            return builder.build();
           }
-          for (FrameworkPath frameworkPath : preprocessorFlags.getFrameworkPaths()) {
-            frameworkPath.getSourcePath().ifPresent(builder::addHeaderDir);
-          }
-          if (preprocessorFlags.getPrefixHeader().isPresent()) {
-            SourcePath headerPath = preprocessorFlags.getPrefixHeader().get();
-            builder.addPrefixHeader(headerPath);
-          }
-          if (sandbox.isPresent()) {
-            ExplicitBuildTargetSourcePath root =
-                ExplicitBuildTargetSourcePath.of(
-                    sandbox.get().getBuildTarget(),
-                    sandbox.get().getProjectFilesystem().relativize(sandbox.get().getRoot()));
-            builder.addSymlinkTree(root, sandbox.get().getLinks());
-          }
-          return builder.build();
         });
   }
 
@@ -257,9 +268,9 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
         preprocessor);
   }
 
-  /** @see com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey */
+  /** @see SupportsDependencyFileRuleKey */
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
-      Iterable<Path> dependencies, SourcePathResolver pathResolver) {
+      Iterable<Path> dependencies, BuildContext context) {
     Stream.Builder<SourcePath> inputsBuilder = Stream.builder();
 
     // Add inputs that we always use.
@@ -283,7 +294,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
     // correct (e.g. there may be two `SourcePath` includes with the same relative path, but
     // coming from different cells).  Favor correctness in this case and just add *all*
     // `SourcePath`s that have relative paths matching those specific in the dep file.
-    HeaderPathNormalizer headerPathNormalizer = getHeaderPathNormalizer(pathResolver);
+    HeaderPathNormalizer headerPathNormalizer = getHeaderPathNormalizer(context);
     for (Path absolutePath : dependencies) {
       Preconditions.checkState(absolutePath.isAbsolute());
       inputsBuilder.add(headerPathNormalizer.getSourcePathForAbsolutePath(absolutePath));
@@ -361,6 +372,10 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
       if (cxxHeaders instanceof CxxSymlinkTreeHeaders) {
         CxxSymlinkTreeHeaders symlinkTreeHeaders = (CxxSymlinkTreeHeaders) cxxHeaders;
         for (Map.Entry<Path, SourcePath> entry : symlinkTreeHeaders.getNameToPathMap().entrySet()) {
+          if (conflictingHeadersBasenameWhitelist.contains(
+              entry.getKey().getFileName().toString())) {
+            continue;
+          }
           SourcePath original = headers.put(entry.getKey(), entry.getValue());
           if (original != null && !original.equals(entry.getValue())) {
             return Optional.of(
@@ -415,20 +430,24 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
         ValueTypeInfoFactory.forTypeToken(new TypeToken<PreprocessorFlags>() {});
 
     @Override
-    public void serialize(PreprocessorDelegate instance, ValueVisitor<IOException> serializer)
-        throws IOException {
+    public <E extends Exception> void serialize(
+        PreprocessorDelegate instance, ValueVisitor<E> serializer) throws E {
       PREPROCESSOR_TYPE_INFO.visit(instance.preprocessor, serializer);
       FRAMEWORK_PATH_FUNCTION_TYPE_INFO.visit(instance.frameworkPathSearchPathFunction, serializer);
       HEADER_VERIFICATION_TYPE_INFO.visit(instance.headerVerification, serializer);
       PREPROCESSOR_FLAGS_TYPE_INFO.visit(instance.preprocessorFlags, serializer);
       serializer.visitSourcePath(instance.workingDir);
-      Preconditions.checkState(!instance.leadingIncludePaths.isPresent());
-      Preconditions.checkState(!instance.sandbox.isPresent());
+      serializer.visitInteger(instance.conflictingHeadersBasenameWhitelist.size());
+      RichStream.from(instance.conflictingHeadersBasenameWhitelist)
+          .forEachThrowing(serializer::visitString);
+      Preconditions.checkState(
+          !instance.leadingIncludePaths.isPresent(), "leadingIncludePaths is not serializable.");
+      Preconditions.checkState(!instance.sandbox.isPresent(), "sandbox is not serializable.");
     }
 
     @Override
-    public PreprocessorDelegate deserialize(ValueCreator<IOException> deserializer)
-        throws IOException {
+    public <E extends Exception> PreprocessorDelegate deserialize(ValueCreator<E> deserializer)
+        throws E {
       Preprocessor preprocessor = PREPROCESSOR_TYPE_INFO.createNotNull(deserializer);
       RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction =
           FRAMEWORK_PATH_FUNCTION_TYPE_INFO.createNotNull(deserializer);
@@ -439,6 +458,14 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
       SourcePath workingDirSourcePath = deserializer.createSourcePath();
       Preconditions.checkState(workingDirSourcePath instanceof PathSourcePath);
       PathSourcePath workingDir = (PathSourcePath) workingDirSourcePath;
+      ImmutableSortedSet.Builder<String> conflictingHeadersBasenameWhitelistBuilder =
+          ImmutableSortedSet.naturalOrder();
+      int conflictingHeadersBasenameWhitelistSize = deserializer.createInteger();
+      for (int i = 0; i < conflictingHeadersBasenameWhitelistSize; i++) {
+        conflictingHeadersBasenameWhitelistBuilder.add(deserializer.createString());
+      }
+      ImmutableSortedSet<String> conflictingHeadersBasenameWhitelist =
+          conflictingHeadersBasenameWhitelistBuilder.build();
       return new PreprocessorDelegate(
           headerVerification,
           workingDir,
@@ -447,7 +474,8 @@ final class PreprocessorDelegate implements RuleKeyAppendable, HasCustomDepsLogi
           frameworkPathSearchPathFunction,
           Optional.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          conflictingHeadersBasenameWhitelist);
     }
   }
 }

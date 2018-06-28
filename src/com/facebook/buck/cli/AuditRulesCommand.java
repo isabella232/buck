@@ -21,16 +21,17 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
-import com.facebook.buck.rules.BuckPyFunction;
+import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -43,10 +44,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -70,10 +73,9 @@ public class AuditRulesCommand extends AbstractCommand {
   private static final ImmutableSet<String> LAST_PROPERTIES = ImmutableSet.of("deps", "visibility");
 
   @Option(
-    name = "--type",
-    aliases = {"-t"},
-    usage = "The types of rule to filter by"
-  )
+      name = "--type",
+      aliases = {"-t"},
+      usage = "The types of rule to filter by")
   @Nullable
   private List<String> types = null;
 
@@ -163,13 +165,16 @@ public class AuditRulesCommand extends AbstractCommand {
   private void printRulesToStdout(
       PrintStream stdOut, List<Map<String, Object>> rawRules, Predicate<String> includeType)
       throws IOException {
-    Iterable<Map<String, Object>> filteredRules =
-        FluentIterable.from(rawRules)
+    ImmutableList<Map<String, Object>> filteredRules =
+        rawRules
+            .stream()
             .filter(
                 rawRule -> {
                   String type = (String) rawRule.get(BuckPyFunction.TYPE_PROPERTY_NAME);
                   return includeType.test(type);
-                });
+                })
+            .sorted(Comparator.comparing(rule -> ((String) rule.getOrDefault("name", ""))))
+            .collect(ImmutableList.toImmutableList());
 
     if (json) {
       Map<String, Object> rulesKeyedByName = new HashMap<>();
@@ -182,7 +187,7 @@ public class AuditRulesCommand extends AbstractCommand {
       // We create a new JsonGenerator that does not close the stream.
       try (JsonGenerator generator =
           ObjectMappers.createGenerator(stdOut)
-              .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
+              .disable(Feature.AUTO_CLOSE_TARGET)
               .useDefaultPrettyPrinter()) {
         ObjectMappers.WRITER.writeValue(generator, rulesKeyedByName);
       }
@@ -229,7 +234,7 @@ public class AuditRulesCommand extends AbstractCommand {
     }
 
     // Close the rule definition.
-    out.printf(")\n\n");
+    out.print(")\n\n");
   }
 
   private boolean shouldInclude(@Nullable Object rawValue) {
@@ -273,7 +278,7 @@ public class AuditRulesCommand extends AbstractCommand {
       StringBuilder out = new StringBuilder("{\n");
 
       String indentPlus1 = indent + INDENT;
-      for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+      for (Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
         out.append(indentPlus1)
             .append(createDisplayString(indentPlus1, entry.getKey()))
             .append(": ")

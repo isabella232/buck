@@ -128,6 +128,8 @@ public class ThriftCoordinatorServer implements Closeable {
   private final MinionHealthTracker minionHealthTracker;
   private final DistBuildService distBuildService;
   private final MinionCountProvider minionCountProvider;
+  private final Optional<String> coordinatorMinionId;
+  private final boolean releasingMinionsEarlyEnabled;
   private final Set<String> deadMinions;
 
   private volatile OptionalInt port;
@@ -146,13 +148,17 @@ public class ThriftCoordinatorServer implements Closeable {
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionHealthTracker minionHealthTracker,
       DistBuildService distBuildService,
-      MinionCountProvider minionCountProvider) {
+      MinionCountProvider minionCountProvider,
+      Optional<String> coordinatorMinionId,
+      boolean releasingMinionsEarlyEnabled) {
     this.eventListener = eventListener;
     this.stampedeId = stampedeId;
     this.coordinatorBuildRuleEventsPublisher = coordinatorBuildRuleEventsPublisher;
     this.minionHealthTracker = minionHealthTracker;
     this.distBuildService = distBuildService;
     this.minionCountProvider = minionCountProvider;
+    this.coordinatorMinionId = coordinatorMinionId;
+    this.releasingMinionsEarlyEnabled = releasingMinionsEarlyEnabled;
     this.lock = new Object();
     this.exitCodeFuture = new CompletableFuture<>();
     this.chromeTraceTracker = new DistBuildTraceTracker(stampedeId);
@@ -215,7 +221,7 @@ public class ThriftCoordinatorServer implements Closeable {
       }
     }
 
-    Optional<Integer> totalMinionCount = minionCountProvider.getTotalMinionCount();
+    OptionalInt totalMinionCount = minionCountProvider.getTotalMinionCount();
     totalMinionCount.ifPresent(
         count -> {
           int deadMinionCount = minionHealthStatus.getDeadMinions().size();
@@ -327,7 +333,9 @@ public class ThriftCoordinatorServer implements Closeable {
       LOG.info("Switching Coordinator to Active mode now.");
       BuildTargetsQueue queue = queueFuture.get();
       chromeTraceTracker.setBuildGraph(queue.getDistributableBuildGraph());
-      allocator = new MinionWorkloadAllocator(queue, chromeTraceTracker);
+      allocator =
+          new MinionWorkloadAllocator(
+              queue, chromeTraceTracker, coordinatorMinionId, releasingMinionsEarlyEnabled);
       this.handler =
           new ActiveCoordinatorService(
               allocator, exitCodeFuture, coordinatorBuildRuleEventsPublisher, minionHealthTracker);

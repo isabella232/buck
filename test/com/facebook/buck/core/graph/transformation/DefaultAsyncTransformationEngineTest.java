@@ -26,6 +26,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.LongAdder;
 import org.junit.Assert;
 import org.junit.Before;
@@ -108,7 +112,8 @@ public class DefaultAsyncTransformationEngineTest {
   public void requestOnLeafResultsSameValue() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
     DefaultAsyncTransformationEngine<Long, Long> engine =
-        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size());
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), ForkJoinPool.commonPool());
     assertEquals((Long) 3L, engine.computeUnchecked(3L));
 
     assertComputationIndexBecomesEmpty(engine.computationIndex);
@@ -118,10 +123,34 @@ public class DefaultAsyncTransformationEngineTest {
   public void requestOnRootCorrectValue() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
     DefaultAsyncTransformationEngine<Long, Long> engine =
-        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size());
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), ForkJoinPool.commonPool());
     assertEquals((Long) 19L, engine.computeUnchecked(1L));
 
     assertComputationIndexBecomesEmpty(engine.computationIndex);
+  }
+
+  @SuppressWarnings("PMD.EmptyCatchBlock")
+  @Test
+  public void requestOnRootCorrectValueWithCustomExecutor() {
+    ChildrenAdder transformer = new ChildrenAdder(graph);
+    ExecutorService executor = Executors.newFixedThreadPool(3);
+    DefaultAsyncTransformationEngine<Long, Long> engine =
+        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size(), executor);
+    assertEquals((Long) 19L, engine.computeUnchecked(1L));
+    assertComputationIndexBecomesEmpty(engine.computationIndex);
+
+    executor.shutdown();
+
+    DefaultAsyncTransformationEngine<Long, Long> engine2 =
+        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size(), executor);
+    try {
+      engine2.computeUnchecked(1L);
+      Assert.fail(
+          "Did not expect DefaultAsyncTransformationEngine to compute with an executor that has been shut down");
+    } catch (RejectedExecutionException e) {
+      // this is expected because the custom executor has been shut down
+    }
   }
 
   @Test
@@ -129,7 +158,8 @@ public class DefaultAsyncTransformationEngineTest {
     ChildrenAdder transformer = new ChildrenAdder(graph);
 
     DefaultAsyncTransformationEngine<Long, Long> engine =
-        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size(), cache);
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
     Long result = engine.computeUnchecked(3L);
 
     assertEquals((Long) 3L, result);
@@ -144,7 +174,9 @@ public class DefaultAsyncTransformationEngineTest {
           }
         };
 
-    engine = new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size(), cache);
+    engine =
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
     Long newResult = engine.computeUnchecked(3L);
 
     assertEquals(result, newResult);
@@ -152,14 +184,15 @@ public class DefaultAsyncTransformationEngineTest {
     // all Futures should be removed
     assertComputationIndexBecomesEmpty(engine.computationIndex);
     assertEquals(1, cache.getSize());
-    assertEquals(1, cache.hitStats.get((Long) 3L).intValue());
+    assertEquals(1, cache.hitStats.get(3L).intValue());
   }
 
   @Test
   public void canReusePartiallyCachedResult() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
     DefaultAsyncTransformationEngine<Long, Long> engine =
-        new DefaultAsyncTransformationEngine<>(transformer, graph.nodes().size(), cache);
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
 
     assertEquals((Long) 9L, engine.computeUnchecked(5L));
     assertEquals((Long) 3L, engine.computeUnchecked(3L));
@@ -188,6 +221,9 @@ public class DefaultAsyncTransformationEngineTest {
             return super.transform(node, env);
           }
         };
+    engine =
+        new DefaultAsyncTransformationEngine<>(
+            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
 
     // reuse the cache
     assertEquals((Long) 19L, engine.computeUnchecked(1L));
@@ -195,11 +231,11 @@ public class DefaultAsyncTransformationEngineTest {
     // all Futures should be removed
     assertComputationIndexBecomesEmpty(engine.computationIndex);
     assertEquals(5, cache.getSize());
-    assertEquals(0, cache.hitStats.get((Long) 1L).intValue());
-    assertEquals(0, cache.hitStats.get((Long) 2L).intValue());
-    assertEquals(1, cache.hitStats.get((Long) 5L).intValue());
-    assertEquals(1, cache.hitStats.get((Long) 3L).intValue());
-    assertEquals(1, cache.hitStats.get((Long) 4L).intValue());
+    assertEquals(0, cache.hitStats.get(1L).intValue());
+    assertEquals(0, cache.hitStats.get(2L).intValue());
+    assertEquals(1, cache.hitStats.get(5L).intValue());
+    assertEquals(1, cache.hitStats.get(3L).intValue());
+    assertEquals(1, cache.hitStats.get(4L).intValue());
   }
 
   /**

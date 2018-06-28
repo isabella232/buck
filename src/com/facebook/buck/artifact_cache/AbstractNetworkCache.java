@@ -17,6 +17,7 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent.StoreType;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.EventDispatcher;
@@ -30,6 +31,7 @@ import com.google.common.collect.Maps;
 import java.io.IOException;
 import java.util.Map;
 import java.util.regex.Matcher;
+import javax.annotation.Nullable;
 
 public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
 
@@ -91,9 +93,9 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
     }
 
     @Override
-    public FetchRequestEvents fetchStarted(RuleKey ruleKey) {
+    public FetchRequestEvents fetchStarted(@Nullable BuildTarget target, RuleKey ruleKey) {
       HttpArtifactCacheEvent.Started startedEvent =
-          HttpArtifactCacheEvent.newFetchStartedEvent(ruleKey);
+          HttpArtifactCacheEvent.newFetchStartedEvent(target, ruleKey);
       HttpArtifactCacheEvent.Finished.Builder eventBuilder =
           HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent);
       eventBuilder.getFetchBuilder().setRequestedRuleKey(ruleKey);
@@ -101,7 +103,9 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
       return new FetchRequestEvents() {
         @Override
         public void finished(FetchResult fetchResult) {
-          eventBuilder.setTarget(fetchResult.getBuildTarget());
+          if (!startedEvent.getTarget().isPresent()) {
+            eventBuilder.setTarget(fetchResult.getBuildTarget());
+          }
           eventBuilder
               .getFetchBuilder()
               .setAssociatedRuleKeys(fetchResult.getAssociatedRuleKeys().orElse(ImmutableSet.of()))
@@ -122,11 +126,12 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
     }
 
     @Override
-    public MultiFetchRequestEvents multiFetchStarted(ImmutableList<RuleKey> ruleKeys) {
+    public MultiFetchRequestEvents multiFetchStarted(
+        ImmutableList<BuildTarget> targets, ImmutableList<RuleKey> ruleKeys) {
       Joiner ruleKeysStr = Joiner.on(", ");
       LOG.debug("multiFetchStarted for <%s>.", ruleKeysStr.join(ruleKeys));
       HttpArtifactCacheEvent.MultiFetchStarted startedEvent =
-          HttpArtifactCacheEvent.newMultiFetchStartedEvent(ruleKeys);
+          HttpArtifactCacheEvent.newMultiFetchStartedEvent(targets, ruleKeys);
       HttpArtifactCacheEvent.Finished.Builder eventBuilder =
           HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent);
       dispatcher.post(startedEvent);

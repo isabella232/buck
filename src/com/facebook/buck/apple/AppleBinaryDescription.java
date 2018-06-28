@@ -22,12 +22,23 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.description.MetadataProvidingDescription;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -49,17 +60,6 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
-import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -83,7 +83,7 @@ import java.util.Set;
 import org.immutables.value.Value;
 
 public class AppleBinaryDescription
-    implements Description<AppleBinaryDescriptionArg>,
+    implements DescriptionWithTargetGraph<AppleBinaryDescriptionArg>,
         Flavored,
         ImplicitDepsInferringDescription<AppleBinaryDescription.AbstractAppleBinaryDescriptionArg>,
         ImplicitFlavorsInferringDescription,
@@ -188,7 +188,7 @@ public class AppleBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AppleBinaryDescriptionArg args) {
@@ -200,7 +200,7 @@ public class AppleBinaryDescription
           buildTarget,
           context.getProjectFilesystem(),
           params,
-          context.getBuildRuleResolver(),
+          context.getActionGraphBuilder(),
           appleCxxPlatformsFlavorDomain,
           args);
     } else {
@@ -209,7 +209,7 @@ public class AppleBinaryDescription
           buildTarget,
           context.getProjectFilesystem(),
           params,
-          context.getBuildRuleResolver(),
+          context.getActionGraphBuilder(),
           context.getCellPathResolver(),
           appleCxxPlatformsFlavorDomain,
           args);
@@ -235,11 +235,11 @@ public class AppleBinaryDescription
   }
 
   private BuildRule createBinaryBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain,
       AppleBinaryDescriptionArg args) {
@@ -255,7 +255,7 @@ public class AppleBinaryDescription
             unstrippedBinaryBuildTarget,
             projectFilesystem,
             params,
-            resolver,
+            graphBuilder,
             cellRoots,
             appleCxxPlatformsFlavorDomain,
             args);
@@ -266,7 +266,7 @@ public class AppleBinaryDescription
           buildTarget,
           projectFilesystem,
           params,
-          resolver,
+          graphBuilder,
           cellRoots,
           appleCxxPlatformsFlavorDomain,
           args,
@@ -278,11 +278,11 @@ public class AppleBinaryDescription
   }
 
   private BuildRule createAppleDebuggableBinary(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain,
       AppleBinaryDescriptionArg args,
@@ -300,14 +300,14 @@ public class AppleBinaryDescription
             strippedBinaryBuildTarget,
             projectFilesystem,
             params,
-            resolver,
+            graphBuilder,
             cellRoots,
             appleCxxPlatformsFlavorDomain,
             args);
     return AppleDescriptions.createAppleDebuggableBinary(
         unstrippedBinaryBuildTarget,
         projectFilesystem,
-        resolver,
+        graphBuilder,
         strippedBinaryRule,
         unstrippedBinaryRule,
         AppleDebugFormat.FLAVOR_DOMAIN.getRequiredValue(buildTarget),
@@ -321,7 +321,7 @@ public class AppleBinaryDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain,
       AppleBinaryDescriptionArg args) {
     if (!args.getInfoPlist().isPresent()) {
@@ -334,7 +334,8 @@ public class AppleBinaryDescription
             .getValue(buildTarget)
             .orElse(appleConfig.getDefaultDebugInfoFormatForBinaries());
     if (!buildTarget.getFlavors().contains(flavoredDebugFormat.getFlavor())) {
-      return resolver.requireRule(buildTarget.withAppendedFlavors(flavoredDebugFormat.getFlavor()));
+      return graphBuilder.requireRule(
+          buildTarget.withAppendedFlavors(flavoredDebugFormat.getFlavor()));
     }
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
     FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
@@ -348,10 +349,10 @@ public class AppleBinaryDescription
               .getAppleSdk()
               .getApplePlatform();
       if (applePlatform.getAppIncludesFrameworks()) {
-        return resolver.requireRule(
+        return graphBuilder.requireRule(
             buildTarget.withAppendedFlavors(AppleDescriptions.INCLUDE_FRAMEWORKS_FLAVOR));
       }
-      return resolver.requireRule(
+      return graphBuilder.requireRule(
           buildTarget.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR));
     }
     BuildTarget binaryTarget = buildTarget.withoutFlavors(APP_FLAVOR);
@@ -363,7 +364,7 @@ public class AppleBinaryDescription
         buildTarget,
         projectFilesystem,
         params,
-        resolver,
+        graphBuilder,
         toolchainProvider.getByName(
             CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
         toolchainProvider.getByName(
@@ -384,15 +385,16 @@ public class AppleBinaryDescription
         AppleAssetCatalogsCompilationOptions.builder().build(),
         ImmutableList.of(),
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        appleConfig.getCodesignTimeout());
   }
 
   private BuildRule createBinary(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain,
       AppleBinaryDescriptionArg args) {
@@ -411,7 +413,7 @@ public class AppleBinaryDescription
             thinTarget,
             projectFilesystem,
             params,
-            resolver,
+            graphBuilder,
             cellRoots,
             appleCxxPlatformsFlavorDomain,
             args);
@@ -425,20 +427,25 @@ public class AppleBinaryDescription
                 thinTarget,
                 projectFilesystem,
                 params,
-                resolver,
+                graphBuilder,
                 cellRoots,
                 appleCxxPlatformsFlavorDomain,
                 args));
       }
       return MultiarchFileInfos.requireMultiarchRule(
-          buildTarget, projectFilesystem, params, resolver, fatBinaryInfo.get(), thinRules.build());
+          buildTarget,
+          projectFilesystem,
+          params,
+          graphBuilder,
+          fatBinaryInfo.get(),
+          thinRules.build());
     } else {
       return requireThinBinary(
           context,
           buildTarget,
           projectFilesystem,
           params,
-          resolver,
+          graphBuilder,
           cellRoots,
           appleCxxPlatformsFlavorDomain,
           args);
@@ -446,23 +453,24 @@ public class AppleBinaryDescription
   }
 
   private BuildRule requireThinBinary(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain,
       AppleBinaryDescriptionArg args) {
 
-    return resolver.computeIfAbsent(
+    return graphBuilder.computeIfAbsent(
         buildTarget,
         ignored -> {
           ImmutableSortedSet<BuildTarget> extraCxxDeps;
           Optional<BuildRule> swiftCompanionBuildRule =
               swiftDelegate.flatMap(
                   swift ->
-                      swift.createCompanionBuildRule(context, buildTarget, params, resolver, args));
+                      swift.createCompanionBuildRule(
+                          context, buildTarget, params, graphBuilder, args));
           if (swiftCompanionBuildRule.isPresent()
               && SwiftLibraryDescription.isSwiftTarget(buildTarget)) {
             // when creating a swift target, there is no need to proceed with apple binary rules,
@@ -474,7 +482,7 @@ public class AppleBinaryDescription
             extraCxxDeps = ImmutableSortedSet.of();
           }
 
-          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
           SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
           Optional<Path> stubBinaryPath =
@@ -522,7 +530,7 @@ public class AppleBinaryDescription
             return cxxBinaryFactory.createBuildRule(
                 buildTarget,
                 projectFilesystem,
-                resolver,
+                graphBuilder,
                 cellRoots,
                 delegateArg.build(),
                 extraCxxDeps);
@@ -576,7 +584,7 @@ public class AppleBinaryDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       AppleBinaryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
@@ -584,12 +592,12 @@ public class AppleBinaryDescription
     if (!metadataClass.isAssignableFrom(FrameworkDependencies.class)) {
       CxxBinaryDescriptionArg.Builder delegateArg = CxxBinaryDescriptionArg.builder().from(args);
       AppleDescriptions.populateCxxBinaryDescriptionArg(
-          DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
+          DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)),
           delegateArg,
           args,
           buildTarget);
       return cxxBinaryMetadataFactory.createMetadata(
-          buildTarget, resolver, delegateArg.build().getDeps(), metadataClass);
+          buildTarget, graphBuilder, delegateArg.build().getDeps(), metadataClass);
     }
 
     if (metadataClass.isAssignableFrom(HasEntitlementsFile.class)) {
@@ -605,7 +613,7 @@ public class AppleBinaryDescription
     ImmutableSet.Builder<SourcePath> sourcePaths = ImmutableSet.builder();
     for (BuildTarget dep : args.getDeps()) {
       Optional<FrameworkDependencies> frameworks =
-          resolver.requireMetadata(
+          graphBuilder.requireMetadata(
               dep.withAppendedFlavors(
                   AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR, cxxPlatformFlavor.get()),
               FrameworkDependencies.class);

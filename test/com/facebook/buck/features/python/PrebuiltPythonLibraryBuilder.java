@@ -17,14 +17,16 @@
 package com.facebook.buck.features.python;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class PrebuiltPythonLibraryBuilder
     extends AbstractNodeBuilder<
-        PrebuiltPythonLibraryDescriptionArg.Builder, PrebuiltPythonLibraryDescriptionArg,
-        PrebuiltPythonLibraryDescription, PrebuiltPythonLibrary> {
+        PrebuiltPythonLibraryDescriptionArg.Builder,
+        PrebuiltPythonLibraryDescriptionArg,
+        PrebuiltPythonLibraryDescription,
+        PrebuiltPythonLibrary> {
 
   PrebuiltPythonLibraryBuilder(BuildTarget target) {
     super(new PrebuiltPythonLibraryDescription(), target);

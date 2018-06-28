@@ -19,29 +19,27 @@ package com.facebook.buck.features.d;
 import static com.facebook.buck.features.d.DDescriptionUtils.SOURCE_LINK_TREE;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -52,7 +50,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
 public class DBinaryDescription
-    implements Description<DBinaryDescriptionArg>,
+    implements DescriptionWithTargetGraph<DBinaryDescriptionArg>,
         ImplicitDepsInferringDescription<DBinaryDescription.AbstractDBinaryDescriptionArg>,
         VersionRoot<DBinaryDescriptionArg> {
 
@@ -76,13 +74,13 @@ public class DBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       DBinaryDescriptionArg args) {
 
-    BuildRuleResolver buildRuleResolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
@@ -92,8 +90,7 @@ public class DBinaryDescription
     }
 
     SymlinkTree sourceTree =
-        (SymlinkTree)
-            buildRuleResolver.requireRule(DDescriptionUtils.getSymlinkTreeTarget(buildTarget));
+        (SymlinkTree) graphBuilder.requireRule(DDescriptionUtils.getSymlinkTreeTarget(buildTarget));
 
     // Create a rule that actually builds the binary, and add that
     // rule to the index.
@@ -103,8 +100,8 @@ public class DBinaryDescription
             buildTarget.withAppendedFlavors(BINARY_FLAVOR),
             projectFilesystem,
             params,
-            buildRuleResolver,
-            getCxxPlatform(),
+            graphBuilder,
+            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig),
             dBuckConfig,
             cxxBuckConfig,
             /* compilerFlags */ ImmutableList.of(),
@@ -114,7 +111,7 @@ public class DBinaryDescription
                 .setLinkTree(sourceTree.getSourcePathToOutput())
                 .addAllSources(args.getSrcs().getPaths())
                 .build());
-    buildRuleResolver.addToIndex(nativeLinkable);
+    graphBuilder.addToIndex(nativeLinkable);
 
     // Create a Tool for the executable.
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
@@ -137,13 +134,9 @@ public class DBinaryDescription
       AbstractDBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(getCxxPlatform()));
-  }
-
-  private CxxPlatform getCxxPlatform() {
-    CxxPlatformsProvider cxxPlatformsProviderFactory =
-        toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    return cxxPlatformsProviderFactory.getDefaultCxxPlatform();
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(
+            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig)));
   }
 
   @BuckStyleImmutable

@@ -17,12 +17,21 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -33,15 +42,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -63,11 +63,11 @@ import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import org.immutables.value.Value;
 
 public class CxxTestDescription
-    implements Description<CxxTestDescriptionArg>,
+    implements DescriptionWithTargetGraph<CxxTestDescriptionArg>,
         Flavored,
         ImplicitDepsInferringDescription<CxxTestDescription.AbstractCxxTestDescriptionArg>,
         MetadataProvidingDescription<CxxTestDescriptionArg>,
@@ -146,7 +146,7 @@ public class CxxTestDescription
   @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget inputBuildTarget,
       BuildRuleParams params,
       CxxTestDescriptionArg args) {
@@ -160,8 +160,8 @@ public class CxxTestDescription
     BuildTarget buildTarget = inputBuildTarget;
 
     CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
 
@@ -170,7 +170,7 @@ public class CxxTestDescription
           CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
               buildTarget.withoutFlavors(CxxCompilationDatabase.COMPILATION_DATABASE),
               projectFilesystem,
-              resolver,
+              graphBuilder,
               cellRoots,
               cxxBuckConfig,
               cxxPlatform,
@@ -188,12 +188,12 @@ public class CxxTestDescription
               ? buildTarget
               : buildTarget.withAppendedFlavors(cxxPlatform.getFlavor()),
           projectFilesystem,
-          resolver);
+          graphBuilder);
     }
 
     if (buildTarget.getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
       return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
-          resolver, args, cxxPlatform, buildTarget, projectFilesystem);
+          graphBuilder, args, cxxPlatform, buildTarget, projectFilesystem);
     }
 
     // Generate the link rule that builds the test binary.
@@ -201,7 +201,7 @@ public class CxxTestDescription
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
             buildTarget,
             projectFilesystem,
-            resolver,
+            graphBuilder,
             cellRoots,
             cxxBuckConfig,
             cxxPlatform,
@@ -226,24 +226,22 @@ public class CxxTestDescription
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(cellRoots)
-            .setResolver(resolver)
             .addExpanders(new LocationMacroExpander())
             .build();
 
     // Supplier which expands macros in the passed in test environment.
     ImmutableMap<String, Arg> testEnv =
-        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert));
+        ImmutableMap.copyOf(
+            Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder)));
 
-    // Supplier which expands macros in the passed in test arguments.
-    Supplier<ImmutableList<Arg>> testArgs =
-        () ->
-            args.getArgs()
-                .stream()
-                .map(macrosConverter::convert)
-                .collect(ImmutableList.toImmutableList());
+    ImmutableList<Arg> testArgs =
+        args.getArgs()
+            .stream()
+            .map(x -> macrosConverter.convert(x, graphBuilder))
+            .collect(ImmutableList.toImmutableList());
 
-    Supplier<ImmutableSortedSet<BuildRule>> additionalDeps =
-        () -> {
+    Function<SourcePathRuleFinder, ImmutableSortedSet<BuildRule>> additionalDeps =
+        ruleFinderInner -> {
           ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
 
           // It's not uncommon for users to add dependencies onto other binaries that they run
@@ -253,9 +251,8 @@ public class CxxTestDescription
                   params.getBuildDeps(), cxxLinkAndCompileRules.getBinaryRule().getBuildDeps()));
 
           // Add any build-time from any macros embedded in the `env` or `args` parameter.
-          for (StringWithMacros part : Iterables.concat(args.getArgs(), args.getEnv().values())) {
-            deps.addAll(
-                BuildableSupport.getDepsCollection(macrosConverter.convert(part), ruleFinder));
+          for (Arg part : Iterables.concat(testArgs, testEnv.values())) {
+            deps.addAll(BuildableSupport.getDepsCollection(part, ruleFinderInner));
           }
 
           return deps.build();
@@ -381,13 +378,13 @@ public class CxxTestDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxTestDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) {
     return cxxBinaryMetadataFactory.createMetadata(
-        buildTarget, resolver, args.getDeps(), metadataClass);
+        buildTarget, graphBuilder, args.getDeps(), metadataClass);
   }
 
   @Override

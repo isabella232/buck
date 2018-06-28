@@ -18,7 +18,14 @@ package com.facebook.buck.features.python;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -30,12 +37,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -44,6 +45,7 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
+import com.facebook.buck.util.Memoizer;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.types.Pair;
@@ -56,6 +58,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -63,8 +66,11 @@ import java.util.stream.Stream;
 public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
+  private BuildRuleResolver ruleResolver;
   private final Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps;
-  private final Supplier<ImmutableMap<String, Arg>> env;
+  private final Supplier<? extends SortedSet<BuildRule>> originalExtraDeps;
+  private final Function<BuildRuleResolver, ImmutableMap<String, Arg>> envSupplier;
+  private final Memoizer<ImmutableMap<String, Arg>> env = new Memoizer<>();
   private final PythonBinary binary;
   private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
@@ -75,16 +81,20 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
       Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps,
-      Supplier<ImmutableMap<String, Arg>> env,
+      Supplier<? extends SortedSet<BuildRule>> originalExtraDeps,
+      Function<BuildRuleResolver, ImmutableMap<String, Arg>> envSupplier,
       PythonBinary binary,
       ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
     super(buildTarget, projectFilesystem, params);
+    this.ruleResolver = ruleResolver;
     this.originalDeclaredDeps = originalDeclaredDeps;
-    this.env = env;
+    this.originalExtraDeps = originalExtraDeps;
+    this.envSupplier = envSupplier;
     this.binary = binary;
     this.labels = labels;
     this.neededCoverage = neededCoverage;
@@ -96,17 +106,21 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Supplier<ImmutableMap<String, Arg>> env,
+      BuildRuleResolver ruleResolver,
+      Function<BuildRuleResolver, ImmutableMap<String, Arg>> env,
       PythonBinary binary,
       ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
+
     return new PythonTest(
         buildTarget,
         projectFilesystem,
         params.withDeclaredDeps(ImmutableSortedSet.of(binary)).withoutExtraDeps(),
+        ruleResolver,
         params.getDeclaredDeps(),
+        params.getExtraDeps(),
         env,
         binary,
         labels,
@@ -157,8 +171,12 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private ImmutableMap<String, String> getMergedEnv(SourcePathResolver pathResolver) {
     return new ImmutableMap.Builder<String, String>()
         .putAll(binary.getExecutableCommand().getEnvironment(pathResolver))
-        .putAll(Arg.stringify(env.get(), pathResolver))
+        .putAll(Arg.stringify(getEnv(), pathResolver))
         .build();
+  }
+
+  private ImmutableMap<String, Arg> getEnv() {
+    return env.get(() -> envSupplier.apply(ruleResolver));
   }
 
   @Override
@@ -214,10 +232,10 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return RichStream.<BuildTarget>empty()
         .concat(originalDeclaredDeps.get().stream().map(BuildRule::getBuildTarget))
+        .concat(originalExtraDeps.get().stream().map(BuildRule::getBuildTarget))
         .concat(binary.getRuntimeDeps(ruleFinder))
         .concat(
-            BuildableSupport.getDepsCollection(binary.getExecutableCommand(), ruleFinder)
-                .stream()
+            BuildableSupport.getDeps(binary.getExecutableCommand(), ruleFinder)
                 .map(BuildRule::getBuildTarget));
   }
 
@@ -251,5 +269,13 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.ruleResolver = ruleResolver;
   }
 }

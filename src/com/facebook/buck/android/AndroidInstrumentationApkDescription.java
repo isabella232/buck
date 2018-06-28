@@ -27,10 +27,16 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -38,12 +44,6 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableList;
@@ -54,28 +54,32 @@ import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 public class AndroidInstrumentationApkDescription
-    implements Description<AndroidInstrumentationApkDescriptionArg> {
+    implements DescriptionWithTargetGraph<AndroidInstrumentationApkDescriptionArg> {
 
   private final JavaBuckConfig javaBuckConfig;
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
   private final ApkConfig apkConfig;
+  private final ToolchainProvider toolchainProvider;
 
   public AndroidInstrumentationApkDescription(
       JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig,
-      ApkConfig apkConfig) {
+      ApkConfig apkConfig,
+      ToolchainProvider toolchainProvider) {
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
     this.apkConfig = apkConfig;
+    this.toolchainProvider = toolchainProvider;
   }
 
   @Override
@@ -85,13 +89,13 @@ public class AndroidInstrumentationApkDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AndroidInstrumentationApkDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     params = params.withoutExtraDeps();
-    BuildRule installableApk = resolver.getRule(args.getApk());
+    BuildRule installableApk = graphBuilder.getRule(args.getApk());
     if (!(installableApk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
           "In %s, apk='%s' must be an android_binary() or apk_genrule() but was %s().",
@@ -116,7 +120,6 @@ public class AndroidInstrumentationApkDescription
                 resourceDetails.getResourcesWithNonEmptyResDir(),
                 resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()));
 
-    ToolchainProvider toolchainProvider = context.getToolchainProvider();
     ListeningExecutorService dxExecutorService =
         toolchainProvider
             .getByName(DxToolchain.DEFAULT_NAME, DxToolchain.class)
@@ -146,7 +149,7 @@ public class AndroidInstrumentationApkDescription
             .setShouldProguard(shouldProguard)
             .build();
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     AndroidPlatformTarget androidPlatformTarget =
         toolchainProvider.getByName(
@@ -160,7 +163,7 @@ public class AndroidInstrumentationApkDescription
             context.getProjectFilesystem(),
             androidPlatformTarget,
             params,
-            resolver,
+            graphBuilder,
             args.getAaptMode(),
             ResourceCompressionMode.DISABLED,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
@@ -188,14 +191,14 @@ public class AndroidInstrumentationApkDescription
             /* noVersionTransitionsResources */ false,
             /* noAutoAddOverlayResources */ false,
             javaBuckConfig,
-            JavacFactory.create(ruleFinder, javaBuckConfig, null),
+            JavacFactory.getDefault(toolchainProvider),
             toolchainProvider
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             EnumSet.noneOf(ExopackageMode.class),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFile */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,

@@ -25,7 +25,13 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -35,25 +41,24 @@ import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class AppleLibraryDescriptionTest {
+
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void linkerFlagsLocationMacro() {
@@ -61,18 +66,18 @@ public class AppleLibraryDescriptionTest {
     BuildTarget sandboxTarget =
         BuildTargetFactory.newInstance("//:rule")
             .withFlavors(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR, DefaultCxxPlatforms.FLAVOR);
-    BuildRuleResolver resolver =
-        new TestBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(new AppleLibraryBuilder(sandboxTarget).build()));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildTarget target =
         BuildTargetFactory.newInstance("//:rule")
             .withFlavors(DefaultCxxPlatforms.FLAVOR, CxxDescriptionEnhancer.SHARED_FLAVOR);
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     AppleLibraryBuilder builder =
         new AppleLibraryBuilder(target)
             .setLinkerFlags(
@@ -81,7 +86,7 @@ public class AppleLibraryDescriptionTest {
                         "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.c"))));
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    BuildRule binary = builder.build(resolver);
+    BuildRule binary = builder.build(graphBuilder);
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
@@ -102,14 +107,14 @@ public class AppleLibraryDescriptionTest {
                     SourceWithFlags.of(objCSourcePath), SourceWithFlags.of(swiftSourcePath)))
             .build();
 
-    BuildRuleResolver buildRuleResolver =
-        new TestBuildRuleResolver(TargetGraphFactory.newInstance(binaryNode));
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(TargetGraphFactory.newInstance(binaryNode));
 
     BuildTarget swiftMetadataTarget =
         binaryTarget.withFlavors(
             AppleLibraryDescription.MetadataType.APPLE_SWIFT_METADATA.getFlavor());
     Optional<AppleLibrarySwiftMetadata> metadata =
-        buildRuleResolver.requireMetadata(swiftMetadataTarget, AppleLibrarySwiftMetadata.class);
+        graphBuilder.requireMetadata(swiftMetadataTarget, AppleLibrarySwiftMetadata.class);
     assertTrue(metadata.isPresent());
 
     assertEquals(metadata.get().getNonSwiftSources().size(), 1);
@@ -134,7 +139,7 @@ public class AppleLibraryDescriptionTest {
             .build();
 
     BuildRuleResolver buildRuleResolver =
-        new TestBuildRuleResolver(TargetGraphFactory.newInstance(libNode));
+        new TestActionGraphBuilder(TargetGraphFactory.newInstance(libNode));
 
     final SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
@@ -150,5 +155,15 @@ public class AppleLibraryDescriptionTest {
         containsInAnyOrder(
             StringWithMacrosUtils.format("-fmodule-name=library"),
             StringWithMacrosUtils.format("-DDEBUG=1")));
+  }
+
+  @Test
+  public void noModularBridgingHeader() {
+    thrown.expectMessage("Cannot be modular=True and have a bridging_header in the same rule");
+    AppleLibraryDescriptionArg.builder()
+        .setName("fake")
+        .setModular(true)
+        .setBridgingHeader(FakeSourcePath.of("header.h"))
+        .build();
   }
 }

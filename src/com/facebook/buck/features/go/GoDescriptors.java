@@ -16,16 +16,25 @@
 
 package com.facebook.buck.features.go;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.features.go.GoListStep.FileType;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
@@ -33,12 +42,9 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.SanitizedArg;
+import com.facebook.buck.rules.args.StringArg;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -70,7 +76,7 @@ abstract class GoDescriptors {
   @SuppressWarnings("unchecked")
   public static ImmutableSet<GoLinkable> requireTransitiveGoLinkables(
       BuildTarget sourceTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GoPlatform platform,
       Iterable<BuildTarget> targets,
       boolean includeSelf) {
@@ -80,7 +86,7 @@ abstract class GoDescriptors {
                 input -> {
                   BuildTarget flavoredTarget =
                       input.withAppendedFlavors(platform.getFlavor(), TRANSITIVE_LINKABLES_FLAVOR);
-                  return resolver.requireMetadata(flavoredTarget, ImmutableSet.class).get();
+                  return graphBuilder.requireMetadata(flavoredTarget, ImmutableSet.class).get();
                 });
     if (includeSelf) {
       Preconditions.checkArgument(sourceTarget.getFlavors().contains(TRANSITIVE_LINKABLES_FLAVOR));
@@ -88,18 +94,29 @@ abstract class GoDescriptors {
           linkables.append(
               requireGoLinkable(
                   sourceTarget,
-                  resolver,
+                  graphBuilder,
                   platform,
                   sourceTarget.withoutFlavors(TRANSITIVE_LINKABLES_FLAVOR)));
     }
     return linkables.toSet();
   }
 
+  static CGoLibrary getCGoLibrary(
+      ActionGraphBuilder graphBuilder, GoPlatform platform, BuildTarget cgoBuildTarget) {
+    BuildRule rule =
+        graphBuilder.requireRule(cgoBuildTarget.withAppendedFlavors(platform.getFlavor()));
+    if (!(rule instanceof CGoLibrary)) {
+      throw new HumanReadableException(
+          "%s is not an instance of cgo_library", cgoBuildTarget.getFullyQualifiedName());
+    }
+    return (CGoLibrary) rule;
+  }
+
   static GoCompile createGoCompileRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GoBuckConfig goBuckConfig,
       Path packageName,
       ImmutableSet<SourcePath> srcs,
@@ -107,14 +124,15 @@ abstract class GoDescriptors {
       List<String> assemblerFlags,
       GoPlatform platform,
       Iterable<BuildTarget> deps,
-      ImmutableSortedSet<BuildTarget> cgoDeps,
+      Optional<BuildTarget> cgoBuildTarget,
       List<FileType> goFileTypes) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     Preconditions.checkState(buildTarget.getFlavors().contains(platform.getFlavor()));
 
-    ImmutableSet<GoLinkable> linkables = requireGoLinkables(buildTarget, resolver, platform, deps);
+    ImmutableSet<GoLinkable> linkables =
+        requireGoLinkables(buildTarget, graphBuilder, platform, deps);
 
     ImmutableList.Builder<BuildRule> linkableDepsBuilder = ImmutableList.builder();
     for (GoLinkable linkable : linkables) {
@@ -124,24 +142,17 @@ abstract class GoDescriptors {
     BuildTarget target = createSymlinkTreeTarget(buildTarget);
     SymlinkTree symlinkTree =
         makeSymlinkTree(target, projectFilesystem, ruleFinder, pathResolver, linkables);
-    resolver.addToIndex(symlinkTree);
+    graphBuilder.addToIndex(symlinkTree);
 
     ImmutableList.Builder<SourcePath> extraAsmOutputsBuilder = ImmutableList.builder();
 
     ImmutableSet.Builder<SourcePath> generatedSrcBuilder = ImmutableSet.builder();
-    for (BuildTarget dep : cgoDeps) {
-      BuildRule rule = resolver.requireRule(dep.withAppendedFlavors(platform.getFlavor()));
-      if (!(rule instanceof CGoLibrary)) {
-        throw new HumanReadableException(
-            "%s is not an instance of cgo_library", dep.getFullyQualifiedName());
-      }
-
-      CGoLibrary lib = (CGoLibrary) rule;
+    if (cgoBuildTarget.isPresent()) {
+      CGoLibrary lib = getCGoLibrary(graphBuilder, platform, cgoBuildTarget.get());
       generatedSrcBuilder.addAll(lib.getGeneratedGoSource());
       extraAsmOutputsBuilder.add(lib.getOutput());
-      linkableDepsBuilder
-          .addAll(ruleFinder.filterBuildRuleInputs(lib.getOutput()))
-          .addAll(ruleFinder.filterBuildRuleInputs(lib.getGeneratedGoSource()));
+
+      linkableDepsBuilder.add(lib);
     }
 
     LOG.verbose("Symlink tree for compiling %s: %s", buildTarget, symlinkTree.getLinks());
@@ -197,18 +208,68 @@ abstract class GoDescriptors {
     return ImmutableMap.copyOf(importMapBuilder);
   }
 
+  static ImmutableList<Arg> getCxxLinkerArgs(
+      ActionGraphBuilder graphBuilder,
+      CxxPlatform cxxPlatform,
+      Iterable<BuildRule> deps,
+      Linker.LinkableDepType linkStyle) {
+
+    // find all the CGoLibraries being in direct or non direct dependency to
+    // declared deps
+    ImmutableSet.Builder<BuildRule> linkables = ImmutableSet.builder();
+    new AbstractBreadthFirstTraversal<BuildRule>(deps) {
+      @Override
+      public Iterable<BuildRule> visit(BuildRule rule) {
+        if (rule instanceof CGoLibrary) {
+          linkables.addAll(((CGoLibrary) rule).getLinkableDeps());
+          return ImmutableList.of();
+        }
+        return rule.getBuildDeps();
+      }
+    }.start();
+
+    // cgo library might have C/C++ dependencies which needs to be linked to the
+    // go binary. This piece of code collects the linker args from all the
+    // CGoLibrary cxx dependencies.
+    ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
+    NativeLinkableInput linkableInput =
+        NativeLinkables.getTransitiveNativeLinkableInput(
+            cxxPlatform,
+            graphBuilder,
+            linkables.build(),
+            Linker.LinkableDepType.STATIC_PIC,
+            r -> Optional.empty());
+
+    // skip setting any arg if no linkable inputs are present
+    if (linkableInput.getArgs().size() == 0) {
+      return argsBuilder.build();
+    }
+
+    // pass any platform specific or extra linker flags.
+    argsBuilder.addAll(
+        SanitizedArg.from(
+            cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty()),
+            cxxPlatform.getLdflags()));
+
+    // add all arguments needed to link in the C/C++ platform runtime.
+    argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(linkStyle)));
+    argsBuilder.addAll(linkableInput.getArgs());
+
+    return argsBuilder.build();
+  }
+
   static GoBinary createGoBinaryRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GoBuckConfig goBuckConfig,
       ImmutableSet<SourcePath> srcs,
       List<String> compilerFlags,
       List<String> assemblerFlags,
       List<String> linkerFlags,
       GoPlatform platform,
-      ImmutableSortedSet<BuildTarget> cgoDeps) {
+      Optional<BuildTarget> cgoBuildTarget) {
     BuildTarget libraryTarget =
         buildTarget.withAppendedFlavors(InternalFlavor.of("compile"), platform.getFlavor());
     GoCompile library =
@@ -216,7 +277,7 @@ abstract class GoDescriptors {
             libraryTarget,
             projectFilesystem,
             params,
-            resolver,
+            graphBuilder,
             goBuckConfig,
             Paths.get("main"),
             srcs,
@@ -229,11 +290,11 @@ abstract class GoDescriptors {
                 .stream()
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableList.toImmutableList()),
-            cgoDeps,
+            cgoBuildTarget,
             Arrays.asList(FileType.GoFiles));
-    resolver.addToIndex(library);
+    graphBuilder.addToIndex(library);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = createTransitiveSymlinkTreeTarget(buildTarget);
     SymlinkTree symlinkTree =
@@ -244,7 +305,7 @@ abstract class GoDescriptors {
             pathResolver,
             requireTransitiveGoLinkables(
                 buildTarget,
-                resolver,
+                graphBuilder,
                 platform,
                 params
                     .getDeclaredDeps()
@@ -253,11 +314,11 @@ abstract class GoDescriptors {
                     .map(BuildRule::getBuildTarget)
                     .collect(ImmutableList.toImmutableList()),
                 /* includeSelf */ false));
-    resolver.addToIndex(symlinkTree);
+    graphBuilder.addToIndex(symlinkTree);
 
     LOG.verbose("Symlink tree for linking of %s: %s", buildTarget, symlinkTree);
 
-    Linker cxxLinker = platform.getCxxPlatform().getLd().resolve(resolver);
+    Linker cxxLinker = platform.getCxxPlatform().getLd().resolve(graphBuilder);
     return new GoBinary(
         buildTarget,
         projectFilesystem,
@@ -271,6 +332,11 @@ abstract class GoDescriptors {
                     .build())
             .withoutExtraDeps(),
         Optional.of(cxxLinker),
+        getCxxLinkerArgs(
+            graphBuilder,
+            platform.getCxxPlatform(),
+            library.getBuildDeps(),
+            Linker.LinkableDepType.STATIC_PIC),
         symlinkTree,
         library,
         platform.getLinker(),
@@ -284,10 +350,10 @@ abstract class GoDescriptors {
       BuildTarget sourceBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams sourceParams,
-      BuildRuleResolver resolver,
-      ImmutableSortedSet<BuildTarget> cgoDeps) {
+      ActionGraphBuilder graphBuilder,
+      Optional<BuildTarget> cgoBuildTarget) {
 
-    Optional<Tool> configTool = goBuckConfig.getGoTestMainGenerator(resolver);
+    Optional<Tool> configTool = goBuckConfig.getGoTestMainGenerator(graphBuilder);
     if (configTool.isPresent()) {
       return configTool.get();
     }
@@ -295,12 +361,12 @@ abstract class GoDescriptors {
     // TODO(mikekap): Make a single test main gen, rather than one per test. The generator itself
     // doesn't vary per test.
     BuildRule generator =
-        resolver.computeIfAbsent(
+        graphBuilder.computeIfAbsent(
             sourceBuildTarget.withFlavors(InternalFlavor.of("make-test-main-gen")),
             generatorTarget -> {
               WriteFile writeFile =
                   (WriteFile)
-                      resolver.computeIfAbsent(
+                      graphBuilder.computeIfAbsent(
                           sourceBuildTarget.withAppendedFlavors(
                               InternalFlavor.of("test-main-gen-source")),
                           generatorSourceTarget ->
@@ -318,14 +384,14 @@ abstract class GoDescriptors {
                   sourceParams
                       .withoutDeclaredDeps()
                       .withExtraDeps(ImmutableSortedSet.of(writeFile)),
-                  resolver,
+                  graphBuilder,
                   goBuckConfig,
                   ImmutableSet.of(writeFile.getSourcePathToOutput()),
                   ImmutableList.of(),
                   ImmutableList.of(),
                   ImmutableList.of(),
                   platform,
-                  cgoDeps);
+                  cgoBuildTarget);
             });
 
     return ((BinaryBuildRule) generator).getExecutableCommand();
@@ -349,9 +415,12 @@ abstract class GoDescriptors {
   }
 
   private static GoLinkable requireGoLinkable(
-      BuildTarget sourceRule, BuildRuleResolver resolver, GoPlatform platform, BuildTarget target) {
+      BuildTarget sourceRule,
+      ActionGraphBuilder graphBuilder,
+      GoPlatform platform,
+      BuildTarget target) {
     Optional<GoLinkable> linkable =
-        resolver.requireMetadata(
+        graphBuilder.requireMetadata(
             target.withAppendedFlavors(platform.getFlavor()), GoLinkable.class);
     if (!linkable.isPresent()) {
       throw new HumanReadableException(
@@ -363,14 +432,14 @@ abstract class GoDescriptors {
 
   private static ImmutableSet<GoLinkable> requireGoLinkables(
       BuildTarget sourceTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GoPlatform platform,
       Iterable<BuildTarget> targets) {
     ImmutableSet.Builder<GoLinkable> linkables = ImmutableSet.builder();
     new AbstractBreadthFirstTraversal<BuildTarget>(targets) {
       @Override
       public Iterable<BuildTarget> visit(BuildTarget target) {
-        GoLinkable linkable = requireGoLinkable(sourceTarget, resolver, platform, target);
+        GoLinkable linkable = requireGoLinkable(sourceTarget, graphBuilder, platform, target);
         linkables.add(linkable);
         return linkable.getExportedDeps();
       }

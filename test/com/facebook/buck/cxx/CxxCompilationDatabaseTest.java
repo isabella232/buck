@@ -22,7 +22,10 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -35,12 +38,9 @@ import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyAggregation;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
@@ -71,8 +71,8 @@ public class CxxCompilationDatabaseTest {
     Path fakeRoot = Paths.get(root);
     ProjectFilesystem filesystem = new FakeProjectFilesystem(fakeRoot);
 
-    BuildRuleResolver testBuildRuleResolver = new TestBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(testBuildRuleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver testSourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     HeaderSymlinkTree privateSymlinkTree =
@@ -80,23 +80,23 @@ public class CxxCompilationDatabaseTest {
             testBuildTarget,
             filesystem,
             ruleFinder,
-            testBuildRuleResolver,
+            graphBuilder,
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableMap.of(),
             HeaderVisibility.PRIVATE,
             true);
-    testBuildRuleResolver.addToIndex(privateSymlinkTree);
+    graphBuilder.addToIndex(privateSymlinkTree);
     HeaderSymlinkTree exportedSymlinkTree =
         CxxDescriptionEnhancer.createHeaderSymlinkTree(
             testBuildTarget,
             filesystem,
             ruleFinder,
-            testBuildRuleResolver,
+            graphBuilder,
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableMap.of(),
             HeaderVisibility.PUBLIC,
             true);
-    testBuildRuleResolver.addToIndex(exportedSymlinkTree);
+    graphBuilder.addToIndex(exportedSymlinkTree);
 
     BuildTarget compileTarget = testBuildTarget.withFlavors(InternalFlavor.of("compile-test.cpp"));
 
@@ -123,7 +123,7 @@ public class CxxCompilationDatabaseTest {
     }
     BuildTarget aggregatedDeps = compileTarget.withFlavors(InternalFlavor.of("deps"));
     rules.add(
-        testBuildRuleResolver.addToIndex(
+        graphBuilder.addToIndex(
             CxxPreprocessAndCompile.preprocessAndCompile(
                 compileTarget,
                 filesystem,
@@ -142,7 +142,8 @@ public class CxxCompilationDatabaseTest {
                         new DependencyAggregation(
                             aggregatedDeps,
                             filesystem,
-                            ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree)))),
+                            ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree))),
+                    ImmutableSortedSet.of()),
                 new CompilerDelegate(
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                     new GccCompiler(
@@ -157,7 +158,7 @@ public class CxxCompilationDatabaseTest {
     CxxCompilationDatabase compilationDatabase =
         CxxCompilationDatabase.createCompilationDatabase(
             testBuildTarget, filesystem, rules.build());
-    testBuildRuleResolver.addToIndex(compilationDatabase);
+    graphBuilder.addToIndex(compilationDatabase);
 
     assertThat(
         compilationDatabase.getRuntimeDeps(ruleFinder).collect(ImmutableSet.toImmutableSet()),

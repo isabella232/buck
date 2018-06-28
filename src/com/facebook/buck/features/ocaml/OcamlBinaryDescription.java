@@ -17,18 +17,18 @@
 package com.facebook.buck.features.ocaml;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.OcamlSource;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -43,7 +43,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class OcamlBinaryDescription
-    implements Description<OcamlBinaryDescriptionArg>,
+    implements DescriptionWithTargetGraph<OcamlBinaryDescriptionArg>,
         ImplicitDepsInferringDescription<OcamlBinaryDescription.AbstractOcamlBinaryDescriptionArg>,
         VersionRoot<OcamlBinaryDescriptionArg> {
 
@@ -69,7 +69,7 @@ public class OcamlBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       OcamlBinaryDescriptionArg args) {
@@ -85,7 +85,7 @@ public class OcamlBinaryDescription
         OcamlRuleBuilder.getFlags(
             buildTarget,
             context.getCellPathResolver(),
-            context.getBuildRuleResolver(),
+            context.getActionGraphBuilder(),
             ocamlPlatform,
             args.getCompilerFlags(),
             args.getWarningsFlags());
@@ -93,7 +93,7 @@ public class OcamlBinaryDescription
     BuildTarget compileBuildTarget = OcamlRuleBuilder.createOcamlLinkTarget(buildTarget);
 
     ImmutableList<BuildRule> rules;
-    if (OcamlRuleBuilder.shouldUseFineGrainedRules(context.getBuildRuleResolver(), srcs)) {
+    if (OcamlRuleBuilder.shouldUseFineGrainedRules(context.getActionGraphBuilder(), srcs)) {
       OcamlGeneratedBuildRules result =
           OcamlRuleBuilder.createFineGrainedBuildRules(
               buildTarget,
@@ -101,8 +101,8 @@ public class OcamlBinaryDescription
               compileBuildTarget,
               context.getProjectFilesystem(),
               params,
-              context.getBuildRuleResolver(),
-              allDeps.get(context.getBuildRuleResolver(), ocamlPlatform.getCxxPlatform()),
+              context.getActionGraphBuilder(),
+              allDeps.get(context.getActionGraphBuilder(), ocamlPlatform.getCxxPlatform()),
               srcs,
               /* isLibrary */ false,
               args.getBytecodeOnly().orElse(false),
@@ -119,8 +119,8 @@ public class OcamlBinaryDescription
               compileBuildTarget,
               context.getProjectFilesystem(),
               params,
-              context.getBuildRuleResolver(),
-              allDeps.get(context.getBuildRuleResolver(), ocamlPlatform.getCxxPlatform()),
+              context.getActionGraphBuilder(),
+              allDeps.get(context.getActionGraphBuilder(), ocamlPlatform.getCxxPlatform()),
               srcs,
               /* isLibrary */ false,
               args.getBytecodeOnly().orElse(false),

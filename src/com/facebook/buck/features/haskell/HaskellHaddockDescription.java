@@ -16,21 +16,21 @@
 package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionPropagator;
@@ -41,7 +41,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class HaskellHaddockDescription
-    implements Description<HaskellHaddockDescriptionArg>,
+    implements DescriptionWithTargetGraph<HaskellHaddockDescriptionArg>,
         ImplicitDepsInferringDescription<
             HaskellHaddockDescription.AbstractHaskellHaddockDescriptionArg>,
         VersionPropagator<HaskellHaddockDescriptionArg> {
@@ -61,20 +61,21 @@ public class HaskellHaddockDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget baseTarget,
       BuildRuleParams params,
       HaskellHaddockDescriptionArg args) {
     String name = baseTarget.getShortName();
     LOG.info("Creating Haddock " + name);
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     HaskellPlatform platform = getPlatform(baseTarget, args);
-    Iterable<BuildRule> deps = resolver.getAllRules(args.getDeps());
+    ImmutableCollection<BuildRule> deps = graphBuilder.getAllRules(args.getDeps());
 
     // Collect all Haskell deps
     ImmutableSet.Builder<HaskellHaddockInput> haddockInputs = ImmutableSet.builder();
+
     // Traverse all deps to pull packages + locations
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
       @Override
@@ -82,7 +83,11 @@ public class HaskellHaddockDescription
         ImmutableSet.Builder<BuildRule> traverse = ImmutableSet.builder();
         if (rule instanceof HaskellCompileDep) {
           HaskellCompileDep haskellCompileDep = (HaskellCompileDep) rule;
-          haddockInputs.add(haskellCompileDep.getHaddockInput(platform));
+
+          // Only index first order dependencies
+          if (deps.contains(rule)) {
+            haddockInputs.add(haskellCompileDep.getHaddockInput(platform));
+          }
 
           traverse.addAll(haskellCompileDep.getCompileDeps(platform));
         }
@@ -90,13 +95,13 @@ public class HaskellHaddockDescription
       }
     }.start();
 
-    return resolver.addToIndex(
+    return graphBuilder.addToIndex(
         HaskellHaddockRule.from(
             baseTarget,
             context.getProjectFilesystem(),
             params,
             ruleFinder,
-            platform.getHaddock().resolve(resolver),
+            platform.getHaddock().resolve(graphBuilder),
             args.getHaddockFlags(),
             haddockInputs.build()));
   }

@@ -18,27 +18,28 @@
     {/param}
     {param prettify: true /}
     {param content}
-<p>
 
+<p>
 The root of your project must contain a configuration file
 named <code>.buckconfig</code>. If present, Buck will read this file
 before executing its business logic so that any customizations specified
 in <code>.buckconfig</code> will take effect. This file uses the
-{sp}<a href="http://en.wikipedia.org/wiki/INI_file">INI file format</a>
-with a few extensions discussed below.
+{sp}<a href="http://en.wikipedia.org/wiki/INI_file">INI file format</a> with 
+a few extensions discussed below.
+</p>
 
 <p>
-
 Although the INI format only recognizes strings as values, Buck allows
 fields to be parsed as a list of strings, separated by a separator character.
 For example, a field containing command line flags to be passed to a compiler
 may parse its value as a list of strings, separated by space, so
 that <code>-foo -bar</code> is parsed as a list of two strings, instead of
 a single string.
+</p>
 
 <p>
 
-To ensure that any character can be encoded in a .buckconfig value, Buck
+To ensure that any character can be encoded in a <code>.buckconfig</code> value, Buck
 allows values or part of values to be quoted by surrounding them by double
 quotes. Inside double quotes, escape sequences can be used to encode
 characters that would otherwise be problematic to use in values. The
@@ -72,7 +73,7 @@ spaces, <code>flags=-foo "-bar \u0429"</code> will result in two
 strings: <q>foo</q> and <q>-bar &#1065;</q>.
 
 <p>
-Finally, other fields' values can be interpolated by including <code>$(config &lt;section&gt;.&lt;field&gt;)</code> inside of a value. For example, if you want to use the go vendor path in a custom setting, you can use:
+Other fields' values can be interpolated by including <code>$(config &lt;section&gt;.&lt;field&gt;)</code> inside a value. For example, to use the go vendor path in a custom setting:
 </p>
 
 <p>
@@ -82,6 +83,12 @@ custom_value = $(config go.vendor_path)
 </pre>
 {/literal}
 </p>
+
+<p>
+Finally, you can use the pound sign (<code>#</code>), in addition to the 
+semicolon (<code>;</code>), as a comment character in <code>.buckconfig</code>.
+</p>
+
 
 <h2>.buckconfig.local</h2>
 
@@ -236,9 +243,8 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: '/Library/Android/sdk' /}
   {param description}
     This specifies the absolute path to the Android SDK that all Android code in the project should
-    be built against.  This is equivalent to setting the environment variable
-    <code>ANDROID_SDK=/Library/Android/sdk</code>. The environment variables
-    <code>ANDROID_SDK</code> and <code>ANDROID_HOME</code> both supersede the buckconfig setting.
+    be built against.  This is equivalent to setting the environment variable <code>ANDROID_SDK=/Library/Android/sdk</code>. 
+    The environment variables <code>ANDROID_SDK</code> and <code>ANDROID_HOME</code> both supersede the buckconfig setting.
     The default is empty.
   {/param}
 {/call}
@@ -623,6 +629,34 @@ osx_toolchains_override = tools.stable,tools.swift40,tools.common
     clang_xcode_tool_name_override=my_clang
     actool_xcode_tool_name_override=my_actool
 </pre>{/literal}
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'apple' /}
+  {param name: '*_version_override' /}
+  {param description}
+    Specify version string to use for Xcode tool.
+    By default, Xcode tool's version value is calculated automatically from its container SDK and Toolchain.
+    But in some cases (e.g. when tools are overrided by <code>apple.*_replacement</code>), it needs to be
+    manually overrided in order to prevent rule key collision.
+  {/param}
+  {param raw_example}
+{literal}<pre class="prettyprint lang-ini">
+[apple]
+    actool_replacement=/some/path/to/custum/actool
+    actool_version_override=custom_actool_1.0
+</pre>{/literal}
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'apple' /}
+  {param name: 'codesign_timeout' /}
+  {param example_value: '600' /}
+  {param description}
+    The timeout of the code-signing step in seconds. The value is set
+    to 300 seconds by default if not specified explicitly.
   {/param}
 {/call}
 
@@ -1593,7 +1627,7 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
 {call buckconfig.entry}
   {param section: 'cxx' /}
   {param name: 'linker_platform' /}
-  {param example_value: 'MACOS' /}
+  {param example_value: 'DARWIN' /}
   {param description}
     The platform for the linker.  Normally this is autodetected based on the system, but it useful
     to set when cross compiling.  Valid values are:
@@ -2933,6 +2967,22 @@ your <code>.buckjavaargs</code> file</a>:
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'ndk' /}
+  {param name: 'cxx_runtime_type' /}
+  {param example_value: 'dynamic' /}
+  {param description}
+    When compiling {call buck.cxx_library /} rules, this specifies how libraries 
+    are intended to be linked with the runtime. If this is <code>static</code>, 
+    then the C/C++ runtime library will not be packaged in the APK.     
+    Possible values are:
+    <ul>
+      <li><code>dynamic</code> (default)</li>
+      <li><code>static</code></li>
+    </ul>
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'ocaml' /}
   {param description}
@@ -3275,22 +3325,44 @@ your <code>.buckjavaargs</code> file</a>:
   {param name: 'python' /}
   {param description}
     <p>
-      This section may define settings relevant to <code>python_*</code> rules.
+      This section defines settings relevant to <code>python_*</code> rules.
     </p>
+
+    <h4>Alternative python section in .buckconfig</h4>
+    <p>
+      Adding a section with the header 
+    </p>
+
+<p>
+<pre class="prettyprint">
+{literal}
+[python#<i>flavor</i>]
+{/literal}
+</pre>
+</p>
 
     <p>
-      Adding a section with the header [python#<i>flavor</i>] to the .buckconfig will add
-      an alternate python section.  This python section will be used instead of{sp}
-      <code>[python]</code> if the compilation flavor is invoked by appending <i>#version</i> to a
-      {sp}{call buck.build_target /}.  This can be useful if you have Python 2 and Python 3 code in
-      your project and need to differentiate accordingly (namely by changing the value of{sp}
-      {call buckconfig.python_interpreter /}.  On the command line, to build with{sp}
-      <code>[python#py3]</code> rather than <code>[python]</code>:
+      to <code>.buckconfig</code> adds an <em>alternate</em> python section.  
+      Buck uses the values in this section instead of those in {sp}<code>[python]</code> if 
+      it is invoked with the specified flavor appended to the {sp}{call buck.build_target /}.  
+      For example, to build with the values in {sp}<code>[python#py3]</code> instead 
+      of <code>[python]</code>:
     </p>
 
-    {literal}<pre class="prettyprint">
-    $ buck build app#py3
-    </pre>{/literal}
+<p>
+<pre class="prettyprint">
+{literal}
+$ buck build app#py3
+{/literal}
+</pre>
+</p>
+
+    <p>
+      This is useful if you have both Python 2 and Python 3 code in
+      your project and need to differentiate between them by changing the
+      value of the {sp}{call buckconfig.python_interpreter /}. 
+    </p>
+
   {/param}
 {/call}
 
@@ -3316,20 +3388,22 @@ your <code>.buckjavaargs</code> file</a>:
 
 {call buckconfig.entry}
   {param section: 'python' /}
-  {param name: 'path_to_pex_executor' /}
-  {param example_value: '/bin/sh' /}
+  {param name: 'native_link_strategy' /}
+  {param example_value: 'separate' /}
   {param description}
-    The path to the tool used to run executable Python packages.  For self-executing packages, this
-    should just by the shell.
-  {/param}
-{/call}
-
-{call buckconfig.entry}
-  {param section: 'python' /}
-  {param name: 'pex_extension' /}
-  {param example_value: '.pex' /}
-  {param description}
-    The extension to use for executable Python packages.
+    The strategy used for pulling in native dependencies:
+    <ul>
+        <li>
+          <code>merged</code>: Native dependencies which are first-order dependencies of{sp}
+          <code>python_*</code> rules are linked as full, separate, shared libraries.  Transitive
+          native dependencies are statically linked into a single monolithic shared library.  This
+          is preferred to reduce the native code size and shared library count.
+        </li>
+        <li>
+          <code>separate</code> (default): Transitive native dependencies are linked as full,
+          separate, shared libraries.  This is preferred for faster build-time speed.
+        </li>
+    </ul>
   {/param}
 {/call}
 
@@ -3356,24 +3430,82 @@ your <code>.buckjavaargs</code> file</a>:
 
 {call buckconfig.entry}
   {param section: 'python' /}
-  {param name: 'native_link_strategy' /}
-  {param example_value: 'separate' /}
+  {param name: 'path_to_pex_executor' /}
+  {param example_value: '/bin/sh' /}
   {param description}
-    The strategy used for pulling in native dependencies:
-    <ul>
-        <li>
-          <code>merged</code>: Native dependencies which are first-order dependencies of{sp}
-          <code>python_*</code> rules are linked as full, separate, shared libraries.  Transitive
-          native dependencies are statically linked into a single monolithic shared library.  This
-          is preferred to reduce the native code size and shared library count.
-        </li>
-        <li>
-          <code>separate</code> (default): Transitive native dependencies are linked as full,
-          separate, shared libraries.  This is preferred for faster build-time speed.
-        </li>
-    </ul>
+    The path to the tool used to run executable Python packages.  For self-executing packages, this
+    should just by the shell.
   {/param}
 {/call}
+
+{call buckconfig.entry}
+  {param section: 'python' /}
+  {param name: 'pex_extension' /}
+  {param example_value: '.pex' /}
+  {param description}
+    The extension to use for executable Python packages.
+  {/param}
+{/call}
+
+
+{call buckconfig.entry}
+  {param section: 'python' /}
+  {param name: 'version' /}
+  {param example_value: 'CPython 2.7' /}
+  {param description}
+    <p>
+      The implementation and version of the Python interpreter. The syntax is:
+    </p>
+<p>
+<pre>
+{literal}
+&lt;interpreter implementation> &lt;interpreter version>
+{/literal}
+</pre>
+</p>
+
+    <p>
+      The implementation and version should be separated by a space.
+    </p>
+
+    <p>
+      The version should comprise only numerals and periods; it should
+      not contain characters such as <code>+</code>, although some
+      Python versions use such characters.
+    </p>
+
+    <p>
+      To obtain the implementation, you can use the following command,
+      invoked using the relevant Python interpreter:
+    </p>
+
+<p>
+<pre>
+{literal}
+python -c "import platform; print( platform.python_implementation() )"
+{/literal}
+</pre>
+</p>
+
+    <p>
+      Similarly, to obtain the version, use:
+    </p>
+
+<p>
+<pre>
+{literal}
+python -c "import platform; print( platform.python_version() )"
+{/literal}
+</pre>
+</p>
+
+    <p>
+      Example:
+    </p>
+
+  {/param}
+{/call}
+
 
 {call buckconfig.section}
   {param name: 'resources' /}
@@ -3864,6 +3996,34 @@ your <code>.buckjavaargs</code> file</a>:
     {call buckconfig.ui_thread_line_limit /} for an option to configure this
     limit). Only effective when the super console is used.
     The default value is false.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'ui' /}
+  {param name: 'error_message_augmentations' /}
+  {param example_value: '"The rule (//S+)-cxx could not be found.\" => \"Please make sure that $1 is a cxx library.' /}
+  {param description}
+  <p class="warning-banner">
+  [This configuration entry is preliminary and subject to change.]
+  </p>
+  <p>
+  Specifies a comma-separated list of mappings from regular expressions
+  (regexes) to message strings. 
+  </p>
+  <p>
+  If the text of a Buck parser error
+  matches one of the specified regexes, the corresponding message string
+  is appended to the error. You can use the message string to provide
+  additional helpful information to the user. 
+  </p>
+  <p>
+  If the regex contains unescaped parentheses, <code>()</code>, the text
+  that the parentheses enclose is captured. You can then insert this captured text 
+  in the appended string by using <code>$1</code> for the first captured text 
+  string, <code>$2</code> for the second, and so on. This works exactly like 
+  Java regex replacement strings.
+  </p>
   {/param}
 {/call}
 

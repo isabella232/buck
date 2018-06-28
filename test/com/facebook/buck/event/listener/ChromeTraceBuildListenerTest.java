@@ -88,7 +88,6 @@ import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
-import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -194,9 +193,7 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    ThreadMXBean threadMXBean = EasyMock.createMock(ThreadMXBean.class);
-    EasyMock.expect(threadMXBean.getThreadInfo(EasyMock.anyLong())).andReturn(null).anyTimes();
-    EasyMock.replay();
+    ThreadMXBean threadMXBean = new FakeThreadMXBean();
 
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
@@ -329,7 +326,7 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(buildEventStarted);
 
     HttpArtifactCacheEvent.Started artifactCacheEventStarted =
-        ArtifactCacheTestUtils.newFetchStartedEvent(ruleKey);
+        ArtifactCacheTestUtils.newFetchStartedEvent(rule.getBuildTarget(), ruleKey);
     eventBus.post(artifactCacheEventStarted);
     eventBus.post(
         ArtifactCacheTestUtils.newFetchFinishedEvent(
@@ -389,6 +386,10 @@ public class ChromeTraceBuildListenerTest {
             Optional.empty(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             false,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -474,7 +475,9 @@ public class ChromeTraceBuildListenerTest {
         resultListCopy,
         "http_artifact_fetch",
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.of("rule_key", "abc123"));
+        ImmutableMap.of(
+            "rule_key", "abc123",
+            "rule", "//fake:rule"));
 
     assertNextResult(
         resultListCopy,
@@ -482,6 +485,7 @@ public class ChromeTraceBuildListenerTest {
         ChromeTraceEvent.Phase.END,
         ImmutableMap.of(
             "rule_key", "abc123",
+            "rule", "//fake:rule",
             "success", "true",
             "cache_result", "HTTP_HIT"));
 
@@ -516,7 +520,9 @@ public class ChromeTraceBuildListenerTest {
         resultListCopy,
         "http_artifact_store",
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.of("rule_key", "abc123"));
+        ImmutableMap.of(
+            "rule_key", "abc123",
+            "rule", "TARGET_ONE"));
 
     assertNextResult(
         resultListCopy,
@@ -524,7 +530,8 @@ public class ChromeTraceBuildListenerTest {
         ChromeTraceEvent.Phase.END,
         ImmutableMap.of(
             "success", "true",
-            "rule_key", "abc123"));
+            "rule_key", "abc123",
+            "rule", "TARGET_ONE"));
 
     assertNextResult(resultListCopy, "processingPartOne", ChromeTraceEvent.Phase.BEGIN, emptyArgs);
 

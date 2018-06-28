@@ -16,20 +16,21 @@
 
 package com.facebook.buck.features.zip.rules;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.versions.VersionPropagator;
 import org.immutables.value.Value;
 
 public class ZipFileDescription
-    implements Description<ZipFileDescriptionArg>, VersionPropagator<ZipFileDescriptionArg> {
+    implements DescriptionWithTargetGraph<ZipFileDescriptionArg>,
+        VersionPropagator<ZipFileDescriptionArg> {
 
   @Override
   public Class<ZipFileDescriptionArg> getConstructorArgType() {
@@ -38,12 +39,12 @@ public class ZipFileDescription
 
   @Override
   public Zip createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       ZipFileDescriptionArg args) {
     return new Zip(
-        new SourcePathRuleFinder(context.getBuildRuleResolver()),
+        new SourcePathRuleFinder(context.getActionGraphBuilder()),
         buildTarget,
         context.getProjectFilesystem(),
         args.getOut(),

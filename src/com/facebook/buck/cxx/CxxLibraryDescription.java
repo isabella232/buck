@@ -17,6 +17,11 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.description.MetadataProvidingDescription;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -24,6 +29,11 @@ import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -32,16 +42,6 @@ import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
-import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -65,7 +65,7 @@ import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 public class CxxLibraryDescription
-    implements Description<CxxLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<CxxLibraryDescriptionArg>,
         ImplicitDepsInferringDescription<CxxLibraryDescription.CommonArg>,
         ImplicitFlavorsInferringDescription,
         Flavored,
@@ -118,10 +118,10 @@ public class CxxLibraryDescription
   public static final FlavorDomain<MetadataType> METADATA_TYPE =
       FlavorDomain.from("C/C++ Metadata Type", MetadataType.class);
 
-  static final FlavorDomain<HeaderVisibility> HEADER_VISIBILITY =
+  public static final FlavorDomain<HeaderVisibility> HEADER_VISIBILITY =
       FlavorDomain.from("C/C++ Header Visibility", HeaderVisibility.class);
 
-  static final FlavorDomain<HeaderMode> HEADER_MODE =
+  public static final FlavorDomain<HeaderMode> HEADER_MODE =
       FlavorDomain.from("C/C++ Header Mode", HeaderMode.class);
 
   private final CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors;
@@ -156,7 +156,7 @@ public class CxxLibraryDescription
    */
   static ImmutableList<CxxPreprocessorInput> getPreprocessorInputsForBuildingLibrarySources(
       CxxBuckConfig cxxBuckConfig,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       BuildTarget target,
       CommonArg args,
@@ -168,7 +168,7 @@ public class CxxLibraryDescription
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         target,
         cxxPlatform,
-        ruleResolver,
+        graphBuilder,
         deps,
         ImmutableListMultimap.copyOf(
             Multimaps.transformValues(
@@ -176,16 +176,17 @@ public class CxxLibraryDescription
                     args.getPreprocessorFlags(),
                     args.getPlatformPreprocessorFlags(),
                     args.getLangPreprocessorFlags(),
+                    args.getLangPlatformPreprocessorFlags(),
                     cxxPlatform),
                 f ->
                     CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        target, cellRoots, ruleResolver, cxxPlatform, f))),
+                        target, cellRoots, graphBuilder, cxxPlatform, f))),
         headerSymlinkTrees,
         ImmutableSet.of(),
         RichStream.from(
                 transitivePreprocessorInputs.apply(
                     target,
-                    ruleResolver,
+                    graphBuilder,
                     cxxPlatform,
                     deps,
                     // Also add private deps if we are _not_ reexporting all deps.
@@ -206,7 +207,7 @@ public class CxxLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       CxxLibraryDescriptionArg args) {
@@ -214,7 +215,7 @@ public class CxxLibraryDescription
         buildTarget,
         context.getProjectFilesystem(),
         params,
-        context.getBuildRuleResolver(),
+        context.getActionGraphBuilder(),
         context.getCellPathResolver(),
         args,
         args.getLinkStyle(),
@@ -236,8 +237,7 @@ public class CxxLibraryDescription
     }
     Set<Flavor> flavors = Sets.newHashSet(buildTarget.getFlavors());
     flavors.remove(type.get().getKey());
-    BuildTarget target = buildTarget.withFlavors(flavors);
-    return target;
+    return buildTarget.withFlavors(flavors);
   }
 
   @Override
@@ -258,11 +258,11 @@ public class CxxLibraryDescription
    * <p>Use this function instead of constructing the BuildTarget manually.
    */
   public static Optional<CxxPreprocessorInput> queryMetadataCxxPreprocessorInput(
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       BuildTarget baseTarget,
       CxxPlatform platform,
       HeaderVisibility visibility) {
-    return resolver.requireMetadata(
+    return graphBuilder.requireMetadata(
         baseTarget.withAppendedFlavors(
             MetadataType.CXX_PREPROCESSOR_INPUT.getFlavor(),
             platform.getFlavor(),
@@ -273,13 +273,13 @@ public class CxxLibraryDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) {
     return cxxLibraryMetadataFactory.createMetadata(
-        buildTarget, resolver, cellRoots, args, metadataClass);
+        buildTarget, graphBuilder, cellRoots, args, metadataClass);
   }
 
   @Override
@@ -306,7 +306,7 @@ public class CxxLibraryDescription
   public interface TransitiveCxxPreprocessorInputFunction {
     Stream<CxxPreprocessorInput> apply(
         BuildTarget target,
-        BuildRuleResolver ruleResolver,
+        ActionGraphBuilder graphBuilder,
         CxxPlatform cxxPlatform,
         ImmutableSet<BuildRule> deps,
         CxxDeps privateDeps);
@@ -318,20 +318,20 @@ public class CxxLibraryDescription
      * (namely AppleTest) cannot use this.
      */
     static TransitiveCxxPreprocessorInputFunction fromLibraryRule() {
-      return (target, ruleResolver, cxxPlatform, ignored, privateDeps) -> {
+      return (target, graphBuilder, cxxPlatform, ignored, privateDeps) -> {
         BuildTarget rawTarget =
             target.withoutFlavors(
                 ImmutableSet.<Flavor>builder()
                     .addAll(LIBRARY_TYPE.getFlavors())
                     .add(cxxPlatform.getFlavor())
                     .build());
-        BuildRule rawRule = ruleResolver.requireRule(rawTarget);
+        BuildRule rawRule = graphBuilder.requireRule(rawTarget);
         CxxLibrary rule = (CxxLibrary) rawRule;
         ImmutableMap<BuildTarget, CxxPreprocessorInput> inputs =
-            rule.getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver);
+            rule.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder);
 
         ImmutableList<CxxPreprocessorDep> privateDepsForPlatform =
-            RichStream.from(privateDeps.get(ruleResolver, cxxPlatform))
+            RichStream.from(privateDeps.get(graphBuilder, cxxPlatform))
                 .filter(CxxPreprocessorDep.class)
                 .toImmutableList();
         if (privateDepsForPlatform.isEmpty()) {
@@ -341,7 +341,7 @@ public class CxxLibraryDescription
           Map<BuildTarget, CxxPreprocessorInput> result = new LinkedHashMap<>();
           result.putAll(inputs);
           for (CxxPreprocessorDep dep : privateDepsForPlatform) {
-            result.putAll(dep.getTransitiveCxxPreprocessorInput(cxxPlatform, ruleResolver));
+            result.putAll(dep.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder));
           }
           return result.values().stream();
         }
@@ -415,11 +415,22 @@ public class CxxLibraryDescription
     ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>>
         getExportedLangPreprocessorFlags();
 
+    ImmutableMap<CxxSource.Type, PatternMatchedCollection<ImmutableList<StringWithMacros>>>
+        getExportedLangPlatformPreprocessorFlags();
+
     ImmutableList<StringWithMacros> getExportedLinkerFlags();
+
+    ImmutableList<StringWithMacros> getExportedPostLinkerFlags();
 
     @Value.Default
     default PatternMatchedCollection<ImmutableList<StringWithMacros>>
         getExportedPlatformLinkerFlags() {
+      return PatternMatchedCollection.of();
+    }
+
+    @Value.Default
+    default PatternMatchedCollection<ImmutableList<StringWithMacros>>
+        getExportedPostPlatformLinkerFlags() {
       return PatternMatchedCollection.of();
     }
 

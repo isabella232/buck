@@ -72,6 +72,9 @@ abstract class AbstractGoPlatformFactory {
           .put("amd64", Architecture.X86_64)
           .put("amd64p32", Architecture.UNKNOWN)
           .put("arm", Architecture.ARM)
+          .put("armv5", Architecture.ARM)
+          .put("armv6", Architecture.ARM)
+          .put("armv7", Architecture.ARM)
           .put("armbe", Architecture.ARMEB)
           .put("arm64", Architecture.AARCH64)
           .put("arm64be", Architecture.UNKNOWN)
@@ -90,19 +93,14 @@ abstract class AbstractGoPlatformFactory {
           .put("sparc64", Architecture.UNKNOWN)
           .build();
 
-  @Value.Parameter
   abstract BuckConfig getBuckConfig();
 
-  @Value.Parameter
   abstract ProcessExecutor getProcessExecutor();
 
-  @Value.Parameter
   abstract ExecutableFinder getExecutableFinder();
 
-  @Value.Parameter
   abstract FlavorDomain<CxxPlatform> getCxxPlatforms();
 
-  @Value.Parameter
   abstract CxxPlatform getDefaultCxxPlatform();
 
   @Value.Lazy
@@ -148,6 +146,7 @@ abstract class AbstractGoPlatformFactory {
         .setFlavor(flavor)
         .setGoOs(getOs(section))
         .setGoArch(getArch(section))
+        .setGoArm(getGoArm(section))
         .setGoRoot(goRoot)
         .setCompiler(getGoTool(section, goRoot, "compiler", "compile", "compiler_flags"))
         .setAssembler(getGoTool(section, goRoot, "assembler", "asm", "asm_flags"))
@@ -173,7 +172,7 @@ abstract class AbstractGoPlatformFactory {
         .orElseGet(this::getDefaultOs);
   }
 
-  private String getArch(String section) {
+  private String getArchFromSection(String section) {
     return getBuckConfig()
         .getValue(section, "arch")
         .map(
@@ -184,6 +183,16 @@ abstract class AbstractGoPlatformFactory {
               return os;
             })
         .orElseGet(this::getDefaultArch);
+  }
+
+  private String getArch(String section) {
+    String arch = getArchFromSection(section);
+    return arch.startsWith("armv") ? "arm" : arch;
+  }
+
+  private String getGoArm(String section) {
+    String arch = getArchFromSection(section);
+    return arch.startsWith("armv") ? arch.substring(arch.length() - 1) : "";
   }
 
   private Path getToolDir(String section) {

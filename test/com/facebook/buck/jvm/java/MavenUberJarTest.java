@@ -19,8 +19,13 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.AbstractPathSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -30,14 +35,9 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
 import java.util.List;
@@ -67,17 +67,17 @@ public class MavenUberJarTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(pythonLibraryBuilder.build(), javaLibraryBuilder.build());
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    PythonLibrary pythonLibrary = pythonLibraryBuilder.build(resolver, filesystem, targetGraph);
-    JavaLibrary javaLibrary = javaLibraryBuilder.build(resolver, filesystem, targetGraph);
+    PythonLibrary pythonLibrary = pythonLibraryBuilder.build(graphBuilder, filesystem, targetGraph);
+    JavaLibrary javaLibrary = javaLibraryBuilder.build(graphBuilder, filesystem, targetGraph);
 
     MavenUberJar buildRule =
         MavenUberJar.create(
             javaLibrary,
             javaTarget,
             new FakeProjectFilesystem(),
-            javaLibraryBuilder.createBuildRuleParams(resolver),
+            javaLibraryBuilder.createBuildRuleParams(graphBuilder),
             Optional.of("com.facebook.buck.jvm.java:java:jar:42"),
             Optional.empty());
     assertThat(buildRule.getBuildDeps(), Matchers.not(Matchers.hasItem(pythonLibrary)));

@@ -24,7 +24,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.cell.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.features.python.toolchain.impl.PythonPlatformsProviderFactoryUtils;
 import com.facebook.buck.io.ExecutableFinder;
@@ -195,6 +195,12 @@ public class PythonTestIntegrationTest {
 
     // Run the tests, which should get cache hits for everything.
     workspace.runBuckCommand("test", "//:test-success").assertSuccess();
+  }
+
+  @Test
+  public void addsTargetsFromMacrosToDependencies() throws IOException {
+    ProcessResult result = workspace.runBuckCommand("test", "//:test-deps-with-env-macros");
+    result.assertSuccess();
   }
 
   private void assumePythonVersionIsAtLeast(String expectedVersion, String message) {

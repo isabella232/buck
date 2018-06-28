@@ -59,10 +59,7 @@ public class CGoCompileStep extends ShellStep {
         .add("-srcdir", context.getBuildCellRootPath().toString())
         .add("-objdir", outputDir.toString())
         .addAll(cgoCompilerFlags)
-        .addAll(
-            srcs.stream()
-                .map(x -> context.getBuildCellRootPath().relativize(x).toString())
-                .iterator())
+        .addAll(srcs.stream().map(Object::toString).iterator())
         .build();
   }
 
@@ -72,6 +69,7 @@ public class CGoCompileStep extends ShellStep {
         .putAll(environment)
         .put("GOOS", platform.getGoOs())
         .put("GOARCH", platform.getGoArch())
+        .put("GOARM", platform.getGoArm())
         .build();
   }
 

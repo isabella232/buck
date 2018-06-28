@@ -17,8 +17,8 @@
 package com.facebook.buck.features.lua;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.google.common.collect.ImmutableSortedMap;
@@ -27,7 +27,9 @@ import java.util.Optional;
 
 public class LuaLibraryBuilder
     extends AbstractNodeBuilder<
-        LuaLibraryDescriptionArg.Builder, LuaLibraryDescriptionArg, LuaLibraryDescription,
+        LuaLibraryDescriptionArg.Builder,
+        LuaLibraryDescriptionArg,
+        LuaLibraryDescription,
         LuaLibrary> {
 
   public LuaLibraryBuilder(LuaLibraryDescription description, BuildTarget target) {
@@ -50,6 +52,11 @@ public class LuaLibraryBuilder
 
   public LuaLibraryBuilder setSrcs(ImmutableSortedMap<String, SourcePath> srcs) {
     getArgForPopulating().setSrcs(SourceList.ofNamedSources(srcs));
+    return this;
+  }
+
+  public LuaLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
+    getArgForPopulating().setDeps(deps);
     return this;
   }
 

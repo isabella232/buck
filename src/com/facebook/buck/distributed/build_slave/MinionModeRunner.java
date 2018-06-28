@@ -20,6 +20,8 @@ import com.facebook.buck.command.BuildExecutor;
 import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
@@ -28,7 +30,6 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -41,8 +42,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.Closeable;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -168,12 +167,12 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     try {
       buildExecutor = buildExecutorFuture.get();
     } catch (ExecutionException e) {
-      String msg = String.format("Failed to get the BuildExecutor.");
+      String msg = "Failed to get the BuildExecutor.";
       LOG.error(e, msg);
       throw new RuntimeException(msg, e);
     }
 
-    String minionId = generateMinionId(buildSlaveRunId);
+    String minionId = DistBuildUtil.generateMinionId(buildSlaveRunId);
     try (ThriftCoordinatorClient client = newStartedThriftCoordinatorClient();
         Closeable healthCheck =
             heartbeatService.addCallback(
@@ -332,7 +331,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
 
           @Override
           public void onFailure(Throwable t) {
-            LOG.error(t, String.format("Building of unknown target failed."));
+            LOG.error(t, "Building of unknown target failed.");
             // Fail the Stampede build, and ensure it doesn't deadlock.
             exitCode.set(ExitCode.BUILD_ERROR);
           }
@@ -406,20 +405,5 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     } else {
       throw e;
     }
-  }
-
-  private static String generateMinionId(BuildSlaveRunId buildSlaveRunId) {
-    Preconditions.checkState(!buildSlaveRunId.getId().isEmpty());
-
-    String hostname = "Unknown";
-    try {
-      InetAddress addr;
-      addr = InetAddress.getLocalHost();
-      hostname = addr.getHostName();
-    } catch (UnknownHostException ex) {
-      System.out.println("Hostname can not be resolved");
-    }
-
-    return String.format("minion:%s:%s", hostname, buildSlaveRunId);
   }
 }

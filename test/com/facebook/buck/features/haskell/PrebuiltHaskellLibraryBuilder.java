@@ -17,16 +17,18 @@
 package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 public class PrebuiltHaskellLibraryBuilder
     extends AbstractNodeBuilder<
-        HaskellPrebuiltLibraryDescriptionArg.Builder, HaskellPrebuiltLibraryDescriptionArg,
-        HaskellPrebuiltLibraryDescription, PrebuiltHaskellLibrary> {
+        HaskellPrebuiltLibraryDescriptionArg.Builder,
+        HaskellPrebuiltLibraryDescriptionArg,
+        HaskellPrebuiltLibraryDescription,
+        PrebuiltHaskellLibrary> {
 
   public PrebuiltHaskellLibraryBuilder(BuildTarget target) {
     super(new HaskellPrebuiltLibraryDescription(), target);

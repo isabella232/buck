@@ -18,7 +18,10 @@ package com.facebook.buck.swift;
 
 import static com.facebook.buck.core.model.UnflavoredBuildTarget.BUILD_TARGET_PREFIX;
 
+import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -26,7 +29,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
@@ -77,7 +79,7 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
       ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ActionGraphBuilder graphBuilder) {
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
@@ -88,13 +90,17 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
   }
 
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return Linkage.ANY;
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    ApplePlatformType type = ApplePlatformType.of(cxxPlatform.getFlavor().getName());
+    if (type == ApplePlatformType.MAC) {
+      return Linkage.ANY;
+    }
+    return Linkage.SHARED;
   }
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return ImmutableMap.of();
   }
 

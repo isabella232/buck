@@ -16,19 +16,17 @@
 
 package com.facebook.buck.features.lua;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.versions.VersionPropagator;
@@ -38,7 +36,8 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class LuaLibraryDescription
-    implements Description<LuaLibraryDescriptionArg>, VersionPropagator<LuaLibraryDescriptionArg> {
+    implements DescriptionWithTargetGraph<LuaLibraryDescriptionArg>,
+        VersionPropagator<LuaLibraryDescriptionArg> {
 
   @Override
   public Class<LuaLibraryDescriptionArg> getConstructorArgType() {
@@ -47,23 +46,21 @@ public class LuaLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       LuaLibraryDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     return new LuaLibrary(buildTarget, context.getProjectFilesystem(), params) {
 
       @Override
-      public Iterable<BuildRule> getLuaPackageDeps(CxxPlatform cxxPlatform) {
-        return resolver.getAllRules(
+      public Iterable<BuildRule> getLuaPackageDeps(
+          CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+        return ruleResolver.getAllRules(
             LuaUtil.getDeps(cxxPlatform, args.getDeps(), args.getPlatformDeps()));
       }
 
       @Override
-      public LuaPackageComponents getLuaPackageComponents() {
+      public LuaPackageComponents getLuaPackageComponents(SourcePathResolver pathResolver) {
         return LuaPackageComponents.builder()
             .putAllModules(
                 LuaUtil.toModuleMap(
@@ -75,6 +72,11 @@ public class LuaLibraryDescription
             .build();
       }
     };
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable

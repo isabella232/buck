@@ -32,13 +32,14 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyDiagnosticsMode;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.RuleKeyFactoryWithDiagnostics;
 import com.facebook.buck.util.Scope;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
@@ -120,7 +121,11 @@ public class BuildRuleScopeManager {
       Optional<Long> outputSize,
       Optional<HashCode> outputHash,
       Optional<BuildRuleSuccessType> successType,
-      boolean shouldUploadToCache) {
+      boolean shouldUploadToCache,
+      Optional<Pair<Long, Long>> ruleKeyCacheCheckTimestamps,
+      Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps,
+      Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps,
+      Optional<Pair<Long, Long>> buildTimestamps) {
     Preconditions.checkState(finishedData == null, "Build rule already marked finished.");
     Preconditions.checkState(
         currentBuildRuleScopeThread != null,
@@ -129,7 +134,16 @@ public class BuildRuleScopeManager {
         currentBuildRuleScopeThread == Thread.currentThread(),
         "finished() should be called from the same thread as the current buildrule scope.");
     finishedData =
-        new FinishedData(input, outputSize, outputHash, successType, shouldUploadToCache);
+        new FinishedData(
+            input,
+            outputSize,
+            outputHash,
+            successType,
+            shouldUploadToCache,
+            ruleKeyCacheCheckTimestamps,
+            inputRuleKeyCacheCheckTimestamps,
+            manifestRuleKeyCacheCheckTimestamps,
+            buildTimestamps);
   }
 
   private void post(BuildRuleEvent event) {
@@ -195,18 +209,30 @@ public class BuildRuleScopeManager {
     private final Optional<HashCode> outputHash;
     private final Optional<BuildRuleSuccessType> successType;
     private final boolean shouldUploadToCache;
+    private final Optional<Pair<Long, Long>> ruleKeyCacheCheckTimestamps;
+    private final Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps;
+    private final Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps;
+    private final Optional<Pair<Long, Long>> buildTimestamps;
 
     public FinishedData(
         BuildResult input,
         Optional<Long> outputSize,
         Optional<HashCode> outputHash,
         Optional<BuildRuleSuccessType> successType,
-        boolean shouldUploadToCache) {
+        boolean shouldUploadToCache,
+        Optional<Pair<Long, Long>> ruleKeyCacheCheckTimestamps,
+        Optional<Pair<Long, Long>> inputRuleKeyCacheCheckTimestamps,
+        Optional<Pair<Long, Long>> manifestRuleKeyCacheCheckTimestamps,
+        Optional<Pair<Long, Long>> buildTimestamps) {
       this.input = input;
       this.outputSize = outputSize;
       this.outputHash = outputHash;
       this.successType = successType;
       this.shouldUploadToCache = shouldUploadToCache;
+      this.ruleKeyCacheCheckTimestamps = ruleKeyCacheCheckTimestamps;
+      this.inputRuleKeyCacheCheckTimestamps = inputRuleKeyCacheCheckTimestamps;
+      this.manifestRuleKeyCacheCheckTimestamps = manifestRuleKeyCacheCheckTimestamps;
+      this.buildTimestamps = buildTimestamps;
     }
 
     private BuildRuleEvent.Finished getEvent(BuildRuleEvent.Resumed resumedEvent) {
@@ -214,23 +240,23 @@ public class BuildRuleScopeManager {
           input.getStatus() == BuildRuleStatus.FAIL
               || (input.isSuccess() && input.getSuccess() == BuildRuleSuccessType.BUILT_LOCALLY);
       // Log the result to the event bus.
-      BuildRuleEvent.Finished finished =
-          BuildRuleEvent.finished(
-              resumedEvent,
-              getBuildRuleKeys(),
-              input.getStatus(),
-              input.getCacheResult().orElse(CacheResult.miss()),
-              onDiskBuildInfo
-                  .getBuildValue(BuildInfo.MetadataKey.ORIGIN_BUILD_ID)
-                  .map(BuildId::new),
-              successType,
-              shouldUploadToCache,
-              outputHash,
-              outputSize,
-              getBuildRuleDiagnosticData(failureOrBuiltLocally),
-              Optional.ofNullable(manifestFetchResult),
-              Optional.ofNullable(manifestStoreResult));
-      return finished;
+      return BuildRuleEvent.finished(
+          resumedEvent,
+          getBuildRuleKeys(),
+          input.getStatus(),
+          input.getCacheResult().orElse(CacheResult.miss()),
+          onDiskBuildInfo.getBuildValue(BuildInfo.MetadataKey.ORIGIN_BUILD_ID).map(BuildId::new),
+          successType,
+          shouldUploadToCache,
+          outputHash,
+          outputSize,
+          getBuildRuleDiagnosticData(failureOrBuiltLocally),
+          Optional.ofNullable(manifestFetchResult),
+          Optional.ofNullable(manifestStoreResult),
+          ruleKeyCacheCheckTimestamps,
+          inputRuleKeyCacheCheckTimestamps,
+          manifestRuleKeyCacheCheckTimestamps,
+          buildTimestamps);
     }
   }
 }

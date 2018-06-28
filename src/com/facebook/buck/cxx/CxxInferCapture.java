@@ -22,6 +22,9 @@ import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -31,10 +34,7 @@ import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -187,7 +187,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
           Depfiles.parseAndVerifyDependencies(
               context.getEventBus(),
               getProjectFilesystem(),
-              preprocessorDelegate.getHeaderPathNormalizer(context.getSourcePathResolver()),
+              preprocessorDelegate.getHeaderPathNormalizer(context),
               preprocessorDelegate.getHeaderVerification(),
               getDepFilePath(),
               context.getSourcePathResolver().getRelativePath(input),
@@ -200,9 +200,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
     ImmutableList.Builder<SourcePath> inputs = ImmutableList.builder();
 
     // include all inputs coming from the preprocessor tool.
-    inputs.addAll(
-        preprocessorDelegate.getInputsAfterBuildingLocally(
-            dependencies, context.getSourcePathResolver()));
+    inputs.addAll(preprocessorDelegate.getInputsAfterBuildingLocally(dependencies, context));
 
     // Add the input.
     inputs.add(input);

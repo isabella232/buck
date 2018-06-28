@@ -16,18 +16,18 @@
 
 package com.facebook.buck.features.python;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
 import org.immutables.value.Value;
 
 public class PrebuiltPythonLibraryDescription
-    implements Description<PrebuiltPythonLibraryDescriptionArg> {
+    implements DescriptionWithTargetGraph<PrebuiltPythonLibraryDescriptionArg> {
 
   @Override
   public Class<PrebuiltPythonLibraryDescriptionArg> getConstructorArgType() {
@@ -36,7 +36,7 @@ public class PrebuiltPythonLibraryDescription
 
   @Override
   public PrebuiltPythonLibrary createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       PrebuiltPythonLibraryDescriptionArg args) {

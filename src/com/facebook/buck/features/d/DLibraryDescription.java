@@ -17,9 +17,16 @@
 package com.facebook.buck.features.d;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -30,16 +37,8 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionPropagator;
@@ -50,7 +49,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class DLibraryDescription
-    implements Description<DLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<DLibraryDescriptionArg>,
         ImplicitDepsInferringDescription<DLibraryDescriptionArg>,
         VersionPropagator<DLibraryDescriptionArg> {
 
@@ -72,12 +71,12 @@ public class DLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       DLibraryDescriptionArg args) {
-    BuildRuleResolver buildRuleResolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
@@ -95,12 +94,12 @@ public class DLibraryDescription
             .build();
 
     if (buildTarget.getFlavors().contains(CxxDescriptionEnhancer.STATIC_FLAVOR)) {
-      buildRuleResolver.requireRule(sourceTreeTarget);
+      graphBuilder.requireRule(sourceTreeTarget);
       return createStaticLibraryBuildRule(
           buildTarget,
           projectFilesystem,
           params,
-          buildRuleResolver,
+          graphBuilder,
           pathResolver,
           ruleFinder,
           /* compilerFlags */ ImmutableList.of(),
@@ -109,7 +108,7 @@ public class DLibraryDescription
           PicType.PDC);
     }
 
-    return new DLibrary(buildTarget, projectFilesystem, params, buildRuleResolver, dIncludes);
+    return new DLibrary(buildTarget, projectFilesystem, params, graphBuilder, dIncludes);
   }
 
   /** @return a BuildRule that creates a static library. */
@@ -117,7 +116,7 @@ public class DLibraryDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<String> compilerFlags,
@@ -125,14 +124,14 @@ public class DLibraryDescription
       DIncludes dIncludes,
       PicType pic) {
 
-    CxxPlatform cxxPlatform = getCxxPlatform();
+    CxxPlatform cxxPlatform = DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig);
 
     ImmutableList<SourcePath> compiledSources =
         DDescriptionUtils.sourcePathsForCompiledSources(
             buildTarget,
             projectFilesystem,
             params,
-            ruleResolver,
+            graphBuilder,
             pathResolver,
             ruleFinder,
             cxxPlatform,
@@ -159,7 +158,7 @@ public class DLibraryDescription
     return Archive.from(
         staticTarget,
         projectFilesystem,
-        ruleResolver,
+        graphBuilder,
         ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
@@ -175,13 +174,9 @@ public class DLibraryDescription
       DLibraryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(getCxxPlatform()));
-  }
-
-  private CxxPlatform getCxxPlatform() {
-    CxxPlatformsProvider cxxPlatformsProviderFactory =
-        toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    return cxxPlatformsProviderFactory.getDefaultCxxPlatform();
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(
+            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig)));
   }
 
   @BuckStyleImmutable

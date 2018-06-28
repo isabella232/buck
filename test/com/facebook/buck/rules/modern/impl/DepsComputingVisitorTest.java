@@ -27,16 +27,16 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.HasCustomDepsLogic;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.InputRuleResolver;
 import com.google.common.collect.ImmutableList;
@@ -190,6 +190,12 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
     apply(new WithOptional());
   }
 
+  @Test
+  @Override
+  public void optionalInt() {
+    apply(new WithOptionalInt());
+  }
+
   @Override
   @Test
   public void simple() {
@@ -243,7 +249,7 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
   @Test
   public void customDeps() {
     WithCustomDeps withCustomDeps = new WithCustomDeps();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     InputRuleResolver ruleResolver =
         new InputRuleResolver() {
           @Override

@@ -17,6 +17,8 @@
 package com.facebook.buck.features.python;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -25,6 +27,10 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -32,12 +38,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.MetadataProvidingDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
@@ -54,7 +54,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class PythonLibraryDescription
-    implements Description<PythonLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<PythonLibraryDescriptionArg>,
         VersionPropagator<PythonLibraryDescriptionArg>,
         MetadataProvidingDescription<PythonLibraryDescriptionArg> {
 
@@ -74,7 +74,7 @@ public class PythonLibraryDescription
 
   @Override
   public PythonLibrary createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       PythonLibraryDescriptionArg args) {
@@ -85,7 +85,7 @@ public class PythonLibraryDescription
   @Override
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       PythonLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
@@ -116,14 +116,14 @@ public class PythonLibraryDescription
               cxxPlatforms.getFlavorAndValue(baseTarget).orElseThrow(IllegalArgumentException::new);
           baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
 
-          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
           SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
           Path baseModule = PythonUtil.getBasePath(baseTarget, args.getBaseModule());
           PythonPackageComponents components =
               PythonPackageComponents.of(
                   PythonUtil.getModules(
                       baseTarget,
-                      resolver,
+                      graphBuilder,
                       ruleFinder,
                       pathResolver,
                       pythonPlatform.getValue(),
@@ -136,7 +136,7 @@ public class PythonLibraryDescription
                       selectedVersions),
                   PythonUtil.getModules(
                       baseTarget,
-                      resolver,
+                      graphBuilder,
                       ruleFinder,
                       pathResolver,
                       pythonPlatform.getValue(),
@@ -169,7 +169,7 @@ public class PythonLibraryDescription
                   cxxPlatform.getValue(),
                   args.getDeps(),
                   args.getPlatformDeps());
-          return Optional.of(resolver.getAllRules(depTargets)).map(metadataClass::cast);
+          return Optional.of(graphBuilder.getAllRules(depTargets)).map(metadataClass::cast);
         }
     }
 

@@ -17,6 +17,7 @@
 package com.facebook.buck.apple.project_generator;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
@@ -30,15 +31,16 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.SettableFakeClock;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSet;
@@ -72,6 +74,8 @@ public class XCodeProjectCommandHelperTest {
 
   @Before
   public void buildGraph() {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+
     // Create the following dep tree:
     //
     // FooBin -has-test-> FooBinTest

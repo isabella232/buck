@@ -18,6 +18,7 @@ package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.io.InputStream;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -27,5 +28,5 @@ interface AbstractFullVersionControlStats extends CommonSlowVersionControlStats 
 
   /* The diff between base and current revision if it exists */
   @JsonIgnore
-  Optional<String> getDiff();
+  Optional<VersionControlSupplier<InputStream>> getDiff();
 }

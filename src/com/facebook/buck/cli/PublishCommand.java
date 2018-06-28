@@ -22,14 +22,14 @@ import static com.facebook.buck.jvm.java.Javadoc.DOC_JAR;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.maven.Publisher;
 import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.base.Joiner;
@@ -61,49 +61,43 @@ public class PublishCommand extends BuildCommand {
   private static final String PUBLISH_GEN_PATH = "publish";
 
   @Option(
-    name = REMOTE_REPO_LONG_ARG,
-    aliases = REMOTE_REPO_SHORT_ARG,
-    usage = "A url of the remote repository to publish artifact(s) to"
-  )
+      name = REMOTE_REPO_LONG_ARG,
+      aliases = REMOTE_REPO_SHORT_ARG,
+      usage = "A url of the remote repository to publish artifact(s) to")
   @Nullable
   private URL remoteRepo = null;
 
   @Option(
-    name = TO_MAVEN_CENTRAL_LONG_ARG,
-    usage = "Same as \"" + REMOTE_REPO_LONG_ARG + " " + Publisher.MAVEN_CENTRAL_URL + "\""
-  )
+      name = TO_MAVEN_CENTRAL_LONG_ARG,
+      usage = "Same as \"" + REMOTE_REPO_LONG_ARG + " " + Publisher.MAVEN_CENTRAL_URL + "\"")
   private boolean toMavenCentral = false;
 
   @Option(
-    name = INCLUDE_SOURCE_LONG_ARG,
-    aliases = INCLUDE_SOURCE_SHORT_ARG,
-    usage = "Publish source code as well"
-  )
+      name = INCLUDE_SOURCE_LONG_ARG,
+      aliases = INCLUDE_SOURCE_SHORT_ARG,
+      usage = "Publish source code as well")
   private boolean includeSource = false;
 
   @Option(
-    name = INCLUDE_DOCS_LONG_ARG,
-    aliases = INCLUDE_DOCS_SHORT_ARG,
-    usage = "Publish docs as well"
-  )
+      name = INCLUDE_DOCS_LONG_ARG,
+      aliases = INCLUDE_DOCS_SHORT_ARG,
+      usage = "Publish docs as well")
   private boolean includeDocs = false;
 
   @Option(name = DRY_RUN_LONG_ARG, usage = "Just print the artifacts to be published")
   private boolean dryRun = false;
 
   @Option(
-    name = "--username",
-    aliases = "-u",
-    usage = "User name to use to authenticate with the server"
-  )
+      name = "--username",
+      aliases = "-u",
+      usage = "User name to use to authenticate with the server")
   @Nullable
   private String username = null;
 
   @Option(
-    name = "--password",
-    aliases = "-p",
-    usage = "Password to use to authenticate with the server"
-  )
+      name = "--password",
+      aliases = "-p",
+      usage = "Password to use to authenticate with the server")
   @Nullable
   private String password = null;
 
@@ -157,7 +151,7 @@ public class PublishCommand extends BuildCommand {
     ImmutableSet.Builder<MavenPublishable> publishables = ImmutableSet.builder();
     boolean success = true;
     for (BuildTarget buildTarget : buildTargets) {
-      BuildRule buildRule = getBuild().getRuleResolver().requireRule(buildTarget);
+      BuildRule buildRule = getBuild().getGraphBuilder().requireRule(buildTarget);
       Preconditions.checkNotNull(buildRule);
 
       if (!(buildRule instanceof MavenPublishable)) {
@@ -166,7 +160,7 @@ public class PublishCommand extends BuildCommand {
             .post(
                 ConsoleEvent.severe(
                     "Cannot publish rule of type %s", buildRule.getClass().getName()));
-        success &= false;
+        success = false;
         continue;
       }
 
@@ -178,7 +172,7 @@ public class PublishCommand extends BuildCommand {
                 ConsoleEvent.severe(
                     "No maven coordinates specified for %s",
                     buildTarget.getUnflavoredBuildTarget().getFullyQualifiedName()));
-        success &= false;
+        success = false;
         continue;
       }
       publishables.add(publishable);
@@ -199,7 +193,7 @@ public class PublishCommand extends BuildCommand {
       ImmutableSet<DeployResult> deployResults =
           publisher.publish(
               DefaultSourcePathResolver.from(
-                  new SourcePathRuleFinder(getBuild().getRuleResolver())),
+                  new SourcePathRuleFinder(getBuild().getGraphBuilder())),
               publishables.build());
       for (DeployResult deployResult : deployResults) {
         printArtifactsInformation(params, deployResult);

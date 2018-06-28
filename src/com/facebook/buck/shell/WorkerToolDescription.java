@@ -17,19 +17,19 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
@@ -39,6 +39,7 @@ import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.types.Either;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
@@ -47,7 +48,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import org.immutables.value.Value;
 
-public class WorkerToolDescription implements Description<WorkerToolDescriptionArg> {
+public class WorkerToolDescription implements DescriptionWithTargetGraph<WorkerToolDescriptionArg> {
 
   private static final String CONFIG_SECTION = "worker";
   private static final String CONFIG_PERSISTENT_KEY = "persistent";
@@ -69,15 +70,15 @@ public class WorkerToolDescription implements Description<WorkerToolDescriptionA
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       WorkerToolDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
 
     CommandTool.Builder builder;
     if (args.getExe().isPresent()) {
-      BuildRule rule = resolver.requireRule(args.getExe().get());
+      BuildRule rule = graphBuilder.requireRule(args.getExe().get());
       if (!(rule instanceof BinaryBuildRule)) {
         throw new HumanReadableException(
             "The 'exe' argument of %s, %s, needs to correspond to a "
@@ -102,13 +103,12 @@ public class WorkerToolDescription implements Description<WorkerToolDescriptionA
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(context.getCellPathResolver())
-            .setResolver(resolver)
             .setExpanders(MACRO_EXPANDERS)
             .build();
 
     if (args.getArgs().isLeft()) {
       builder.addArg(
-          new ProxyArg(macrosConverter.convert(args.getArgs().getLeft())) {
+          new ProxyArg(macrosConverter.convert(args.getArgs().getLeft(), graphBuilder)) {
             @Override
             public void appendToCommandLine(
                 Consumer<String> consumer, SourcePathResolver pathResolver) {
@@ -123,21 +123,35 @@ public class WorkerToolDescription implements Description<WorkerToolDescriptionA
           });
     } else {
       for (StringWithMacros arg : args.getArgs().getRight()) {
-        builder.addArg(macrosConverter.convert(arg));
+        builder.addArg(macrosConverter.convert(arg, graphBuilder));
       }
     }
     for (Map.Entry<String, StringWithMacros> e : args.getEnv().entrySet()) {
-      builder.addEnv(e.getKey(), macrosConverter.convert(e.getValue()));
+      builder.addEnv(e.getKey(), macrosConverter.convert(e.getValue(), graphBuilder));
     }
 
-    // negative or zero: unlimited number of worker processes
-    int maxWorkers = args.getMaxWorkers() < 1 ? Integer.MAX_VALUE : args.getMaxWorkers();
+    Preconditions.checkArgument(
+        !(args.getMaxWorkers().isPresent() && args.getMaxWorkersPerThreadPercent().isPresent()),
+        "max_workers and max_workers_per_thread_percent must not be used together.");
+
+    int maxWorkers;
+    if (args.getMaxWorkersPerThreadPercent().isPresent()) {
+      int percent = args.getMaxWorkersPerThreadPercent().get();
+      Preconditions.checkArgument(
+          percent > 0, "max_workers_per_thread_percent must be greater than 0.");
+      Preconditions.checkArgument(
+          percent <= 100, "max_workers_per_thread_percent must not be greater than 100.");
+      maxWorkers = (int) Math.max(1, percent / 100.0 * buckConfig.getNumThreads());
+    } else {
+      // negative or zero: unlimited number of worker processes
+      maxWorkers = args.getMaxWorkers().map(x -> x < 1 ? buckConfig.getNumThreads() : x).orElse(1);
+    }
 
     CommandTool tool = builder.build();
     return new DefaultWorkerTool(
         buildTarget,
         context.getProjectFilesystem(),
-        new SourcePathRuleFinder(resolver),
+        new SourcePathRuleFinder(graphBuilder),
         tool,
         maxWorkers,
         args.getPersistent()
@@ -156,10 +170,9 @@ public class WorkerToolDescription implements Description<WorkerToolDescriptionA
 
     Optional<BuildTarget> getExe();
 
-    @Value.Default
-    default int getMaxWorkers() {
-      return 1;
-    }
+    Optional<Integer> getMaxWorkers();
+
+    Optional<Integer> getMaxWorkersPerThreadPercent();
 
     Optional<Boolean> getPersistent();
   }

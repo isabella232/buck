@@ -18,12 +18,12 @@ package com.facebook.buck.features.python;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
@@ -33,10 +33,12 @@ import java.util.Optional;
 
 public class PythonLibraryBuilder
     extends AbstractNodeBuilder<
-        PythonLibraryDescriptionArg.Builder, PythonLibraryDescriptionArg, PythonLibraryDescription,
+        PythonLibraryDescriptionArg.Builder,
+        PythonLibraryDescriptionArg,
+        PythonLibraryDescription,
         PythonLibrary> {
 
-  PythonLibraryBuilder(
+  public PythonLibraryBuilder(
       BuildTarget target,
       FlavorDomain<PythonPlatform> pythonPlatforms,
       FlavorDomain<CxxPlatform> cxxPlatforms) {

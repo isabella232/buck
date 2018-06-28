@@ -23,7 +23,11 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -33,11 +37,7 @@ import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -72,9 +72,9 @@ public class PomIntegrationTest {
   private static final String URL = "http://example.com";
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
-  private final BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+  private final ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
   private final SourcePathResolver pathResolver =
-      DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
   private final ProjectFilesystem filesystem = FakeProjectFilesystem.createRealTempFilesystem();
 
@@ -154,7 +154,7 @@ public class PomIntegrationTest {
 
   private MavenPublishable createMavenPublishable(
       String target, String mavenCoords, @Nullable SourcePath pomTemplate, BuildRule... deps) {
-    return ruleResolver.addToIndex(
+    return graphBuilder.addToIndex(
         new PublishedViaMaven(target, filesystem, mavenCoords, pomTemplate, deps));
   }
 

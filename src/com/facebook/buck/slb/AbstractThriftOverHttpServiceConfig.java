@@ -32,6 +32,7 @@ abstract class AbstractThriftOverHttpServiceConfig {
     return ThriftProtocol.BINARY;
   }
 
+  @Value.Default
   public String getThriftPath() {
     return DEFAULT_THRIFT_PATH;
   }

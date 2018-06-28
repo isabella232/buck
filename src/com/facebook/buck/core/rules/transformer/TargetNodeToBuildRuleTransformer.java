@@ -16,18 +16,18 @@
 
 package com.facebook.buck.core.rules.transformer;
 
-import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.toolchain.ToolchainProvider;
 
 public interface TargetNodeToBuildRuleTransformer {
 
-  <T, U extends Description<T>> BuildRule transform(
-      CellProvider cellProvider,
+  <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+      ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       TargetNode<T, U> targetNode);
 }

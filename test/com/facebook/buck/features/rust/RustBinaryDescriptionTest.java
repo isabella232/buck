@@ -16,14 +16,14 @@
 
 package com.facebook.buck.features.rust;
 
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.cxx.CxxGenruleBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
 
@@ -39,7 +39,7 @@ public class RustBinaryDescriptionTest {
                 ImmutableSortedSet.of(DefaultBuildTargetSourcePath.of(srcBuilder.getTarget())));
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(srcBuilder.build(), binaryBuilder.build());
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver(targetGraph);
-    ruleResolver.requireRule(binaryBuilder.getTarget());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    graphBuilder.requireRule(binaryBuilder.getTarget());
   }
 }

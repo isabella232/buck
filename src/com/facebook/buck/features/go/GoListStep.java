@@ -59,6 +59,7 @@ public class GoListStep extends ShellStep {
         ImmutableList.<String>builder()
             .add(platform.getGoRoot().resolve("bin").resolve("go").toString())
             .add("list")
+            .add("-e")
             .add("-f")
             .add(
                 String.join(
@@ -90,6 +91,7 @@ public class GoListStep extends ShellStep {
         .put("GOROOT", platform.getGoRoot().toString())
         .put("GOOS", platform.getGoOs())
         .put("GOARCH", platform.getGoArch())
+        .put("GOARM", platform.getGoArm())
         .build();
   }
 

@@ -23,16 +23,16 @@ import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.Genrule;
@@ -54,23 +54,25 @@ public class JsBundleGenrule extends Genrule
   @AddToRuleKey final boolean rewriteSourcemap;
   @AddToRuleKey final boolean rewriteMisc;
   @AddToRuleKey final boolean skipResources;
+  @AddToRuleKey private final String bundleName;
   private final JsBundleOutputs jsBundle;
 
   public JsBundleGenrule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      SandboxExecutionStrategy sandboxExecutionStrategy,
       BuildRuleResolver resolver,
       BuildRuleParams params,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
       JsBundleGenruleDescriptionArg args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
       Optional<Arg> cmdExe,
-      JsBundleOutputs jsBundle,
       Optional<String> environmentExpansionSeparator,
       Optional<AndroidPlatformTarget> androidPlatformTarget,
       Optional<AndroidNdk> androidNdk,
-      Optional<AndroidSdkLocation> androidSdkLocation) {
+      Optional<AndroidSdkLocation> androidSdkLocation,
+      JsBundleOutputs jsBundle,
+      String bundleName) {
     super(
         buildTarget,
         projectFilesystem,
@@ -95,6 +97,7 @@ public class JsBundleGenrule extends Genrule
     this.rewriteSourcemap = args.getRewriteSourcemap();
     this.rewriteMisc = args.getRewriteMisc();
     this.skipResources = args.getSkipResources();
+    this.bundleName = bundleName;
   }
 
   @Override
@@ -105,6 +108,7 @@ public class JsBundleGenrule extends Genrule
     environmentVariablesBuilder
         .put("JS_DIR", pathResolver.getAbsolutePath(jsBundle.getSourcePathToOutput()).toString())
         .put("JS_BUNDLE_NAME", jsBundle.getBundleName())
+        .put("JS_BUNDLE_NAME_OUT", bundleName)
         .put("MISC_DIR", pathResolver.getAbsolutePath(jsBundle.getSourcePathToMisc()).toString())
         .put(
             "PLATFORM",
@@ -223,7 +227,7 @@ public class JsBundleGenrule extends Genrule
 
   @Override
   public String getBundleName() {
-    return jsBundle.getBundleName();
+    return bundleName;
   }
 
   @Override

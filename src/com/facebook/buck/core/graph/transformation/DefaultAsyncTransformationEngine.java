@@ -28,6 +28,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 
 /**
@@ -62,7 +64,8 @@ import java.util.function.Function;
  * the dependency calculation such that if Transformer is implemented to be tail recursive, the
  * whole graph computation will be tail recursive, eliminating stack use.
  *
- * <p>Currently, we only use the engine for {@link com.facebook.buck.rules.TargetGraph} to {@link
+ * <p>Currently, we only use the engine for {@link
+ * com.facebook.buck.core.model.targetgraph.TargetGraph} to {@link
  * com.facebook.buck.core.model.actiongraph.ActionGraph}, but theoretically this can be extended to
  * work with any computation.
  */
@@ -83,6 +86,8 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
 
   private final AsyncTransformer<ComputeKey, ComputeResult> transformer;
 
+  private final Executor executor;
+
   @VisibleForTesting
   final ConcurrentHashMap<ComputeKey, CompletableFuture<ComputeResult>> computationIndex;
 
@@ -91,7 +96,7 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
 
   /**
    * Constructs a {@link DefaultAsyncTransformationEngine} with an internal cache that uses the
-   * {@link ComputeKey} for reusability.
+   * {@link ComputeKey} for reusability and uses {@link ForkJoinPool#commonPool()} to execute tasks.
    *
    * @param transformer the {@link AsyncTransformer} this engine executes
    * @param estimatedNumOps the estimated number of operations this engine will execute given a
@@ -99,6 +104,22 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
    */
   public DefaultAsyncTransformationEngine(
       AsyncTransformer<ComputeKey, ComputeResult> transformer, int estimatedNumOps) {
+    this(transformer, estimatedNumOps, ForkJoinPool.commonPool());
+  }
+
+  /**
+   * Constructs a {@link DefaultAsyncTransformationEngine} with an internal cache that uses the
+   * {@link ComputeKey} for reusability.
+   *
+   * @param transformer the {@link AsyncTransformer} this engine executes
+   * @param estimatedNumOps the estimated number of operations this engine will execute given a
+   *     computation, to reserve the size of its computation index
+   * @param executor the custom {@link Executor} the engine uses to execute tasks
+   */
+  public DefaultAsyncTransformationEngine(
+      AsyncTransformer<ComputeKey, ComputeResult> transformer,
+      int estimatedNumOps,
+      Executor executor) {
     this(
         transformer,
         estimatedNumOps,
@@ -116,7 +137,8 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
           public void put(ComputeKey k, ComputeResult v) {
             map.put(k, v);
           }
-        });
+        },
+        executor);
   }
 
   /**
@@ -127,20 +149,22 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
    * @param estimatedNumOps the estimated number of operations this engine will execute given a
    *     computation, to reserve the size of its computation index
    * @param cache the cache to store the computed results
+   * @param executor the custom {@link Executor} the engine uses to execute tasks
    */
   public DefaultAsyncTransformationEngine(
       AsyncTransformer<ComputeKey, ComputeResult> transformer,
       int estimatedNumOps,
-      TransformationEngineCache<ComputeKey, ComputeResult> cache) {
+      TransformationEngineCache<ComputeKey, ComputeResult> cache,
+      Executor executor) {
     this.transformer = transformer;
     this.computationIndex = new ConcurrentHashMap<>(estimatedNumOps);
     this.resultCache = cache;
+    this.executor = executor;
   }
 
   @Override
   public final CompletableFuture<ComputeResult> compute(ComputeKey key) {
-    return computeWithEnvironment(
-        key, new DefaultTransformationEnvironment<ComputeKey, ComputeResult>(this));
+    return computeWithEnvironment(key, new DefaultTransformationEnvironment<>(this, executor));
   }
 
   @Override
@@ -183,13 +207,14 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
               }
 
               LOG.verbose("Result cache miss. Computing transformation for requested key: %s", key);
-              return CompletableFuture.supplyAsync(() -> mapKey)
-                  .thenComposeAsync(computeKey -> transformer.transform(computeKey, env))
+              return CompletableFuture.supplyAsync(() -> mapKey, executor)
+                  .thenComposeAsync(computeKey -> transformer.transform(computeKey, env), executor)
                   .thenApplyAsync(
                       computedResult -> {
                         resultCache.put(mapKey, computedResult);
                         return computedResult;
-                      });
+                      },
+                      executor);
             })
         .thenApplyAsync(
             computedResult -> {
@@ -197,10 +222,11 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
               // since the value is already in the resultCache
               computationIndex.remove(key);
               return computedResult;
-            });
+            },
+            executor);
   }
 
-  static final <K, V> CompletableFuture<ImmutableMap<K, V>> collectFutures(
+  final <K, V> CompletableFuture<ImmutableMap<K, V>> collectFutures(
       Map<K, CompletableFuture<V>> toCollect) {
     return CompletableFuture.allOf(
             toCollect.values().toArray(new CompletableFuture[toCollect.size()]))
@@ -211,6 +237,7 @@ public final class DefaultAsyncTransformationEngine<ComputeKey, ComputeResult>
                     .parallelStream()
                     .collect(
                         ImmutableMap.toImmutableMap(
-                            Entry::getKey, entry -> entry.getValue().join())));
+                            Entry::getKey, entry -> entry.getValue().join())),
+            executor);
   }
 }

@@ -16,13 +16,11 @@
 
 package com.facebook.buck.skylark.parser;
 
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
 import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +36,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Responsible for creating instances of Skylark functions based on Buck's {@link Description}s.
+ * Responsible for creating instances of Skylark functions based on Buck's {@link
+ * DescriptionWithTargetGraph}s.
  *
  * <p>For example for a {@link com.facebook.buck.jvm.java.JavaLibraryDescription} instance, a
  * Skylark function using snake case of its name prefix will be created - {@code java_library}.
@@ -68,7 +67,7 @@ public class RuleFunctionFactory {
    * @param ruleClass The name of the rule to to define.
    * @return Skylark function to handle the Buck rule.
    */
-  BuiltinFunction create(Description<?> ruleClass) {
+  BuiltinFunction create(DescriptionWithTargetGraph<?> ruleClass) {
     String name = DescriptionCache.getBuildRuleType(ruleClass).getName();
     return new BuiltinFunction(
         name, FunctionSignature.KWARGS, BuiltinFunction.USE_AST_ENV, /*isRule=*/ true) {
@@ -76,20 +75,23 @@ public class RuleFunctionFactory {
       @SuppressWarnings({"unused"})
       public Runtime.NoneType invoke(
           Map<String, Object> kwargs, FuncallExpression ast, Environment env) throws EvalException {
-        PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
+        ParseContext parseContext = ParseContext.getParseContext(env, ast);
         ImmutableMap.Builder<String, Object> builder =
             ImmutableMap.<String, Object>builder()
                 .put(
                     "buck.base_path",
-                    packageContext.getPackageIdentifier().getPackageFragment().getPathString())
+                    parseContext
+                        .getPackageContext()
+                        .getPackageIdentifier()
+                        .getPackageFragment()
+                        .getPathString())
                 .put("buck.type", name);
         ImmutableMap<String, ParamInfo> allParamInfo =
             CoercedTypeCache.INSTANCE.getAllParamInfo(
                 typeCoercerFactory, ruleClass.getConstructorArgType());
         populateAttributes(kwargs, builder, allParamInfo);
         throwOnMissingRequiredAttribute(kwargs, allParamInfo, getName(), ast);
-        ParseContext parseContext = ParseContext.getParseContext(env, ast);
-        parseContext.recordRule(builder.build());
+        parseContext.recordRule(builder.build(), ast);
         return Runtime.NONE;
       }
     };
@@ -132,7 +134,7 @@ public class RuleFunctionFactory {
 
   /**
    * Populates provided {@code builder} with values from {@code kwargs} assuming {@code ruleClass}
-   * as the target {@link Description} class.
+   * as the target {@link DescriptionWithTargetGraph} class.
    *
    * @param kwargs The keyword arguments and their values passed to rule function in build file.
    * @param builder The map builder used for storing extracted attributes and their values.

@@ -17,9 +17,13 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
@@ -30,10 +34,6 @@ import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -91,6 +91,8 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey(stringify = true)
   Path ghciScriptTemplate;
 
+  @AddToRuleKey ImmutableList<SourcePath> extraScriptTemplates;
+
   @AddToRuleKey(stringify = true)
   Path ghciIservScriptTemplate;
 
@@ -134,6 +136,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableSet<HaskellPackage> prebuiltHaskellPackages,
       boolean enableProfiling,
       Path ghciScriptTemplate,
+      ImmutableList<SourcePath> extraScriptTemplates,
       Path ghciIservScriptTemplate,
       Path ghciBinutils,
       Path ghciGhc,
@@ -156,6 +159,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.prebuiltHaskellPackages = prebuiltHaskellPackages;
     this.enableProfiling = enableProfiling;
     this.ghciScriptTemplate = ghciScriptTemplate;
+    this.extraScriptTemplates = extraScriptTemplates;
     this.ghciIservScriptTemplate = ghciIservScriptTemplate;
     this.ghciBinutils = ghciBinutils;
     this.ghciGhc = ghciGhc;
@@ -201,6 +205,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableSet<HaskellPackage> prebuiltHaskellPackages,
       boolean enableProfiling,
       Path ghciScriptTemplate,
+      ImmutableList<SourcePath> extraScriptTemplates,
       Path ghciIservScriptTemplate,
       Path ghciBinutils,
       Path ghciGhc,
@@ -243,6 +248,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         prebuiltHaskellPackages,
         enableProfiling,
         ghciScriptTemplate,
+        extraScriptTemplates,
         ghciIservScriptTemplate,
         ghciBinutils,
         ghciGhc,
@@ -552,6 +558,15 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         new StringTemplateStep(
             ghciScriptTemplate, getProjectFilesystem(), script, templateArgs.build()));
     steps.add(new MakeExecutableStep(getProjectFilesystem(), script));
+
+    for (SourcePath s : extraScriptTemplates) {
+      Path templateAbsPath = resolver.getAbsolutePath(s);
+      Path extraScript = dir.resolve(templateAbsPath.getFileName());
+      steps.add(
+          new StringTemplateStep(
+              templateAbsPath, getProjectFilesystem(), extraScript, templateArgs.build()));
+      steps.add(new MakeExecutableStep(getProjectFilesystem(), extraScript));
+    }
 
     buildableContext.recordArtifact(dir);
 

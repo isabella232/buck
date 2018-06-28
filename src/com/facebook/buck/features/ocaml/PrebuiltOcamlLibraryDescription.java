@@ -16,18 +16,18 @@
 
 package com.facebook.buck.features.ocaml;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
@@ -38,7 +38,7 @@ import org.immutables.value.Value;
 
 /** Prebuilt OCaml library */
 public class PrebuiltOcamlLibraryDescription
-    implements Description<PrebuiltOcamlLibraryDescriptionArg>,
+    implements DescriptionWithTargetGraph<PrebuiltOcamlLibraryDescriptionArg>,
         VersionPropagator<PrebuiltOcamlLibraryDescriptionArg> {
 
   @Override
@@ -48,7 +48,7 @@ public class PrebuiltOcamlLibraryDescription
 
   @Override
   public OcamlLibrary createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       PrebuiltOcamlLibraryDescriptionArg args) {
@@ -94,7 +94,7 @@ public class PrebuiltOcamlLibraryDescription
     SourcePath bytecodeLibraryPath =
         PathSourcePath.of(projectFilesystem, libPath.resolve(bytecodeLib));
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(context.getActionGraphBuilder());
 
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();

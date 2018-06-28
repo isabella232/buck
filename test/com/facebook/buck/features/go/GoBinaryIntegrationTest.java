@@ -71,12 +71,45 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
+  public void binaryWithAsmAndArchBuildTag() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "asm_with_arch_tag", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("run", "//src/asm_test:bin");
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.containsString("Sum is 6"));
+  }
+
+  @Test
   public void binaryWithCgo() throws IOException {
     GoAssumptions.assumeGoVersionAtLeast("1.10.0");
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("run", "//src/cgo_test:bin");
+    ProcessResult result = workspace.runBuckCommand("run", "//src/simple:bin");
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.containsString("fmt: Go string"));
+  }
+
+  @Test
+  public void binaryWithCgoAndGenruleAsSource() throws IOException {
+    GoAssumptions.assumeGoVersionAtLeast("1.10.0");
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("run", "//src/genrule:bin");
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.containsString("fmt: Go string second"));
+  }
+
+  @Test
+  public void binaryWithLibraryIncludingCgoLib() throws IOException {
+    GoAssumptions.assumeGoVersionAtLeast("1.10.0");
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "cgo", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("run", "//src/interdeps:bin");
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.containsString("fmt: Go string"));
   }

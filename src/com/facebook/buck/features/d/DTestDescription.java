@@ -19,27 +19,26 @@ package com.facebook.buck.features.d;
 import static com.facebook.buck.features.d.DDescriptionUtils.SOURCE_LINK_TREE;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
@@ -49,7 +48,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class DTestDescription
-    implements Description<DTestDescriptionArg>,
+    implements DescriptionWithTargetGraph<DTestDescriptionArg>,
         ImplicitDepsInferringDescription<DTestDescription.AbstractDTestDescriptionArg>,
         VersionRoot<DTestDescriptionArg> {
 
@@ -71,13 +70,13 @@ public class DTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       DTestDescriptionArg args) {
 
-    BuildRuleResolver buildRuleResolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
@@ -87,10 +86,9 @@ public class DTestDescription
     }
 
     SymlinkTree sourceTree =
-        (SymlinkTree)
-            buildRuleResolver.requireRule(DDescriptionUtils.getSymlinkTreeTarget(buildTarget));
+        (SymlinkTree) graphBuilder.requireRule(DDescriptionUtils.getSymlinkTreeTarget(buildTarget));
 
-    CxxPlatform cxxPlatform = getCxxPlatform();
+    CxxPlatform cxxPlatform = DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig);
 
     // Create a helper rule to build the test binary.
     // The rule needs its own target so that we can depend on it without creating cycles.
@@ -104,7 +102,7 @@ public class DTestDescription
             binaryTarget,
             projectFilesystem,
             params,
-            buildRuleResolver,
+            graphBuilder,
             cxxPlatform,
             dBuckConfig,
             cxxBuckConfig,
@@ -115,7 +113,7 @@ public class DTestDescription
                 .setLinkTree(sourceTree.getSourcePathToOutput())
                 .addAllSources(args.getSrcs().getPaths())
                 .build());
-    buildRuleResolver.addToIndex(binaryRule);
+    graphBuilder.addToIndex(binaryRule);
 
     return new DTest(
         buildTarget,
@@ -136,13 +134,9 @@ public class DTestDescription
       AbstractDTestDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(getCxxPlatform()));
-  }
-
-  private CxxPlatform getCxxPlatform() {
-    CxxPlatformsProvider cxxPlatformsProviderFactory =
-        toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    return cxxPlatformsProviderFactory.getDefaultCxxPlatform();
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(
+            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig)));
   }
 
   @BuckStyleImmutable

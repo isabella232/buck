@@ -22,6 +22,10 @@ import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -30,12 +34,8 @@ import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -168,7 +168,7 @@ class CxxPrecompiledHeader extends AbstractBuildRule
             MakeCleanDirectoryStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
                     context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)))
-        .add(makeMainStep(context.getSourcePathResolver(), scratchDir))
+        .add(makeMainStep(context, scratchDir))
         .build();
   }
 
@@ -230,8 +230,7 @@ class CxxPrecompiledHeader extends AbstractBuildRule
     try {
       return ImmutableList.<SourcePath>builder()
           .addAll(
-              preprocessorDelegate.getInputsAfterBuildingLocally(
-                  getDependencies(context), context.getSourcePathResolver()))
+              preprocessorDelegate.getInputsAfterBuildingLocally(getDependencies(context), context))
           .add(input)
           .build();
     } catch (Depfiles.HeaderVerificationException e) {
@@ -257,7 +256,7 @@ class CxxPrecompiledHeader extends AbstractBuildRule
               Depfiles.parseAndVerifyDependencies(
                   context.getEventBus(),
                   getProjectFilesystem(),
-                  preprocessorDelegate.getHeaderPathNormalizer(context.getSourcePathResolver()),
+                  preprocessorDelegate.getHeaderPathNormalizer(context),
                   preprocessorDelegate.getHeaderVerification(),
                   getDepFilePath(context.getSourcePathResolver()),
                   // TODO(10194465): This uses relative path so as to get relative paths in the dep
@@ -277,7 +276,8 @@ class CxxPrecompiledHeader extends AbstractBuildRule
   }
 
   @VisibleForTesting
-  CxxPreprocessAndCompileStep makeMainStep(SourcePathResolver resolver, Path scratchDir) {
+  CxxPreprocessAndCompileStep makeMainStep(BuildContext context, Path scratchDir) {
+    SourcePathResolver resolver = context.getSourcePathResolver();
     Path pchOutput =
         canPrecompile()
             ? resolver.getRelativePath(getSourcePathToOutput())
@@ -307,7 +307,7 @@ class CxxPrecompiledHeader extends AbstractBuildRule
                         .getAllFlags()),
                 resolver),
             preprocessorDelegate.getEnvironment(resolver)),
-        preprocessorDelegate.getHeaderPathNormalizer(resolver),
+        preprocessorDelegate.getHeaderPathNormalizer(context),
         compilerSanitizer,
         scratchDir,
         /* useArgFile*/ true,

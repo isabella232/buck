@@ -31,7 +31,11 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.description.arg.HasTests;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
@@ -40,9 +44,6 @@ import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Optionals;
@@ -90,12 +91,12 @@ public class WorkspaceAndProjectGenerator {
   private final boolean combinedProject;
   private final boolean parallelizeBuild;
   private final CxxPlatform defaultCxxPlatform;
-  private final ImmutableSet<String> appleCxxFlavors;
+  private final ImmutableSet<Flavor> appleCxxFlavors;
 
   private Optional<ProjectGenerator> combinedProjectGenerator;
   private final Map<String, SchemeGenerator> schemeGenerators = new HashMap<>();
   private final String buildFileName;
-  private final Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode;
+  private final Function<TargetNode<?, ?>, ActionGraphBuilder> graphBuilderForNode;
   private final BuckEventBus buckEventBus;
   private final RuleKeyConfiguration ruleKeyConfiguration;
 
@@ -120,9 +121,9 @@ public class WorkspaceAndProjectGenerator {
       FocusedModuleTargetMatcher focusModules,
       boolean parallelizeBuild,
       CxxPlatform defaultCxxPlatform,
-      ImmutableSet<String> appleCxxFlavors,
+      ImmutableSet<Flavor> appleCxxFlavors,
       String buildFileName,
-      Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
+      Function<TargetNode<?, ?>, ActionGraphBuilder> graphBuilderForNode,
       BuckEventBus buckEventBus,
       RuleKeyConfiguration ruleKeyConfiguration,
       HalideBuckConfig halideBuckConfig,
@@ -142,7 +143,7 @@ public class WorkspaceAndProjectGenerator {
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.appleCxxFlavors = appleCxxFlavors;
     this.buildFileName = buildFileName;
-    this.buildRuleResolverForNode = buildRuleResolverForNode;
+    this.graphBuilderForNode = graphBuilderForNode;
     this.buckEventBus = buckEventBus;
     this.swiftBuckConfig = swiftBuckConfig;
     this.combinedProjectGenerator = Optional.empty();
@@ -477,7 +478,7 @@ public class WorkspaceAndProjectGenerator {
                 focusModules,
                 defaultCxxPlatform,
                 appleCxxFlavors,
-                buildRuleResolverForNode,
+                graphBuilderForNode,
                 buckEventBus,
                 halideBuckConfig,
                 cxxBuckConfig,
@@ -534,7 +535,7 @@ public class WorkspaceAndProjectGenerator {
             focusModules,
             defaultCxxPlatform,
             appleCxxFlavors,
-            buildRuleResolverForNode,
+            graphBuilderForNode,
             buckEventBus,
             halideBuckConfig,
             cxxBuckConfig,

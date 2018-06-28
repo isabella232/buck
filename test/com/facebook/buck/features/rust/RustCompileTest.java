@@ -18,9 +18,12 @@ package com.facebook.buck.features.rust;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -29,10 +32,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
@@ -150,7 +150,7 @@ public class RustCompileTest {
       public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
           ProjectFilesystem projectFilesystem,
           BuildRuleParams baseParams,
-          BuildRuleResolver ruleResolver,
+          ActionGraphBuilder graphBuilder,
           SourcePathRuleFinder ruleFinder,
           BuildTarget target,
           ImmutableList<? extends SourcePath> symbolFiles) {
@@ -175,6 +175,11 @@ public class RustCompileTest {
       @Override
       public SharedLibraryLoadingType getSharedLibraryLoadingType() {
         return SharedLibraryLoadingType.RPATH;
+      }
+
+      @Override
+      public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
+        return Optional.empty();
       }
 
       @Override
@@ -214,7 +219,7 @@ public class RustCompileTest {
     static FakeRustCompileRule from(String target, ImmutableSortedSet<SourcePath> srcs) {
       BuildTarget buildTarget = BuildTargetFactory.newInstance(target);
 
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
 
       SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 

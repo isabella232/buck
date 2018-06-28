@@ -25,16 +25,17 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildMode;
+import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.RemoteBuildModeRunner.FinalBuildStatusSetter;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.step.ExecutionContext;
@@ -116,7 +117,8 @@ public class DistBuildSlaveExecutor {
                   initializer.getDelegateAndGraphs(),
                   graphs -> {
                     SourcePathRuleFinder ruleFinder =
-                        new SourcePathRuleFinder(graphs.getActionGraphAndResolver().getResolver());
+                        new SourcePathRuleFinder(
+                            graphs.getActionGraphAndBuilder().getActionGraphBuilder());
                     return new ParallelRuleKeyCalculator<RuleKey>(
                         args.getExecutorService(),
                         new DefaultRuleKeyFactory(
@@ -126,12 +128,14 @@ public class DistBuildSlaveExecutor {
                             ruleFinder,
                             args.getRuleKeyCacheScope().getCache(),
                             Optional.empty()),
-                        new DefaultRuleDepsCache(graphs.getActionGraphAndResolver().getResolver()),
+                        new DefaultRuleDepsCache(
+                            graphs.getActionGraphAndBuilder().getActionGraphBuilder()),
                         (buckEventBus, rule) -> () -> {});
                   },
                   MoreExecutors.directExecutor()),
               args.getHealthCheckStatsTracker(),
-              Optional.of(args.getTimingStatsTracker()));
+              Optional.of(args.getTimingStatsTracker()),
+              Optional.of(DistBuildUtil.generateMinionId(args.getBuildSlaveRunId())));
       return setPreparationCallbackAndRun(runner);
     }
 
@@ -259,7 +263,7 @@ public class DistBuildSlaveExecutor {
             new LocalBuildExecutor(
                 builderArgs,
                 executionContext,
-                delegateAndGraphs.getActionGraphAndResolver(),
+                delegateAndGraphs.getActionGraphAndBuilder(),
                 delegateAndGraphs.getCachingBuildEngineDelegate(),
                 args.getExecutorService(),
                 KEEP_GOING,

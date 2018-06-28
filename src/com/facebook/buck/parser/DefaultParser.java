@@ -17,10 +17,14 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasDefaultFlavors;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
@@ -32,10 +36,6 @@ import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
-import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.MoreMaps;
@@ -412,13 +412,14 @@ public class DefaultParser implements Parser {
           ImmutableSet.copyOf(
               Iterables.concat(
                   targetSpecResolver.resolveTargetSpecs(
-                      state,
                       eventBus,
                       rootCell,
                       targetNodeSpecs,
                       (buildTarget, targetNode, targetType) ->
                           applyDefaultFlavors(
-                              buildTarget, targetNode, targetType, applyDefaultFlavorsMode))));
+                              buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
+                      state.getTargetNodeProviderForSpecResolver(),
+                      (spec, nodes) -> spec.filter(nodes))));
       TargetGraph graph = buildTargetGraph(state, eventBus, buildTargets);
 
       return TargetGraphAndBuildTargets.builder()
@@ -457,12 +458,13 @@ public class DefaultParser implements Parser {
             enableProfiling,
             speculativeParsing)) {
       return targetSpecResolver.resolveTargetSpecs(
-          state,
           eventBus,
           rootCell,
           specs,
           (buildTarget, targetNode, targetType) ->
-              applyDefaultFlavors(buildTarget, targetNode, targetType, applyDefaultFlavorsMode));
+              applyDefaultFlavors(buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
+          state.getTargetNodeProviderForSpecResolver(),
+          (spec, nodes) -> spec.filter(nodes));
     }
   }
 

@@ -29,7 +29,8 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -48,7 +49,6 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -58,6 +58,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -134,7 +135,7 @@ public class CxxPreprocessAndCompileTest {
 
   @Test
   public void inputChangesCauseRuleKeyChangesForCompilation() throws Exception {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     FakeFileHashCache hashCache =
@@ -208,7 +209,8 @@ public class CxxPreprocessAndCompileTest {
                         Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
-                            new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps"))))),
+                            new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
+                        ImmutableSortedSet.of()),
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
@@ -287,7 +289,7 @@ public class CxxPreprocessAndCompileTest {
   @Test
   public void preprocessorFlagsRuleKeyChangesCauseRuleKeyChangesForPreprocessing()
       throws Exception {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     FakeFileHashCache hashCache =
@@ -320,7 +322,8 @@ public class CxxPreprocessAndCompileTest {
                         Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
-                            new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps"))))),
+                            new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
+                        ImmutableSortedSet.of()),
                     new CompilerDelegate(
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
@@ -344,8 +347,9 @@ public class CxxPreprocessAndCompileTest {
   @Test
   public void usesCorrectCommandForCompile() {
     // Setup some dummy values for inputs to the CxxPreprocessAndCompile.
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     CxxToolFlags flags =
         CxxToolFlags.explicitBuilder()
@@ -378,7 +382,7 @@ public class CxxPreprocessAndCompileTest {
             .add(input.toString())
             .build();
     ImmutableList<String> actualCompileCommand =
-        buildRule.makeMainStep(pathResolver, false).getCommand();
+        buildRule.makeMainStep(context, false).getCommand();
     assertEquals(expectedCompileCommand, actualCompileCommand);
   }
 
@@ -392,7 +396,7 @@ public class CxxPreprocessAndCompileTest {
     SourcePath compiler = FakeSourcePath.of(projectFilesystem, "compiler");
     Tool compilerTool = new CommandTool.Builder().addInput(compiler).build();
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
@@ -415,7 +419,8 @@ public class CxxPreprocessAndCompileTest {
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
                 Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
-                Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps"))))),
+                Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
+                ImmutableSortedSet.of()),
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 DEFAULT_COMPILER,
@@ -448,8 +453,9 @@ public class CxxPreprocessAndCompileTest {
 
   @Test
   public void usesColorFlagForCompilationWhenRequested() {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     String output = "test.o";
     Path input = Paths.get("test.ii");
@@ -472,22 +478,19 @@ public class CxxPreprocessAndCompileTest {
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
 
     ImmutableList<String> command =
-        buildRule
-            .makeMainStep(pathResolver, false)
-            .getArguments(/* allowColorsInDiagnostics */ false);
+        buildRule.makeMainStep(context, false).getArguments(/* allowColorsInDiagnostics */ false);
     assertThat(command, not(hasItem(CompilerWithColorSupport.COLOR_FLAG)));
 
     command =
-        buildRule
-            .makeMainStep(pathResolver, false)
-            .getArguments(/* allowColorsInDiagnostics */ true);
+        buildRule.makeMainStep(context, false).getArguments(/* allowColorsInDiagnostics */ true);
     assertThat(command, hasItem(CompilerWithColorSupport.COLOR_FLAG));
   }
 
   @Test
   public void usesColorFlagForPreprocessingWhenRequested() {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestBuildRuleResolver());
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     String output = "test.ii";
     Path input = Paths.get("test.cpp");
@@ -505,7 +508,8 @@ public class CxxPreprocessAndCompileTest {
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
                 Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
-                Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps"))))),
+                Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
+                ImmutableSortedSet.of()),
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 COMPILER_WITH_COLOR_SUPPORT,
@@ -517,15 +521,11 @@ public class CxxPreprocessAndCompileTest {
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
 
     ImmutableList<String> command =
-        buildRule
-            .makeMainStep(pathResolver, false)
-            .getArguments(/* allowColorsInDiagnostics */ false);
+        buildRule.makeMainStep(context, false).getArguments(/* allowColorsInDiagnostics */ false);
     assertThat(command, not(hasItem(PreprocessorWithColorSupport.COLOR_FLAG)));
 
     command =
-        buildRule
-            .makeMainStep(pathResolver, false)
-            .getArguments(/* allowColorsInDiagnostics */ true);
+        buildRule.makeMainStep(context, false).getArguments(/* allowColorsInDiagnostics */ true);
     assertThat(command, hasItem(CompilerWithColorSupport.COLOR_FLAG));
   }
 

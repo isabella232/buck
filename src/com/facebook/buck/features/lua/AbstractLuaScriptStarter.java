@@ -16,8 +16,12 @@
 
 package com.facebook.buck.features.lua;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.WriteStringTemplateRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
@@ -25,10 +29,6 @@ import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.util.Escaper;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
@@ -51,7 +51,7 @@ abstract class AbstractLuaScriptStarter implements Starter {
 
   abstract BuildRuleParams getBaseParams();
 
-  abstract BuildRuleResolver getRuleResolver();
+  abstract ActionGraphBuilder getActionGraphBuilder();
 
   abstract SourcePathResolver getPathResolver();
 
@@ -83,7 +83,7 @@ abstract class AbstractLuaScriptStarter implements Starter {
     BuildTarget templateTarget =
         getBaseTarget().withAppendedFlavors(InternalFlavor.of("starter-template"));
     WriteFile templateRule =
-        getRuleResolver()
+        getActionGraphBuilder()
             .addToIndex(
                 new WriteFile(
                     templateTarget,
@@ -93,9 +93,9 @@ abstract class AbstractLuaScriptStarter implements Starter {
                         getProjectFilesystem(), templateTarget, "%s/starter.lua.in"),
                     /* executable */ false));
 
-    Tool lua = getLuaPlatform().getLua().resolve(getRuleResolver());
+    Tool lua = getLuaPlatform().getLua().resolve(getActionGraphBuilder());
     WriteStringTemplateRule writeStringTemplateRule =
-        getRuleResolver()
+        getActionGraphBuilder()
             .addToIndex(
                 WriteStringTemplateRule.from(
                     getProjectFilesystem(),

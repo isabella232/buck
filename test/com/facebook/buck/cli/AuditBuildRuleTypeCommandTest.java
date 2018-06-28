@@ -19,13 +19,13 @@ package com.facebook.buck.cli;
 import static com.facebook.buck.util.MoreStringsForTests.equalToIgnoringPlatformNewlines;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.google.common.collect.ImmutableSet;
@@ -36,7 +36,7 @@ import org.junit.Test;
 
 public class AuditBuildRuleTypeCommandTest {
 
-  static class BuildRuleDescription implements Description<BuildRuleDescriptionArg> {
+  static class BuildRuleDescription implements DescriptionWithTargetGraph<BuildRuleDescriptionArg> {
 
     @Override
     public Class<BuildRuleDescriptionArg> getConstructorArgType() {
@@ -45,7 +45,7 @@ public class AuditBuildRuleTypeCommandTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         BuildRuleDescriptionArg args) {
@@ -66,7 +66,7 @@ public class AuditBuildRuleTypeCommandTest {
     }
   }
 
-  private static final Description<?> DESCRIPTION = new BuildRuleDescription();
+  private static final DescriptionWithTargetGraph<?> DESCRIPTION = new BuildRuleDescription();
 
   @Test
   public void buildRuleTypePrintedAsAPythonFunction() {

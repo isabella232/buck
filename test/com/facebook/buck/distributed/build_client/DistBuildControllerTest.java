@@ -36,8 +36,11 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildEvent.DistBuildFinished;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildCellIndexer;
@@ -45,6 +48,7 @@ import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildService.DistBuildRejectedException;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
@@ -68,9 +72,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -106,6 +107,7 @@ public class DistBuildControllerTest {
   private static final String REPOSITORY = "repositoryOne";
   private static final String TENANT_ID = "tenantOne";
   private static final String BUILD_LABEL = "unit_test";
+  private static final String MINION_TYPE = "standard_type";
   private static final List<String> BUILD_TARGETS = Lists.newArrayList();
 
   private DistBuildService mockDistBuildService;
@@ -128,7 +130,7 @@ public class DistBuildControllerTest {
     scheduler = Executors.newSingleThreadScheduledExecutor();
     buckVersion = new BuckVersion();
     buckVersion.setGitHash("thishashisamazing");
-    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL);
+    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     distBuildCellIndexer = new DistBuildCellIndexer(new TestCellBuilder().build());
     directExecutor =
         new FakeWeightedListeningExecutorService(MoreExecutors.newDirectExecutorService());
@@ -170,9 +172,9 @@ public class DistBuildControllerTest {
 
     ActionAndTargetGraphs graphs =
         ActionAndTargetGraphs.builder()
-            .setActionGraphAndResolver(
-                ActionGraphAndResolver.of(
-                    createNiceMock(ActionGraph.class), createNiceMock(BuildRuleResolver.class)))
+            .setActionGraphAndBuilder(
+                ActionGraphAndBuilder.of(
+                    createNiceMock(ActionGraph.class), createNiceMock(ActionGraphBuilder.class)))
             .setUnversionedTargetGraph(
                 TargetGraphAndBuildTargets.of(createNiceMock(TargetGraph.class), ImmutableSet.of()))
             .build();
@@ -211,6 +213,7 @@ public class DistBuildControllerTest {
         fakeFileHashCache,
         invocationInfo,
         BuildMode.REMOTE_BUILD,
+        DistLocalBuildMode.WAIT_FOR_REMOTE,
         new MinionRequirements(),
         REPOSITORY,
         TENANT_ID,

@@ -22,23 +22,27 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_O
 
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.TestCxxPlatformsProviderFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.jvm.kotlin.KotlinBuckConfig;
 import com.facebook.buck.jvm.scala.ScalaBuckConfig;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 
 public class RobolectricTestBuilder
     extends AbstractNodeBuilder<
-        RobolectricTestDescriptionArg.Builder, RobolectricTestDescriptionArg,
-        RobolectricTestDescription, RobolectricTest> {
+        RobolectricTestDescriptionArg.Builder,
+        RobolectricTestDescriptionArg,
+        RobolectricTestDescription,
+        RobolectricTest> {
 
   public static final AndroidLibraryCompilerFactory DEFAULT_ANDROID_COMPILER_FACTORY =
       new DefaultAndroidLibraryCompilerFactory(
@@ -87,6 +91,7 @@ public class RobolectricTestBuilder
         .withToolchain(
             JavaOptionsProvider.DEFAULT_NAME,
             JavaOptionsProvider.of(DEFAULT_JAVA_OPTIONS, DEFAULT_JAVA_OPTIONS))
+        .withToolchain(JavaToolchain.DEFAULT_NAME, JavaCompilationConstants.DEFAULT_JAVA_TOOLCHAIN)
         .build();
   }
 

@@ -20,13 +20,13 @@ import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,6 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 
@@ -62,15 +63,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
         MoreSuppliers.memoize(
             () ->
                 JavacSpec.builder()
-                    .setJavacPath(
-                        getJavacPath().isPresent()
-                            ? Optional.of(Either.ofLeft(getJavacPath().get()))
-                            : Optional.empty())
-                    .setJavacJarPath(delegate.getSourcePath("tools", "javac_jar"))
-                    .setJavacLocation(
-                        delegate
-                            .getEnum(SECTION, "location", Javac.Location.class)
-                            .orElse(Javac.Location.IN_PROCESS))
+                    .setJavacPath(getJavacPath())
+                    .setJavacJarPath(getJavacJarPath())
                     .setCompilerClassName(delegate.getValue("tools", "compiler_class_name"))
                     .build());
   }
@@ -173,6 +167,10 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return getPathToExecutable("javac").map(delegate::getPathSourcePath);
   }
 
+  private Optional<SourcePath> getJavacJarPath() {
+    return delegate.getSourcePath("tools", "javac_jar");
+  }
+
   private Optional<Path> getPathToExecutable(String executableName) {
     Optional<Path> path = delegate.getPath("tools", executableName);
     if (path.isPresent()) {
@@ -214,7 +212,7 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return delegate.getBooleanValue(SECTION, "cache_binaries", true);
   }
 
-  public Optional<Integer> getDxThreadCount() {
+  public OptionalInt getDxThreadCount() {
     return delegate.getInteger(SECTION, "dx_threads");
   }
 

@@ -23,12 +23,12 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.step.ExecutionContext;
@@ -61,7 +61,7 @@ public class NdkLibraryTest {
 
   @Test
   public void testSimpleNdkLibraryRule() throws Exception {
-    BuildRuleResolver ruleResolver = new TestBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildContext context = FakeBuildContext.NOOP_CONTEXT;
 
     Path androidNdk = Paths.get("/android/ndk");
@@ -80,7 +80,7 @@ public class NdkLibraryTest {
         new NdkLibraryBuilder(target, toolchainProvider)
             .setFlags(ImmutableList.of("flag1", "flag2"))
             .setIsAsset(true)
-            .build(ruleResolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
 
     assertEquals("ndk_library", ndkLibrary.getType());
 

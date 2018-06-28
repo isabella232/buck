@@ -31,7 +31,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
-import java.util.Optional;
+import java.util.OptionalInt;
 
 /** Listener to events from the Coordinator. */
 public class CoordinatorEventListener
@@ -39,17 +39,20 @@ public class CoordinatorEventListener
   private static final Logger LOG = Logger.get(CoordinatorEventListener.class);
   private final DistBuildService service;
   private final StampedeId stampedeId;
+  private final String buildLabel;
   private final MinionQueueProvider minionQueueProvider;
   private boolean islocalMinionAlsoRunning;
-  private volatile Optional<Integer> totalMinionCount = Optional.empty();
+  private volatile OptionalInt totalMinionCount = OptionalInt.empty();
 
   public CoordinatorEventListener(
       DistBuildService service,
       StampedeId stampedeId,
+      String buildLabel,
       MinionQueueProvider minionQueueProvider,
       boolean islocalMinionAlsoRunning) {
     this.service = service;
     this.stampedeId = stampedeId;
+    this.buildLabel = buildLabel;
     this.minionQueueProvider = minionQueueProvider;
     this.islocalMinionAlsoRunning = islocalMinionAlsoRunning;
   }
@@ -76,7 +79,7 @@ public class CoordinatorEventListener
     }
 
     totalMinionCount =
-        Optional.of(DistBuildUtil.countMinions(buildModeInfo.getMinionRequirements()));
+        OptionalInt.of(DistBuildUtil.countMinions(buildModeInfo.getMinionRequirements()));
 
     Preconditions.checkArgument(buildModeInfo.getMinionRequirements().isSetRequirements());
     for (MinionRequirement requirement : buildModeInfo.getMinionRequirements().getRequirements()) {
@@ -88,7 +91,7 @@ public class CoordinatorEventListener
 
       String minionQueue = minionQueueProvider.getMinionQueue(minionType);
       LOG.info("Requesting [%d] minions of type [%s]", requiredCount, minionType.name());
-      service.enqueueMinions(stampedeId, requiredCount, minionQueue, minionType);
+      service.enqueueMinions(stampedeId, buildLabel, requiredCount, minionQueue, minionType);
     }
   }
 
@@ -112,7 +115,7 @@ public class CoordinatorEventListener
   }
 
   @Override
-  public Optional<Integer> getTotalMinionCount() {
+  public OptionalInt getTotalMinionCount() {
     return totalMinionCount;
   }
 }

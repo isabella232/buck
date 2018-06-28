@@ -230,9 +230,7 @@ public class AppleBundleIntegrationTest {
   private NSDictionary verifyAndParsePlist(Path path) throws Exception {
     assertTrue(Files.exists(path));
     String resultContents = filesystem.readFileIfItExists(path).get();
-    NSDictionary resultPlist =
-        (NSDictionary) PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
-    return resultPlist;
+    return (NSDictionary) PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
   }
 
   @Test
@@ -1159,10 +1157,14 @@ public class AppleBundleIntegrationTest {
                 .resolve(target.getShortName() + ".app"));
 
     String resourceName = "Resource.plist";
-    assertFalse(Files.exists(appPath.resolve(resourceName)));
+    assertFalse(
+        "The resource should be absent in the app bundle.",
+        Files.exists(appPath.resolve(resourceName)));
 
     Path frameworkPath = appPath.resolve("Frameworks/TestFramework.framework");
-    assertTrue(Files.exists(frameworkPath.resolve(resourceName)));
+    assertTrue(
+        "The resource should be present in the embedded framework.",
+        Files.exists(frameworkPath.resolve(resourceName)));
   }
 
   @Test

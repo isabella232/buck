@@ -29,6 +29,7 @@ import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
@@ -78,7 +79,13 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.rules.resolver.impl.TestBuildRuleResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
@@ -99,11 +106,7 @@ import com.facebook.buck.halide.HalideLibraryBuilder;
 import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
@@ -115,7 +118,6 @@ import com.facebook.buck.shell.ExportFileDescriptionArg;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
@@ -250,6 +252,59 @@ public class ProjectGeneratorTest {
     Iterable<String> childNames =
         Iterables.transform(sourcesGroup.getChildren(), PBXReference::getName);
     assertThat(childNames, hasItem("Info.plist"));
+  }
+
+  @Test
+  public void testProjectStructureWithDuplicateBundle() throws IOException {
+    BuildTarget libraryTarget = BuildTargetFactory.newInstance(rootPath, "//foo:lib");
+    BuildTarget bundleTarget = BuildTargetFactory.newInstance(rootPath, "//foo:bundle");
+    BuildTarget libraryWithFlavorTarget =
+        BuildTargetFactory.newInstance(rootPath, "//foo:lib#iphonesimulator-x86_64");
+    BuildTarget bundleWithFlavorTarget =
+        BuildTargetFactory.newInstance(rootPath, "//foo:bundle#iphonesimulator-x86_64");
+
+    TargetNode<?, ?> libraryNode =
+        AppleLibraryBuilder.createBuilder(libraryTarget)
+            .setExportedHeaders(ImmutableSortedSet.of(FakeSourcePath.of("foo.h")))
+            .build();
+    TargetNode<?, ?> bundleNode =
+        AppleBundleBuilder.createBuilder(bundleTarget)
+            .setBinary(libraryTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.FRAMEWORK))
+            .setInfoPlist(FakeSourcePath.of(("Info.plist")))
+            .build();
+
+    TargetNode<?, ?> libraryWithFlavorNode =
+        AppleLibraryBuilder.createBuilder(libraryWithFlavorTarget)
+            .setExportedHeaders(ImmutableSortedSet.of(FakeSourcePath.of("foo.h")))
+            .build();
+    TargetNode<?, ?> bundleWithFlavorNode =
+        AppleBundleBuilder.createBuilder(bundleWithFlavorTarget)
+            .setBinary(libraryTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.FRAMEWORK))
+            .setInfoPlist(FakeSourcePath.of(("Info.plist")))
+            .build();
+
+    ImmutableSet<TargetNode<?, ?>> nodes =
+        ImmutableSet.of(libraryNode, bundleNode, libraryWithFlavorNode, bundleWithFlavorNode);
+    ProjectGenerator projectGenerator =
+        createProjectGenerator(
+            nodes,
+            nodes,
+            ProjectGeneratorOptions.builder().build(),
+            ImmutableSet.of(
+                InternalFlavor.of("iphonesimulator-x86_64"), InternalFlavor.of("macosx-x86_64")));
+
+    projectGenerator.createXcodeProjects();
+
+    int count = 0;
+    PBXProject project = projectGenerator.getGeneratedProject();
+    for (PBXTarget target : project.getTargets()) {
+      if (target.getProductName().equals("bundle")) {
+        count++;
+      }
+    }
+    assertSame(count, 1);
   }
 
   @Test
@@ -2201,7 +2256,8 @@ public class ProjectGeneratorTest {
             ImmutableSet.of(node),
             ImmutableSet.of(node),
             ProjectGeneratorOptions.builder().build(),
-            ImmutableSet.of("iphonesimulator-x86_64", "macosx-x86_64"));
+            ImmutableSet.of(
+                InternalFlavor.of("iphonesimulator-x86_64"), InternalFlavor.of("macosx-x86_64")));
 
     projectGenerator.createXcodeProjects();
 
@@ -2318,7 +2374,8 @@ public class ProjectGeneratorTest {
             ImmutableSet.of(node, dependentNode),
             ImmutableSet.of(node, dependentNode),
             ProjectGeneratorOptions.builder().build(),
-            ImmutableSet.of("iphonesimulator-x86_64", "macosx-x86_64"));
+            ImmutableSet.of(
+                InternalFlavor.of("iphonesimulator-x86_64"), InternalFlavor.of("macosx-x86_64")));
 
     projectGenerator.createXcodeProjects();
 
@@ -4734,14 +4791,14 @@ public class ProjectGeneratorTest {
     ImmutableSet<TargetNode<?, ?>> nodes =
         ImmutableSet.of(frameworkBinaryNode, frameworkNode, resourceNode, binaryNode, bundleNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(nodes));
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     ProjectGenerator projectGenerator =
         createProjectGenerator(
             nodes,
             ProjectGeneratorOptions.builder().build(),
             input -> {
-              resolver.requireRule(input.getBuildTarget());
-              return resolver;
+              graphBuilder.requireRule(input.getBuildTarget());
+              return graphBuilder;
             });
     projectGenerator.createXcodeProjects();
     PBXTarget target =
@@ -5222,7 +5279,7 @@ public class ProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
-            getBuildRuleResolverNodeFunction(targetGraph),
+            getActionGraphBuilderNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             halideBuckConfig,
             cxxBuckConfig,
@@ -5267,7 +5324,7 @@ public class ProjectGeneratorTest {
             FocusedModuleTargetMatcher.noFocus(),
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
-            getBuildRuleResolverNodeFunction(targetGraph),
+            getActionGraphBuilderNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             halideBuckConfig,
             cxxBuckConfig,
@@ -5329,14 +5386,14 @@ public class ProjectGeneratorTest {
       Collection<TargetNode<?, ?>> allNodes,
       Collection<TargetNode<?, ?>> initialTargetNodes,
       ProjectGeneratorOptions projectGeneratorOptions,
-      ImmutableSet<String> appleCxxFlavors) {
+      ImmutableSet<Flavor> appleCxxFlavors) {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(allNodes));
     return createProjectGenerator(
         allNodes,
         initialTargetNodes,
         projectGeneratorOptions,
         appleCxxFlavors,
-        getBuildRuleResolverNodeFunction(targetGraph));
+        getActionGraphBuilderNodeFunction(targetGraph));
   }
 
   private ProjectGenerator createProjectGenerator(
@@ -5347,23 +5404,23 @@ public class ProjectGeneratorTest {
         allNodes,
         projectGeneratorOptions,
         ImmutableSet.of(),
-        getBuildRuleResolverNodeFunction(targetGraph));
+        getActionGraphBuilderNodeFunction(targetGraph));
   }
 
   private ProjectGenerator createProjectGenerator(
       Collection<TargetNode<?, ?>> allNodes,
       ProjectGeneratorOptions projectGeneratorOptions,
-      Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode) {
+      Function<? super TargetNode<?, ?>, ActionGraphBuilder> actionGraphBuilderForNode) {
     return createProjectGenerator(
-        allNodes, allNodes, projectGeneratorOptions, ImmutableSet.of(), buildRuleResolverForNode);
+        allNodes, allNodes, projectGeneratorOptions, ImmutableSet.of(), actionGraphBuilderForNode);
   }
 
   private ProjectGenerator createProjectGenerator(
       Collection<TargetNode<?, ?>> allNodes,
       Collection<TargetNode<?, ?>> initialTargetNodes,
       ProjectGeneratorOptions projectGeneratorOptions,
-      ImmutableSet<String> appleCxxFlavors,
-      Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode) {
+      ImmutableSet<Flavor> appleCxxFlavors,
+      Function<? super TargetNode<?, ?>, ActionGraphBuilder> actionGraphBuilderForNode) {
     ImmutableSet<BuildTarget> initialBuildTargets =
         initialTargetNodes
             .stream()
@@ -5390,7 +5447,7 @@ public class ProjectGeneratorTest {
         FocusedModuleTargetMatcher.noFocus(),
         DEFAULT_PLATFORM,
         appleCxxFlavors,
-        buildRuleResolverForNode,
+        actionGraphBuilderForNode,
         getFakeBuckEventBus(),
         halideBuckConfig,
         cxxBuckConfig,
@@ -5398,16 +5455,16 @@ public class ProjectGeneratorTest {
         swiftBuckConfig);
   }
 
-  private Function<TargetNode<?, ?>, BuildRuleResolver> getBuildRuleResolverNodeFunction(
+  private Function<TargetNode<?, ?>, ActionGraphBuilder> getActionGraphBuilderNodeFunction(
       TargetGraph targetGraph) {
-    BuildRuleResolver resolver = new TestBuildRuleResolver(targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException> bottomUpTraversal =
         new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(targetGraph) {
           @Override
           @SuppressWarnings("PMD.EmptyCatchBlock")
           public void visit(TargetNode<?, ?> node) {
             try {
-              resolver.requireRule(node.getBuildTarget());
+              graphBuilder.requireRule(node.getBuildTarget());
             } catch (Exception e) {
               // NOTE(agallagher): A large number of the tests appear to setup their target nodes
               // incorrectly, causing action graph creation to fail with lots of missing expected
@@ -5417,7 +5474,7 @@ public class ProjectGeneratorTest {
           }
         };
     bottomUpTraversal.traverse();
-    return input -> resolver;
+    return input -> graphBuilder;
   }
 
   private ImmutableSet<TargetNode<?, ?>> setupSimpleLibraryWithResources(
@@ -5626,7 +5683,7 @@ public class ProjectGeneratorTest {
   private Path getAbsoluteOutputForNode(
       TargetNode<?, ?> node, ImmutableSet<TargetNode<?, ?>> nodes) {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
-    BuildRuleResolver ruleResolver = getBuildRuleResolverNodeFunction(targetGraph).apply(node);
+    BuildRuleResolver ruleResolver = getActionGraphBuilderNodeFunction(targetGraph).apply(node);
     SourcePath nodeOutput = ruleResolver.getRule(node.getBuildTarget()).getSourcePathToOutput();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);

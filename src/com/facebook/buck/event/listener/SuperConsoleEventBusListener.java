@@ -260,7 +260,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
     int outputMaxColumns = 80;
     if (config.getThreadLineOutputMaxColumns().isPresent()) {
-      outputMaxColumns = config.getThreadLineOutputMaxColumns().get();
+      outputMaxColumns = config.getThreadLineOutputMaxColumns().getAsInt();
     } else {
       Optional<String> columnsStr = executionEnvironment.getenv("BUCK_TERM_COLUMNS");
       if (columnsStr.isPresent()) {
@@ -271,6 +271,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               "the environment variable BUCK_TERM_COLUMNS did not contain a valid value: %s",
               columnsStr.get());
         }
+      }
+      // If the parsed value is zero, we reset the value to the default 80.
+      if (outputMaxColumns == 0) {
+        outputMaxColumns = 80;
       }
     }
     this.outputMaxColumns = outputMaxColumns;

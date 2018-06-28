@@ -25,11 +25,11 @@ import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
-import com.facebook.buck.skylark.function.Glob;
 import com.facebook.buck.skylark.function.SkylarkNativeModule;
+import com.facebook.buck.skylark.io.Globber;
 import com.facebook.buck.skylark.io.GlobberFactory;
+import com.facebook.buck.skylark.io.impl.CachingGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
 import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -47,6 +47,7 @@ import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.Environment.Extension;
+import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.Mutability;
 import com.google.devtools.build.lib.syntax.ParserInputSource;
 import com.google.devtools.build.lib.syntax.Runtime;
@@ -73,10 +74,6 @@ import org.immutables.value.Value;
 public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
 
   private static final Logger LOG = Logger.get(SkylarkProjectBuildFileParser.class);
-
-  // Dummy label used for resolving paths for other labels.
-  private static final Label EMPTY_LABEL =
-      Label.createUnvalidated(PackageIdentifier.EMPTY_PACKAGE_ID, "");
 
   private final FileSystem fileSystem;
 
@@ -137,6 +134,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
                 .map(Object::toString)
                 .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())))
         .setConfigs(parseResult.getReadConfigurationOptions())
+        .setGlobManifest(parseResult.getGlobManifest())
         .build();
   }
 
@@ -175,10 +173,23 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       throw BuildFileParseException.createForUnknownParseError(
           "Cannot parse build file " + buildFile);
     }
-    ParseContext parseContext = new ParseContext();
+    String basePath = getBasePath(buildFile);
+    CachingGlobber globber =
+        CachingGlobber.of(
+            globberFactory.create(fileSystem.getPath(buildFile.getParent().toString())));
+    PackageContext packageContext = createPackageContext(basePath, globber);
+    ParseContext parseContext = new ParseContext(packageContext);
     try (Mutability mutability = Mutability.create("parsing " + buildFile)) {
       EnvironmentData envData =
-          createBuildFileEvaluationEnvironment(buildFile, buildFileAst, mutability, parseContext);
+          createBuildFileEvaluationEnvironment(
+              Label.createUnvalidated(
+                  PackageIdentifier.create(
+                      RepositoryName.createFromValidStrippedName(options.getCellName()),
+                      PathFragment.create(basePath)),
+                  "BUCK"),
+              buildFileAst,
+              mutability,
+              parseContext);
       boolean exec = buildFileAst.exec(envData.getEnvironment(), eventHandler);
       if (!exec) {
         throw BuildFileParseException.createForUnknownParseError(
@@ -195,6 +206,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
                   .add(buildFilePath)
                   .build())
           .setReadConfigurationOptions(parseContext.getAccessedConfigurationOptions())
+          .setGlobManifest(globber.createGlobManifest())
           .build();
     }
   }
@@ -212,10 +224,13 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
    *     functions like {@code glob} and native rules like {@code java_library}.
    */
   private EnvironmentData createBuildFileEvaluationEnvironment(
-      Path buildFile, BuildFileAST buildFileAst, Mutability mutability, ParseContext parseContext)
+      Label containingLabel,
+      BuildFileAST buildFileAst,
+      Mutability mutability,
+      ParseContext parseContext)
       throws IOException, InterruptedException, BuildFileParseException {
     ImmutableList<ExtensionData> dependencies =
-        loadExtensions(EMPTY_LABEL, buildFileAst.getImports());
+        loadExtensions(containingLabel, buildFileAst.getImports());
     ImmutableMap<String, Environment.Extension> importMap = toImportMap(dependencies);
     Environment env =
         Environment.builder(mutability)
@@ -225,25 +240,31 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
             .useDefaultSemantics()
             .setEventHandler(eventHandler)
             .build();
-    String basePath = getBasePath(buildFile);
+
     parseContext.setup(env);
-    env.setup("glob", Glob.create());
     Runtime.setupModuleGlobals(env, SkylarkNativeModule.class);
-    env.setup("package_name", SkylarkNativeModule.packageName);
-    env.setup("repository_name", SkylarkNativeModule.repositoryName);
-    PackageContext packageContext =
-        PackageContext.builder()
-            .setGlobber(globberFactory.create(fileSystem.getPath(buildFile.getParent().toString())))
-            .setRawConfig(options.getRawConfig())
-            .setPackageIdentifier(
-                PackageIdentifier.create(
-                    RepositoryName.createFromValidStrippedName(options.getCellName()),
-                    PathFragment.create(basePath)))
-            .build();
-    env.setupDynamic(PackageFactory.PACKAGE_CONTEXT, packageContext);
+    for (String nativeFunction : FuncallExpression.getMethodNames(SkylarkNativeModule.class)) {
+      env.setup(
+          nativeFunction,
+          FuncallExpression.getBuiltinCallable(SkylarkNativeModule.NATIVE_MODULE, nativeFunction));
+    }
+
     return EnvironmentData.builder()
         .setEnvironment(env)
         .setLoadedPaths(toLoadedPaths(dependencies))
+        .build();
+  }
+
+  @Nonnull
+  private PackageContext createPackageContext(String basePath, Globber globber) {
+    return PackageContext.builder()
+        .setGlobber(globber)
+        .setRawConfig(options.getRawConfig())
+        .setPackageIdentifier(
+            PackageIdentifier.create(
+                RepositoryName.createFromValidStrippedName(options.getCellName()),
+                PathFragment.create(basePath)))
+        .setEventHandler(eventHandler)
         .build();
   }
 
@@ -368,6 +389,13 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
    */
   private com.google.devtools.build.lib.vfs.Path getImportPath(
       Label containingLabel, SkylarkImport skylarkImport) throws BuildFileParseException {
+    if (isRelativeLoad(skylarkImport) && skylarkImport.getImportString().contains("/")) {
+      throw BuildFileParseException.createForUnknownParseError(
+          "Relative loads work only for files in the same directory but "
+              + skylarkImport.getImportString()
+              + " is trying to load a file from a nested directory. "
+              + "Please use absolute label instead ([cell]//pkg[/pkg]:target).");
+    }
     PathFragment relativeExtensionPath = containingLabel.toPathFragment();
     RepositoryName repository = containingLabel.getPackageIdentifier().getRepository();
     if (repository.isMain()) {
@@ -382,6 +410,10 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
           skylarkImport.getImportString() + " references an unknown repository " + repositoryName);
     }
     return fileSystem.getPath(repositoryPath.resolve(relativeExtensionPath.toString()).toString());
+  }
+
+  private boolean isRelativeLoad(SkylarkImport skylarkImport) {
+    return skylarkImport.getImportString().startsWith(":");
   }
 
   /**

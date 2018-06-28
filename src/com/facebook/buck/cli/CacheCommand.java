@@ -321,12 +321,25 @@ public class CacheCommand extends AbstractCommand {
       Path destination = outputPath.resolve(relative);
       try {
         Files.createDirectories(destination.getParent());
-        Files.move(path, destination, StandardCopyOption.ATOMIC_MOVE);
+        try {
+          Files.move(path, destination, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+          String differentMountError =
+              String.format(
+                  "%s and %s are not on the same mount. Falling back to non atomic move\n",
+                  path, destination);
+          Files.move(path, destination);
+          // We are adding it after moving file, so in case we fail due to
+          // different reason, we won't show message twice.
+          resultString.append(differentMountError);
+        }
         resultString.append(String.format("%s %s => %s\n", ruleKey, buckTarget, relative));
         filesMoved += 1;
       } catch (IOException e) {
         resultString.append(
-            String.format("%s %s !(could not move file) %s\n", ruleKey, buckTarget, relative));
+            String.format(
+                "%s %s !(could not move file: %s) %s\n",
+                ruleKey, buckTarget, e.getMessage(), relative));
         return false;
       }
     }
@@ -389,7 +402,7 @@ public class CacheCommand extends AbstractCommand {
       // TODO(skotch): don't use intermediate files, that just slows us down
       // instead, unzip from the ~/buck-cache/ directly
       CacheResult success =
-          Futures.getUnchecked(cache.fetchAsync(ruleKey, LazyPath.ofInstance(artifact)));
+          Futures.getUnchecked(cache.fetchAsync(null, ruleKey, LazyPath.ofInstance(artifact)));
       cacheResult = cacheResultToString(success);
       cacheResultType = success.getType();
       cacheResultMode = success.cacheMode();

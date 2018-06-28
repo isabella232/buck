@@ -17,11 +17,12 @@
 package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
@@ -30,8 +31,10 @@ import com.google.common.collect.ImmutableSortedSet;
 
 public class HaskellLibraryBuilder
     extends AbstractNodeBuilder<
-        HaskellLibraryDescriptionArg.Builder, HaskellLibraryDescriptionArg,
-        HaskellLibraryDescription, HaskellLibrary> {
+        HaskellLibraryDescriptionArg.Builder,
+        HaskellLibraryDescriptionArg,
+        HaskellLibraryDescription,
+        HaskellLibrary> {
 
   public HaskellLibraryBuilder(
       BuildTarget target,
@@ -85,6 +88,11 @@ public class HaskellLibraryBuilder
   public HaskellLibraryBuilder setPlatformDeps(
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps) {
     getArgForPopulating().setPlatformDeps(platformDeps);
+    return this;
+  }
+
+  public HaskellLibraryBuilder setPlatform(Flavor platform) {
+    getArgForPopulating().setPlatform(platform);
     return this;
   }
 }

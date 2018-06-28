@@ -24,10 +24,10 @@ import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 /**
- * The default data provided by all {@link com.facebook.buck.rules.BuildRule} and contains standard
- * fields available to be passed to dependant BuildRules during action graph construction.
+ * The default data provided by all {@link com.facebook.buck.core.rules.BuildRule} and contains
+ * standard fields available to be passed to dependant BuildRules during action graph construction.
  *
- * <p>{@link ProviderCollection} must contain one and only one of this default provider
+ * <p>{@link BuildRuleInfoProviderCollection} must contain one and only one of this default provider
  */
 @Value.Immutable(builder = false, copy = false)
 public abstract class DefaultBuildRuleInfoProvider implements BuildRuleInfoProvider {
@@ -35,7 +35,7 @@ public abstract class DefaultBuildRuleInfoProvider implements BuildRuleInfoProvi
   public static final ProviderKey KEY =
       ImmutableProviderKey.of(ImmutableDefaultBuildRuleInfoProvider.class);
 
-  /** @return the class of the corresponding {@link com.facebook.buck.rules.BuildRule} */
+  /** @return the class of the corresponding {@link com.facebook.buck.core.rules.BuildRule} */
   @Value.Parameter
   public abstract Class<?> getTypeClass();
 
@@ -48,8 +48,8 @@ public abstract class DefaultBuildRuleInfoProvider implements BuildRuleInfoProvi
   }
 
   /**
-   * @return the type of the {@link com.facebook.buck.rules.BuildRule} as defined by the interface
-   *     {@link com.facebook.buck.rules.BuildRule#getType()}
+   * @return the type of the {@link com.facebook.buck.core.rules.BuildRule} as defined by the
+   *     interface {@link com.facebook.buck.core.rules.BuildRule#getType()}
    */
   @Value.Lazy
   public String getType() {
@@ -73,20 +73,20 @@ public abstract class DefaultBuildRuleInfoProvider implements BuildRuleInfoProvi
 
   /**
    * @return the {@link ProjectFilesystem} that the corresponding {@link
-   *     com.facebook.buck.rules.BuildRule} operates on
+   *     com.facebook.buck.core.rules.BuildRule} operates on
    */
   @Value.Parameter
   public abstract ProjectFilesystem getProjectFilesystem();
 
   /**
-   * Whether this {@link BuildRule} can be cached.
+   * Whether this {@link com.facebook.buck.core.rules.BuildRule} can be cached.
    *
    * <p>Uncached build rules are never written out to cache, never read from cache, and not included
    * in cache statistics. This rule is useful for artifacts which cannot be easily normalized.
    *
    * <p>Uncached rules are not always rebuilt, however, as long as the existing on-disk
    * representation is up to date. This means that these rules can take advantage of {@link
-   * com.facebook.buck.rules.keys.SupportsInputBasedRuleKey} to prevent rebuilding.
+   * com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey} to prevent rebuilding.
    */
   @Value.Parameter
   public abstract boolean isCacheable();

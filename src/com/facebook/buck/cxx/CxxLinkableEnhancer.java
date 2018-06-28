@@ -19,8 +19,12 @@ package com.facebook.buck.cxx;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -28,6 +32,7 @@ import com.facebook.buck.cxx.toolchain.linker.HasImportLibrary;
 import com.facebook.buck.cxx.toolchain.linker.HasLinkerMap;
 import com.facebook.buck.cxx.toolchain.linker.HasThinLTO;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.ExtraOutputsDeriver;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -35,8 +40,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SanitizedArg;
@@ -113,6 +116,25 @@ public class CxxLinkableEnhancer {
     // Add all arguments needed to link in the C/C++ platform runtime.
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(runtimeDepType)));
 
+    ImmutableList<Arg> ldArgs = argsBuilder.build();
+    ImmutableMap<String, Path> allExtraOutputs = extraOutputs;
+
+    Optional<ExtraOutputsDeriver> extraOutputsDeriver = linker.getExtraOutputsDeriver();
+    if (extraOutputsDeriver.isPresent()) {
+      ImmutableMap<String, Path> derivedExtraOutputs =
+          extraOutputsDeriver
+              .get()
+              .deriveExtraOutputsFromArgs(
+                  Arg.stringify(ldArgs, DefaultSourcePathResolver.from(ruleFinder)), output);
+      if (!derivedExtraOutputs.isEmpty()) {
+        allExtraOutputs =
+            ImmutableMap.<String, Path>builder()
+                .putAll(extraOutputs)
+                .putAll(derivedExtraOutputs)
+                .build();
+      }
+    }
+
     return new CxxLink(
         target,
         projectFilesystem,
@@ -120,8 +142,8 @@ public class CxxLinkableEnhancer {
         cellPathResolver,
         linker,
         output,
-        extraOutputs,
-        argsBuilder.build(),
+        allExtraOutputs,
+        ldArgs,
         postprocessor,
         cxxBuckConfig.getLinkScheduleInfo(),
         cxxBuckConfig.shouldCacheLinks(),
@@ -140,7 +162,7 @@ public class CxxLinkableEnhancer {
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ProjectFilesystem projectFilesystem,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
@@ -168,26 +190,24 @@ public class CxxLinkableEnhancer {
 
     // Collect and topologically sort our deps that contribute to the link.
     Stream<NativeLinkableInput> nativeLinkableInputs =
-        ruleResolver
+        graphBuilder
             .getParallelizer()
             .maybeParallelize(
                 NativeLinkables.getNativeLinkables(
-                        cxxPlatform, ruleResolver, nativeLinkableDeps, depType)
-                    .entrySet()
+                        cxxPlatform, graphBuilder, nativeLinkableDeps, depType)
                     .stream())
-            .filter(entry -> !blacklist.contains(entry.getKey()))
-            .map(entry -> entry.getValue())
+            .filter(linkable -> !blacklist.contains(linkable.getBuildTarget()))
             .map(
                 nativeLinkable -> {
                   NativeLinkable.Linkage link =
-                      nativeLinkable.getPreferredLinkage(cxxPlatform, ruleResolver);
+                      nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
                   NativeLinkableInput input =
                       nativeLinkable.getNativeLinkableInput(
                           cxxPlatform,
                           NativeLinkables.getLinkStyle(link, depType),
                           linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
                           ImmutableSet.of(),
-                          ruleResolver);
+                          graphBuilder);
                   LOG.verbose("Native linkable %s returned input %s", nativeLinkable, input);
                   return input;
                 });
@@ -203,7 +223,7 @@ public class CxxLinkableEnhancer {
     // If we're doing a shared build, pass the necessary flags to the linker, including setting
     // the soname.
     if (linkType == Linker.LinkType.SHARED) {
-      argsBuilder.addAll(cxxPlatform.getLd().resolve(ruleResolver).getSharedLibFlag());
+      argsBuilder.addAll(cxxPlatform.getLd().resolve(graphBuilder).getSharedLibFlag());
     } else if (linkType == Linker.LinkType.MACH_O_BUNDLE) {
       argsBuilder.add(StringArg.of("-bundle"));
       // It's possible to build a Mach-O bundle without a bundle loader (logic tests, for example).
@@ -213,7 +233,7 @@ public class CxxLinkableEnhancer {
     }
     if (soname.isPresent()) {
       argsBuilder.addAll(
-          StringArg.from(cxxPlatform.getLd().resolve(ruleResolver).soname(soname.get())));
+          StringArg.from(cxxPlatform.getLd().resolve(graphBuilder).soname(soname.get())));
     }
 
     // Add all arguments from our dependencies.
@@ -249,7 +269,7 @@ public class CxxLinkableEnhancer {
         cxxBuckConfig,
         cxxPlatform,
         projectFilesystem,
-        ruleResolver,
+        graphBuilder,
         ruleFinder,
         target,
         output,

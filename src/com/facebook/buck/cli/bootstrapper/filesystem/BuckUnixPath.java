@@ -407,10 +407,7 @@ public class BuckUnixPath implements Path {
     BuckUnixPath that = toUnixPath(other);
 
     if (isEmpty() || that.isEmpty()) {
-      if (isEmpty() && that.isEmpty()) {
-        return true;
-      }
-      return false;
+      return isEmpty() && that.isEmpty();
     }
 
     if (that.segments.length > segments.length) {
@@ -440,12 +437,28 @@ public class BuckUnixPath implements Path {
 
   @Override
   public int compareTo(Path other) {
+    if (other instanceof BuckUnixPath) {
+      return compareTo((BuckUnixPath) other);
+    }
     return toString().compareTo(other.toString());
+  }
+
+  /** Lexicographically compares another path to this one */
+  public int compareTo(BuckUnixPath other) {
+    // lexicographic ordering just like {@link String#compareTo}
+    int lim = Math.min(this.segments.length, other.segments.length);
+    for (int i = 0; i < lim; i++) {
+      int res = segments[i].compareTo(other.segments[i]);
+      if (res != 0) {
+        return res;
+      }
+    }
+    return segments.length - other.segments.length;
   }
 
   @Override
   public boolean equals(Object ob) {
-    if ((ob != null) && (ob instanceof BuckUnixPath)) {
+    if ((ob instanceof BuckUnixPath)) {
       return Arrays.equals(segments, ((BuckUnixPath) ob).segments);
     }
     return false;
