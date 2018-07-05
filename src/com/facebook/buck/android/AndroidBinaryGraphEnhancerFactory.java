@@ -16,8 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.AndroidBinary.PackageType;
-import com.facebook.buck.android.AndroidBinary.RelinkerMode;
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
@@ -68,7 +66,7 @@ public class AndroidBinaryGraphEnhancerFactory {
       DexSplitMode dexSplitMode,
       EnumSet<ExopackageMode> exopackageModes,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
-      AndroidBinaryDescriptionArg args) {
+      AndroidGraphEnhancerArgs args) {
 
     AndroidPlatformTarget androidPlatformTarget =
         toolchainProvider.getByName(
@@ -201,7 +199,7 @@ public class AndroidBinaryGraphEnhancerFactory {
     return allLocales.build();
   }
 
-  private PackageType getPackageType(AndroidBinaryDescriptionArg args) {
+  private PackageType getPackageType(AndroidGraphEnhancerArgs args) {
     if (!args.getPackageType().isPresent()) {
       return PackageType.DEBUG;
     }
@@ -209,7 +207,7 @@ public class AndroidBinaryGraphEnhancerFactory {
   }
 
   private Optional<Arg> getPostFilterResourcesArgs(
-      AndroidBinaryDescriptionArg arg,
+      AndroidGraphEnhancerArgs arg,
       BuildTarget buildTarget,
       ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots) {
@@ -223,7 +221,7 @@ public class AndroidBinaryGraphEnhancerFactory {
   }
 
   private Optional<Arg> getPreprocessJavaClassesBash(
-      AndroidBinaryDescriptionArg arg,
+      AndroidGraphEnhancerArgs arg,
       BuildTarget buildTarget,
       ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots) {

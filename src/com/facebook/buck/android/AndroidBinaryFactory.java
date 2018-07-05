@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.exopackage.ExopackageMode;
-import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
@@ -30,19 +29,14 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 public class AndroidBinaryFactory {
 
@@ -123,7 +117,14 @@ public class AndroidBinaryFactory {
         args.getOptimizationPasses(),
         args.getProguardConfig(),
         args.isSkipProguard(),
-        getRedexOptions(buildTarget, graphBuilder, cellPathResolver, args),
+        RedexArgsHelper.getRedexOptions(
+            androidBuckConfig,
+            buildTarget,
+            graphBuilder,
+            cellPathResolver,
+            args.getRedex(),
+            args.getRedexExtraArgs(),
+            args.getRedexConfig()),
         args.getResourceCompression(),
         args.getCpuFilters(),
         resourceFilter,
@@ -143,37 +144,5 @@ public class AndroidBinaryFactory {
         ImmutableSortedSet.copyOf(result.getAPKModuleGraph().getAPKModules()),
         filesInfo.getExopackageInfo(),
         apkConfig.getCompressionLevel());
-  }
-
-  private Optional<RedexOptions> getRedexOptions(
-      BuildTarget buildTarget,
-      ActionGraphBuilder graphBuilder,
-      CellPathResolver cellRoots,
-      AndroidBinaryDescriptionArg arg) {
-    boolean redexRequested = arg.getRedex();
-    if (!redexRequested) {
-      return Optional.empty();
-    }
-
-    Tool redexBinary = androidBuckConfig.getRedexTool(graphBuilder);
-
-    StringWithMacrosConverter macrosConverter =
-        StringWithMacrosConverter.builder()
-            .setBuildTarget(buildTarget)
-            .setCellPathResolver(cellRoots)
-            .setExpanders(MacroExpandersForAndroidRules.MACRO_EXPANDERS)
-            .build();
-    List<Arg> redexExtraArgs =
-        arg.getRedexExtraArgs()
-            .stream()
-            .map(x -> macrosConverter.convert(x, graphBuilder))
-            .collect(Collectors.toList());
-
-    return Optional.of(
-        RedexOptions.builder()
-            .setRedex(redexBinary)
-            .setRedexConfig(arg.getRedexConfig())
-            .setRedexExtraArgs(redexExtraArgs)
-            .build());
   }
 }

@@ -27,6 +27,7 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.NdkTargetArchAbi;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -42,7 +43,6 @@ import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.ElfSharedLibraryInterfaceParams;
 import com.facebook.buck.cxx.toolchain.GnuArchiver;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
-import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.toolchain.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
@@ -55,6 +55,7 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.Assertions;
 import com.google.common.annotations.VisibleForTesting;
@@ -62,6 +63,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
@@ -86,8 +88,6 @@ public class NdkCxxPlatforms {
 
   public static final NdkCompilerType DEFAULT_COMPILER_TYPE = NdkCompilerType.GCC;
   public static final String DEFAULT_TARGET_APP_PLATFORM = "android-16";
-  public static final ImmutableSet<String> DEFAULT_CPU_ABIS =
-      ImmutableSet.of("arm", "armv7", "x86");
   public static final NdkCxxRuntime DEFAULT_CXX_RUNTIME = NdkCxxRuntime.GNUSTL;
 
   private static final ImmutableMap<Platform, Host> BUILD_PLATFORMS =
@@ -174,10 +174,13 @@ public class NdkCxxPlatforms {
     int ndkMajorVersion = getNdkMajorVersion(ndkVersion);
     if (ndkMajorVersion < 11) {
       return "3.5";
-    } else if (ndkMajorVersion >= 15) {
+    } else if (ndkMajorVersion < 15) {
+      return "3.8";
+    } else if (ndkMajorVersion < 17) {
       return "5.0";
+    } else {
+      return "6.0.2";
     }
-    return "3.8";
   }
 
   public static boolean isSupportedConfiguration(Path ndkRoot, NdkCxxRuntime cxxRuntime) {
@@ -223,8 +226,18 @@ public class NdkCxxPlatforms {
         androidConfig.getNdkCxxRuntime().orElse(NdkCxxPlatforms.DEFAULT_CXX_RUNTIME),
         androidConfig.getNdkCxxRuntimeType().orElse(NdkCxxRuntimeType.DYNAMIC),
         androidConfig.getNdkAppPlatform().orElse(NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM),
-        androidConfig.getNdkCpuAbis().orElse(NdkCxxPlatforms.DEFAULT_CPU_ABIS),
+        androidConfig.getNdkCpuAbis().orElseGet(() -> getDefaultCpuAbis(ndkVersion)),
         platform);
+  }
+
+  @VisibleForTesting
+  static ImmutableSet<String> getDefaultCpuAbis(String ndkVersion) {
+    int ndkMajorVersion = getNdkMajorVersion(ndkVersion);
+    if (ndkMajorVersion > 16) {
+      return ImmutableSet.of("armv7", "x86");
+    } else {
+      return ImmutableSet.of("arm", "armv7", "x86");
+    }
   }
 
   @VisibleForTesting
@@ -421,6 +434,7 @@ public class NdkCxxPlatforms {
                     cxxRuntime));
 
     Host host = Preconditions.checkNotNull(BUILD_PLATFORMS.get(platform));
+    String ndkVersion = readVersion(ndkRoot);
 
     NdkCxxToolchainPaths toolchainPaths =
         new NdkCxxToolchainPaths(
@@ -429,7 +443,8 @@ public class NdkCxxPlatforms {
             targetConfiguration,
             host.toString(),
             cxxRuntime,
-            strictToolchainPaths);
+            strictToolchainPaths,
+            getUseUnifiedHeaders(androidConfig, ndkVersion));
     // Sanitized paths will have magic placeholders for parts of the paths that
     // are machine/host-specific. See comments on ANDROID_NDK_ROOT and
     // BUILD_HOST_SUBST above.
@@ -464,9 +479,6 @@ public class NdkCxxPlatforms {
     ImmutableBiMap<Path, String> sanitizePaths = sanitizePathsBuilder.build();
     PrefixMapDebugPathSanitizer compilerDebugPathSanitizer =
         new PrefixMapDebugPathSanitizer(".", sanitizePaths);
-    MungingDebugPathSanitizer assemblerDebugPathSanitizer =
-        new MungingDebugPathSanitizer(
-            config.getDebugPathSanitizerLimit(), File.separatorChar, Paths.get("."), sanitizePaths);
     cxxPlatformBuilder
         .setFlavor(flavor)
         .setAs(cc)
@@ -504,7 +516,7 @@ public class NdkCxxPlatforms {
                 getGccTool(toolchainPaths, "ranlib", version, executableFinder)))
         // NDK builds are cross compiled, so the header is the same regardless of the host platform.
         .setCompilerDebugPathSanitizer(compilerDebugPathSanitizer)
-        .setAssemblerDebugPathSanitizer(assemblerDebugPathSanitizer)
+        .setAssemblerDebugPathSanitizer(compilerDebugPathSanitizer)
         .setSharedLibraryExtension("so")
         .setSharedLibraryVersionedExtensionFormat("so.%s")
         .setStaticLibraryExtension("a")
@@ -547,7 +559,6 @@ public class NdkCxxPlatforms {
       cxxPlatformBuilder.putRuntimeLdflags(
           Linker.LinkableDepType.STATIC, "-l" + cxxRuntime.staticName);
 
-      String ndkVersion = readVersion(ndkRoot);
       if (getNdkMajorVersion(ndkVersion) >= 12 && cxxRuntime == NdkCxxRuntime.LIBCXX) {
         cxxPlatformBuilder.putRuntimeLdflags(Linker.LinkableDepType.STATIC, "-lc++abi");
         if (targetConfiguration.getTargetArchAbi() == NdkTargetArchAbi.ARMEABI) {
@@ -569,6 +580,35 @@ public class NdkCxxPlatforms {
           toolchainPaths.getCxxRuntimeLibsDirectory().resolve(cxxRuntime.getSoname()));
     }
     return builder.build();
+  }
+
+  @VisibleForTesting
+  static boolean getUseUnifiedHeaders(AndroidBuckConfig androidConfig, String ndkVersion) {
+    VersionStringComparator comparator = new VersionStringComparator();
+
+    Optional<Boolean> useUnifiedHeadersFromConfig = androidConfig.getNdkUnifiedHeaders();
+
+    if (useUnifiedHeadersFromConfig.isPresent()) {
+      boolean useUnifiedHeaders = useUnifiedHeadersFromConfig.get();
+      if (useUnifiedHeaders && comparator.compare(ndkVersion, "14") < 0) {
+        throw new HumanReadableException(
+            "Unified Headers can be only used with Android NDK 14 and newer.\n"
+                + "Current configuration has Unified Headers enabled, but detected Android NDK has version is %s.\n"
+                + "Either change the configuration or upgrade to a newer Android NDK",
+            ndkVersion);
+      } else if (!useUnifiedHeaders && comparator.compare(ndkVersion, "16") >= 0) {
+        throw new HumanReadableException(
+            "Non-unified headers were removed in Android NDK 16.\n"
+                + "Current configuration has Unified Headers disabled, but detected Android NDK version is %s.\n"
+                + "Configuration needs to be changed in order to build with the current Android NDK",
+            ndkVersion);
+      }
+      return useUnifiedHeaders;
+    } else {
+      // If setting is not set then use Unified Headers starting from NDK 16 (which has no other
+      // way), while older NDKs use the deprecated headers.
+      return comparator.compare(ndkVersion, "16") >= 0;
+    }
   }
 
   /**
@@ -696,7 +736,7 @@ public class NdkCxxPlatforms {
     }
 
     // Set the sysroot to the platform-specific path.
-    flags.add("--sysroot=" + toolchainPaths.getSysroot());
+    flags.add("--sysroot=" + toolchainPaths.getPlatformSysroot());
 
     // TODO(#7264008): This was added for windows support but it's not clear why it's needed.
     if (targetConfiguration.getCompiler().getType() == NdkCompilerType.GCC) {
@@ -756,19 +796,34 @@ public class NdkCxxPlatforms {
     // NDK builds enable stack protector and debug symbols by default.
     flags.add("-fstack-protector", "-g3");
 
+    if (toolchainPaths.isUnifiedHeaders()) {
+      flags.add("-D__ANDROID_API__=" + targetConfiguration.getTargetAppPlatformLevel());
+    }
+
     return flags.build();
   }
 
   private static ImmutableList<String> getCommonIncludes(NdkCxxToolchainPaths toolchainPaths) {
-    return ImmutableList.of(
-        "-isystem",
-        toolchainPaths.getNdkToolRoot().resolve("include").toString(),
-        "-isystem",
-        toolchainPaths.getLibPath().resolve("include").toString(),
-        "-isystem",
-        toolchainPaths.getSysroot().resolve("usr").resolve("include").toString(),
-        "-isystem",
-        toolchainPaths.getSysroot().resolve("usr").resolve("include").resolve("linux").toString());
+    ImmutableList.Builder<String> flags =
+        new Builder<String>()
+            .add(
+                "-isystem",
+                toolchainPaths.getNdkToolRoot().resolve("include").toString(),
+                "-isystem",
+                toolchainPaths.getLibPath().resolve("include").toString(),
+                "-isystem",
+                toolchainPaths.getIncludeSysroot().resolve("usr").resolve("include").toString(),
+                "-isystem",
+                toolchainPaths
+                    .getIncludeSysroot()
+                    .resolve("usr")
+                    .resolve("include")
+                    .resolve("linux")
+                    .toString());
+    if (toolchainPaths.isUnifiedHeaders()) {
+      flags.add("-isystem", toolchainPaths.getArchSpecificIncludes().toString());
+    }
+    return flags.build();
   }
 
   private static ImmutableList<String> getAsflags(
@@ -894,6 +949,7 @@ public class NdkCxxPlatforms {
     private NdkCxxRuntime cxxRuntime;
     private Map<String, Path> cachedPaths;
     private boolean strict;
+    private boolean unifiedHeaders;
     private int ndkMajorVersion;
     private ProjectFilesystem filesystem;
 
@@ -903,7 +959,8 @@ public class NdkCxxPlatforms {
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
         NdkCxxRuntime cxxRuntime,
-        boolean strict) {
+        boolean strict,
+        boolean unifiedHeaders) {
       this(
           filesystem,
           ndkRoot,
@@ -911,7 +968,8 @@ public class NdkCxxPlatforms {
           targetConfiguration,
           hostName,
           cxxRuntime,
-          strict);
+          strict,
+          unifiedHeaders);
     }
 
     private NdkCxxToolchainPaths(
@@ -921,10 +979,12 @@ public class NdkCxxPlatforms {
         NdkCxxPlatformTargetConfiguration targetConfiguration,
         String hostName,
         NdkCxxRuntime cxxRuntime,
-        boolean strict) {
+        boolean strict,
+        boolean unifiedHeaders) {
       this.filesystem = filesystem;
       this.cachedPaths = new HashMap<>();
       this.strict = strict;
+      this.unifiedHeaders = unifiedHeaders;
 
       this.targetConfiguration = targetConfiguration;
       this.hostName = hostName;
@@ -944,7 +1004,8 @@ public class NdkCxxPlatforms {
           targetConfiguration,
           BUILD_HOST_SUBST,
           cxxRuntime,
-          false);
+          false,
+          unifiedHeaders);
     }
 
     Path processPathPattern(Path root, String pattern) {
@@ -999,11 +1060,27 @@ public class NdkCxxPlatforms {
       }
     }
 
+    boolean isUnifiedHeaders() {
+      return unifiedHeaders;
+    }
+
+    /** @return the path to arch-specific include files; only use with unified headers */
+    Path getArchSpecificIncludes() {
+      return processPathPattern("sysroot/usr/include/{toolchain_target}");
+    }
+
     /**
      * @return the path to use as the system root, targeted to the given target platform and
      *     architecture.
      */
-    Path getSysroot() {
+    Path getIncludeSysroot() {
+      if (isUnifiedHeaders()) {
+        return processPathPattern("sysroot");
+      }
+      return getPlatformSysroot();
+    }
+
+    Path getPlatformSysroot() {
       return processPathPattern("platforms/{target_platform}/arch-{target_arch}");
     }
 

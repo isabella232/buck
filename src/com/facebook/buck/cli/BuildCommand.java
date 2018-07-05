@@ -654,13 +654,22 @@ public class BuildCommand extends AbstractCommand {
                 OUT_LONG_ARG,
                 loneTarget);
 
-        ProjectFilesystem projectFilesystem = rule.getProjectFilesystem();
+        ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
         SourcePathResolver pathResolver =
             DefaultSourcePathResolver.from(
                 new SourcePathRuleFinder(
                     graphs.getActionGraphAndBuilder().getActionGraphBuilder()));
-        projectFilesystem.copyFile(
-            pathResolver.getAbsolutePath(output), outputPathForSingleBuildTarget);
+
+        Path outputPath;
+        if (Files.isDirectory(outputPathForSingleBuildTarget)) {
+          Path outputDir = outputPathForSingleBuildTarget.normalize();
+          Path outputFilename = pathResolver.getAbsolutePath(output).getFileName();
+          outputPath = outputDir.resolve(outputFilename);
+        } else {
+          outputPath = outputPathForSingleBuildTarget;
+        }
+
+        projectFilesystem.copyFile(pathResolver.getAbsolutePath(output), outputPath);
       }
     }
     return ExitCode.SUCCESS;

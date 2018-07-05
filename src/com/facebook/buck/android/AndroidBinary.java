@@ -87,32 +87,6 @@ public class AndroidBinary extends AbstractBuildRule
         HasInstallHelpers {
   static final String SECONDARY_DEX_SUBDIR = "assets/secondary-program-dex-jars";
 
-  /**
-   * This list of package types is taken from the set of targets that the default build.xml provides
-   * for Android projects.
-   *
-   * <p>Note: not all package types are supported. If unsupported, will be treated as "DEBUG".
-   */
-  enum PackageType {
-    DEBUG,
-    INSTRUMENTED,
-    RELEASE,
-    TEST,
-    ;
-  }
-
-  enum RelinkerMode {
-    ENABLED,
-    DISABLED,
-    ;
-  }
-
-  enum AaptMode {
-    AAPT1,
-    AAPT2,
-    ;
-  }
-
   private final Keystore keystore;
 
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;

@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.Set;
 
 public class AndroidBuckConfig {
 
@@ -78,7 +77,7 @@ public class AndroidBuckConfig {
     return delegate.getValue("ndk", "app_platform");
   }
 
-  public Optional<Set<String>> getNdkCpuAbis() {
+  public Optional<ImmutableSet<String>> getNdkCpuAbis() {
     return delegate.getOptionalListWithoutComments("ndk", "cpu_abis").map(ImmutableSet::copyOf);
   }
 
@@ -112,6 +111,10 @@ public class AndroidBuckConfig {
 
   public ImmutableList<String> getExtraNdkLdFlags() {
     return delegate.getListWithoutComments("ndk", "extra_ldflags", ' ');
+  }
+
+  public Optional<Boolean> getNdkUnifiedHeaders() {
+    return delegate.getBoolean("ndk", "use_unified_headers");
   }
 
   public boolean isGrayscaleImageProcessingEnabled() {
