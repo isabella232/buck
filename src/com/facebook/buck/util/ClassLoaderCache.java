@@ -108,7 +108,7 @@ public final class ClassLoaderCache implements AutoCloseable {
     }
   }
 
-  private static class CachedURLClassLoader extends URLClassLoader {
+  public static class CachedURLClassLoader extends URLClassLoader {
     public CachedURLClassLoader(URL[] urls, @Nullable ClassLoader parent) {
       super(urls, parent);
     }

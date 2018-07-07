@@ -25,9 +25,8 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.util.ClassLoaderCache;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,6 +38,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +48,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class JarBackedReflectedKotlinc implements Kotlinc {
+  private static final Logger LOG = Logger.get(JarBackedReflectedKotlinc.class);
 
   private static final String COMPILER_CLASS = "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler";
   private static final String EXIT_CODE_CLASS = "org.jetbrains.kotlin.cli.common.ExitCode";
@@ -160,7 +161,16 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
       Object compilerShim =
           kotlinShims.computeIfAbsent(
               compilerIdPaths.stream().map(File::getAbsolutePath).collect(Collectors.toSet()),
-              k -> loadCompilerShim(context));
+              k -> loadCompilerShim());
+
+      LOG.debug("michaeldang " + compilerShim.getClass().getName());
+
+      String a = "";
+      for (URL url :  ((URLClassLoader) compilerShim.getClass().getClassLoader()).getURLs()) {
+        a += url.toString() + ", ";
+      }
+
+      LOG.debug("michaeldang urls after loading them: " + a);
 
       Method compile = compilerShim.getClass().getMethod("exec", PrintStream.class, String[].class);
 
@@ -182,22 +192,36 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
     }
   }
 
-  private Object loadCompilerShim(ExecutionContext context) {
+  private Object loadCompilerShim() {
     try {
-      ClassLoaderCache classLoaderCache = context.getClassLoaderCache();
-      classLoaderCache.addRef();
+      ImmutableList<URL> urlsList = ImmutableList.copyOf(
+          compilerClassPath
+              .stream()
+              .map(p -> ((PathSourcePath) p).getRelativePath())
+              .map(PATH_TO_URL)
+              .iterator());
+      URL[] urls = urlsList.toArray(new URL[urlsList.size()]);
 
-      ClassLoader classLoader =
-          classLoaderCache.getClassLoaderForClassPath(
-              SynchronizedToolProvider.getSystemToolClassLoader(),
-              ImmutableList.copyOf(
-                  compilerClassPath
-                      .stream()
-                      .map(p -> ((PathSourcePath) p).getRelativePath())
-                      .map(PATH_TO_URL)
-                      .iterator()));
+      URLClassLoader classLoader = new URLClassLoader(urls);
 
-      return classLoader.loadClass(COMPILER_CLASS).newInstance();
+      Object toReturn = classLoader.loadClass(COMPILER_CLASS).newInstance();
+
+      try {
+        classLoader.loadClass("org.jetbrains.kotlin.cli.common.arguments.CommonToolArguments");
+      } catch (Exception e) {
+        LOG.debug("michaeldang " + e.getMessage());
+      }
+
+      String a = "";
+      for (URL url : classLoader.getURLs()) {
+        a += url.toString() + ", ";
+      }
+
+      LOG.debug("michaeldang " + a);
+      LOG.debug("michaeldang " + toReturn.getClass().getName());
+
+      classLoader.close();
+      return toReturn;
     } catch (Exception ex) {
       throw new RuntimeException(ex);
     }
