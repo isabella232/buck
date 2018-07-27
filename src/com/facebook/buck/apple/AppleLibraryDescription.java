@@ -24,7 +24,6 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.DescriptionCache;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -36,12 +35,14 @@ import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -76,7 +77,6 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCompile;
@@ -716,7 +716,7 @@ public class AppleLibraryDescription
                 headerPathPrefix,
                 args.getExportedHeaders()));
 
-    Path root = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s");
+    Path root = BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s");
     return CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
         buildTarget,
         projectFilesystem,
@@ -969,8 +969,8 @@ public class AppleLibraryDescription
     // Use defaults.apple_library if present, but fall back to defaults.cxx_library otherwise.
     return cxxLibraryImplicitFlavors.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
-        DescriptionCache.getBuildRuleType(this),
-        DescriptionCache.getBuildRuleType(CxxLibraryDescription.class));
+        DescriptionCache.getRuleType(this),
+        DescriptionCache.getRuleType(CxxLibraryDescription.class));
   }
 
   @Override
@@ -986,7 +986,7 @@ public class AppleLibraryDescription
   }
 
   public static boolean isNotStaticallyLinkedLibraryNode(
-      TargetNode<CxxLibraryDescription.CommonArg, ?> node) {
+      TargetNode<CxxLibraryDescription.CommonArg> node) {
     SortedSet<Flavor> flavors = node.getBuildTarget().getFlavors();
     if (LIBRARY_TYPE.getFlavor(flavors).isPresent()) {
       return flavors.contains(CxxDescriptionEnhancer.SHARED_FLAVOR)

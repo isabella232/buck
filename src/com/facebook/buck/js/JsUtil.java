@@ -17,20 +17,20 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
@@ -134,7 +134,7 @@ public class JsUtil {
       BuildTarget buildTarget, ProjectFilesystem projectFilesystem, String subpath) {
     return ExplicitBuildTargetSourcePath.of(
         buildTarget,
-        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s").resolve(subpath));
+        BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s").resolve(subpath));
   }
 
   public static String getValueForFlavor(ImmutableMap<UserFlavor, String> map, Flavor flavor) {

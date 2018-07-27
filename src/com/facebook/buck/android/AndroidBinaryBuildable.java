@@ -17,6 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.bundle.GenerateAssetsStep;
+import com.facebook.buck.android.bundle.GenerateBundleConfigStep;
+import com.facebook.buck.android.bundle.GenerateNativeStep;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.ReDexStep;
 import com.facebook.buck.android.redex.RedexOptions;
@@ -25,6 +28,7 @@ import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -32,7 +36,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -114,6 +117,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey private final ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths;
 
+  private final boolean isApk;
+
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
   private final BuildTarget buildTarget;
@@ -141,7 +146,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
       ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths,
-      int apkCompressionLevel) {
+      int apkCompressionLevel,
+      boolean isApk) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
     this.androidSdkLocation = androidSdkLocation;
@@ -163,6 +169,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     this.compressAssetLibraries = compressAssetLibraries;
     this.resourceFilesInfo = resourceFilesInfo;
     this.apkCompressionLevel = apkCompressionLevel;
+    this.isApk = isApk;
   }
 
   @SuppressWarnings("PMD.PrematureDeclaration")
@@ -237,7 +244,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
         SourcePath resourcePath = moduleResourceApkPaths.get(module);
 
         Path moduleResDirectory =
-            BuildTargets.getScratchPath(
+            BuildTargetPaths.getScratchPath(
                 getProjectFilesystem(), buildTarget, "__module_res_" + module.getName() + "_%s__");
 
         Path unpackDirectory = moduleResDirectory.resolve("assets").resolve(module.getName());
@@ -295,22 +302,57 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
             .stream()
             .map(resolver::getAbsolutePath)
             .collect(ImmutableSet.toImmutableSet());
+    if (isApk) {
+      steps.add(
+          new ApkBuilderStep(
+              getProjectFilesystem(),
+              pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
+              getSignedApkPath(),
+              pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
+              allAssetDirectories,
+              nativeLibraryDirectoriesBuilder.build(),
+              zipFiles.build(),
+              thirdPartyJars,
+              pathToKeystore,
+              keystoreProperties,
+              false,
+              javaRuntimeLauncher.getCommandPrefix(pathResolver),
+              apkCompressionLevel));
+    } else {
+      Path tempBundleConfig =
+          BuildTargetPaths.getGenPath(
+              getProjectFilesystem(), buildTarget, "__BundleConfig__%s__.pb");
+      steps.add(new GenerateBundleConfigStep(getProjectFilesystem(), tempBundleConfig));
 
-    steps.add(
-        new ApkBuilderStep(
-            getProjectFilesystem(),
-            pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
-            getSignedApkPath(),
-            pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
-            allAssetDirectories,
-            nativeLibraryDirectoriesBuilder.build(),
-            zipFiles.build(),
-            thirdPartyJars,
-            pathToKeystore,
-            keystoreProperties,
-            false,
-            javaRuntimeLauncher.getCommandPrefix(pathResolver),
-            apkCompressionLevel));
+      Path tempAssets =
+          BuildTargetPaths.getGenPath(getProjectFilesystem(), buildTarget, "__assets__%s__.pb");
+      steps.add(new GenerateAssetsStep(getProjectFilesystem(), tempAssets, allAssetDirectories));
+
+      Path tempNative =
+          BuildTargetPaths.getGenPath(getProjectFilesystem(), buildTarget, "__native__%s__.pb");
+      steps.add(
+          new GenerateNativeStep(
+              getProjectFilesystem(), tempNative, nativeLibraryDirectoriesBuilder.build()));
+
+      steps.add(
+          new AabBuilderStep(
+              getProjectFilesystem(),
+              pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
+              getSignedApkPath(),
+              pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
+              allAssetDirectories,
+              tempAssets,
+              nativeLibraryDirectoriesBuilder.build(),
+              tempNative,
+              zipFiles.build(),
+              thirdPartyJars,
+              pathToKeystore,
+              keystoreProperties,
+              false,
+              javaRuntimeLauncher.getCommandPrefix(pathResolver),
+              apkCompressionLevel,
+              tempBundleConfig));
+    }
 
     // The `ApkBuilderStep` delegates to android tools to build a ZIP with timestamps in it, making
     // the output non-deterministic.  So use an additional scrubbing step to zero these out.
@@ -345,11 +387,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
     steps.add(
         new ZipalignStep(
-            getBuildTarget(),
-            getProjectFilesystem().getRootPath(),
-            androidPlatformTarget,
-            apkToAlign,
-            apkPath));
+            getProjectFilesystem().getRootPath(), androidPlatformTarget, apkToAlign, apkPath));
 
     buildableContext.recordArtifact(apkPath);
     return steps.build();
@@ -528,7 +566,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
                 context.getBuildCellRootPath(), getProjectFilesystem(), redexedApk.getParent())));
     ImmutableList<Step> redexSteps =
         ReDexStep.createSteps(
-            buildTarget,
             getProjectFilesystem(),
             androidSdkLocation,
             resolver,
@@ -560,13 +597,13 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   }
 
   public Path getManifestPath() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/AndroidManifest.xml");
   }
 
   /** All native-libs-as-assets are copied to this directory before running apkbuilder. */
   private Path getPathForNativeLibsAsAssets() {
-    return BuildTargets.getScratchPath(
+    return BuildTargetPaths.getScratchPath(
         getProjectFilesystem(), getBuildTarget(), "__native_libs_as_assets_%s__");
   }
 
@@ -585,12 +622,12 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   }
 
   private String getUnsignedApkPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.unsigned.apk")
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.unsigned.apk")
         .toString();
   }
 
   private Path getRedexedApkPath() {
-    Path path = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s__redex");
+    Path path = BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s__redex");
     return path.resolve(getBuildTarget().getShortName() + ".redex.apk");
   }
 
@@ -598,7 +635,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
    * Directory of text files used by proguard. Unforunately, this contains both inputs and outputs.
    */
   private Path getProguardTextFilesPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/proguard");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/proguard");
   }
 
   @VisibleForTesting

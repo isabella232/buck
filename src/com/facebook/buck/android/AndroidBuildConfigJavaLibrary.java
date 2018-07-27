@@ -18,13 +18,12 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildDeps;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
@@ -34,6 +33,7 @@ import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.RemoveClassesPatternsMatcher;
+import com.facebook.buck.jvm.java.ResourcesParameters;
 import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.google.common.base.Preconditions;
@@ -56,7 +56,6 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       Javac javac,
       JavacOptions javacOptions,
@@ -69,21 +68,13 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
             ImmutableSortedSet.copyOf(
                 Iterables.concat(
                     params.getBuildDeps(), ruleFinder.filterBuildRuleInputs(abiClasspath.get())))),
-        resolver,
         new JarBuildStepsFactory(
             projectFilesystem,
-            ruleFinder,
             buildTarget,
-            new JavacToJarStepFactory(
-                resolver,
-                ruleFinder,
-                projectFilesystem,
-                javac,
-                javacOptions,
-                ExtraClasspathProvider.EMPTY),
+            new JavacToJarStepFactory(javac, javacOptions, ExtraClasspathProvider.EMPTY),
             /* srcs */ ImmutableSortedSet.of(androidBuildConfig.getSourcePathToOutput()),
-            /* resources */ ImmutableSortedSet.of(),
-            /* resourcesRoot */ Optional.empty(),
+            ImmutableSortedSet.of(),
+            ResourcesParameters.of(),
             /* manifest file */ Optional.empty(),
             /* postprocessClassesCommands */ ImmutableList.of(),
             abiClasspath,
@@ -95,12 +86,13 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
             AbiGenerationMode.CLASS,
             AbiGenerationMode.CLASS,
             /* sourceOnlyAbiRuleInfo */ null),
-        /* proguardConfig */ Optional.empty(),
+        ruleFinder,
+        Optional.empty(),
         /* firstOrderPackageableDeps */ params.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.of(),
         /* providedDeps */ ImmutableSortedSet.of(),
         ImmutableSortedSet.of(),
-        HasJavaAbi.getClassAbiJar(buildTarget),
+        JavaAbis.getClassAbiJar(buildTarget),
         /* sourceOnlyAbiJar */ null,
         /* mavenCoords */ Optional.empty(),
         /* tests */ ImmutableSortedSet.of(),

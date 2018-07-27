@@ -18,6 +18,7 @@ package com.facebook.buck.js;
 
 import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -25,7 +26,6 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -91,7 +91,7 @@ public class JsTestScenario {
   }
 
   public static class Builder {
-    private final Set<TargetNode<?, ?>> nodes = new LinkedHashSet<>();
+    private final Set<TargetNode<?>> nodes = new LinkedHashSet<>();
     private final BuildTarget workerTarget;
     private final ProjectFilesystem filesystem;
 
@@ -249,7 +249,7 @@ public class JsTestScenario {
     public JsTestScenario build() {
       TargetGraph graph = TargetGraphFactory.newInstance(nodes);
       ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(graph);
-      for (TargetNode<?, ?> node : nodes) {
+      for (TargetNode<?> node : nodes) {
         graphBuilder.requireRule(node.getBuildTarget());
       }
       return new JsTestScenario(graph, graphBuilder, workerTarget, filesystem);

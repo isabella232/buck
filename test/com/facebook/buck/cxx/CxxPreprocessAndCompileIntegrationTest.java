@@ -30,19 +30,20 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
@@ -105,7 +106,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:simple#default,static");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     workspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
-    Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
+    Path lib = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
 
@@ -115,7 +116,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
     longPwdWorkspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
     Path longPwdLib =
         longPwdWorkspace.getPath(
-            BuildTargets.getGenPath(longPwdFilesystem, target, "%s/libsimple.a"));
+            BuildTargetPaths.getGenPath(longPwdFilesystem, target, "%s/libsimple.a"));
     String longPwdContents =
         Files.asByteSource(longPwdLib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertEquals(contents, longPwdContents);
@@ -128,7 +129,8 @@ public class CxxPreprocessAndCompileIntegrationTest {
     ProcessResult processResult = workspace.runBuckBuild(target.getFullyQualifiedName());
     processResult.assertSuccess();
     Path lib =
-        workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple_assembly.a"));
+        workspace.getPath(
+            BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple_assembly.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
   }
@@ -142,7 +144,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
     // Setup up a symlink to our working directory.
     Path symlinkedRoot = folder.getRoot().toPath().resolve("symlinked-root");
-    java.nio.file.Files.createSymbolicLink(symlinkedRoot, tmp.getRoot());
+    CreateSymlinksForTests.createSymLink(symlinkedRoot, tmp.getRoot());
 
     // Run the build, setting PWD to the above symlink.  Typically, this causes compilers to use
     // the symlinked directory, even though it's not the right project root.
@@ -157,7 +159,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
         .assertSuccess();
 
     // Verify that we still sanitized this path correctly.
-    Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
+    Path lib = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
     assertFalse(lib.toString(), contents.contains(symlinkedRoot.toString()));

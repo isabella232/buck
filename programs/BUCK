@@ -100,10 +100,12 @@ BUCK_MODULES = {
     "go": "//src/com/facebook/buck/features/go:go",
     "gwt": "//src/com/facebook/buck/features/gwt:gwt",
     "haskell": "//src/com/facebook/buck/features/haskell:haskell",
+    "intellij": "//src/com/facebook/buck/features/project/intellij:intellij",
     "lua": "//src/com/facebook/buck/features/lua:lua",
     "ocaml": "//src/com/facebook/buck/features/ocaml:ocaml",
     "python": "//src/com/facebook/buck/features/python:module",
     "rust": "//src/com/facebook/buck/features/rust:rust",
+    "xcode": "//src/com/facebook/buck/features/apple/project:project",
     "ziprules": "//src/com/facebook/buck/features/zip/rules:rules",
 }
 
@@ -160,6 +162,7 @@ python_binary(
     build_args = interpreter_override_args(),
     main = "buck.py",
     visibility = [
+        "//scripts/packages/chocolatey:chocolatey",
         "//scripts/packages/debian:debian",
         "//test/...",
         "//tools/...",

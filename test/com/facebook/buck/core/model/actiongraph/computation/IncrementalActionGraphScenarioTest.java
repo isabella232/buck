@@ -31,6 +31,7 @@ import com.facebook.buck.core.build.engine.RuleDepsCache;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
@@ -45,6 +46,7 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -80,8 +82,6 @@ import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
@@ -1265,7 +1265,7 @@ public class IncrementalActionGraphScenarioTest {
         result.getActionGraphBuilder());
   }
 
-  private ActionGraphAndBuilder createActionGraph(TargetNode<?, ?>... nodes) {
+  private ActionGraphAndBuilder createActionGraph(TargetNode<?>... nodes) {
     // Use newInstanceExact for cases where we don't want unflavored versions of nodes to get added
     // implicitly.
     return createActionGraph(TargetGraphFactory.newInstanceExact(nodes));
@@ -1281,10 +1281,10 @@ public class IncrementalActionGraphScenarioTest {
         result.getActionGraphBuilder());
   }
 
-  private TargetNode<?, ?>[] buildNodes(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
+  private TargetNode<?>[] buildNodes(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
     return RichStream.from(builders)
         .map(builder -> builder.build(filesystem))
-        .toArray(TargetNode<?, ?>[]::new);
+        .toArray(TargetNode<?>[]::new);
   }
 
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {

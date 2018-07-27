@@ -38,12 +38,14 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLinkOptions;
@@ -62,9 +64,7 @@ import com.facebook.buck.io.AlwaysFoundExecutableFinder;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -572,7 +572,6 @@ public class NdkCxxPlatformTest {
                       .build(),
                   NdkCxxRuntime.GNUSTL,
                   NdkCxxRuntimeType.DYNAMIC,
-                  "android-12",
                   ImmutableSet.of("x86"),
                   platform,
                   new AlwaysFoundExecutableFinder(),
@@ -626,7 +625,6 @@ public class NdkCxxPlatformTest {
                 .build(),
             NdkCxxRuntime.GNUSTL,
             NdkCxxRuntimeType.DYNAMIC,
-            "android-16",
             ImmutableSet.of("x86"),
             Platform.LINUX,
             new AlwaysFoundExecutableFinder(),

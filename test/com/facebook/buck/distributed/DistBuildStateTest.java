@@ -28,13 +28,17 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.config.KnownConfigurationRuleTypes;
+import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -51,14 +55,15 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.module.BuckModuleManager;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
@@ -109,6 +114,7 @@ public class DistBuildStateTest {
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   private KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private KnownConfigurationRuleTypes knownConfigurationRuleTypes;
   private ProcessExecutor processExecutor;
   private ExecutableFinder executableFinder;
   private BuckModuleManager moduleManager;
@@ -124,6 +130,8 @@ public class DistBuildStateTest {
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
+    knownConfigurationRuleTypes =
+        PluginBasedKnownConfigurationRuleTypesFactory.createFromPlugins(pluginManager);
   }
 
   @Test
@@ -150,7 +158,7 @@ public class DistBuildStateTest {
         DistBuildState.dump(
             new DistBuildCellIndexer(rootCellWhenSaving),
             emptyActionGraph(),
-            createDefaultCodec(rootCellWhenSaving, Optional.empty()),
+            createDefaultCodec(knownBuildRuleTypesProvider, rootCellWhenSaving, Optional.empty()),
             createTargetGraph(filesystem),
             ImmutableSet.of(BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:dummy")));
 
@@ -220,7 +228,7 @@ public class DistBuildStateTest {
         DistBuildState.dump(
             new DistBuildCellIndexer(rootCellWhenSaving),
             emptyActionGraph(),
-            createDefaultCodec(rootCellWhenSaving, Optional.empty()),
+            createDefaultCodec(knownBuildRuleTypesProvider, rootCellWhenSaving, Optional.empty()),
             createTargetGraph(filesystem),
             ImmutableSet.of(BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:dummy")));
     Cell rootCellWhenLoading =
@@ -253,17 +261,21 @@ public class DistBuildStateTest {
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
     BuckConfig buckConfig = cell.getBuckConfig();
+    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
     setUp();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
         new DefaultParser(
-            buckConfig.getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                constructorArgMarshaller,
+                knownBuildRuleTypesProvider,
+                knownConfigurationRuleTypes,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+            parserConfig,
             typeCoercerFactory,
-            constructorArgMarshaller,
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
@@ -276,7 +288,8 @@ public class DistBuildStateTest {
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib2"),
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib3")));
 
-    DistBuildTargetGraphCodec targetGraphCodec = createDefaultCodec(cell, Optional.of(parser));
+    DistBuildTargetGraphCodec targetGraphCodec =
+        createDefaultCodec(knownBuildRuleTypesProvider, cell, Optional.of(parser));
     BuildJobState dump =
         DistBuildState.dump(
             new DistBuildCellIndexer(cell),
@@ -304,14 +317,14 @@ public class DistBuildStateTest {
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
     TargetGraph reconstructedGraph =
-        distributedBuildState
-            .createTargetGraph(targetGraphCodec, knownBuildRuleTypesProvider)
-            .getTargetGraph();
+        distributedBuildState.createTargetGraph(targetGraphCodec).getTargetGraph();
     assertEquals(
         reconstructedGraph
             .getNodes()
             .stream()
-            .map(targetNode -> targetNode.castArg(JavaLibraryDescriptionArg.class).get())
+            .map(
+                targetNode ->
+                    TargetNodes.castArg(targetNode, JavaLibraryDescriptionArg.class).get())
             .sorted()
             .map(targetNode -> targetNode.getConstructorArg().getSrcs())
             .collect(Collectors.toList()),
@@ -356,7 +369,7 @@ public class DistBuildStateTest {
         DistBuildState.dump(
             new DistBuildCellIndexer(rootCellWhenSaving),
             emptyActionGraph(),
-            createDefaultCodec(rootCellWhenSaving, Optional.empty()),
+            createDefaultCodec(knownBuildRuleTypesProvider, rootCellWhenSaving, Optional.empty()),
             createCrossCellTargetGraph(cell1Filesystem, cell2Filesystem),
             ImmutableSet.of(
                 BuildTargetFactory.newInstance(cell1Filesystem.getRootPath(), "//:dummy")));
@@ -426,10 +439,11 @@ public class DistBuildStateTest {
         rootCell);
   }
 
-  public static DistBuildTargetGraphCodec createDefaultCodec(Cell cell, Optional<Parser> parser) {
+  public static DistBuildTargetGraphCodec createDefaultCodec(
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider, Cell cell, Optional<Parser> parser) {
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
-    Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
+    Function<? super TargetNode<?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
       nodeToRawNode =
           input -> {
@@ -454,6 +468,7 @@ public class DistBuildStateTest {
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
+            knownBuildRuleTypesProvider,
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
             new VisibilityPatternFactory(),

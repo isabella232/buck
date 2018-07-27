@@ -21,7 +21,9 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -37,9 +39,7 @@ import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -434,7 +434,7 @@ public class CxxTestDescriptionTest {
     Path resource = filesystem.getPath("resource");
     filesystem.touch(resource);
     for (CxxTestType framework : CxxTestType.values()) {
-      TargetNode<?, ?> cxxTestWithResources =
+      TargetNode<?> cxxTestWithResources =
           createTestBuilder()
               .setFramework(framework)
               .setResources(ImmutableSortedSet.of(resource))

@@ -33,6 +33,7 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -380,16 +381,7 @@ public class RealAndroidDevice implements AndroidDevice {
    */
   @SuppressWarnings("PMD.PrematureDeclaration")
   public boolean uninstallApkFromDevice(String packageName, boolean keepData) {
-    String name;
-    if (device.isEmulator()) {
-      name = device.getSerialNumber() + " (" + device.getAvdName() + ")";
-    } else {
-      name = device.getSerialNumber();
-      String model = device.getProperty("ro.product.model");
-      if (model != null) {
-        name += " (" + model + ")";
-      }
-    }
+    String name = getNameForDisplay();
 
     PrintStream stdOut = console.getStdOut();
     stdOut.printf("Removing apk from %s.\n", name);
@@ -498,16 +490,7 @@ public class RealAndroidDevice implements AndroidDevice {
   @Override
   public boolean installApkOnDevice(
       File apk, boolean installViaSd, boolean quiet, boolean verifyTempWritable) {
-    String name;
-    if (device.isEmulator()) {
-      name = device.getSerialNumber() + " (" + device.getAvdName() + ")";
-    } else {
-      name = device.getSerialNumber();
-      String model = device.getProperty("ro.product.model");
-      if (model != null) {
-        name += " (" + model + ")";
-      }
-    }
+    String name = getNameForDisplay();
 
     if (verifyTempWritable && !isDeviceTempWritable(name)) {
       return false;
@@ -539,6 +522,20 @@ public class RealAndroidDevice implements AndroidDevice {
       ex.printStackTrace(console.getStdErr());
       return false;
     }
+  }
+
+  private String getNameForDisplay() {
+    String name;
+    if (device.isEmulator()) {
+      name = device.getSerialNumber() + " (" + device.getAvdName() + ")";
+    } else {
+      name = device.getSerialNumber();
+      String model = device.getProperty("ro.product.model");
+      if (model != null) {
+        name += " (" + model + ")";
+      }
+    }
+    return name;
   }
 
   /**
@@ -626,8 +623,27 @@ public class RealAndroidDevice implements AndroidDevice {
   }
 
   @Override
-  public void rmFiles(String dirPath, Iterable<String> filesToDelete) throws Exception {
-    String commandPrefix = "cd " + dirPath + " && rm ";
+  public void rmFiles(String dirPath, Iterable<String> filesToDelete) {
+    try {
+      try {
+        rmFilesWithFlags(dirPath, filesToDelete, "-f");
+      } catch (AdbHelper.CommandFailedException e) {
+        if (!e.output.contains("rm failed for -f")) {
+          throw e;
+        }
+        LOG.debug("Deleting files failed, retrying without `-f`.");
+        rmFilesWithFlags(dirPath, filesToDelete, "");
+      }
+    } catch (Exception e) {
+      throw new BuckUncheckedExecutionException(
+          e, "When deleting files on the device %s.", getNameForDisplay());
+    }
+  }
+
+  private void rmFilesWithFlags(String dirPath, Iterable<String> filesToDelete, String flags)
+      throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+          IOException {
+    String commandPrefix = String.format("cd %s && rm %s ", dirPath, flags);
     // Add a fudge factor for separators and error checking.
     int overhead = commandPrefix.length() + 100;
     for (List<String> rmArgs : chunkArgs(filesToDelete, MAX_ADB_COMMAND_SIZE - overhead)) {

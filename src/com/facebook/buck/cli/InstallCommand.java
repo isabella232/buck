@@ -363,7 +363,7 @@ public class InstallCommand extends BuildCommand {
               .first()
               .get();
 
-      TargetNode<?, ?> node =
+      TargetNode<?> node =
           params
               .getParser()
               .getTargetNode(
@@ -375,7 +375,7 @@ public class InstallCommand extends BuildCommand {
 
       if (node != null
           && node.getBuildRuleType()
-              .equals(DescriptionCache.getBuildRuleType(AppleBundleDescription.class))) {
+              .equals(DescriptionCache.getRuleType(AppleBundleDescription.class))) {
         for (Flavor flavor : node.getBuildTarget().getFlavors()) {
           if (ApplePlatform.needsInstallHelper(flavor.getName())) {
             AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
@@ -422,11 +422,7 @@ public class InstallCommand extends BuildCommand {
         // Perhaps the app wasn't installed to begin with, shouldn't stop us.
       }
 
-      if (!adbHelper.installApk(
-          pathResolver, hasInstallableApk, shouldInstallViaSd(), false, process)) {
-        params.getConsole().printBuildFailure("Install failed.");
-        return ExitCode.RUN_ERROR;
-      }
+      adbHelper.installApk(pathResolver, hasInstallableApk, shouldInstallViaSd(), false, process);
     } else if (shouldUninstallFirst()) {
       // TODO(cjhopman): Figure out how to support this (maybe write some options to the trigger
       // file).

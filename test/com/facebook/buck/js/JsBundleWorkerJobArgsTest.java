@@ -19,17 +19,17 @@ package com.facebook.buck.js;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomainException;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.shell.WorkerShellStep;
 import com.facebook.buck.util.RichStream;
@@ -142,7 +142,17 @@ public class JsBundleWorkerJobArgsTest {
 
   @Test
   public void testLocationMacrosInExtraJsonAreExpandedAndEscaped() {
-    BuildTarget referenced = BuildTargetFactory.newInstance("//needs\t\":escaping");
+    String fileNameWithEscapes;
+    if (Platform.detect() == Platform.WINDOWS) {
+      // Double quote not allowed as Windows path character.
+      // The Java nio Windows normalizer gives errors for the \t
+      // and all other escape characters, but \'.
+      fileNameWithEscapes = "//needs\'\':escaping";
+    } else {
+      fileNameWithEscapes = "//needs\t\":escaping";
+    }
+
+    BuildTarget referenced = BuildTargetFactory.newInstance(fileNameWithEscapes);
     JsTestScenario scenario = JsTestScenario.builder().arbitraryRule(referenced).build();
     JsBundle bundle =
         scenario.createBundle(
@@ -150,12 +160,21 @@ public class JsBundleWorkerJobArgsTest {
             builder -> builder.setExtraJson("[\"1 %s 2\"]", LocationMacro.of(referenced)));
 
     buildContext(scenario);
-    assertThat(
-        getJobJson(bundle).get("extraData").toString(),
-        equalTo(
-            String.format(
-                "[\"1 %s/buck-out/gen/needs\\t\\\"/escaping/escaping 2\"]",
-                JsUtil.escapeJsonForStringEmbedding(context.getBuildCellRootPath().toString()))));
+    String expectedStr;
+
+    if (Platform.detect() == Platform.WINDOWS) {
+      expectedStr =
+          String.format(
+              "[\"1 %s\\\\buck-out\\\\gen\\\\needs\'\'\\\\escaping\\\\escaping 2\"]",
+              JsUtil.escapeJsonForStringEmbedding(context.getBuildCellRootPath().toString()));
+    } else {
+      expectedStr =
+          String.format(
+              "[\"1 %s/buck-out/gen/needs\\t\\\"/escaping/escaping 2\"]",
+              JsUtil.escapeJsonForStringEmbedding(context.getBuildCellRootPath().toString()));
+    }
+
+    assertThat(getJobJson(bundle).get("extraData").toString(), equalTo(expectedStr));
   }
 
   private static String targetWithFlavors(String target, Flavor... flavors) {

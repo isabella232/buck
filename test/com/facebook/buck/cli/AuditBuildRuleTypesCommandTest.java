@@ -18,12 +18,12 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -91,7 +91,9 @@ public class AuditBuildRuleTypesCommandTest {
         console, KnownBuildRuleTypes.of(DESCRIPTIONS), false);
 
     List<String> buildRuleTypes =
-        Splitter.on('\n').omitEmptyStrings().splitToList(console.getTextWrittenToStdOut());
+        Splitter.on(System.lineSeparator())
+            .omitEmptyStrings()
+            .splitToList(console.getTextWrittenToStdOut());
 
     assertEquals(KNOWN_RULE_TYPES, buildRuleTypes);
   }

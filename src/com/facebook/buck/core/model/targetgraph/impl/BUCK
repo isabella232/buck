@@ -1,4 +1,6 @@
-java_library(
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
+java_immutables_library(
     name = "impl",
     srcs = glob(["*.java"]),
     exported_deps = [
@@ -16,11 +18,11 @@ java_library(
         "PUBLIC",
     ],
     deps = [
+        "//src/com/facebook/buck/core/description/arg:arg",
         "//src/com/facebook/buck/core/description/attr:attr",
         "//src/com/facebook/buck/event:event",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/hashing:hashing",
-        "//src/com/facebook/buck/versions:versions",
     ],
 )

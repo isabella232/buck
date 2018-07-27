@@ -23,7 +23,6 @@ import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -36,6 +35,7 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -126,6 +126,12 @@ public class AndroidBundleDescription
       }
     }
 
+    // Check if the aapt mode is supportive for Bundle Build
+    if (args.getAaptMode() != AaptMode.AAPT2) {
+      throw new HumanReadableException(
+          "Android App Bundle can only be built with aapt2, but %s is using aapt1.", buildTarget);
+    }
+
     // We don't support requiring other flavors right now.
     if (buildTarget.isFlavored()) {
       throw new HumanReadableException(
@@ -163,7 +169,8 @@ public class AndroidBundleDescription
             dexSplitMode,
             exopackageModes,
             rulesToExcludeFromDex,
-            args);
+            args,
+            true);
     AndroidBundle androidBundle =
         androidBundleFactory.create(
             toolchainProvider,
@@ -206,7 +213,8 @@ public class AndroidBundleDescription
         args.getPrimaryDexScenarioFile(),
         args.isPrimaryDexScenarioOverflowAllowed(),
         args.getSecondaryDexHeadClassesFile(),
-        args.getSecondaryDexTailClassesFile());
+        args.getSecondaryDexTailClassesFile(),
+        args.isAllowRDotJavaInSecondaryDex());
   }
 
   @Override
@@ -304,5 +312,11 @@ public class AndroidBundleDescription
     abstract Optional<SourcePath> getRedexConfig();
 
     abstract ImmutableList<StringWithMacros> getRedexExtraArgs();
+
+    @Override
+    @Value.Default
+    public AaptMode getAaptMode() {
+      return AaptMode.AAPT2;
+    }
   }
 }

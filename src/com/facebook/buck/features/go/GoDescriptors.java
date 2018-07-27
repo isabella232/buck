@@ -16,13 +16,14 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
@@ -41,7 +42,6 @@ import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -376,7 +376,7 @@ abstract class GoDescriptors {
                                   generatorSourceTarget,
                                   projectFilesystem,
                                   extractTestMainGenerator(),
-                                  BuildTargets.getGenPath(
+                                  BuildTargetPaths.getGenPath(
                                       projectFilesystem, generatorSourceTarget, "%s/main.go"),
                                   /* executable */ false));
 
@@ -488,7 +488,7 @@ abstract class GoDescriptors {
           buildTarget.getFullyQualifiedName());
     }
 
-    Path root = BuildTargets.getScratchPath(projectFilesystem, buildTarget, "__%s__tree");
+    Path root = BuildTargetPaths.getScratchPath(projectFilesystem, buildTarget, "__%s__tree");
 
     return new SymlinkTree(
         "go_linkable",

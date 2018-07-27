@@ -18,9 +18,10 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -32,7 +33,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -71,7 +71,6 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
-  private SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Javac javac;
   @AddToRuleKey private final JavacOptions javacOptions;
   @AddToRuleKey private final SourcePath innerJar;
@@ -83,7 +82,6 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public JarFattener(
       BuildTarget buildTarget,
-      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Javac javac,
@@ -92,14 +90,13 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableMap<String, SourcePath> nativeLibraries,
       Tool javaRuntimeLauncher) {
     super(buildTarget, projectFilesystem, params);
-    this.ruleFinder = ruleFinder;
     this.javac = javac;
     this.javacOptions = javacOptions;
     this.innerJar = innerJar;
     this.nativeLibraries = nativeLibraries;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.output =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
+        BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
             .resolve(getBuildTarget().getShortName() + ".jar");
   }
 
@@ -196,16 +193,15 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 compilerParameters.getPathToSourcesList().getParent())));
 
     JavacToJarStepFactory compileStepFactory =
-        new JavacToJarStepFactory(
-            context.getSourcePathResolver(),
-            ruleFinder,
-            getProjectFilesystem(),
-            javac,
-            javacOptions,
-            ExtraClasspathProvider.EMPTY);
+        new JavacToJarStepFactory(javac, javacOptions, ExtraClasspathProvider.EMPTY);
 
     compileStepFactory.createCompileStep(
-        context, getBuildTarget(), compilerParameters, steps, buildableContext);
+        context,
+        getProjectFilesystem(),
+        getBuildTarget(),
+        compilerParameters,
+        steps,
+        buildableContext);
 
     steps.add(zipStep);
     JarParameters jarParameters =
@@ -277,7 +273,5 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public void updateBuildRuleResolver(
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.ruleFinder = ruleFinder;
-  }
+      SourcePathResolver pathResolver) {}
 }

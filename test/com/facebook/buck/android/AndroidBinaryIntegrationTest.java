@@ -20,18 +20,20 @@ import static com.facebook.buck.testutil.RegexMatcher.containsPattern;
 import static com.facebook.buck.testutil.RegexMatcher.containsRegex;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.hasItem;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -57,6 +59,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -101,7 +104,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     ZipInspector zipInspector =
         new ZipInspector(
             workspace.getPath(
-                BuildTargets.getGenPath(
+                BuildTargetPaths.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(SIMPLE_TARGET), "%s.apk")));
 
     zipInspector.assertFileExists("assets/secondary-program-dex-jars/metadata.txt");
@@ -143,7 +146,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     ZipInspector zipInspector =
         new ZipInspector(
             workspace.getPath(
-                BuildTargets.getGenPath(
+                BuildTargetPaths.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(RAW_DEX_TARGET), "%s.apk")));
     zipInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/metadata.txt");
 
@@ -275,7 +278,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     DexInspector dexInspector =
         new DexInspector(
             workspace.getPath(
-                BuildTargets.getGenPath(
+                BuildTargetPaths.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
 
     dexInspector.assertTypeExists("Lcom/facebook/sample/Dep;");
@@ -340,7 +343,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     Path mapping =
         workspace.getPath(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 filesystem, BuildTargetFactory.newInstance(target), "%s/proguard/mapping.txt"));
     assertTrue(Files.exists(mapping));
   }
@@ -365,7 +368,8 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     // Iterate over each of the entries, expecting to see all zeros in the time fields.
     Path apk =
         workspace.getPath(
-            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
+            BuildTargetPaths.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
     Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
     try (ZipInputStream is = new ZipInputStream(Files.newInputStream(apk))) {
       for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
@@ -380,7 +384,8 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     workspace.runBuckCommand("build", target).assertSuccess();
     Path pathToZip =
         workspace.getPath(
-            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
+            BuildTargetPaths.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
     ZipFile file = new ZipFile(pathToZip.toFile());
     ZipEntry metadata = file.getEntry("assets/lib/metadata.txt");
     assertNotNull(metadata);
@@ -486,6 +491,14 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testD8AppWithMultidexContainsCanaryClasses() throws IOException {
+    workspace.runBuckBuild("//apps/multidex:app_with_d8").assertSuccess();
+    final Path path = workspace.buildAndReturnOutput("//apps/multidex:disassemble_app_with_d8");
+    final List<String> smali = filesystem.readLines(path);
+    assertFalse(smali.isEmpty());
+  }
+
+  @Test
   public void testResourceOverrides() throws IOException {
     Path path = workspace.buildAndReturnOutput("//apps/sample:strings_dump_overrides");
     assertThat(
@@ -516,7 +529,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     Path generatedConfig =
         workspace.getPath(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 filesystem,
                 BuildTargetFactory.newInstance(target)
                     .withFlavors(AndroidBinaryGraphEnhancer.NATIVE_LIBRARY_PROGUARD_FLAVOR),
@@ -524,7 +537,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     Path proguardDir =
         workspace.getPath(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 filesystem, BuildTargetFactory.newInstance(target), "%s/proguard"));
 
     Path proguardCommandLine = proguardDir.resolve("command-line.txt");
@@ -542,7 +555,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     Path generatedConfig =
         workspace.getPath(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 filesystem,
                 BuildTargetFactory.newInstance(target)
                     .withFlavors(AndroidBinaryGraphEnhancer.NATIVE_LIBRARY_PROGUARD_FLAVOR),
@@ -550,7 +563,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
 
     Path proguardDir =
         workspace.getPath(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 filesystem, BuildTargetFactory.newInstance(target), "%s/proguard"));
 
     Path proguardCommandLine = proguardDir.resolve("command-line.txt");
@@ -667,7 +680,8 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     workspace.runBuckCommand("build", "//apps/multidex:disassemble_app_r_dot_java").assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//apps/multidex:app#compile_uber_r_dot_java");
-    buildLog.assertTargetBuiltLocally("//apps/multidex:app#dex,dex_uber_r_dot_java");
+    buildLog.assertTargetBuiltLocally(
+        "//apps/multidex:app#dex,dexing,rtype__primarydex,split_uber_r_dot_java_jar");
     verifyTrimmedRDotJava(ImmutableSet.of("title"));
 
     // Turn off trimming and turn on exopackage, and rebuilt.
@@ -708,8 +722,36 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     workspace.runBuckCommand("build", "//apps/multidex:disassemble_app_r_dot_java").assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally("//apps/multidex:app#compile_uber_r_dot_java");
-    buildLog.assertTargetBuiltLocally("//apps/multidex:app#dex,dex_uber_r_dot_java");
+    buildLog.assertTargetBuiltLocally(
+        "//apps/multidex:app#dex,dexing,rtype__primarydex,split_uber_r_dot_java_jar");
     verifyTrimmedRDotJava(ImmutableSet.of("app_icon", "app_name", "title"));
+  }
+
+  @Test
+  public void testResourceSplitting() throws IOException {
+    ImmutableMap<String, Path> outputs =
+        workspace.buildMultipleAndReturnOutputs(
+            "//apps/multidex:disassemble_big_r_dot_java_primary",
+            "//apps/multidex:disassemble_big_r_dot_java_secondary");
+
+    Set<String> primaryClasses =
+        ImmutableSet.copyOf(
+            filesystem.readLines(
+                outputs.get("//apps/multidex:disassemble_big_r_dot_java_primary")));
+    assertThat(primaryClasses, hasItem("Lcom/primary/R$id;"));
+    assertThat(primaryClasses, hasItem("Lcom/primary/R$string;"));
+    assertThat(primaryClasses, hasItem("Lcom/primary/R$color;"));
+
+    Set<String> secondaryClasses =
+        ImmutableSet.copyOf(
+            filesystem.readLines(
+                outputs.get("//apps/multidex:disassemble_big_r_dot_java_secondary")));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary1/R$id;"));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary1/R$string;"));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary1/R$color;"));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary2/R$id;"));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary2/R$string;"));
+    assertThat(secondaryClasses, hasItem("Lcom/secondary2/R$color;"));
   }
 
   private static final Pattern SMALI_PUBLIC_CLASS_PATTERN =

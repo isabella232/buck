@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
@@ -42,6 +43,7 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
@@ -148,8 +150,9 @@ public class PythonBinaryIntegrationTest {
             .getStdout()
             .trim();
     Path link = workspace.getPath("link");
-    Files.createSymbolicLink(
+    CreateSymlinksForTests.createSymLink(
         link, workspace.getPath(Splitter.on(" ").splitToList(output).get(1)).toAbsolutePath());
+
     ProcessExecutor.Result result =
         workspace.runCommand(
             new PythonInterpreterFromConfig(getPythonBuckConfig(), new ExecutableFinder())
@@ -339,7 +342,8 @@ public class PythonBinaryIntegrationTest {
         ImmutableSet.of(
             Paths.get("wheel_package", "my_wheel.py"),
             Paths.get("wheel_package", "__init__.py"),
-            Paths.get("wheel_package-0.0.1.dist-info", "DESCRIPTION.rst"));
+            Paths.get("wheel_package-0.0.1.dist-info", "DESCRIPTION.rst"),
+            Paths.get("lib", "foo", "bar.py"));
     ImmutableSet<Path> expectedAbsentPaths =
         ImmutableSet.of(
             Paths.get(
@@ -350,7 +354,15 @@ public class PythonBinaryIntegrationTest {
                 ".deps",
                 "wheel_package-0.0.1-py2-none-any.whl",
                 "wheel_package-0.0.1.dist-info",
-                "DESCRIPTION.rst"));
+                "DESCRIPTION.rst"),
+            Paths.get(
+                ".deps",
+                "wheel_package-0.0.1-py2-none-any.whl",
+                "wheel_package-0.0.1.data",
+                "data",
+                "lib",
+                "foo",
+                "bar.py"));
     ImmutableSet<Path> paths;
     if (pexDirectory) {
       paths =
@@ -389,11 +401,18 @@ public class PythonBinaryIntegrationTest {
         ImmutableSet.of(
             Paths.get("wheel_package", "my_wheel.py"),
             Paths.get("wheel_package", "__init__.py"),
-            Paths.get("wheel_package-0.0.1.dist-info", "DESCRIPTION.rst"));
+            Paths.get("wheel_package-0.0.1.dist-info", "DESCRIPTION.rst"),
+            Paths.get("lib", "foo", "bar.py"));
+
+    ImmutableSet<Path> expectedAbsentPaths =
+        ImmutableSet.of(Paths.get("wheel_package-0.0.1.data", "data"));
 
     for (Path path : expectedPaths) {
       assertTrue(Files.exists(linkTreeDir.resolve(path)));
       assertTrue(Files.isSameFile(linkTreeDir.resolve(path), originalWhlDir.resolve(path)));
+    }
+    for (Path path : expectedAbsentPaths) {
+      assertFalse(Files.exists(linkTreeDir.resolve(path)));
     }
     ImmutableList<String> links =
         Files.walk(linkTreeDir).map(Path::toString).collect(ImmutableList.toImmutableList());

@@ -30,9 +30,12 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.apple.AppleBundleResources;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -44,9 +47,6 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -694,9 +694,9 @@ public class JsBundleGenruleDescriptionTest {
     }
 
     @SuppressWarnings("unchecked")
-    TargetNode<JsBundleGenruleDescriptionArg, ?> targetNode() {
-      TargetNode<?, ?> targetNode = scenario.targetGraph.get(target);
-      return (TargetNode<JsBundleGenruleDescriptionArg, ?>) targetNode;
+    TargetNode<JsBundleGenruleDescriptionArg> targetNode() {
+      TargetNode<?> targetNode = scenario.targetGraph.get(target);
+      return (TargetNode<JsBundleGenruleDescriptionArg>) targetNode;
     }
 
     JsBundleOutputs jsBundle(Flavor... extraFlavors) {

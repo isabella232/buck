@@ -25,6 +25,7 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -209,7 +210,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   /**
    * This should only be exposed to implementations of the ModernBuildRule, not of the Buildable.
    */
-  protected final SourcePath getSourcePath(OutputPath outputPath) {
+  protected final BuildTargetSourcePath getSourcePath(OutputPath outputPath) {
     // TODO(cjhopman): enforce that the outputPath is actually from this target somehow.
     return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(), outputPathResolver.resolvePath(outputPath));
@@ -312,7 +313,19 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     collector.add(outputPathResolver.getRootPath());
     classInfo.visit(
         buildable,
-        new OutputPathVisitor(path1 -> collector.add(outputPathResolver.resolvePath(path1))));
+        new OutputPathVisitor(
+            path1 -> {
+              // Check that any PublicOutputPath is not specified inside the rule's temporary
+              // directory,
+              // as the temp directory may be deleted after the rule is run.
+              if (path1 instanceof PublicOutputPath
+                  && path1.getPath().startsWith(outputPathResolver.getTempPath())) {
+                throw new IllegalStateException(
+                    "PublicOutputPath should not be inside rule temporary directory. Path: "
+                        + path1);
+              }
+              collector.add(outputPathResolver.resolvePath(path1));
+            }));
     // ImmutableSet guarantees that iteration order is unchanged.
     Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
     for (Path path : outputs) {

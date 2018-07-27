@@ -21,17 +21,17 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -54,7 +54,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
-import com.google.common.collect.Streams;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -102,7 +101,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final AndroidPlatformTarget androidPlatformTarget;
   private final APKModuleGraph apkModuleGraph;
   private final ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps;
-  private final DexProducedFromJavaLibrary dexForUberRDotJava;
   private final ListeningExecutorService dxExecutorService;
   private final OptionalInt xzCompressionLevel;
   private final Optional<String> dxMaxHeapSize;
@@ -115,7 +113,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       DexSplitMode dexSplitMode,
       APKModuleGraph apkModuleGraph,
       ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps,
-      DexProducedFromJavaLibrary dexForUberRDotJava,
       ListeningExecutorService dxExecutorService,
       OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
@@ -125,7 +122,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.dexSplitMode = dexSplitMode;
     this.apkModuleGraph = apkModuleGraph;
     this.preDexDeps = preDexDeps;
-    this.dexForUberRDotJava = dexForUberRDotJava;
     this.dxExecutorService = dxExecutorService;
     this.xzCompressionLevel = xzCompressionLevel;
     this.dxMaxHeapSize = dxMaxHeapSize;
@@ -185,7 +181,8 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   private Path getPrimaryDexRoot() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s_output/primary");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s_output/primary");
   }
 
   private Path getPrimaryDexPath() {
@@ -197,7 +194,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   private Path getSecondaryDexRoot() {
-    return BuildTargets.getScratchPath(
+    return BuildTargetPaths.getScratchPath(
         getProjectFilesystem(), getBuildTarget(), "%s_output/secondary");
   }
 
@@ -276,11 +273,25 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     buildableContext.recordArtifact(paths.successDir);
     buildableContext.recordArtifact(paths.additionalJarfilesSubdir);
 
+    final ImmutableSet<String> primaryDexPatterns;
+    if (dexSplitMode.isAllowRDotJavaInSecondaryDex()) {
+      primaryDexPatterns = dexSplitMode.getPrimaryDexPatterns();
+    } else {
+      primaryDexPatterns =
+          ImmutableSet.<String>builder()
+              .addAll(dexSplitMode.getPrimaryDexPatterns())
+              .add(
+                  "/R^",
+                  "/R$",
+                  // Pin this to the primary for test apps with no primary dex classes.
+                  // The exact match makes it fairly efficient.
+                  "^com/facebook/buck_generated/AppWithoutResourcesStub^")
+              .build();
+    }
     PreDexedFilesSorter preDexedFilesSorter =
         new PreDexedFilesSorter(
-            Optional.ofNullable(DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexForUberRDotJava)),
             dexFilesToMergeBuilder.build(),
-            dexSplitMode.getPrimaryDexPatterns(),
+            primaryDexPatterns,
             apkModuleGraph,
             paths.scratchDir,
             // We kind of overload the "getLinearAllocHardLimit" parameter
@@ -317,7 +328,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     Path primaryDexPath = getPrimaryDexPath();
     steps.add(
         new SmartDexingStep(
-            getBuildTarget(),
             androidPlatformTarget,
             context,
             getProjectFilesystem(),
@@ -424,15 +434,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             .filter(DexProducedFromJavaLibrary::hasOutput)
             .map(DexProducedFromJavaLibrary::getSourcePathToDex);
 
-    // If this APK has Android resources, then the generated R.class files also need to be dexed.
-    Optional<DexWithClasses> rDotJavaDexWithClasses =
-        Optional.ofNullable(DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexForUberRDotJava));
-    if (rDotJavaDexWithClasses.isPresent()) {
-      sourcePathsToDex =
-          Streams.concat(
-              sourcePathsToDex, Stream.of(rDotJavaDexWithClasses.get().getSourcePathToDexFile()));
-    }
-
     Path primaryDexPath = getPrimaryDexPath();
     buildableContext.recordArtifact(primaryDexPath);
 
@@ -444,7 +445,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     // This will combine the pre-dexed files and the R.class files into a single classes.dex file.
     steps.add(
         new DxStep(
-            getBuildTarget(),
             getProjectFilesystem(),
             androidPlatformTarget,
             primaryDexPath,

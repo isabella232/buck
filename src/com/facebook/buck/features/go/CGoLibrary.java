@@ -17,11 +17,13 @@
 package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -39,7 +41,6 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -93,6 +94,11 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
       Iterable<BuildTarget> cxxDeps,
       Tool cgo,
       Path packageName) {
+
+    if (args.getLinkStyle().isPresent()
+        && args.getLinkStyle().get() != Linker.LinkableDepType.STATIC_PIC) {
+      throw new HumanReadableException("CGoLibrary currently supports only static_pic link style.");
+    }
 
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(cxxDeps).addPlatformDeps(args.getPlatformDeps()).build();
@@ -212,10 +218,10 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                         graphBuilder,
                         ruleFinder,
                         target,
-                        BuildTargets.getGenPath(projectFilesystem, target, "%s/_all"),
+                        BuildTargetPaths.getGenPath(projectFilesystem, target, "%s/_all"),
                         ImmutableMap.of(),
                         cxxArgs, // collection of selected object files
-                        args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC),
+                        Linker.LinkableDepType.STATIC_PIC,
                         CxxLinkOptions.of(),
                         Optional.empty()));
 
@@ -294,7 +300,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
             ImmutableSet.of(),
             Optional.empty(),
             Optional.empty(),
-            args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
+            Linker.LinkableDepType.STATIC_PIC,
             CxxLinkOptions.of(),
             args.getPreprocessorFlags(),
             args.getPlatformPreprocessorFlags(),

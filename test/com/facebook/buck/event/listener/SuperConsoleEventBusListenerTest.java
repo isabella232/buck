@@ -35,6 +35,7 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.test.event.TestRunEvent;
@@ -65,7 +66,6 @@ import com.facebook.buck.event.ProgressEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
@@ -1741,7 +1741,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "PASS    <100ms  1 Passed   0 Skipped   0 Failed   TestClass",
@@ -2029,7 +2029,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "ASSUME  <100ms  0 Passed   1 Skipped   0 Failed   TestClass",
@@ -2335,7 +2335,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "FAIL    <100ms  0 Passed   0 Skipped   1 Failed   TestClass",

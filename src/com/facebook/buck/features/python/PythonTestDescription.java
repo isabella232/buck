@@ -19,7 +19,6 @@ package com.facebook.buck.features.python;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -28,10 +27,12 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
@@ -48,7 +49,6 @@ import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.NeededCoverageSpec;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -121,7 +121,8 @@ public class PythonTestDescription
   @VisibleForTesting
   protected static Path getTestModulesListPath(
       BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, buildTarget, "%s").resolve(getTestModulesListName());
+    return BuildTargetPaths.getGenPath(filesystem, buildTarget, "%s")
+        .resolve(getTestModulesListName());
   }
 
   /**
@@ -174,7 +175,8 @@ public class PythonTestDescription
 
   private static class PythonTestMainRule extends AbstractBuildRule {
     private final Path output =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/__test_main__.py");
+        BuildTargetPaths.getGenPath(
+            getProjectFilesystem(), getBuildTarget(), "%s/__test_main__.py");
 
     public PythonTestMainRule(BuildTarget buildTarget, ProjectFilesystem projectFilesystem) {
       super(buildTarget, projectFilesystem);

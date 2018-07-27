@@ -19,7 +19,6 @@ package com.facebook.buck.features.rust;
 import static com.facebook.buck.features.rust.RustCompileUtils.ruleToCrateName;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasDefaultPlatform;
@@ -34,6 +33,7 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -227,7 +227,7 @@ public class RustLibraryDescription
         // Procedural Macros (aka, compiler plugins) take priority over check builds
         // as we need the compiler plugin to be able to check the code which depends on the
         // plugin.
-        if (args.getProcMacro()) {
+        if (isProcMacro()) {
           crateType = CrateType.PROC_MACRO;
         } else if (isCheck) {
           crateType = CrateType.CHECK;
@@ -301,7 +301,7 @@ public class RustLibraryDescription
 
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
-            CrateType.DYLIB.filenameFor(target, crate, rustPlatform.getCxxPlatform());
+            CrateType.DYLIB.filenameFor(target, crate, rustPlatform.getCxxPlatform()).get();
         BuildRule sharedLibraryBuildRule =
             requireBuild(
                 buildTarget,
@@ -431,7 +431,7 @@ public class RustLibraryDescription
           CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
         String sharedLibrarySoname =
-            CrateType.DYLIB.filenameFor(getBuildTarget(), crate, cxxPlatform);
+            CrateType.DYLIB.filenameFor(getBuildTarget(), crate, cxxPlatform).get();
         RustPlatform rustPlatform =
             getRustToolchain().getRustPlatforms().getValue(cxxPlatform.getFlavor());
         BuildRule sharedLibraryBuildRule =

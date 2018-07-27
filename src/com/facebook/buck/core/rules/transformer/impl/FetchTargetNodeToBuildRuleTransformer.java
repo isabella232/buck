@@ -47,8 +47,8 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
       ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
       ActionGraphBuilder graphBuilder,
-      TargetNode<T, U> targetNode) {
-    TargetNode<?, ?> node = substituteTargetNodeIfNecessary(targetNode);
+      TargetNode<T> targetNode) {
+    TargetNode<?> node = substituteTargetNodeIfNecessary(targetNode);
     return delegate.transform(toolchainProvider, targetGraph, graphBuilder, node);
   }
 
@@ -56,11 +56,11 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
     return downloadableTargets.build();
   }
 
-  private TargetNode<?, ?> substituteTargetNodeIfNecessary(TargetNode<?, ?> node) {
+  private TargetNode<?> substituteTargetNodeIfNecessary(TargetNode<?> node) {
     for (DescriptionWithTargetGraph<?> description : descriptions) {
-      if (node.getBuildRuleType().equals(DescriptionCache.getBuildRuleType(description))) {
+      if (node.getBuildRuleType().equals(DescriptionCache.getRuleType(description))) {
         downloadableTargets.add(node.getBuildTarget());
-        return node.copyWithDescription(description);
+        return node.getNodeCopier().copyNodeWithDescription(node.copy(), description);
       }
     }
     return node;

@@ -102,7 +102,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   private final Supplier<Path> tmpDir;
 
   private final ProjectFilesystemDelegate delegate;
-  private final WindowsFS winFSInstance;
+  @Nullable private final WindowsFS winFSInstance;
 
   // Defaults to false, and so paths should be valid.
   @VisibleForTesting protected boolean ignoreValidityOfPaths;
@@ -140,10 +140,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
       Preconditions.checkState(vfs.equals(root.getFileSystem()));
       Preconditions.checkArgument(root.isAbsolute(), "Expected absolute path. Got <%s>.", root);
-    }
-
-    if (Platform.detect() == Platform.WINDOWS) {
-      Preconditions.checkNotNull(winFSInstance);
     }
 
     this.projectRoot = MorePaths.normalize(root);
@@ -197,6 +193,9 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
             });
 
     this.winFSInstance = winFSInstance;
+    if (Platform.detect() == Platform.WINDOWS) {
+      Preconditions.checkNotNull(this.winFSInstance);
+    }
   }
 
   public static Path getCacheDir(Path root, Optional<String> value, BuckPaths buckPaths) {
@@ -496,7 +495,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   /** Allows {@link Files#isDirectory} to be faked in tests. */
   @Override
   public boolean isDirectory(Path child, LinkOption... linkOptions) {
-    return Files.isDirectory(resolve(child), linkOptions);
+    return MorePaths.isDirectory(getPathForRelativePath(child), linkOptions);
   }
 
   /** Allows {@link Files#isExecutable} to be faked in tests. */
@@ -808,6 +807,51 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   }
 
   @Override
+  public void mergeChildren(Path source, Path target, CopyOption... options) throws IOException {
+    Path resolvedSource = resolve(source);
+    Path resolvedTarget = resolve(target);
+    walkFileTree(
+        resolvedSource,
+        new FileVisitor<Path>() {
+          @Override
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+              throws IOException {
+            Path relative = resolvedSource.relativize(dir);
+            Path destDir = resolvedTarget.resolve(relative);
+            if (!Files.exists(destDir)) {
+              // Short circuit any copying
+              Files.move(dir, destDir, options);
+              return FileVisitResult.SKIP_SUBTREE;
+            }
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+              throws IOException {
+            if (!attrs.isDirectory()) {
+              Path relative = resolvedSource.relativize(file);
+              Files.move(file, resolvedTarget.resolve(relative), options);
+            }
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            if (!dir.equals(resolvedSource)) {
+              Files.deleteIfExists(dir);
+            }
+            return FileVisitResult.CONTINUE;
+          }
+        });
+  }
+
+  @Override
   public void copyFolder(Path source, Path target) throws IOException {
     copy(source, target, CopySourceMode.DIRECTORY_CONTENTS_ONLY);
   }
@@ -823,12 +867,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     if (force) {
       MostFiles.deleteRecursivelyIfExists(symLink);
     }
-    if (Platform.detect() == Platform.WINDOWS) {
-      realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-      winFSInstance.createSymbolicLink(symLink, realFile, isDirectory(realFile));
-    } else {
-      Files.createSymbolicLink(symLink, realFile);
-    }
+
+    MorePaths.createSymLink(winFSInstance, symLink, realFile);
   }
 
   /**

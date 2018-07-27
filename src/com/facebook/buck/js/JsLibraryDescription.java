@@ -17,7 +17,6 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -34,6 +33,7 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -208,8 +208,6 @@ public class JsLibraryDescription
   @Value.Immutable(copy = true)
   interface AbstractJsLibraryDescriptionArg
       extends CommonDescriptionArg, HasDepsQuery, HasExtraJson, HasTests {
-    Optional<String> getExtraArgs();
-
     ImmutableSet<Either<SourcePath, Pair<SourcePath, String>>> getSrcs();
 
     BuildTarget getWorker();
@@ -361,7 +359,6 @@ public class JsLibraryDescription
         params.copyAppendingExtraDeps(devFile),
         graphBuilder.getRuleWithType(devTarget, JsFile.class).getSourcePathToOutput(),
         JsUtil.getExtraJson(args, buildTarget, graphBuilder, cellRoots),
-        args.getExtraArgs(),
         worker);
   }
 
@@ -400,7 +397,6 @@ public class JsLibraryDescription
         subPath,
         virtualPath,
         JsUtil.getExtraJson(args, buildTarget, graphBuilder, cellRoots),
-        args.getExtraArgs(),
         worker);
   }
 

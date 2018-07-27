@@ -17,13 +17,13 @@
 package com.facebook.buck.features.ocaml;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
@@ -406,8 +406,7 @@ public class OcamlRuleBuilder {
             .build();
 
     Path baseDir = projectFilesystem.getRootPath().toAbsolutePath();
-    ImmutableMap<Path, ImmutableList<Path>> mlInput =
-        getMLInputWithDeps(compileBuildTarget, baseDir, ocamlContext);
+    ImmutableMap<Path, ImmutableList<Path>> mlInput = getMLInputWithDeps(baseDir, ocamlContext);
 
     ImmutableList<SourcePath> cInput = getCInput(pathResolver, getInput(srcs));
 
@@ -439,7 +438,7 @@ public class OcamlRuleBuilder {
   }
 
   private static ImmutableMap<Path, ImmutableList<Path>> getMLInputWithDeps(
-      BuildTarget target, Path baseDir, OcamlBuildContext ocamlContext) {
+      Path baseDir, OcamlBuildContext ocamlContext) {
 
     ImmutableList<String> ocamlDepFlags =
         ImmutableList.<String>builder()
@@ -449,7 +448,6 @@ public class OcamlRuleBuilder {
 
     OcamlDepToolStep depToolStep =
         new OcamlDepToolStep(
-            target,
             baseDir,
             ocamlContext.getSourcePathResolver(),
             ocamlContext.getOcamlDepTool().get(),

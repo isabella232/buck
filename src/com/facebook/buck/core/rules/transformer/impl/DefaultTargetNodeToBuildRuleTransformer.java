@@ -16,7 +16,6 @@
 
 package com.facebook.buck.core.rules.transformer.impl;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -25,6 +24,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
@@ -45,8 +45,8 @@ public class DefaultTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
       ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
       ActionGraphBuilder graphBuilder,
-      TargetNode<T, U> targetNode) {
-    U description = targetNode.getDescription();
+      TargetNode<T> targetNode) {
+    DescriptionWithTargetGraph<T> description = targetNode.getDescription();
     T arg = targetNode.getConstructorArg();
 
     Set<BuildTarget> extraDeps = targetNode.getExtraDeps();

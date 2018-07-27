@@ -21,9 +21,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -55,7 +54,7 @@ public class BuckPyFunctionTest {
   @Test
   public void nameWillBeAddedIfMissing() {
 
-    String definition = buckPyFunction.toPythonFunction(BuildRuleType.of("bad"), NoName.class);
+    String definition = buckPyFunction.toPythonFunction(RuleType.of("bad"), NoName.class);
 
     assertTrue(definition.contains("name"));
   }
@@ -68,7 +67,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void visibilityWillBeAddedIfMissing() {
-    String definition = buckPyFunction.toPythonFunction(BuildRuleType.of("bad"), NoVis.class);
+    String definition = buckPyFunction.toPythonFunction(RuleType.of("bad"), NoVis.class);
 
     assertTrue(definition.contains("visibility=None"));
   }
@@ -81,7 +80,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void shouldOnlyIncludeTheNameFieldOnce() {
-    String definition = buckPyFunction.toPythonFunction(BuildRuleType.of("named"), Named.class);
+    String definition = buckPyFunction.toPythonFunction(RuleType.of("named"), Named.class);
 
     assertEquals(
         Joiner.on("\n")
@@ -124,7 +123,7 @@ public class BuckPyFunctionTest {
   @Test
   public void optionalFieldsDefaultToAbsent() {
     String definition =
-        buckPyFunction.toPythonFunction(BuildRuleType.of("optional"), LotsOfOptions.class);
+        buckPyFunction.toPythonFunction(RuleType.of("optional"), LotsOfOptions.class);
 
     assertTrue(
         definition,
@@ -151,7 +150,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void optionalFieldsAreListedAfterMandatoryOnes() {
-    String definition = buckPyFunction.toPythonFunction(BuildRuleType.of("either"), Either.class);
+    String definition = buckPyFunction.toPythonFunction(RuleType.of("either"), Either.class);
 
     assertEquals(
         Joiner.on("\n")
@@ -182,7 +181,7 @@ public class BuckPyFunctionTest {
 
   @Test(expected = HumanReadableException.class)
   public void visibilityOptionsMustNotBeSetAsTheyArePassedInBuildRuleParamsLater() {
-    buckPyFunction.toPythonFunction(BuildRuleType.of("nope"), Visible.class);
+    buckPyFunction.toPythonFunction(RuleType.of("nope"), Visible.class);
   }
 
   @BuckStyleImmutable
@@ -193,7 +192,7 @@ public class BuckPyFunctionTest {
 
   @Test
   public void shouldConvertCamelCaseFieldNameToSnakeCaseParameter() {
-    String definition = buckPyFunction.toPythonFunction(BuildRuleType.of("case"), Dto.class);
+    String definition = buckPyFunction.toPythonFunction(RuleType.of("case"), Dto.class);
 
     assertEquals(
         Joiner.on("\n")

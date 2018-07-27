@@ -59,17 +59,6 @@ public class DistBuildController {
   private final ListenableFuture<BuildJobState> asyncJobState;
   private final AtomicReference<StampedeId> stampedeIdReference;
 
-  /** Result of a distributed build execution. */
-  public static class ExecutionResult {
-    public final StampedeId stampedeId;
-    public final int exitCode;
-
-    public ExecutionResult(StampedeId stampedeId, int exitCode) {
-      this.stampedeId = stampedeId;
-      this.exitCode = exitCode;
-    }
-  }
-
   public DistBuildController(DistBuildControllerArgs args) {
     this.stampedeIdReference = args.getStampedeIdReference();
     this.eventBus = args.getBuckEventBus();
@@ -111,7 +100,7 @@ public class DistBuildController {
   }
 
   /** Executes the tbuild and prints failures to the event bus. */
-  public ExecutionResult executeAndPrintFailuresToEventBus(
+  public StampedeExecutionResult executeAndPrintFailuresToEventBus(
       ListeningExecutorService executorService,
       ProjectFilesystem projectFilesystem,
       FileHashCache fileHashCache,
@@ -143,12 +132,10 @@ public class DistBuildController {
           new StampedeConsoleEvent(
               ConsoleEvent.createForMessageWithAnsiEscapeCodes(
                   Level.WARNING, console.getAnsi().asWarningText(ex.getMessage()))));
-      return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
+      return createFailedExecutionResult(ExitCode.PREPARATION_STEP_FAILED, "preparation", ex, true);
     } catch (IOException | RuntimeException ex) {
       LOG.error(ex, "Distributed build preparation steps failed.");
-      return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
+      return createFailedExecutionResult(ExitCode.PREPARATION_STEP_FAILED, "preparation", ex);
     }
 
     stampedeIdReference.set(stampedeIdAndPendingPrepFuture.getFirst());
@@ -165,7 +152,7 @@ public class DistBuildController {
     } catch (ExecutionException ex) {
       LOG.error(ex, "Distributed build preparation async steps failed.");
       return createFailedExecutionResult(
-          stampedeIdReference.get(), ExitCode.PREPARATION_ASYNC_STEP_FAILED);
+          ExitCode.PREPARATION_ASYNC_STEP_FAILED, "async preparation", ex);
     }
 
     BuildPhase.BuildResult buildResult = null;
@@ -183,16 +170,14 @@ public class DistBuildController {
       // Don't print an error here, because we might have failed due to local finishing first.
       LOG.warn(ex, "Distributed build step failed.");
       return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()),
-          ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION);
+          ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION, "build", ex);
     }
 
     // In the case of Fire-and-Forget mode do not run post-build steps.
     if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
       LOG.info("Fire-and-forget mode enabled, exiting with default code.");
       eventBus.post(BuildEvent.distBuildFinished(startedEvent, ExitCode.SUCCESSFUL.getCode()));
-      return new ExecutionResult(
-          buildResult.getFinalBuildJob().stampedeId, ExitCode.SUCCESSFUL.getCode());
+      return StampedeExecutionResult.of(ExitCode.SUCCESSFUL.getCode());
     } else {
       // Send DistBuildFinished event if we reach this point without throwing.
       boolean buildSuccess =
@@ -212,10 +197,21 @@ public class DistBuildController {
     }
   }
 
-  private ExecutionResult createFailedExecutionResult(StampedeId stampedeId, ExitCode exitCode) {
+  private StampedeExecutionResult createFailedExecutionResult(
+      ExitCode exitCode, String failureStage, Throwable ex) {
+    return createFailedExecutionResult(exitCode, failureStage, ex, false);
+  }
+
+  private StampedeExecutionResult createFailedExecutionResult(
+      ExitCode exitCode, String failureStage, Throwable ex, boolean handleGracefully) {
     LOG.warn("Stampede failed. Cancel async job state computation if that's still going on.");
     asyncJobState.cancel(true);
     eventBus.post(BuildEvent.distBuildFinished(startedEvent, exitCode.getCode()));
-    return new ExecutionResult(stampedeId, exitCode.getCode());
+    return StampedeExecutionResult.builder()
+        .setExitCode(exitCode.getCode())
+        .setException(ex)
+        .setErrorStage(failureStage)
+        .setHandleGracefully(handleGracefully)
+        .build();
   }
 }

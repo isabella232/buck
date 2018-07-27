@@ -25,6 +25,8 @@ import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.config.KnownConfigurationRuleTypes;
+import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -37,6 +39,8 @@ import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -105,6 +109,9 @@ public class CommandRunnerParamsForTesting {
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
+    KnownConfigurationRuleTypes knownConfigurationRuleTypes =
+        PluginBasedKnownConfigurationRuleTypesFactory.createFromPlugins(pluginManager);
 
     return CommandRunnerParams.of(
         console,
@@ -115,11 +122,14 @@ public class CommandRunnerParamsForTesting {
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
         new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                knownConfigurationRuleTypes,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            new ExecutableFinder(),
             new TargetSpecResolver()),
         eventBus,
         platform,
@@ -137,6 +147,7 @@ public class CommandRunnerParamsForTesting {
         BUILD_ENVIRONMENT_DESCRIPTION,
         new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
         knownBuildRuleTypesProvider,
+        knownConfigurationRuleTypes,
         new BuildInfoStoreManager(),
         Optional.empty(),
         Optional.empty(),

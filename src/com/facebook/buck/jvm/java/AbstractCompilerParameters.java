@@ -17,14 +17,14 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
-import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfoFactory;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
@@ -75,29 +75,29 @@ abstract class AbstractCompilerParameters {
   }
 
   @Nullable
-  public abstract SourceOnlyAbiRuleInfo getSourceOnlyAbiRuleInfo();
+  public abstract SourceOnlyAbiRuleInfoFactory getSourceOnlyAbiRuleInfoFactory();
 
   public static Path getDepFilePath(BuildTarget target, ProjectFilesystem filesystem) {
     return getOutputJarDirPath(target, filesystem).resolve("used-classes.json");
   }
 
   public static Path getClassesDir(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, target, "lib__%s__classes");
+    return BuildTargetPaths.getScratchPath(filesystem, target, "lib__%s__classes");
   }
 
   public static Path getOutputJarDirPath(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, target, "lib__%s__output");
+    return BuildTargetPaths.getGenPath(filesystem, target, "lib__%s__output");
   }
 
   public static Optional<Path> getAnnotationPath(ProjectFilesystem filesystem, BuildTarget target) {
-    return Optional.of(BuildTargets.getAnnotationPath(filesystem, target, "__%s_gen__"));
+    return Optional.of(BuildTargetPaths.getAnnotationPath(filesystem, target, "__%s_gen__"));
   }
 
   public static Path getAbiJarPath(BuildTarget buildTarget, ProjectFilesystem projectFilesystem) {
     Preconditions.checkArgument(
-        HasJavaAbi.isSourceAbiTarget(buildTarget) || HasJavaAbi.isSourceOnlyAbiTarget(buildTarget));
+        JavaAbis.isSourceAbiTarget(buildTarget) || JavaAbis.isSourceOnlyAbiTarget(buildTarget));
 
-    return BuildTargets.getGenPath(projectFilesystem, buildTarget, "lib__%s__output")
+    return BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "lib__%s__output")
         .resolve(String.format("%s-abi.jar", buildTarget.getShortName()));
   }
 
@@ -108,9 +108,11 @@ abstract class AbstractCompilerParameters {
 
       return builder
           .setWorkingDirectory(
-              BuildTargets.getGenPath(projectFilesystem, target, "lib__%s____working_directory"))
+              BuildTargetPaths.getGenPath(
+                  projectFilesystem, target, "lib__%s____working_directory"))
           .setGeneratedCodeDirectory(getAnnotationPath(projectFilesystem, target).get())
-          .setPathToSourcesList(BuildTargets.getGenPath(projectFilesystem, target, "__%s__srcs"))
+          .setPathToSourcesList(
+              BuildTargetPaths.getGenPath(projectFilesystem, target, "__%s__srcs"))
           .setOutputDirectory(getClassesDir(target, projectFilesystem));
     }
 

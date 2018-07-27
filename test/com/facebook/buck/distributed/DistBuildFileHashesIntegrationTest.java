@@ -25,11 +25,14 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.config.KnownConfigurationRuleTypes;
+import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -43,10 +46,11 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -78,6 +82,7 @@ import java.util.stream.Collectors;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 public class DistBuildFileHashesIntegrationTest {
 
@@ -103,23 +108,30 @@ public class DistBuildFileHashesIntegrationTest {
     BuckConfig rootCellConfig = FakeBuckConfig.builder().setFilesystem(rootFs).build();
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
+                pluginManager,
                 new TestSandboxExecutionStrategyFactory()));
+    KnownConfigurationRuleTypes knownConfigurationRuleTypes =
+        PluginBasedKnownConfigurationRuleTypesFactory.createFromPlugins(pluginManager);
 
+    ParserConfig parserConfig = rootCellConfig.getView(ParserConfig.class);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
         new DefaultParser(
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                constructorArgMarshaller,
+                knownBuildRuleTypesProvider,
+                knownConfigurationRuleTypes,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
-            constructorArgMarshaller,
-            knownBuildRuleTypesProvider,
-            new ExecutableFinder(),
             new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
@@ -130,7 +142,8 @@ public class DistBuildFileHashesIntegrationTest {
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
-        DistBuildStateTest.createDefaultCodec(rootCell, Optional.of(parser));
+        DistBuildStateTest.createDefaultCodec(
+            knownBuildRuleTypesProvider, rootCell, Optional.of(parser));
     BuildJobState dump =
         DistBuildState.dump(
             new DistBuildCellIndexer(rootCell),
@@ -179,23 +192,30 @@ public class DistBuildFileHashesIntegrationTest {
             .build();
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
+                pluginManager,
                 new TestSandboxExecutionStrategyFactory()));
+    KnownConfigurationRuleTypes knownConfigurationRuleTypes =
+        PluginBasedKnownConfigurationRuleTypesFactory.createFromPlugins(pluginManager);
 
+    ParserConfig parserConfig = rootCellConfig.getView(ParserConfig.class);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
     Parser parser =
         new DefaultParser(
-            rootCellConfig.getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                constructorArgMarshaller,
+                knownBuildRuleTypesProvider,
+                knownConfigurationRuleTypes,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+            parserConfig,
             typeCoercerFactory,
-            constructorArgMarshaller,
-            knownBuildRuleTypesProvider,
-            new ExecutableFinder(),
             new TargetSpecResolver());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
@@ -206,7 +226,8 @@ public class DistBuildFileHashesIntegrationTest {
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
-        DistBuildStateTest.createDefaultCodec(rootCell, Optional.of(parser));
+        DistBuildStateTest.createDefaultCodec(
+            knownBuildRuleTypesProvider, rootCell, Optional.of(parser));
     BuildJobState dump =
         DistBuildState.dump(
             new DistBuildCellIndexer(rootCell),

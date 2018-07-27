@@ -25,7 +25,6 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -34,8 +33,10 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -335,7 +336,7 @@ public class AppleDescriptions {
       Tool actool,
       AppleAssetCatalog.ValidationType assetCatalogValidation,
       AppleAssetCatalogsCompilationOptions appleAssetCatalogsCompilationOptions) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleAssetCatalogDescriptionArg> assetCatalogArgs =
         AppleBuildRules.collectRecursiveAssetCatalogs(
@@ -412,7 +413,7 @@ public class AppleDescriptions {
       BuildRuleParams params,
       String moduleName,
       AppleCxxPlatform appleCxxPlatform) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleWrapperResourceArg> coreDataModelArgs =
         AppleBuildRules.collectTransitiveBuildRules(
@@ -446,7 +447,7 @@ public class AppleDescriptions {
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       AppleCxxPlatform appleCxxPlatform) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleWrapperResourceArg> sceneKitAssetsArgs =
         AppleBuildRules.collectTransitiveBuildRules(
@@ -621,10 +622,11 @@ public class AppleDescriptions {
     // This change simply treats all the immediate prebuilt framework dependencies as wishing to be
     // embedded, but in the future this should be dealt with with some greater sophistication.
     for (BuildTarget dep : deps) {
-      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg, ?>> prebuiltNode =
+      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg>> prebuiltNode =
           targetGraph
               .getOptional(dep)
-              .flatMap(node -> node.castArg(PrebuiltAppleFrameworkDescriptionArg.class));
+              .flatMap(
+                  node -> TargetNodes.castArg(node, PrebuiltAppleFrameworkDescriptionArg.class));
       if (prebuiltNode.isPresent()
           && !prebuiltNode
               .get()
@@ -895,7 +897,7 @@ public class AppleDescriptions {
     }
     BuildTarget buildTarget = binary.withFlavors(binaryFlavorsBuilder.build());
 
-    TargetNode<?, ?> binaryTargetNode = targetGraph.get(buildTarget);
+    TargetNode<?> binaryTargetNode = targetGraph.get(buildTarget);
 
     if (binaryTargetNode.getDescription() instanceof AppleTestDescription) {
       return graphBuilder.getRule(binary);
@@ -1017,9 +1019,9 @@ public class AppleDescriptions {
         continue;
       }
 
-      Optional<TargetNode<?, ?>> depTargetNode = targetGraph.getOptional(dep);
-      Optional<TargetNode<AppleBinaryDescriptionArg, ?>> binaryDepNode =
-          depTargetNode.flatMap(n -> n.castArg(AppleBinaryDescriptionArg.class));
+      Optional<TargetNode<?>> depTargetNode = targetGraph.getOptional(dep);
+      Optional<TargetNode<AppleBinaryDescriptionArg>> binaryDepNode =
+          depTargetNode.flatMap(n -> TargetNodes.castArg(n, AppleBinaryDescriptionArg.class));
       if (!binaryDepNode.isPresent()) {
         // Skip any deps which are not apple_binary
         continue;
@@ -1058,7 +1060,7 @@ public class AppleDescriptions {
   }
 
   public static boolean targetNodeContainsSwiftSourceCode(
-      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> node) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg> node) {
     for (Path inputPath : node.getInputs()) {
       if (inputPath.toString().endsWith(".swift")) {
         return true;

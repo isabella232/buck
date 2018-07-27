@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -32,6 +33,7 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -40,8 +42,6 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -100,7 +100,7 @@ public class AppleLibraryDescriptionTest {
     SourcePath swiftSourcePath = FakeSourcePath.of("bar.swift");
 
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:library");
-    TargetNode<?, ?> binaryNode =
+    TargetNode<?> binaryNode =
         new AppleLibraryBuilder(binaryTarget)
             .setSrcs(
                 ImmutableSortedSet.of(
@@ -131,7 +131,7 @@ public class AppleLibraryDescriptionTest {
   @Test
   public void modularObjcFlags() {
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:library");
-    TargetNode<AppleLibraryDescriptionArg, ?> libNode =
+    TargetNode<AppleLibraryDescriptionArg> libNode =
         new AppleLibraryBuilder(libTarget)
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.m"))))
             .setCompilerFlags(ImmutableList.of("-DDEBUG=1"))

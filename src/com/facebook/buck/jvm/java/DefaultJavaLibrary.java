@@ -21,13 +21,14 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
@@ -41,8 +42,10 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.step.Step;
@@ -100,7 +103,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
   @AddToRuleKey private final Optional<String> mavenCoords;
-  private final JarContentsSupplier outputJarContentsSupplier;
   @Nullable private final BuildTarget abiJar;
   @Nullable private final BuildTarget sourceOnlyAbiJar;
   @AddToRuleKey private final Optional<SourcePath> proguardConfig;
@@ -125,8 +127,10 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   private final BuildOutputInitializer<Data> buildOutputInitializer;
   private final ImmutableSortedSet<BuildTarget> tests;
+  private final DefaultJavaAbiInfo javaAbiInfo;
 
   @Nullable private CalculateSourceAbi sourceAbi;
+  private SourcePathRuleFinder ruleFinder;
 
   public static DefaultJavaLibraryRules.Builder rulesBuilder(
       BuildTarget buildTarget,
@@ -159,8 +163,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildDeps buildDeps,
-      SourcePathResolver resolver,
       JarBuildStepsFactory jarBuildStepsFactory,
+      SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> proguardConfig,
       SortedSet<BuildRule> firstOrderPackageableDeps,
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
@@ -178,6 +182,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.jarBuildStepsFactory = jarBuildStepsFactory;
     this.unusedDependenciesAction = unusedDependenciesAction;
     this.unusedDependenciesFinderFactory = unusedDependenciesFinderFactory;
+    this.ruleFinder = ruleFinder;
 
     // Exported deps are meant to be forwarded onto the CLASSPATH for dependents,
     // and so only make sense for java library types.
@@ -198,7 +203,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.tests = tests;
     this.requiredForSourceOnlyAbi = requiredForSourceOnlyAbi;
 
-    this.outputJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
     this.abiJar = abiJar;
     this.sourceOnlyAbiJar = sourceOnlyAbiJar;
 
@@ -347,9 +352,17 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
+    Path pathToClassHashes =
+        JavaLibraryRules.getPathToClassHashes(getBuildTarget(), getProjectFilesystem());
+    buildableContext.recordArtifact(pathToClassHashes);
+
     steps.addAll(
         jarBuildStepsFactory.getBuildStepsForLibraryJar(
-            context, buildableContext, getBuildTarget()));
+            context,
+            getProjectFilesystem(),
+            buildableContext,
+            getBuildTarget(),
+            pathToClassHashes));
 
     unusedDependenciesFinderFactory.ifPresent(factory -> steps.add(factory.create()));
 
@@ -357,20 +370,30 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJarContents() {
-    return outputJarContentsSupplier.get();
+  public ImmutableList<? extends Step> getPipelinedBuildSteps(
+      BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
+    // TODO(cjhopman): unusedDependenciesFinder is broken.
+    Path pathToClassHashes =
+        JavaLibraryRules.getPathToClassHashes(getBuildTarget(), getProjectFilesystem());
+    buildableContext.recordArtifact(pathToClassHashes);
+    return jarBuildStepsFactory.getPipelinedBuildStepsForLibraryJar(
+        context, getProjectFilesystem(), buildableContext, state, pathToClassHashes);
   }
 
   @Override
-  public boolean jarContains(String path) {
-    return outputJarContentsSupplier.jarContains(path);
+  public void invalidateInitializeFromDiskState() {
+    javaAbiInfo.invalidate();
   }
 
-  /** Instructs this rule to report the ABI it has on disk as its current ABI. */
+  /**
+   * Instructs this rule to report the ABI it has on disk as its current ABI.
+   *
+   * @param pathResolver
+   */
   @Override
-  public JavaLibrary.Data initializeFromDisk() throws IOException {
+  public JavaLibrary.Data initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
-    outputJarContentsSupplier.load();
+    javaAbiInfo.load(pathResolver);
     return JavaLibraryRules.initializeFromDisk(getBuildTarget(), getProjectFilesystem());
   }
 
@@ -387,6 +410,11 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public Optional<BuildTarget> getSourceOnlyAbiJar() {
     return Optional.ofNullable(sourceOnlyAbiJar);
+  }
+
+  @Override
+  public JavaAbiInfo getAbiInfo() {
+    return javaAbiInfo;
   }
 
   @Override
@@ -437,7 +465,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver);
+    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver, ruleFinder);
   }
 
   @Override
@@ -449,7 +477,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) {
     return jarBuildStepsFactory.getInputsAfterBuildingLocally(
-        context, cellPathResolver, getBuildTarget());
+        context, getProjectFilesystem(), ruleFinder, cellPathResolver, getBuildTarget());
   }
 
   @Override
@@ -466,12 +494,5 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public SupportsPipelining<JavacPipelineState> getPreviousRuleInPipeline() {
     return sourceAbi;
-  }
-
-  @Override
-  public ImmutableList<? extends Step> getPipelinedBuildSteps(
-      BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
-    return jarBuildStepsFactory.getPipelinedBuildStepsForLibraryJar(
-        context, buildableContext, state);
   }
 }

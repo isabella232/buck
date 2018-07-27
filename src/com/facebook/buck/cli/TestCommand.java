@@ -271,7 +271,8 @@ public class TestCommand extends BuildCommand {
             .setPathToJavaAgent(Optional.ofNullable(pathToJavaAgent))
             .setCoverageReportFormats(coverageFormats)
             .setCoverageReportTitle(coverageReportTitle)
-            .setEnvironmentOverrides(environmentOverrides);
+            .setEnvironmentOverrides(environmentOverrides)
+            .setJavaTempDir(params.getBuckConfig().getView(JavaBuckConfig.class).getJavaTempDir());
 
     Optional<ImmutableList<String>> coverageIncludes =
         params.getBuckConfig().getOptionalListWithoutComments("test", "coverageIncludes", ',');
@@ -509,7 +510,7 @@ public class TestCommand extends BuildCommand {
 
           LOG.debug("Got explicit build targets %s", targetGraphAndBuildTargets.getBuildTargets());
           ImmutableSet.Builder<BuildTarget> testTargetsBuilder = ImmutableSet.builder();
-          for (TargetNode<?, ?> node :
+          for (TargetNode<?> node :
               targetGraphAndBuildTargets
                   .getTargetGraph()
                   .getAll(targetGraphAndBuildTargets.getBuildTargets())) {
@@ -747,7 +748,7 @@ public class TestCommand extends BuildCommand {
     stream.println();
 
     stream.println("Options:");
-    new AdditionalOptionsCmdLineParser(this).printUsage(stream);
+    new AdditionalOptionsCmdLineParser(getPluginManager(), this).printUsage(stream);
     stream.println();
   }
 

@@ -24,7 +24,6 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.apple.AppleBundleResources;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -38,6 +37,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -323,7 +323,7 @@ public class JsBundleDescription
   @Override
   public void addAppleBundleResources(
       AppleBundleResources.Builder builder,
-      TargetNode<JsBundleDescriptionArg, ?> targetNode,
+      TargetNode<JsBundleDescriptionArg> targetNode,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver) {
     JsBundleOutputs bundle =
@@ -383,7 +383,7 @@ public class JsBundleDescription
       new AbstractBreadthFirstTraversal<BuildTarget>(deps) {
         @Override
         public Iterable<BuildTarget> visit(BuildTarget target) throws RuntimeException {
-          TargetNode<?, ?> targetNode = targetGraph.get(target);
+          TargetNode<?> targetNode = targetGraph.get(target);
           DescriptionWithTargetGraph<?> description = targetNode.getDescription();
 
           if (description instanceof JsLibraryDescription) {

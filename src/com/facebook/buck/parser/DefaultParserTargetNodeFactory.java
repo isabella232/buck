@@ -20,16 +20,17 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.json.JsonObjectHashing;
-import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.parser.function.BuckPyFunction;
@@ -56,22 +57,25 @@ import java.util.function.Function;
 public class DefaultParserTargetNodeFactory
     implements ParserTargetNodeFactory<Map<String, Object>> {
 
+  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
   private final ConstructorArgMarshaller marshaller;
   private final PackageBoundaryChecker packageBoundaryChecker;
-  private final TargetNodeListener<TargetNode<?, ?>> nodeListener;
+  private final TargetNodeListener<TargetNode<?>> nodeListener;
   private final TargetNodeFactory targetNodeFactory;
   private final VisibilityPatternFactory visibilityPatternFactory;
   private final RuleKeyConfiguration ruleKeyConfiguration;
   private final BuiltTargetVerifier builtTargetVerifier;
 
   private DefaultParserTargetNodeFactory(
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       ConstructorArgMarshaller marshaller,
       PackageBoundaryChecker packageBoundaryChecker,
-      TargetNodeListener<TargetNode<?, ?>> nodeListener,
+      TargetNodeListener<TargetNode<?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
       VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration,
       BuiltTargetVerifier builtTargetVerifier) {
+    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
     this.marshaller = marshaller;
     this.packageBoundaryChecker = packageBoundaryChecker;
     this.nodeListener = nodeListener;
@@ -82,13 +86,15 @@ public class DefaultParserTargetNodeFactory
   }
 
   public static ParserTargetNodeFactory<Map<String, Object>> createForParser(
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       ConstructorArgMarshaller marshaller,
       LoadingCache<Cell, BuildFileTree> buildFileTrees,
-      TargetNodeListener<TargetNode<?, ?>> nodeListener,
+      TargetNodeListener<TargetNode<?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
       VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
+        knownBuildRuleTypesProvider,
         marshaller,
         new ThrowingPackageBoundaryChecker(buildFileTrees),
         nodeListener,
@@ -99,11 +105,13 @@ public class DefaultParserTargetNodeFactory
   }
 
   public static ParserTargetNodeFactory<Map<String, Object>> createForDistributedBuild(
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       ConstructorArgMarshaller marshaller,
       TargetNodeFactory targetNodeFactory,
       VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
+        knownBuildRuleTypesProvider,
         marshaller,
         new NoopPackageBoundaryChecker(),
         (buildFile, node) -> {
@@ -116,14 +124,14 @@ public class DefaultParserTargetNodeFactory
   }
 
   @Override
-  public TargetNode<?, ?> createTargetNode(
+  public TargetNode<?> createTargetNode(
       Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
       Path buildFile,
       BuildTarget target,
       Map<String, Object> rawNode,
       Function<PerfEventId, SimplePerfEvent.Scope> perfEventScope) {
-    BuildRuleType buildRuleType = parseBuildRuleTypeFromRawRule(knownBuildRuleTypes, rawNode);
+    KnownBuildRuleTypes knownBuildRuleTypes = knownBuildRuleTypesProvider.get(cell);
+    RuleType buildRuleType = parseBuildRuleTypeFromRawRule(knownBuildRuleTypes, rawNode);
 
     // Because of the way that the parser works, we know this can never return null.
     DescriptionWithTargetGraph<?> description = knownBuildRuleTypes.getDescription(buildRuleType);
@@ -175,7 +183,7 @@ public class DefaultParserTargetNodeFactory
     }
   }
 
-  private TargetNode<?, ?> createTargetNodeFromObject(
+  private TargetNode<?> createTargetNodeFromObject(
       Cell cell,
       Path buildFile,
       BuildTarget target,
@@ -188,7 +196,7 @@ public class DefaultParserTargetNodeFactory
       Function<PerfEventId, SimplePerfEvent.Scope> perfEventScope)
       throws IOException {
     try (SimplePerfEvent.Scope scope = perfEventScope.apply(PerfEventId.of("CreatedTargetNode"))) {
-      TargetNode<?, ?> node =
+      TargetNode<?> node =
           targetNodeFactory.createFromObject(
               hashRawNode(rawNode),
               description,
@@ -212,7 +220,7 @@ public class DefaultParserTargetNodeFactory
     return hasher.hash();
   }
 
-  private static BuildRuleType parseBuildRuleTypeFromRawRule(
+  private static RuleType parseBuildRuleTypeFromRawRule(
       KnownBuildRuleTypes knownBuildRuleTypes, Map<String, Object> map) {
     String type = (String) Preconditions.checkNotNull(map.get(BuckPyFunction.TYPE_PROPERTY_NAME));
     return knownBuildRuleTypes.getBuildRuleType(type);

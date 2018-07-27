@@ -24,6 +24,9 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.rules.config.KnownConfigurationRuleTypes;
+import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -31,7 +34,6 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -66,6 +68,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 public class BuckQueryEnvironmentTest {
 
@@ -97,36 +100,37 @@ public class BuckQueryEnvironmentTest {
             .setFilesystem(TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath()))
             .build();
 
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
+                pluginManager,
                 new TestSandboxExecutionStrategyFactory()));
+    KnownConfigurationRuleTypes knownConfigurationRuleTypes =
+        PluginBasedKnownConfigurationRuleTypesFactory.createFromPlugins(pluginManager);
 
     ExecutableFinder executableFinder = new ExecutableFinder();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
-    Parser parser =
-        new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
+    PerBuildStateFactory perBuildStateFactory =
+        new PerBuildStateFactory(
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownBuildRuleTypesProvider,
-            executableFinder,
-            new TargetSpecResolver());
+            knownConfigurationRuleTypes,
+            new ParserPythonInterpreterProvider(parserConfig, executableFinder));
+    Parser parser =
+        new DefaultParser(
+            perBuildStateFactory, parserConfig, typeCoercerFactory, new TargetSpecResolver());
     parserState =
-        new PerBuildStateFactory()
-            .create(
-                typeCoercerFactory,
-                parser.getPermState(),
-                new ConstructorArgMarshaller(typeCoercerFactory),
-                eventBus,
-                new ParserPythonInterpreterProvider(cell.getBuckConfig(), executableFinder),
-                executor,
-                cell,
-                knownBuildRuleTypesProvider,
-                /* enableProfiling */ false,
-                SpeculativeParsing.ENABLED);
+        perBuildStateFactory.create(
+            parser.getPermState(),
+            eventBus,
+            executor,
+            cell,
+            /* enableProfiling */ false,
+            SpeculativeParsing.ENABLED);
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(

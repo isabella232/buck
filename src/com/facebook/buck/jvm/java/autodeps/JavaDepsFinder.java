@@ -25,7 +25,7 @@ import com.facebook.buck.core.description.DescriptionCache;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -75,16 +75,16 @@ public class JavaDepsFinder {
     return new JavaDepsFinder(javaFileParser, buildContext, executionContext, buildEngine);
   }
 
-  private static final Set<BuildRuleType> RULES_TO_VISIT =
+  private static final Set<RuleType> RULES_TO_VISIT =
       ImmutableSet.of(
-          DescriptionCache.getBuildRuleType(AndroidLibraryDescription.class),
-          DescriptionCache.getBuildRuleType(JavaLibraryDescription.class),
-          DescriptionCache.getBuildRuleType(JavaTestDescription.class),
-          DescriptionCache.getBuildRuleType(PrebuiltJarDescription.class));
+          DescriptionCache.getRuleType(AndroidLibraryDescription.class),
+          DescriptionCache.getRuleType(JavaLibraryDescription.class),
+          DescriptionCache.getRuleType(JavaTestDescription.class),
+          DescriptionCache.getRuleType(PrebuiltJarDescription.class));
 
   /** Java dependency information that is extracted from a {@link TargetGraph}. */
   public static class DependencyInfo {
-    public final HashMultimap<String, TargetNode<?, ?>> symbolToProviders = HashMultimap.create();
+    public final HashMultimap<String, TargetNode<?>> symbolToProviders = HashMultimap.create();
   }
 
   public DependencyInfo findDependencyInfoForGraph(TargetGraph graph) {
@@ -95,7 +95,7 @@ public class JavaDepsFinder {
     // Currently, we traverse the entire target graph using a single thread. However, the work to
     // visit each node could be done in parallel, so long as the updates to the above collections
     // were thread-safe.
-    for (TargetNode<?, ?> node : graph.getNodes()) {
+    for (TargetNode<?> node : graph.getNodes()) {
       if (!RULES_TO_VISIT.contains(node.getBuildRuleType())) {
         continue;
       }
@@ -114,7 +114,7 @@ public class JavaDepsFinder {
     return dependencyInfo;
   }
 
-  private Symbols getJavaFileFeatures(TargetNode<?, ?> node) {
+  private Symbols getJavaFileFeatures(TargetNode<?> node) {
     // Build a JavaLibrarySymbolsFinder to create the JavaFileFeatures. By making use of Buck's
     // build cache, we can often avoid running a Java parser.
     BuildTarget buildTarget = node.getBuildTarget();

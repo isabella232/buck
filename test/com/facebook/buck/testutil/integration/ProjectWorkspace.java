@@ -34,17 +34,18 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.WatchmanFactory;
-import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
+import com.facebook.buck.io.watchman.WatchmanWatcher;
+import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
@@ -57,7 +58,6 @@ import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
@@ -66,6 +66,7 @@ import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.string.MoreStrings;
 import com.facebook.buck.util.trace.ChromeTraceParser;
 import com.facebook.buck.util.trace.ChromeTraceParser.ChromeTraceEventMatcher;
 import com.google.common.annotations.VisibleForTesting;
@@ -211,8 +212,10 @@ public class ProjectWorkspace extends AbstractWorkspace {
   private void createSymlinkToBuckTestRepository(Path bucklib) throws IOException {
     for (String directory : TEST_CELL_DIRECTORIES_TO_LINK) {
       Path directoryPath = bucklib.resolve(directory);
-      Files.createSymbolicLink(
-          directoryPath, Paths.get(TEST_CELL_LOCATION).resolve(directory).toAbsolutePath());
+      MorePaths.createSymLink(
+          new WindowsFS(),
+          directoryPath,
+          Paths.get(TEST_CELL_LOCATION).resolve(directory).toAbsolutePath());
     }
   }
 
@@ -376,11 +379,13 @@ public class ProjectWorkspace extends AbstractWorkspace {
    *     {@code ["project"]}, etc.
    * @return the result of running Buck, which includes the exit code, stdout, and stderr.
    */
+  @Override
   public ProcessResult runBuckCommand(String... args) throws IOException {
     return runBuckCommandWithEnvironmentOverridesAndContext(
         destPath, Optional.empty(), ImmutableMap.of(), args);
   }
 
+  @Override
   public ProcessResult runBuckCommand(ImmutableMap<String, String> environment, String... args)
       throws IOException {
     return runBuckCommandWithEnvironmentOverridesAndContext(
@@ -576,6 +581,10 @@ public class ProjectWorkspace extends AbstractWorkspace {
   public BuckBuildLog getBuildLog() throws IOException {
     return BuckBuildLog.fromLogContents(
         getDestPath(), Files.readAllLines(getPath(PATH_TO_BUILD_LOG), UTF_8));
+  }
+
+  public Config getConfig() throws IOException, InterruptedException {
+    return getProjectFilesystemAndConfig().config;
   }
 
   public Cell asCell() throws IOException, InterruptedException {
