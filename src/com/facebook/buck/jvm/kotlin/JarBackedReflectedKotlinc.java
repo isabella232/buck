@@ -26,6 +26,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.google.common.base.Joiner;
@@ -39,6 +40,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +50,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class JarBackedReflectedKotlinc implements Kotlinc {
+
+  private static final Logger LOG = Logger.get(JarBackedReflectedKotlinc.class);
 
   private static final String COMPILER_CLASS = "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler";
   private static final String EXIT_CODE_CLASS = "org.jetbrains.kotlin.cli.common.ExitCode";
@@ -196,6 +200,10 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
                       .map(p -> ((PathSourcePath) p).getRelativePath())
                       .map(PATH_TO_URL)
                       .iterator()));
+      for (URL url : ((URLClassLoader) classLoader).getURLs()) {
+        LOG.debug("dafuq " + url.toString());
+      }
+      ((URLClassLoader) classLoader).close();
 
       return classLoader.loadClass(COMPILER_CLASS).newInstance();
     } catch (Exception ex) {
