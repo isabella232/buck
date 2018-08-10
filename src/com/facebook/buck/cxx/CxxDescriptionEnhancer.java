@@ -67,7 +67,7 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.OutputMacroExpander;
@@ -83,7 +83,6 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -97,7 +96,6 @@ import com.google.common.io.BaseEncoding;
 import com.google.common.io.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedSet;
@@ -110,7 +108,6 @@ public class CxxDescriptionEnhancer {
 
   private static final Logger LOG = Logger.get(CxxDescriptionEnhancer.class);
 
-  public static final Flavor SANDBOX_TREE_FLAVOR = InternalFlavor.of("sandbox");
   public static final Flavor HEADER_SYMLINK_TREE_FLAVOR = InternalFlavor.of("private-headers");
   public static final Flavor EXPORTED_HEADER_SYMLINK_TREE_FLAVOR = InternalFlavor.of("headers");
   public static final Flavor STATIC_FLAVOR = InternalFlavor.of("static");
@@ -190,29 +187,6 @@ public class CxxDescriptionEnhancer {
         cxxPlatform.getFlavor());
   }
 
-  public static SymlinkTree createSandboxSymlinkTree(
-      BuildTarget baseBuildTarget,
-      ProjectFilesystem projectFilesystem,
-      SourcePathRuleFinder ruleFinder,
-      CxxPlatform cxxPlatform,
-      ImmutableMap<Path, SourcePath> map) {
-    BuildTarget sandboxSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createSandboxSymlinkTreeTarget(
-            baseBuildTarget, cxxPlatform.getFlavor());
-    Path sandboxSymlinkTreeRoot =
-        CxxDescriptionEnhancer.getSandboxSymlinkTreePath(
-            projectFilesystem, sandboxSymlinkTreeTarget);
-
-    return new SymlinkTree(
-        "cxx_sandbox",
-        sandboxSymlinkTreeTarget,
-        projectFilesystem,
-        sandboxSymlinkTreeRoot,
-        map,
-        ImmutableMultimap.of(),
-        ruleFinder);
-  }
-
   public static HeaderSymlinkTree requireHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
@@ -242,18 +216,6 @@ public class CxxDescriptionEnhancer {
                     shouldCreateHeadersSymlinks));
   }
 
-  private static SymlinkTree requireSandboxSymlinkTree(
-      BuildTarget buildTarget, ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform) {
-    BuildTarget untypedTarget = CxxLibraryDescription.getUntypedBuildTarget(buildTarget);
-    BuildTarget headerSymlinkTreeTarget =
-        CxxDescriptionEnhancer.createSandboxSymlinkTreeTarget(
-            untypedTarget, cxxPlatform.getFlavor());
-    BuildRule rule = graphBuilder.requireRule(headerSymlinkTreeTarget);
-    Preconditions.checkState(
-        rule instanceof SymlinkTree, rule.getBuildTarget() + " " + rule.getClass());
-    return (SymlinkTree) rule;
-  }
-
   /**
    * @return the {@link BuildTarget} to use for the {@link BuildRule} generating the symlink tree of
    *     headers.
@@ -268,11 +230,6 @@ public class CxxDescriptionEnhancer {
             .build());
   }
 
-  @VisibleForTesting
-  public static BuildTarget createSandboxSymlinkTreeTarget(BuildTarget target, Flavor platform) {
-    return target.withAppendedFlavors(platform, SANDBOX_TREE_FLAVOR);
-  }
-
   /** @return the absolute {@link Path} to use for the symlink tree of headers. */
   public static Path getHeaderSymlinkTreePath(
       ProjectFilesystem filesystem,
@@ -281,10 +238,6 @@ public class CxxDescriptionEnhancer {
       Flavor... flavors) {
     return BuildTargetPaths.getGenPath(
         filesystem, createHeaderSymlinkTreeTarget(target, headerVisibility, flavors), "%s");
-  }
-
-  public static Path getSandboxSymlinkTreePath(ProjectFilesystem filesystem, BuildTarget target) {
-    return BuildTargetPaths.getGenPath(filesystem, target, "%s");
   }
 
   public static Flavor getHeaderSymlinkTreeFlavor(HeaderVisibility headerVisibility) {
@@ -303,7 +256,7 @@ public class CxxDescriptionEnhancer {
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver sourcePathResolver,
       String parameterName,
-      SourceList exportedHeaders) {
+      SourceSortedSet exportedHeaders) {
     return exportedHeaders.toNameMap(
         buildTarget,
         sourcePathResolver,
@@ -319,9 +272,9 @@ public class CxxDescriptionEnhancer {
       SourcePathResolver sourcePathResolver,
       CxxPlatform cxxPlatform,
       String headersParameterName,
-      SourceList headers,
+      SourceSortedSet headers,
       String platformHeadersParameterName,
-      PatternMatchedCollection<SourceList> platformHeaders) {
+      PatternMatchedCollection<SourceSortedSet> platformHeaders) {
     ImmutableMap.Builder<String, SourcePath> parsed = ImmutableMap.builder();
 
     Function<SourcePath, SourcePath> fixup =
@@ -339,7 +292,7 @@ public class CxxDescriptionEnhancer {
             fixup));
 
     // Include all platform specific headers.
-    for (SourceList sourceList :
+    for (SourceSortedSet sourceList :
         platformHeaders.getMatchingValues(cxxPlatform.getFlavor().toString())) {
       parsed.putAll(
           sourceList.toNameMap(
@@ -536,8 +489,6 @@ public class CxxDescriptionEnhancer {
       ImmutableList<HeaderSymlinkTree> headerSymlinkTrees,
       ImmutableSet<FrameworkPath> frameworks,
       Iterable<CxxPreprocessorInput> cxxPreprocessorInputFromDeps,
-      ImmutableList<String> includeDirs,
-      Optional<SymlinkTree> symlinkTree,
       ImmutableSortedSet<SourcePath> rawHeaders) {
 
     // Add the private includes of any rules which this rule depends on, and which list this rule as
@@ -577,16 +528,6 @@ public class CxxDescriptionEnhancer {
 
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
     builder.putAllPreprocessorFlags(preprocessorFlags);
-
-    // headers from #sandbox are put before #private-headers and #headers on purpose
-    // this is the only way to control windows behavior
-    if (symlinkTree.isPresent()) {
-      for (String includeDir : includeDirs) {
-        builder.addIncludes(
-            CxxSandboxInclude.from(
-                symlinkTree.get(), includeDir, CxxPreprocessables.IncludeType.LOCAL));
-      }
-    }
 
     if (!rawHeaders.isEmpty()) {
       builder.addIncludes(CxxRawHeaders.of(rawHeaders));
@@ -858,7 +799,6 @@ public class CxxDescriptionEnhancer {
         args.getLinkerExtraOutputs(),
         args.getPlatformLinkerFlags(),
         args.getCxxRuntimeType(),
-        args.getIncludeDirs(),
         args.getRawHeaders());
   }
 
@@ -895,7 +835,6 @@ public class CxxDescriptionEnhancer {
       ImmutableList<String> linkerExtraOutputs,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
       Optional<CxxRuntimeType> cxxRuntimeType,
-      ImmutableList<String> includeDirs,
       ImmutableSortedSet<SourcePath> rawHeaders) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -928,10 +867,6 @@ public class CxxDescriptionEnhancer {
             headers,
             HeaderVisibility.PRIVATE,
             shouldCreatePrivateHeadersSymlinks);
-    Optional<SymlinkTree> sandboxTree = Optional.empty();
-    if (cxxBuckConfig.sandboxSources()) {
-      sandboxTree = createSandboxTree(target, graphBuilder, cxxPlatform);
-    }
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         collectCxxPreprocessorInput(
             target,
@@ -955,8 +890,6 @@ public class CxxDescriptionEnhancer {
                 RichStream.from(deps)
                     .filter(CxxPreprocessorDep.class::isInstance)
                     .toImmutableList()),
-            includeDirs,
-            sandboxTree,
             rawHeaders);
 
     ImmutableListMultimap.Builder<CxxSource.Type, Arg> allCompilerFlagsBuilder =
@@ -994,8 +927,7 @@ public class CxxDescriptionEnhancer {
                 allCompilerFlags,
                 prefixHeader,
                 precompiledHeader,
-                pic,
-                sandboxTree)
+                pic)
             .requirePreprocessAndCompileRules(srcs);
 
     BuildTarget linkRuleTarget = createCxxLinkTarget(target, flavoredLinkerMapMode);
@@ -1235,11 +1167,6 @@ public class CxxDescriptionEnhancer {
     return Optional.of(CxxCompilationDatabaseDependencies.of(sourcePaths.build()));
   }
 
-  public static Optional<SymlinkTree> createSandboxTree(
-      BuildTarget buildTarget, ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform) {
-    return Optional.of(requireSandboxSymlinkTree(buildTarget, graphBuilder, cxxPlatform));
-  }
-
   /**
    * @return the {@link BuildTarget} to use for the {@link BuildRule} generating the symlink tree of
    *     shared libraries.
@@ -1392,55 +1319,6 @@ public class CxxDescriptionEnhancer {
         return SHARED_FLAVOR;
     }
     throw new RuntimeException(String.format("Unsupported LinkableDepType: '%s'", linkableDepType));
-  }
-
-  public static SymlinkTree createSandboxTreeBuildRule(
-      ActionGraphBuilder graphBuilder,
-      CxxConstructorArg args,
-      CxxPlatform platform,
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
-    ImmutableCollection<SourcePath> privateHeaders =
-        parseHeaders(
-                buildTarget,
-                graphBuilder,
-                ruleFinder,
-                sourcePathResolver,
-                Optional.of(platform),
-                args)
-            .values();
-    ImmutableCollection<CxxSource> sources =
-        parseCxxSources(buildTarget, graphBuilder, ruleFinder, sourcePathResolver, platform, args)
-            .values();
-    HashMap<Path, SourcePath> links = new HashMap<>();
-    for (SourcePath headerPath : privateHeaders) {
-      links.put(
-          Paths.get(sourcePathResolver.getSourcePathName(buildTarget, headerPath)), headerPath);
-    }
-    if (args instanceof CxxLibraryDescription.CommonArg) {
-      ImmutableCollection<SourcePath> publicHeaders =
-          CxxDescriptionEnhancer.parseExportedHeaders(
-                  buildTarget,
-                  graphBuilder,
-                  ruleFinder,
-                  sourcePathResolver,
-                  Optional.of(platform),
-                  (CxxLibraryDescription.CommonArg) args)
-              .values();
-      for (SourcePath headerPath : publicHeaders) {
-        links.put(
-            Paths.get(sourcePathResolver.getSourcePathName(buildTarget, headerPath)), headerPath);
-      }
-    }
-    for (CxxSource source : sources) {
-      SourcePath sourcePath = source.getPath();
-      links.put(
-          Paths.get(sourcePathResolver.getSourcePathName(buildTarget, sourcePath)), sourcePath);
-    }
-    return createSandboxSymlinkTree(
-        buildTarget, projectFilesystem, ruleFinder, platform, ImmutableMap.copyOf(links));
   }
 
   /** Resolve the map of names to SourcePaths to a map of names to CxxSource objects. */

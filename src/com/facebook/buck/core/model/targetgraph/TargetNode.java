@@ -17,10 +17,11 @@
 package com.facebook.buck.core.model.targetgraph;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasBuildTarget;
-import com.facebook.buck.core.rules.type.RuleType;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.visibility.ObeysVisibility;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
@@ -50,7 +51,7 @@ public interface TargetNode<T> extends Comparable<TargetNode<?>>, ObeysVisibilit
   /** @return A hash of the raw input from the build file used to construct the node. */
   HashCode getRawInputsHashCode();
 
-  DescriptionWithTargetGraph<T> getDescription();
+  BaseDescription<T> getDescription();
 
   T getConstructorArg();
 
@@ -103,7 +104,7 @@ public interface TargetNode<T> extends Comparable<TargetNode<?>>, ObeysVisibilit
 
   void isVisibleToOrThrow(TargetNode<?> viewer);
 
-  RuleType getBuildRuleType();
+  RuleType getRuleType();
 
   TargetNode<T> copy();
 

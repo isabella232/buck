@@ -41,6 +41,8 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -66,8 +68,6 @@ import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Verbosity;
@@ -177,12 +177,11 @@ public class GenruleTest {
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(pathResolver)
             .withBuildCellRootPath(filesystem.getRootPath());
-    ImmutableList<Path> inputsToCompareToOutputs =
-        ImmutableList.of(
+    assertThat(
+        pathResolver.filterInputsToCompareToOutput(genrule.getSrcs().getPaths()),
+        Matchers.containsInAnyOrder(
             filesystem.getPath("src/com/facebook/katana/convert_to_katana.py"),
-            filesystem.getPath("src/com/facebook/katana/AndroidManifest.xml"));
-    assertEquals(
-        inputsToCompareToOutputs, pathResolver.filterInputsToCompareToOutput(genrule.getSrcs()));
+            filesystem.getPath("src/com/facebook/katana/AndroidManifest.xml")));
 
     // Verify that the shell commands that the genrule produces are correct.
     List<Step> steps = genrule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -333,7 +332,7 @@ public class GenruleTest {
 
     String expected =
         String.format(
-            "%s %s", pathResolver.getAbsolutePath(path1), pathResolver.getAbsolutePath(path2));
+            "%s %s", pathResolver.getAbsolutePath(path2), pathResolver.getAbsolutePath(path1));
     ImmutableMap.Builder<String, String> actualEnvVarsBuilder = ImmutableMap.builder();
 
     genrule.addEnvironmentVariables(pathResolver, actualEnvVarsBuilder);
@@ -361,7 +360,7 @@ public class GenruleTest {
 
     String expected =
         String.format(
-            "%s//%s", pathResolver.getAbsolutePath(path1), pathResolver.getAbsolutePath(path2));
+            "%s//%s", pathResolver.getAbsolutePath(path2), pathResolver.getAbsolutePath(path1));
     ImmutableMap.Builder<String, String> actualEnvVarsBuilder = ImmutableMap.builder();
 
     genrule.addEnvironmentVariables(pathResolver, actualEnvVarsBuilder);

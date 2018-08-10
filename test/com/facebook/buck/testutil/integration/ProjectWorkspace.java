@@ -27,14 +27,17 @@ import com.dd.plist.BinaryPropertyListParser;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.facebook.buck.cli.Main;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
+import com.facebook.buck.core.toolchain.impl.DefaultToolchainProviderFactory;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MostFiles;
@@ -52,8 +55,6 @@ import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.testutil.AbstractWorkspace;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.toolchain.ToolchainProviderFactory;
-import com.facebook.buck.toolchain.impl.DefaultToolchainProviderFactory;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -63,7 +64,6 @@ import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
-import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.string.MoreStrings;
@@ -134,7 +134,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
   private final boolean addBuckRepoCell;
   private final ProcessExecutor processExecutor;
   @Nullable private ProjectFilesystemAndConfig projectFilesystemAndConfig;
-  @Nullable private Main.KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
+  @Nullable private Main.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory;
 
   private static class ProjectFilesystemAndConfig {
 
@@ -484,9 +484,9 @@ public class ProjectWorkspace extends AbstractWorkspace {
       ImmutableMap<String, String> sanizitedEnv = ImmutableMap.copyOf(envBuilder);
 
       Main main =
-          knownBuildRuleTypesFactoryFactory == null
+          knownRuleTypesFactoryFactory == null
               ? new Main(stdout, stderr, stdin, context)
-              : new Main(stdout, stderr, stdin, knownBuildRuleTypesFactoryFactory, context);
+              : new Main(stdout, stderr, stdin, knownRuleTypesFactoryFactory, context);
       ExitCode exitCode;
       try {
         exitCode =
@@ -561,17 +561,13 @@ public class ProjectWorkspace extends AbstractWorkspace {
     addBuckConfigLocalOption("cache", "mode", "dir");
   }
 
-  public void setupCxxSandboxing(boolean sandboxSources) throws IOException {
-    addBuckConfigLocalOption("cxx", "sandbox_sources", Boolean.toString(sandboxSources));
-  }
-
   public void disableThreadLimitOverride() throws IOException {
     removeBuckConfigLocalOption("build", "threads");
   }
 
-  public void setKnownBuildRuleTypesFactoryFactory(
-      @Nullable Main.KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory) {
-    this.knownBuildRuleTypesFactoryFactory = knownBuildRuleTypesFactoryFactory;
+  public void setKnownRuleTypesFactoryFactory(
+      @Nullable Main.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory) {
+    this.knownRuleTypesFactoryFactory = knownRuleTypesFactoryFactory;
   }
 
   public void resetBuildLogFile() throws IOException {
@@ -597,13 +593,10 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
     BuckConfig buckConfig =
-        new BuckConfig(
-            config,
-            filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            env,
-            rootCellCellPathResolver);
+        FakeBuckConfig.builder()
+            .setSections(config.getRawConfig())
+            .setFilesystem(filesystem)
+            .build();
 
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     ExecutableFinder executableFinder = new ExecutableFinder();
@@ -715,7 +708,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
         MoreStrings.withoutSuffix(
             templatePath.relativize(expectedFile).toString(), EXPECTED_SUFFIX);
 
-    String expectedFileContent = new String(Files.readAllBytes(expectedFile), UTF_8);
+    String expectedFileContent = getFileContents(expectedFile);
     String observedFileContent = new String(Files.readAllBytes(observedFile), UTF_8);
     // It is possible, on Windows, to have Git keep "\n"-style newlines, or convert them to
     // "\r\n"-style newlines.  Support both ways by normalizing to "\n"-style newlines.
@@ -745,7 +738,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
               throws IOException {
             String fileName = file.getFileName().toString();
-            if (fileName.endsWith(EXPECTED_SUFFIX)) {
+            if (fileName.endsWith(EXPECTED_SUFFIX) && !fileName.endsWith(SKIP_SUFFIX)) {
               // Get File for the file that should be written, but without the ".expected" suffix.
               Path generatedFileWithSuffix =
                   destinationSubdirectory.resolve(templateSubdirectory.relativize(file));

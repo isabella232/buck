@@ -16,15 +16,16 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
@@ -375,12 +376,12 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      BuckConfig config, Iterable<String> targetsAsArgs) {
+      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
     ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
     CommandLineTargetNodeSpecParser parser =
         new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.addAll(parser.parse(config.getCellPathResolver(), arg));
+      specs.addAll(parser.parse(cellPathResolver, arg));
     }
     return specs.build();
   }
@@ -427,7 +428,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
             .setInclNoLocationClassesEnabled(
                 params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
-            .setRuleKeyDiagnosticsMode(params.getBuckConfig().getRuleKeyDiagnosticsMode())
+            .setRuleKeyDiagnosticsMode(
+                params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
             .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
             .setPersistentWorkerPools(params.getPersistentWorkerPools())
             .setProjectFilesystemFactory(params.getProjectFilesystemFactory());

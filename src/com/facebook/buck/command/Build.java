@@ -17,7 +17,6 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
@@ -25,6 +24,7 @@ import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
@@ -122,6 +122,7 @@ public class Build implements Closeable {
                 .setBuildCellRootPath(rootCell.getRoot())
                 .setJavaPackageFinder(javaPackageFinder)
                 .setEventBus(executionContext.getBuckEventBus())
+                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
                 .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)

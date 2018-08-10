@@ -27,13 +27,13 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversal;
+import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
+import com.facebook.buck.core.util.graph.GraphTraversable;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
-import com.facebook.buck.graph.DirectedAcyclicGraph;
-import com.facebook.buck.graph.GraphTraversable;
-import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.Parser;
@@ -498,7 +498,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) throws QueryException {
-    return getNode(target).getBuildRuleType().getName();
+    return getNode(target).getRuleType().getName();
   }
 
   @Override
