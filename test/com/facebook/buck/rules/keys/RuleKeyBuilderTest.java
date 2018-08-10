@@ -22,6 +22,7 @@ import static org.junit.Assert.assertNotEquals;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
@@ -31,7 +32,6 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
@@ -132,8 +132,8 @@ public class RuleKeyBuilderTest {
           new SourceRoot("42"),
           RULE_KEY_1,
           RULE_KEY_2,
-          RuleType.of(""),
-          RuleType.of("42"),
+          RuleType.of("", RuleType.Kind.BUILD),
+          RuleType.of("42", RuleType.Kind.BUILD),
           TARGET_1,
           TARGET_2,
 

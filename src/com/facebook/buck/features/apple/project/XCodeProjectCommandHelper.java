@@ -20,16 +20,18 @@ import com.facebook.buck.apple.AppleBinaryDescription;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.ProjectTestsMode;
+import com.facebook.buck.apple.XCodeDescriptions;
+import com.facebook.buck.apple.XCodeDescriptionsFactory;
+import com.facebook.buck.cli.ProjectTestsMode;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -37,13 +39,13 @@ import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.halide.HalideBuckConfig;
+import com.facebook.buck.features.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.Parser;
@@ -90,6 +92,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.concurrent.ThreadSafe;
+import org.pf4j.PluginManager;
 
 public class XCodeProjectCommandHelper {
 
@@ -98,6 +101,7 @@ public class XCodeProjectCommandHelper {
   private static final String XCODE_PROCESS_NAME = "Xcode";
 
   private final BuckEventBus buckEventBus;
+  private final PluginManager pluginManager;
   private final Parser parser;
   private final BuckConfig buckConfig;
   private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
@@ -125,6 +129,7 @@ public class XCodeProjectCommandHelper {
 
   public XCodeProjectCommandHelper(
       BuckEventBus buckEventBus,
+      PluginManager pluginManager,
       Parser parser,
       BuckConfig buckConfig,
       InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
@@ -149,6 +154,7 @@ public class XCodeProjectCommandHelper {
       Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser,
       Function<ImmutableList<String>, ExitCode> buildRunner) {
     this.buckEventBus = buckEventBus;
+    this.pluginManager = pluginManager;
     this.parser = parser;
     this.buckConfig = buckConfig;
     this.versionedTargetGraphCache = versionedTargetGraphCache;
@@ -277,8 +283,14 @@ public class XCodeProjectCommandHelper {
     return IDEForceKill.PROMPT;
   }
 
+  private ProjectTestsMode getXcodeProjectTestsMode(BuckConfig buckConfig) {
+    return buckConfig
+        .getEnum("project", "xcode_project_tests_mode", ProjectTestsMode.class)
+        .orElse(ProjectTestsMode.WITH_TESTS);
+  }
+
   private ProjectTestsMode testsMode(BuckConfig buckConfig) {
-    ProjectTestsMode parameterMode = buckConfig.xcodeProjectTestsMode();
+    ProjectTestsMode parameterMode = getXcodeProjectTestsMode(buckConfig);
 
     if (withoutTests) {
       parameterMode = ProjectTestsMode.WITHOUT_TESTS;
@@ -330,6 +342,7 @@ public class XCodeProjectCommandHelper {
     ImmutableSet<BuildTarget> requiredBuildTargets =
         generateWorkspacesForTargets(
             buckEventBus,
+            pluginManager,
             cell,
             buckConfig,
             ruleKeyConfiguration,
@@ -382,6 +395,7 @@ public class XCodeProjectCommandHelper {
   @VisibleForTesting
   static ImmutableSet<BuildTarget> generateWorkspacesForTargets(
       BuckEventBus buckEventBus,
+      PluginManager pluginManager,
       Cell cell,
       BuckConfig buckConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
@@ -409,6 +423,8 @@ public class XCodeProjectCommandHelper {
 
     LazyActionGraph lazyActionGraph =
         new LazyActionGraph(targetGraphAndTargets.getTargetGraph(), cell.getCellProvider());
+
+    XCodeDescriptions xcodeDescriptions = XCodeDescriptionsFactory.create(pluginManager);
 
     LOG.debug("Generating workspace for config targets %s", targets);
     ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder = ImmutableSet.builder();
@@ -439,6 +455,7 @@ public class XCodeProjectCommandHelper {
       CxxPlatform defaultCxxPlatform = cxxPlatformsProvider.getDefaultCxxPlatform();
       WorkspaceAndProjectGenerator generator =
           new WorkspaceAndProjectGenerator(
+              xcodeDescriptions,
               cell,
               targetGraphAndTargets.getTargetGraph(),
               workspaceArgs,
@@ -737,7 +754,7 @@ public class XCodeProjectCommandHelper {
   }
 
   private static boolean canGenerateImplicitWorkspaceForDescription(
-      DescriptionWithTargetGraph<?> description) {
+      BaseDescription<?> description) {
     // We weren't given a workspace target, but we may have been given something that could
     // still turn into a workspace (for example, a library or an actual app rule). If that's the
     // case we still want to generate a workspace.

@@ -23,7 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
@@ -89,7 +89,6 @@ public class CxxCollectAndLogInferDependenciesStepTest {
             new GccPreprocessor(preprocessorTool),
             PreprocessorFlags.builder().build(),
             defaultFrameworkPathSearchPathFunction,
-            Optional.empty(),
             /* leadingIncludePaths */ Optional.empty(),
             Optional.of(new FakeBuildRule(buildTarget.withFlavors(InternalFlavor.of("deps")))),
             ImmutableSortedSet.of());

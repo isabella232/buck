@@ -18,10 +18,10 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.graph.DirectedAcyclicGraph;
-import com.facebook.buck.graph.Dot;
-import com.facebook.buck.graph.Dot.Builder;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
+import com.facebook.buck.core.util.graph.Dot;
+import com.facebook.buck.core.util.graph.Dot.Builder;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
@@ -189,8 +189,7 @@ public class QueryCommand extends AbstractCommand {
             new PerBuildStateFactory(
                     params.getTypeCoercerFactory(),
                     new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                    params.getKnownBuildRuleTypesProvider(),
-                    params.getKnownConfigurationRuleTypes(),
+                    params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()))
                 .create(
@@ -351,7 +350,7 @@ public class QueryCommand extends AbstractCommand {
         Dot.builder(env.getTargetGraph(), "result_graph")
             .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
             .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
-            .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
+            .setNodeToTypeName(targetNode -> targetNode.getRuleType().getName())
             .setBfsSorted(shouldGenerateBFSOutput());
     if (shouldOutputAttributes()) {
       PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
@@ -402,7 +401,7 @@ public class QueryCommand extends AbstractCommand {
         // sort by rank and target nodes to break ties in order to make output deterministic
         .sorted(
             Comparator.comparing(Entry<TargetNode<?>, Integer>::getValue)
-                .thenComparing(Comparator.comparing(Entry<TargetNode<?>, Integer>::getKey)))
+                .thenComparing(Entry<TargetNode<?>, Integer>::getKey))
         .forEach(
             entry -> {
               int rank = entry.getValue();
@@ -619,7 +618,10 @@ public class QueryCommand extends AbstractCommand {
   static String buildAuditDependenciesQueryExpression(
       List<String> arguments, boolean isTransitive, boolean includeTests, boolean jsonOutput) {
     StringBuilder queryBuilder = new StringBuilder("buck query ");
-    queryBuilder.append("\"" + getAuditDependenciesQueryFormat(isTransitive, includeTests) + "\" ");
+    queryBuilder
+        .append("\"")
+        .append(getAuditDependenciesQueryFormat(isTransitive, includeTests))
+        .append("\" ");
     queryBuilder.append(getEscapedArgumentsListAsString(arguments));
     if (jsonOutput) {
       queryBuilder.append(" --json");
