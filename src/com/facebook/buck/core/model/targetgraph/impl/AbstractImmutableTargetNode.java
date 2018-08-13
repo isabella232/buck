@@ -17,14 +17,14 @@
 package com.facebook.buck.core.model.targetgraph.impl;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.NodeCopier;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.visibility.VisibilityChecker;
@@ -71,7 +71,7 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   @Value.Parameter
   @Value.Auxiliary
   @Override
-  public abstract DescriptionWithTargetGraph<T> getDescription();
+  public abstract BaseDescription<T> getDescription();
 
   @Value.Parameter
   @Override
@@ -169,7 +169,7 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   }
 
   @Override
-  public RuleType getBuildRuleType() {
+  public RuleType getRuleType() {
     return DescriptionCache.getRuleType(getDescription());
   }
 

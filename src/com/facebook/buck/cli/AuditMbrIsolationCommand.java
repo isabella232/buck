@@ -18,14 +18,15 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.modern.tools.IsolationChecker;
 import com.facebook.buck.rules.modern.tools.IsolationChecker.FailureReporter;
@@ -106,8 +107,14 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
                           params.getBuckEventBus(),
                           targetGraph,
                           params.getCell().getCellProvider(),
-                          params.getBuckConfig().getActionGraphParallelizationMode(),
-                          params.getBuckConfig().getShouldInstrumentActionGraph(),
+                          params
+                              .getBuckConfig()
+                              .getView(ActionGraphConfig.class)
+                              .getActionGraphParallelizationMode(),
+                          params
+                              .getBuckConfig()
+                              .getView(ActionGraphConfig.class)
+                              .getShouldInstrumentActionGraph(),
                           params.getPoolSupplier()))
               .getActionGraphBuilder();
       graphBuilder.requireAllRules(targets);

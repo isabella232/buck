@@ -52,6 +52,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -60,12 +61,15 @@ public class AppleLibraryDescriptionTest {
 
   @Rule public ExpectedException thrown = ExpectedException.none();
 
+  @Before
+  public void setUp() {
+    assumeThat(Platform.detect(), is(Platform.MACOS));
+  }
+
   @Test
   public void linkerFlagsLocationMacro() {
-    assumeThat(Platform.detect(), is(Platform.MACOS));
     BuildTarget sandboxTarget =
-        BuildTargetFactory.newInstance("//:rule")
-            .withFlavors(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR, DefaultCxxPlatforms.FLAVOR);
+        BuildTargetFactory.newInstance("//:rule").withFlavors(DefaultCxxPlatforms.FLAVOR);
     ActionGraphBuilder graphBuilder =
         new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(new AppleLibraryBuilder(sandboxTarget).build()));

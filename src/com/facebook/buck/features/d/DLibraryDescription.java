@@ -31,6 +31,7 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
@@ -39,8 +40,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -120,7 +120,7 @@ public class DLibraryDescription
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<String> compilerFlags,
-      SourceList sources,
+      SourceSortedSet sources,
       DIncludes dIncludes,
       PicType pic) {
 
@@ -182,7 +182,7 @@ public class DLibraryDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractDLibraryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
-    SourceList getSrcs();
+    SourceSortedSet getSrcs();
 
     ImmutableList<String> getLinkerFlags();
   }

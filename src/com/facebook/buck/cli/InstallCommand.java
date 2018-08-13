@@ -34,9 +34,9 @@ import com.facebook.buck.apple.simulator.AppleSimulatorDiscovery;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -345,7 +345,9 @@ public class InstallCommand extends BuildCommand {
     for (int index = 0; index < getArguments().size(); index++) {
       // TODO(markwang): Cache argument parsing
       TargetNodeSpec spec =
-          parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()).get(index);
+          parseArgumentsAsTargetNodeSpecs(
+                  params.getCell().getCellPathResolver(), params.getBuckConfig(), getArguments())
+              .get(index);
 
       BuildTarget target =
           FluentIterable.from(
@@ -374,7 +376,7 @@ public class InstallCommand extends BuildCommand {
                   target);
 
       if (node != null
-          && node.getBuildRuleType()
+          && node.getRuleType()
               .equals(DescriptionCache.getRuleType(AppleBundleDescription.class))) {
         for (Flavor flavor : node.getBuildTarget().getFlavors()) {
           if (ApplePlatform.needsInstallHelper(flavor.getName())) {

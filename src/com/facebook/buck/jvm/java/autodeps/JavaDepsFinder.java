@@ -17,15 +17,15 @@
 package com.facebook.buck.jvm.java.autodeps;
 
 import com.facebook.buck.android.AndroidLibraryDescription;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
 import com.facebook.buck.core.build.engine.BuildResult;
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.type.RuleType;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -96,7 +96,7 @@ public class JavaDepsFinder {
     // visit each node could be done in parallel, so long as the updates to the above collections
     // were thread-safe.
     for (TargetNode<?> node : graph.getNodes()) {
-      if (!RULES_TO_VISIT.contains(node.getBuildRuleType())) {
+      if (!RULES_TO_VISIT.contains(node.getRuleType())) {
         continue;
       }
 
