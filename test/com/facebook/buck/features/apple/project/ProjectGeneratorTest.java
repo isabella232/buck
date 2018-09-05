@@ -85,6 +85,7 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -109,7 +110,6 @@ import com.facebook.buck.features.halide.HalideBuckConfig;
 import com.facebook.buck.features.halide.HalideLibraryBuilder;
 import com.facebook.buck.features.halide.HalideLibraryDescription;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
@@ -1332,6 +1332,77 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testAbsoluteHeaderMapPaths() throws IOException {
+    BuildTarget libraryTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+    BuildTarget testTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "test");
+
+    TargetNode<?> libraryNode =
+        AppleLibraryBuilder.createBuilder(libraryTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("foo.h"), ImmutableList.of("public")),
+                    SourceWithFlags.of(FakeSourcePath.of("bar.h"))))
+            .setTests(ImmutableSortedSet.of(testTarget))
+            .build();
+
+    TargetNode<?> testNode =
+        AppleTestBuilder.createBuilder(testTarget)
+            .setConfigs(ImmutableSortedMap.of("Default", ImmutableMap.of()))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .setDeps(ImmutableSortedSet.of(libraryTarget))
+            .build();
+
+    ImmutableSet<TargetNode<?>> allNodes = ImmutableSet.of(libraryNode, testNode);
+
+    ProjectGenerator projectGenerator =
+        createProjectGenerator(
+            allNodes,
+            allNodes,
+            ProjectGeneratorOptions.builder().setShouldUseAbsoluteHeaderMapPaths(true).build(),
+            ImmutableSet.of());
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+    PBXTarget testPBXTarget = assertTargetExistsAndReturnTarget(project, "//foo:test");
+
+    ImmutableMap<String, String> buildSettings =
+        getBuildSettings(testTarget, testPBXTarget, "Default");
+
+    Path currentDirectory = Paths.get(".").toAbsolutePath();
+    assertEquals(
+        "test binary should use header symlink trees for both public and non-public headers "
+            + "of the tested library in HEADER_SEARCH_PATHS",
+        "$(inherited) "
+            + currentDirectory
+                .resolve("buck-out/gen/_p/LpygK8zq5F-priv/.hmap")
+                .normalize()
+                .toString()
+            + " "
+            + currentDirectory
+                .resolve("buck-out/gen/_p/LpygK8zq5F-pub/.hmap")
+                .normalize()
+                .toString()
+            + " "
+            + currentDirectory
+                .resolve("buck-out/gen/_p/CwkbTNOBmb-pub/.hmap")
+                .normalize()
+                .toString()
+            + " "
+            + currentDirectory
+                .resolve("buck-out/gen/_p/CwkbTNOBmb-priv/.hmap")
+                .normalize()
+                .toString()
+            + " "
+            + currentDirectory.resolve("buck-out").normalize().toString(),
+        buildSettings.get("HEADER_SEARCH_PATHS"));
+    assertEquals(
+        "USER_HEADER_SEARCH_PATHS should not be set",
+        null,
+        buildSettings.get("USER_HEADER_SEARCH_PATHS"));
+  }
+
+  @Test
   public void testHeaderSymlinkTreesWithHeadersVisibleForTestingWithModuleOverrides()
       throws IOException {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
@@ -2195,6 +2266,20 @@ public class ProjectGeneratorTest {
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("fooTest.m"))))
             .build();
 
+    BuildTarget compilerTarget =
+        BuildTargetFactory.newInstance(
+            rootPath, "//bar", "libhalide", HalideLibraryDescription.HALIDE_COMPILER_FLAVOR);
+    TargetNode<?> compilerNode =
+        new HalideLibraryBuilder(compilerTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("main.cpp")),
+                    SourceWithFlags.of(FakeSourcePath.of("filter.cpp"))))
+            .build();
+
+    BuildTarget halideTarget = BuildTargetFactory.newInstance(rootPath, "//bar", "libhalide");
+    TargetNode<?> halideLibraryNode = new HalideLibraryBuilder(halideTarget).build();
+
     BuildTarget libraryBuildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "mainLib");
     TargetNode<?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryBuildTarget)
@@ -2206,7 +2291,8 @@ public class ProjectGeneratorTest {
                     dependentBuildTarget3,
                     dependentBuildTarget4,
                     dependentframeworkTarget1,
-                    dependentframeworkTarget2))
+                    dependentframeworkTarget2,
+                    halideTarget))
             .setLinkWhole(true)
             .setLinkerFlags(ImmutableList.of(StringWithMacrosUtils.format("-lhello5")))
             .build();
@@ -2222,7 +2308,9 @@ public class ProjectGeneratorTest {
                 framework1BinaryNode,
                 framework1Node,
                 framework2BinaryNode,
-                framework2Node), // all deps
+                framework2Node,
+                halideLibraryNode,
+                compilerNode), // all deps
             ImmutableSet.of(
                 libraryNode, dependentNode1, dependentNode2, framework1BinaryNode, framework1Node),
             // local deps to project
@@ -2250,17 +2338,18 @@ public class ProjectGeneratorTest {
 
     if (shouldEnableForceLoad && shouldEnableAddLibrariesAsFlags) {
       assertEquals(
-          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL $BUCK_LINKER_FLAGS_FRAMEWORK_OTHER $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER $BUCK_LINKER_FLAGS_LIBRARY_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_OTHER",
+          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL $BUCK_LINKER_FLAGS_FRAMEWORK_FOCUSED $BUCK_LINKER_FLAGS_FRAMEWORK_OTHER $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_FOCUSED $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER $BUCK_LINKER_FLAGS_LIBRARY_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FOCUSED $BUCK_LINKER_FLAGS_LIBRARY_OTHER",
           settings.get("OTHER_LDFLAGS"));
     } else if (shouldEnableForceLoad) {
 
       assertEquals(
-          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER",
+          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_FOCUSED $BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER",
           settings.get("OTHER_LDFLAGS"));
+
     } else if (shouldEnableAddLibrariesAsFlags) {
 
       assertEquals(
-          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL $BUCK_LINKER_FLAGS_FRAMEWORK_OTHER $BUCK_LINKER_FLAGS_LIBRARY_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_OTHER",
+          "$(inherited) -fatal_warnings -ObjC -lhello5 -lhello3 -lhello4 -lhello1 -lhello2 $BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL $BUCK_LINKER_FLAGS_FRAMEWORK_FOCUSED $BUCK_LINKER_FLAGS_FRAMEWORK_OTHER $BUCK_LINKER_FLAGS_LIBRARY_LOCAL $BUCK_LINKER_FLAGS_LIBRARY_FOCUSED $BUCK_LINKER_FLAGS_LIBRARY_OTHER",
           settings.get("OTHER_LDFLAGS"));
     } else {
       assertEquals(
@@ -2268,29 +2357,51 @@ public class ProjectGeneratorTest {
           settings.get("OTHER_LDFLAGS"));
     }
 
+    if (shouldEnableForceLoad && shouldEnableAddLibrariesAsFlags) {
+      assertEquals(
+          "$(inherited) -lnonForceLoadlib", settings.get("BUCK_LINKER_FLAGS_LIBRARY_LOCAL"));
+
+      assertEquals(
+          "$(inherited) -llibhalide -lremoteNonForceLoadLib",
+          settings.get("BUCK_LINKER_FLAGS_LIBRARY_FOCUSED"));
+
+    } else if (shouldEnableAddLibrariesAsFlags) {
+      assertEquals(
+          "$(inherited) -llocalForceLoadlib -lnonForceLoadlib",
+          settings.get("BUCK_LINKER_FLAGS_LIBRARY_LOCAL"));
+
+      assertEquals(
+          "$(inherited) -llibhalide -lremoteForceLoadLib -lremoteNonForceLoadLib",
+          settings.get("BUCK_LINKER_FLAGS_LIBRARY_FOCUSED"));
+    }
+
     if (shouldEnableForceLoad || shouldEnableAddLibrariesAsFlags) {
       assertEquals(
           "$(inherited) '-Wl,-force_load,$BUILT_PRODUCTS_DIR/libremoteForceLoadLib.a'",
-          settings.get("BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER"));
+          settings.get("BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_FOCUSED"));
 
       assertEquals(
           "$(inherited) '-Wl,-force_load,$BUILT_PRODUCTS_DIR/liblocalForceLoadlib.a'",
           settings.get("BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_LOCAL"));
     }
+
     if (shouldEnableAddLibrariesAsFlags) {
       assertEquals(
           "$(inherited) -framework remote_framework_2",
-          settings.get("BUCK_LINKER_FLAGS_FRAMEWORK_OTHER"));
-
-      assertEquals(
-          "$(inherited) -lremoteNonForceLoadLib", settings.get("BUCK_LINKER_FLAGS_LIBRARY_OTHER"));
+          settings.get("BUCK_LINKER_FLAGS_FRAMEWORK_FOCUSED"));
 
       assertEquals(
           "$(inherited) -framework framework_1", settings.get("BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL"));
 
-      assertEquals(
-          "$(inherited) -llocalForceLoadlib -lnonForceLoadlib",
-          settings.get("BUCK_LINKER_FLAGS_LIBRARY_LOCAL"));
+      // for tests everything is considered focused so, OTHER should be empty
+      assertEquals("$(inherited) ", settings.get("BUCK_LINKER_FLAGS_LIBRARY_OTHER"));
+
+      assertEquals("$(inherited) ", settings.get("BUCK_LINKER_FLAGS_FRAMEWORK_OTHER"));
+    }
+
+    // for tests everything is considered focused so, OTHER should be empty
+    if (shouldEnableForceLoad) {
+      assertEquals("$(inherited) ", settings.get("BUCK_LINKER_FLAGS_LIBRARY_FORCE_LOAD_OTHER"));
     }
   }
 
@@ -2409,6 +2520,20 @@ public class ProjectGeneratorTest {
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("fooTest.m"))))
             .build();
 
+    BuildTarget compilerTarget =
+        BuildTargetFactory.newInstance(
+            rootPath, "//bar", "libhalide", HalideLibraryDescription.HALIDE_COMPILER_FLAVOR);
+    TargetNode<?> compilerNode =
+        new HalideLibraryBuilder(compilerTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("main.cpp")),
+                    SourceWithFlags.of(FakeSourcePath.of("filter.cpp"))))
+            .build();
+
+    BuildTarget halideTarget = BuildTargetFactory.newInstance(rootPath, "//bar", "libhalide");
+    TargetNode<?> halideLibraryNode = new HalideLibraryBuilder(halideTarget).build();
+
     BuildTarget binaryTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "binary");
     TargetNode<?> binaryNode =
         AppleBinaryBuilder.createBuilder(binaryTarget)
@@ -2420,7 +2545,8 @@ public class ProjectGeneratorTest {
                     dependentBuildTarget3,
                     dependentBuildTarget4,
                     dependentframeworkTarget1,
-                    dependentframeworkTarget2))
+                    dependentframeworkTarget2,
+                    halideTarget))
             .setLinkerFlags(ImmutableList.of(StringWithMacrosUtils.format("-lhello5")))
             .build();
 
@@ -2435,7 +2561,9 @@ public class ProjectGeneratorTest {
                 framework1BinaryNode,
                 framework1Node,
                 framework2BinaryNode,
-                framework2Node), // all deps
+                framework2Node,
+                halideLibraryNode,
+                compilerNode), // all deps
             ImmutableSet.of(
                 binaryNode,
                 dependentNode1,

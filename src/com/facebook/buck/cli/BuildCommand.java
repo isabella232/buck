@@ -32,6 +32,7 @@ import com.facebook.buck.command.LocalBuildExecutor;
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
 import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.type.BuildType;
 import com.facebook.buck.core.build.event.BuildEvent;
@@ -39,7 +40,6 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
@@ -48,9 +48,11 @@ import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.AnalysisResults;
 import com.facebook.buck.distributed.BuckVersionUtil;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
@@ -84,8 +86,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.DistBuildClientEventListener;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -110,6 +111,7 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -772,7 +774,6 @@ public class BuildCommand extends AbstractCommand {
               return params
                   .getParser()
                   .getTargetNodeRawAttributes(
-                      params.getBuckEventBus(),
                       params.getCell().getCell(input.getBuildTarget()),
                       false /* enableProfiling */,
                       executorService,
@@ -833,14 +834,16 @@ public class BuildCommand extends AbstractCommand {
 
   private ListeningExecutorService createStampedeControllerExecutorService(int maxThreads) {
     CommandThreadFactory stampedeCommandThreadFactory =
-        new CommandThreadFactory("StampedeController");
+        new CommandThreadFactory(
+            "StampedeController", GlobalStateManager.singleton().getThreadToCommandRegister());
     return MoreExecutors.listeningDecorator(
         newMultiThreadExecutor(stampedeCommandThreadFactory, maxThreads));
   }
 
   private ListeningExecutorService createStampedeLocalBuildExecutorService() {
     CommandThreadFactory stampedeCommandThreadFactory =
-        new CommandThreadFactory("StampedeLocalBuild");
+        new CommandThreadFactory(
+            "StampedeLocalBuild", GlobalStateManager.singleton().getThreadToCommandRegister());
     return MoreExecutors.listeningDecorator(
         MostExecutors.newSingleThreadExecutor(stampedeCommandThreadFactory));
   }
@@ -922,7 +925,13 @@ public class BuildCommand extends AbstractCommand {
     distBuildClientStats.setIsLocalFallbackBuildEnabled(
         distBuildConfig.isSlowLocalBuildFallbackModeEnabled());
 
-    try (DistBuildService distBuildService = DistBuildFactory.newDistBuildService(params)) {
+    try (DistBuildService distBuildService = DistBuildFactory.newDistBuildService(params);
+        RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer =
+            new RemoteBuildRuleSynchronizer(
+                params.getClock(),
+                params.getScheduledExecutor(),
+                distBuildConfig.getCacheSynchronizationFirstBackoffMillis(),
+                distBuildConfig.getCacheSynchronizationMaxTotalBackoffMillis())) {
       ListeningExecutorService stampedeControllerExecutor =
           createStampedeControllerExecutorService(distBuildConfig.getControllerMaxThreadCount());
 
@@ -1023,7 +1032,8 @@ public class BuildCommand extends AbstractCommand {
               distBuildClientStats,
               waitForDistBuildThreadToFinishGracefully,
               distributedBuildThreadKillTimeoutSeconds,
-              autoDistBuildMessage);
+              autoDistBuildMessage,
+              remoteBuildRuleSynchronizer);
 
       distBuildClientStats.startTimer(PERFORM_LOCAL_BUILD);
 
@@ -1342,7 +1352,6 @@ public class BuildCommand extends AbstractCommand {
       return params
           .getParser()
           .buildTargetGraphForTargetNodeSpecs(
-              params.getBuckEventBus(),
               params.getCell(),
               getEnableParserProfiling(),
               executor,
@@ -1360,15 +1369,11 @@ public class BuildCommand extends AbstractCommand {
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     ActionGraphAndBuilder actionGraphAndBuilder =
         params
-            .getActionGraphCache()
+            .getActionGraphProvider()
             .getActionGraph(
-                params.getBuckEventBus(),
+                new DefaultTargetNodeToBuildRuleTransformer(),
                 targetGraphAndBuildTargets.getTargetGraph(),
-                params.getCell().getCellProvider(),
-                params.getBuckConfig().getView(ActionGraphConfig.class),
-                params.getRuleKeyConfiguration(),
-                ruleKeyLogger,
-                params.getPoolSupplier());
+                ruleKeyLogger);
     return actionGraphAndBuilder;
   }
 

@@ -25,7 +25,7 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -185,6 +185,12 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     test(new WithSet());
   }
 
+  @Override
+  @Test
+  public void sortedSet() throws Exception {
+    test(new WithSortedSet());
+  }
+
   @Test
   @Override
   public void list() throws IOException {
@@ -268,6 +274,12 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Test
   public void nonHashableSourcePathContainer() throws Exception {
     test(new WithNonHashableSourcePathContainer());
+  }
+
+  @Override
+  @Test
+  public void map() throws Exception {
+    test(new WithMap());
   }
 
   @Override

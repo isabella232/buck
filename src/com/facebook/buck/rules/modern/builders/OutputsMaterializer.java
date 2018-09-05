@@ -18,7 +18,6 @@ package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.rules.modern.builders.Protocol.OutputDirectory;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.function.ThrowingFunction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -28,11 +27,8 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -64,16 +60,7 @@ public class OutputsMaterializer {
     for (Protocol.OutputFile file : outputFiles) {
       Path path = root.resolve(file.getPath());
       ensureParent(path);
-      ByteBuffer content = file.getContent();
-      if (content != null) {
-        try (FileChannel output =
-            FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-          output.write(content);
-        }
-        setExecutable(file.getIsExecutable(), path);
-      } else {
-        pending.add(fetchAndMaterialize(file.getDigest(), file.getIsExecutable(), path));
-      }
+      pending.add(fetchAndMaterialize(file.getDigest(), file.getIsExecutable(), path));
     }
 
     for (Protocol.OutputDirectory directory : outputDirectories) {
@@ -87,7 +74,13 @@ public class OutputsMaterializer {
                     RichStream.from(tree.getChildrenList())
                         .collect(
                             ImmutableMap.toImmutableMap(
-                                ThrowingFunction.asFunction(protocol::computeDigest),
+                                d -> {
+                                  try {
+                                    return protocol.computeDigest(d);
+                                  } catch (IOException e) {
+                                    throw new RuntimeException(e);
+                                  }
+                                },
                                 child -> child));
 
                 ImmutableList.Builder<ListenableFuture<Void>> pendingFilesBuilder =

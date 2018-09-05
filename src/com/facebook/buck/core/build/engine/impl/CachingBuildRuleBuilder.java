@@ -69,11 +69,11 @@ import com.facebook.buck.core.rules.schedule.OverrideScheduleRule;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ThrowableConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
@@ -1023,15 +1023,13 @@ class CachingBuildRuleBuilder {
           }
 
           // Once remote build has finished, download artifact from cache using default key
-          return Futures.transformAsync(
-              remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule),
-              (Void v) ->
-                  Futures.transform(
-                      performRuleKeyCacheCheck(/* cacheHitExpected */ true),
-                      cacheResult -> {
-                        rulekeyCacheResult.set(cacheResult);
-                        return getBuildResultForRuleKeyCacheResult(cacheResult);
-                      }));
+          return Futures.transform(
+              remoteBuildRuleCompletionWaiter.waitForBuildRuleToAppearInCache(
+                  rule, () -> performRuleKeyCacheCheck(/* cacheHitExpected */ true)),
+              cacheResult -> {
+                rulekeyCacheResult.set(cacheResult);
+                return getBuildResultForRuleKeyCacheResult(cacheResult);
+              });
         });
   }
 

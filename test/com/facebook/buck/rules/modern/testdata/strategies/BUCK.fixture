@@ -3,6 +3,10 @@ touch_output(
     out = "some.path",
 )
 
+check_serialization(
+    name = "check_serialization",
+)
+
 large_dynamics(
     name = "large_dynamic",
     value = "a",
@@ -31,4 +35,8 @@ failing_rule(
 failing_rule(
     name = "failing_step",
     step_failure = True,
+)
+
+duplicate_outputs(
+    name = "duplicate_outputs",
 )

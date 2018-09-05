@@ -21,6 +21,7 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
@@ -32,6 +33,7 @@ import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
+import com.facebook.buck.event.CommandEvent.Finished;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.FlushConsoleEvent;
@@ -40,7 +42,6 @@ import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -53,15 +54,14 @@ import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Iterables;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
-import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -98,8 +98,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private static final int EXPECTED_MAXIMUM_RENDERED_LINE_LENGTH = 128;
 
   private static final Logger LOG = Logger.get(SuperConsoleEventBusListener.class);
-
-  @VisibleForTesting static final String EMOJI_BUNNY = "\uD83D\uDC07";
 
   private final Locale locale;
   private final Function<Long, String> formatTimeFunction;
@@ -138,11 +136,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final boolean shouldAlwaysSortThreadsByTime;
   private final long buildRuleMinimumDurationMillis;
 
-  private final DateFormat dateFormat;
   private int lastNumLinesPrinted;
 
   private Optional<String> parsingStatus = Optional.empty();
-  // Save if Watchman reported zero file changes in case we receive an ActionGraphCache hit. This
+  // Save if Watchman reported zero file changes in case we receive an ActionGraphProvider hit. This
   // way the user can know that their changes, if they made any, were not picked up from Watchman.
   private boolean isZeroFileChanges = false;
 
@@ -168,6 +165,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final int outputMaxColumns;
 
   private final Optional<String> buildIdLine;
+  private final Optional<String> buildDetailsLine;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
@@ -178,7 +176,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       Locale locale,
       Path testLogPath,
       TimeZone timeZone,
-      Optional<BuildId> buildId) {
+      BuildId buildId,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate) {
     this(
         config,
         console,
@@ -192,7 +192,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         500L,
         1000L,
         true,
-        buildId);
+        buildId,
+        printBuildId,
+        buildDetailsTemplate);
   }
 
   @VisibleForTesting
@@ -209,7 +211,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       long minimumDurationMillisecondsToShowActionGraph,
       long minimumDurationMillisecondsToShowWatchman,
       boolean hideEmptyDownload,
-      Optional<BuildId> buildId) {
+      BuildId buildId,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate) {
     super(
         console,
         clock,
@@ -253,8 +257,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.minimumDurationMillisecondsToShowWatchman = minimumDurationMillisecondsToShowWatchman;
     this.hideEmptyDownload = hideEmptyDownload;
 
-    this.dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
-    this.dateFormat.setTimeZone(timeZone);
+    DateFormat dateFormat = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]", this.locale);
+    dateFormat.setTimeZone(timeZone);
 
     // Using LinkedHashMap because we want a predictable iteration order.
     this.distBuildSlaveTracker = new LinkedHashMap<>();
@@ -279,10 +283,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       }
     }
     this.outputMaxColumns = outputMaxColumns;
-    this.buildIdLine =
-        buildId.isPresent()
-            ? Optional.of(SimpleConsoleEventBusListener.getBuildLogLine(buildId.get()))
-            : Optional.empty();
+    this.buildIdLine = printBuildId ? Optional.of(getBuildLogLine(buildId)) : Optional.empty();
+    this.buildDetailsLine =
+        buildDetailsTemplate.map(
+            template -> AbstractConsoleEventBusListener.getBuildDetailsLine(buildId, template));
   }
 
   /** Schedules a runnable that updates the console output at a fixed interval. */
@@ -573,7 +577,19 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     logHttpCacheUploads(lines);
+
+    maybePrintBuildDetails(lines);
+
     return lines.build();
+  }
+
+  private void maybePrintBuildDetails(Builder<String> lines) {
+    Finished commandFinishedEvent = commandFinished;
+    if (commandFinishedEvent != null
+        && buildDetailsCommands.contains(commandFinishedEvent.getCommandName())
+        && buildDetailsLine.isPresent()) {
+      lines.add(buildDetailsLine.get());
+    }
   }
 
   private void getTotalTimeLine(ImmutableList.Builder<String> lines) {
@@ -1047,19 +1063,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   public void envVariableChange(ParsingEvent.EnvVariableChange event) {
     printInfoDirectlyOnce("Action graph will be rebuilt because environment variables changed.");
     parsingStatus = Optional.of("envVariableChange");
-  }
-
-  @VisibleForTesting
-  static Optional<String> createParsingMessage(String emoji, String reason) {
-    if (Charset.defaultCharset().equals(Charsets.UTF_8)) {
-      return Optional.of(emoji + "  " + reason);
-    } else {
-      if (emoji.equals(EMOJI_BUNNY)) {
-        return Optional.of("(FAST)");
-      } else {
-        return Optional.of("(SLOW) " + reason);
-      }
-    }
   }
 
   @Override

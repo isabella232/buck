@@ -26,6 +26,7 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -33,9 +34,9 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.TargetSpecResolver.FlavorEnhancer;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -100,14 +101,11 @@ public class TargetSpecResolverTest {
             typeCoercerFactory,
             constructorArgMarshaller,
             knownRuleTypesProvider,
-            parserPythonInterpreterProvider);
+            parserPythonInterpreterProvider,
+            WatchmanFactory.NULL_WATCHMAN,
+            eventBus);
     targetNodeTargetSpecResolver = new TargetSpecResolver();
-    parser =
-        new DefaultParser(
-            perBuildStateFactory,
-            cell.getBuckConfig().getView(ParserConfig.class),
-            typeCoercerFactory,
-            targetNodeTargetSpecResolver);
+    parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory);
     flavorEnhancer = (target, targetNode, targetType) -> target;
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(1));
   }
@@ -192,15 +190,11 @@ public class TargetSpecResolverTest {
       throws IOException, InterruptedException {
     PerBuildState state =
         perBuildStateFactory.create(
-            parser.getPermState(),
-            eventBus,
-            executorService,
-            cell,
-            false,
-            SpeculativeParsing.DISABLED);
+            parser.getPermState(), executorService, cell, false, SpeculativeParsing.DISABLED);
     return targetNodeTargetSpecResolver.resolveTargetSpecs(
         eventBus,
         cell,
+        WatchmanFactory.NULL_WATCHMAN,
         specs,
         flavorEnhancer,
         state.getTargetNodeProviderForSpecResolver(),

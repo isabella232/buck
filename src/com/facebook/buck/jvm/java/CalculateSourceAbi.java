@@ -18,7 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
@@ -58,7 +58,7 @@ public class CalculateSourceAbi extends AbstractBuildRule
   private final BuildDeps buildDeps;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
   private final SourcePathRuleFinder ruleFinder;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   private final SourcePath sourcePathToOutput;
 
@@ -76,7 +76,7 @@ public class CalculateSourceAbi extends AbstractBuildRule
     this.sourcePathToOutput =
         Preconditions.checkNotNull(
             jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget(), getProjectFilesystem()));
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
   }
 
   @Override

@@ -23,8 +23,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -106,7 +106,7 @@ public class TargetNodeVisibilityTest {
     } catch (RuntimeException e) {
       assertEquals(
           String.format(
-              "%s depends on %s, which is not visible",
+              "%s depends on %s, which is not visible. More info at:\nhttps://buckbuild.com/concept/visibility.html",
               publicTarget, nonPublicTargetNode1.getBuildTarget()),
           e.getMessage());
     }
@@ -147,7 +147,7 @@ public class TargetNodeVisibilityTest {
     } catch (RuntimeException e) {
       assertEquals(
           String.format(
-              "%s depends on %s, which is not visible",
+              "%s depends on %s, which is not visible. More info at:\nhttps://buckbuild.com/concept/visibility.html",
               orcaTarget, nonPublicTargetNode2.getBuildTarget()),
           e.getMessage());
     }

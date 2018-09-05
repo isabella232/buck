@@ -17,6 +17,7 @@
 package com.facebook.buck.json;
 
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
@@ -25,7 +26,6 @@ import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.watchman.ProjectWatch;
 import com.facebook.buck.io.watchman.WatchmanDiagnostic;
 import com.facebook.buck.io.watchman.WatchmanDiagnosticEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
@@ -78,6 +78,9 @@ import javax.annotation.Nullable;
 public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   private static final String PYTHONPATH_ENV_VAR_NAME = "PYTHONPATH";
+  // https://docs.python.org/3/using/cmdline.html#envvar-PYTHONHASHSEED
+  private static final String PYTHON_HASH_SEED_ENV_VAR_NAME = "PYTHONHASHSEED";
+  private static final String PYTHON_HASH_SEED_VALUE = "7";
 
   private static final Logger LOG = Logger.get(PythonDslProjectBuildFileParser.class);
 
@@ -186,13 +189,20 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     try (SimplePerfEvent.Scope scope =
         SimplePerfEvent.scope(buckEventBus, PerfEventId.of("ParserInit"))) {
 
-      ImmutableMap.Builder<String, String> pythonEnvironmentBuilder = ImmutableMap.builder();
+      ImmutableMap.Builder<String, String> pythonEnvironmentBuilder =
+          ImmutableMap.builderWithExpectedSize(environment.size());
       // Strip out PYTHONPATH. buck.py manually sets this to include only nailgun. We don't want
       // to inject nailgun into the parser's PYTHONPATH, so strip that value out.
       // If we wanted to pass on some environmental PYTHONPATH, we would have to do some actual
       // merging of this and the BuckConfig's python module search path.
+      // Also ignore PYTHONHASHSEED environment variable passed by clients since Buck manages it to
+      // prevent non-determinism.
       pythonEnvironmentBuilder.putAll(
-          Maps.filterKeys(environment, k -> !PYTHONPATH_ENV_VAR_NAME.equals(k)));
+          Maps.filterKeys(
+              environment,
+              k -> !PYTHONPATH_ENV_VAR_NAME.equals(k) && !PYTHON_HASH_SEED_ENV_VAR_NAME.equals(k)));
+      // set Python hash seed to a fixed number to make parsing reproducible
+      pythonEnvironmentBuilder.put(PYTHON_HASH_SEED_ENV_VAR_NAME, PYTHON_HASH_SEED_VALUE);
 
       if (options.getPythonModuleSearchPath().isPresent()) {
         pythonEnvironmentBuilder.put(
@@ -426,7 +436,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   private BuildFileManifest toBuildFileManifest(ImmutableList<Map<String, Object>> values) {
     return BuildFileManifest.of(
         values.subList(0, values.size() - 3).asList(),
-        ImmutableSortedSet.copyOf(
+        ImmutableList.copyOf(
             Preconditions.checkNotNull(
                 (List<String>) values.get(values.size() - 3).get("__includes"))),
         Preconditions.checkNotNull(

@@ -17,10 +17,13 @@
 package com.facebook.buck.log;
 
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.concurrent.CommonThreadFactoryState;
+import com.facebook.buck.util.concurrent.ThreadIdToCommandIdMapper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;

@@ -26,26 +26,22 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.parser.DefaultParser;
-import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
@@ -263,7 +259,10 @@ public class CleanCommandTest {
       ImmutableMap.Builder<String, ImmutableMap<String, String>> mergeConfigBuilder =
           ImmutableMap.builder();
       mergeConfigBuilder.putAll(
-          command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME).getValues());
+          command
+              .getConfigOverrides(ImmutableMap.of())
+              .getForCell(CellName.ROOT_CELL_NAME)
+              .getValues());
       mergeConfigBuilder.put(
           "cache", ImmutableMap.of("dir_cache_names", "testcache, warmtestcache"));
       mergeConfigBuilder.put(
@@ -274,7 +273,7 @@ public class CleanCommandTest {
       buckConfigBuilder.setSections(mergeConfigBuilder.build());
     } else {
       buckConfigBuilder.setSections(
-          command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME));
+          command.getConfigOverrides(ImmutableMap.of()).getForCell(CellName.ROOT_CELL_NAME));
     }
     BuckConfig buckConfig = buckConfigBuilder.build();
     Cell cell =
@@ -290,25 +289,17 @@ public class CleanCommandTest {
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
     ExecutableFinder executableFinder = new ExecutableFinder();
-    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
 
     return CommandRunnerParams.of(
         new TestConsole(),
         new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
         cell,
+        WatchmanFactory.NULL_WATCHMAN,
         new InstrumentedVersionedTargetGraphCache(
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(new NoopArtifactCache()),
         typeCoercerFactory,
-        new DefaultParser(
-            new PerBuildStateFactory(
-                typeCoercerFactory,
-                new ConstructorArgMarshaller(typeCoercerFactory),
-                knownRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
-            parserConfig,
-            typeCoercerFactory,
-            new TargetSpecResolver()),
+        TestParserFactory.create(buckConfig, knownRuleTypesProvider),
         BuckEventBusForTests.newInstance(),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
@@ -323,7 +314,10 @@ public class CleanCommandTest {
         ImmutableMap.of(),
         new FakeExecutor(),
         CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
+        new ActionGraphProviderBuilder()
+            .withMaxEntries(buckConfig.getMaxActionGraphCacheEntries())
+            .withPoolSupplier(Main.getForkJoinPoolSupplier(buckConfig))
+            .build(),
         knownRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),

@@ -22,14 +22,15 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.apple.AppleBuildRules.RecursiveDependenciesMode;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -73,7 +74,8 @@ public class AppleResourcesTest {
             XCodeDescriptionsFactory.create(BuckPluginManagerFactory.createPluginManager()),
             targetGraph,
             Optional.empty(),
-            libNode),
+            libNode,
+            RecursiveDependenciesMode.COPYING),
         hasItem(resourceNode.getConstructorArg()));
   }
 
@@ -109,7 +111,8 @@ public class AppleResourcesTest {
             XCodeDescriptionsFactory.create(BuckPluginManagerFactory.createPluginManager()),
             targetGraph,
             Optional.empty(),
-            barLibNode),
+            barLibNode,
+            RecursiveDependenciesMode.COPYING),
         hasItems(fooResourceNode.getConstructorArg(), barResourceNode.getConstructorArg()));
   }
 }

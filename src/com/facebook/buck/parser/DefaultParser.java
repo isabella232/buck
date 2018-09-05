@@ -29,12 +29,12 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.core.util.graph.GraphTraversable;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
-import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -44,7 +44,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
@@ -68,19 +67,20 @@ public class DefaultParser implements Parser {
   private final PerBuildStateFactory perBuildStateFactory;
   private final DaemonicParserState permState;
   private final TargetSpecResolver targetSpecResolver;
+  private final Watchman watchman;
+  private final BuckEventBus eventBus;
 
   public DefaultParser(
+      DaemonicParserState daemonicParserState,
       PerBuildStateFactory perBuildStateFactory,
-      ParserConfig parserConfig,
-      TypeCoercerFactory typeCoercerFactory,
-      TargetSpecResolver targetSpecResolver) {
+      TargetSpecResolver targetSpecResolver,
+      Watchman watchman,
+      BuckEventBus eventBus) {
     this.perBuildStateFactory = perBuildStateFactory;
-    this.permState =
-        new DaemonicParserState(
-            typeCoercerFactory,
-            parserConfig.getNumParsingThreads(),
-            parserConfig.shouldIgnoreEnvironmentVariablesChanges());
+    this.watchman = watchman;
+    this.permState = daemonicParserState;
     this.targetSpecResolver = targetSpecResolver;
+    this.eventBus = eventBus;
   }
 
   @Override
@@ -98,11 +98,7 @@ public class DefaultParser implements Parser {
 
   @Override
   public ImmutableSet<TargetNode<?>> getAllTargetNodes(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Path buildFile)
+      Cell cell, boolean enableProfiling, ListeningExecutorService executor, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(
         buildFile.isAbsolute(),
@@ -116,22 +112,18 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.ENABLED)) {
+            permState, executor, cell, enableProfiling, SpeculativeParsing.ENABLED)) {
       return state.getAllTargetNodes(cell, buildFile);
     }
   }
 
   @Override
   public TargetNode<?> getTargetNode(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      BuildTarget target)
+      Cell cell, boolean enableProfiling, ListeningExecutorService executor, BuildTarget target)
       throws BuildFileParseException {
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
+            permState, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
       return state.getTargetNode(target);
     }
   }
@@ -187,7 +179,6 @@ public class DefaultParser implements Parser {
   @Deprecated
   @Override
   public SortedMap<String, Object> getTargetNodeRawAttributes(
-      BuckEventBus eventBus,
       Cell cell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -196,7 +187,7 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
+            permState, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
       return getTargetNodeRawAttributes(state, cell, targetNode);
     }
   }
@@ -217,7 +208,6 @@ public class DefaultParser implements Parser {
 
   @Override
   public TargetGraph buildTargetGraph(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -229,13 +219,12 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
-      return buildTargetGraph(state, eventBus, toExplore);
+            permState, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
+      return buildTargetGraph(state, toExplore);
     }
   }
 
-  private TargetGraph buildTargetGraph(
-      PerBuildState state, BuckEventBus eventBus, Iterable<BuildTarget> toExplore)
+  private TargetGraph buildTargetGraph(PerBuildState state, Iterable<BuildTarget> toExplore)
       throws IOException, InterruptedException, BuildFileParseException {
 
     if (Iterables.isEmpty(toExplore)) {
@@ -308,20 +297,17 @@ public class DefaultParser implements Parser {
   }
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
   @Override
   public synchronized TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs)
       throws BuildFileParseException, IOException, InterruptedException {
     return buildTargetGraphForTargetNodeSpecs(
-        eventBus,
         rootCell,
         enableProfiling,
         executor,
@@ -330,13 +316,11 @@ public class DefaultParser implements Parser {
   }
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
   @Override
   public synchronized TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -346,7 +330,7 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
+            permState, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
 
       ImmutableSet<BuildTarget> buildTargets =
           ImmutableSet.copyOf(
@@ -354,13 +338,14 @@ public class DefaultParser implements Parser {
                   targetSpecResolver.resolveTargetSpecs(
                       eventBus,
                       rootCell,
+                      watchman,
                       targetNodeSpecs,
                       (buildTarget, targetNode, targetType) ->
                           applyDefaultFlavors(
                               buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
                       state.getTargetNodeProviderForSpecResolver(),
                       (spec, nodes) -> spec.filter(nodes))));
-      TargetGraph graph = buildTargetGraph(state, eventBus, buildTargets);
+      TargetGraph graph = buildTargetGraph(state, buildTargets);
 
       return TargetGraphAndBuildTargets.builder()
           .setBuildTargets(buildTargets)
@@ -376,7 +361,6 @@ public class DefaultParser implements Parser {
 
   @Override
   public ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -387,10 +371,11 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, eventBus, executor, rootCell, enableProfiling, speculativeParsing)) {
+            permState, executor, rootCell, enableProfiling, speculativeParsing)) {
       return targetSpecResolver.resolveTargetSpecs(
           eventBus,
           rootCell,
+          watchman,
           specs,
           (buildTarget, targetNode, targetType) ->
               applyDefaultFlavors(buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
@@ -429,10 +414,5 @@ public class DefaultParser implements Parser {
     }
 
     return target.withFlavors(defaultFlavors);
-  }
-
-  @Override
-  public void register(EventBus eventBus) {
-    eventBus.register(permState);
   }
 }

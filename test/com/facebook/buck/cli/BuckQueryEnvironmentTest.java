@@ -25,6 +25,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -32,15 +33,14 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.parser.DefaultParser;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
-import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
@@ -107,14 +107,13 @@ public class BuckQueryEnvironmentTest {
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownRuleTypesProvider,
-            new ParserPythonInterpreterProvider(parserConfig, executableFinder));
-    Parser parser =
-        new DefaultParser(
-            perBuildStateFactory, parserConfig, typeCoercerFactory, new TargetSpecResolver());
+            new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+            WatchmanFactory.NULL_WATCHMAN,
+            eventBus);
+    Parser parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory, eventBus);
     parserState =
         perBuildStateFactory.create(
             parser.getPermState(),
-            eventBus,
             executor,
             cell,
             /* enableProfiling */ false,
@@ -122,8 +121,8 @@ public class BuckQueryEnvironmentTest {
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
-            cell, FakeBuckConfig.builder().build(), parser, eventBus, /* enableProfiling */ false);
-    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser, eventBus);
+            cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false);
+    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser);
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     buckQueryEnvironment =
         BuckQueryEnvironment.from(

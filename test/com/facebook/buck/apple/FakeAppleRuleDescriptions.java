@@ -29,6 +29,7 @@ import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.CxxBinaryFactory;
@@ -46,7 +47,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
@@ -314,6 +314,7 @@ public class FakeAppleRuleDescriptions {
         xcodeDescriptions,
         SWIFT_LIBRARY_DESCRIPTION,
         DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+        DEFAULT_BUCK_CONFIG.getView(SwiftBuckConfig.class),
         cxxBinaryImplicitFlavors,
         cxxBinaryFactory,
         cxxBinaryMetadataFactory,
@@ -327,7 +328,8 @@ public class FakeAppleRuleDescriptions {
           XCodeDescriptionsFactory.create(BuckPluginManagerFactory.createPluginManager()),
           BINARY_DESCRIPTION,
           LIBRARY_DESCRIPTION,
-          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
+          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+          DEFAULT_BUCK_CONFIG.getView(SwiftBuckConfig.class));
 
   /** A fake apple_test description with an iOS platform for use in tests. */
   public static final AppleTestDescription TEST_DESCRIPTION =
@@ -335,6 +337,7 @@ public class FakeAppleRuleDescriptions {
           createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           XCodeDescriptionsFactory.create(BuckPluginManagerFactory.createPluginManager()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+          DEFAULT_BUCK_CONFIG.getView(SwiftBuckConfig.class),
           LIBRARY_DESCRIPTION);
 
   private static ToolchainProvider createTestToolchainProviderForSwiftPlatform(

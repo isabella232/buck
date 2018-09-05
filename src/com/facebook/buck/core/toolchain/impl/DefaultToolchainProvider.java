@@ -25,9 +25,9 @@ import com.facebook.buck.core.toolchain.ToolchainFactory;
 import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.core.toolchain.ToolchainSupplier;
 import com.facebook.buck.core.toolchain.ToolchainWithCapability;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.cache.CacheBuilder;
@@ -88,7 +88,7 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
         loadToolchainDescriptorsFromPlugins(pluginManager).collect(ImmutableList.toImmutableList());
 
     ImmutableMap.Builder<String, Class<? extends ToolchainFactory<?>>> toolchainFactoriesBuilder =
-        ImmutableMap.builder();
+        ImmutableMap.builderWithExpectedSize(toolchainDescriptors.size());
     for (ToolchainDescriptor<?> toolchainDescriptor : toolchainDescriptors) {
       toolchainFactoriesBuilder.put(
           toolchainDescriptor.getName(), toolchainDescriptor.getToolchainFactoryClass());

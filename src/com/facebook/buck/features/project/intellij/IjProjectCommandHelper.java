@@ -23,14 +23,13 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
-import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.features.project.intellij.aggregation.AggregationMode;
@@ -51,13 +50,11 @@ import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
+import com.facebook.buck.test.selectors.Nullable;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.buck.versions.VersionedTargetGraphAndTargets;
@@ -72,7 +69,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 
 public class IjProjectCommandHelper {
@@ -82,16 +78,15 @@ public class IjProjectCommandHelper {
   private final ListeningExecutorService executor;
   private final Parser parser;
   private final BuckConfig buckConfig;
-  private final ActionGraphCache actionGraphCache;
+  private final ActionGraphProvider actionGraphProvider;
   private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
-  private final RuleKeyConfiguration ruleKeyConfiguration;
   private final IjProjectConfig projectConfig;
   private final boolean enableParserProfiling;
   private final boolean processAnnotations;
   private final boolean updateOnly;
-  private final String outputDir;
+  private final @Nullable String outputDir;
   private final BuckBuildRunner buckBuildRunner;
   private final Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser;
 
@@ -101,11 +96,10 @@ public class IjProjectCommandHelper {
       BuckEventBus buckEventBus,
       ListeningExecutorService executor,
       BuckConfig buckConfig,
-      ActionGraphCache actionGraphCache,
+      ActionGraphProvider actionGraphProvider,
       InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
       Cell cell,
-      RuleKeyConfiguration ruleKeyConfiguration,
       IjProjectConfig projectConfig,
       boolean enableParserProfiling,
       boolean processAnnotations,
@@ -119,11 +113,10 @@ public class IjProjectCommandHelper {
     this.executor = executor;
     this.parser = projectGeneratorParameters.getParser();
     this.buckConfig = buckConfig;
-    this.actionGraphCache = actionGraphCache;
+    this.actionGraphProvider = actionGraphProvider;
     this.versionedTargetGraphCache = versionedTargetGraphCache;
     this.typeCoercerFactory = typeCoercerFactory;
     this.cell = cell;
-    this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.projectConfig = projectConfig;
     this.enableParserProfiling = enableParserProfiling;
     this.processAnnotations = processAnnotations;
@@ -157,7 +150,6 @@ public class IjProjectCommandHelper {
           ImmutableSet.copyOf(
               Iterables.concat(
                   parser.resolveTargetSpecs(
-                      buckEventBus,
                       cell,
                       enableParserProfiling,
                       executor,
@@ -209,21 +201,8 @@ public class IjProjectCommandHelper {
   }
 
   private ActionGraphAndBuilder getActionGraph(TargetGraph targetGraph) {
-    try (CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier =
-        CloseableMemoizedSupplier.of(
-            () ->
-                MostExecutors.forkJoinPoolWithThreadLimit(
-                    buckConfig.getView(ResourcesConfig.class).getMaximumResourceAmounts().getCpu(),
-                    16),
-            ForkJoinPool::shutdownNow)) {
-      return actionGraphCache.getActionGraph(
-          buckEventBus,
-          targetGraph,
-          cell.getCellProvider(),
-          buckConfig.getView(ActionGraphConfig.class),
-          ruleKeyConfiguration,
-          forkJoinPoolSupplier);
-    }
+    TargetNodeToBuildRuleTransformer transformer = new ShallowTargetNodeToBuildRuleTransformer();
+    return actionGraphProvider.getFreshActionGraph(transformer, targetGraph);
   }
 
   private TargetGraph getProjectGraphForIde(
@@ -233,7 +212,6 @@ public class IjProjectCommandHelper {
     if (passedInTargets.isEmpty()) {
       return parser
           .buildTargetGraphForTargetNodeSpecs(
-              buckEventBus,
               cell,
               enableParserProfiling,
               executor,
@@ -243,8 +221,7 @@ public class IjProjectCommandHelper {
           .getTargetGraph();
     }
     Preconditions.checkState(!passedInTargets.isEmpty());
-    return parser.buildTargetGraph(
-        buckEventBus, cell, enableParserProfiling, executor, passedInTargets);
+    return parser.buildTargetGraph(cell, enableParserProfiling, executor, passedInTargets);
   }
 
   /** Run intellij specific project generation actions. */
@@ -413,11 +390,7 @@ public class IjProjectCommandHelper {
       explicitTestTargets = getExplicitTestTargets(graphRoots, projectGraph);
       projectGraph =
           parser.buildTargetGraph(
-              buckEventBus,
-              cell,
-              enableParserProfiling,
-              executor,
-              Sets.union(graphRoots, explicitTestTargets));
+              cell, enableParserProfiling, executor, Sets.union(graphRoots, explicitTestTargets));
     }
 
     TargetGraphAndTargets targetGraphAndTargets =

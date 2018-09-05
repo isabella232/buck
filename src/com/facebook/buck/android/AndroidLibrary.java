@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.AndroidLibraryDescription.CoreArg;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -132,7 +132,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   @Override
   public void addToCollector(AndroidPackageableCollector collector) {
     super.addToCollector(collector);
-    manifestFile.ifPresent(collector::addManifestPiece);
+    if (manifestFile.isPresent()) {
+      collector.addManifestPiece(this.getBuildTarget(), manifestFile.get());
+    }
   }
 
   public static class Builder {

@@ -31,9 +31,13 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
+import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
+import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -59,7 +63,9 @@ public class RuleKeyLoggerListenerTest {
     projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tempDirectory.getRoot().toPath());
     outputExecutor =
-        MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()));
+        MostExecutors.newSingleThreadExecutor(
+            new CommandThreadFactory(
+                getClass().getName(), GlobalStateManager.singleton().getThreadToCommandRegister()));
     info =
         InvocationInfo.of(
             new BuildId(),
@@ -74,33 +80,41 @@ public class RuleKeyLoggerListenerTest {
 
   @Test
   public void testFileIsNotCreatedWithoutEvents() throws InterruptedException {
-    RuleKeyLoggerListener listener = newInstance(1);
+    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
+    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
     listener.close();
+    bgTaskManager.notify(Notification.COMMAND_END);
     Assert.assertFalse(Files.exists(listener.getLogFilePath()));
   }
 
   @Test
   public void testSendingHttpCacheEvent() throws InterruptedException, IOException {
-    RuleKeyLoggerListener listener = newInstance(1);
+    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
+    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.MISS));
     listener.close();
+    bgTaskManager.notify(Notification.COMMAND_END);
     Assert.assertTrue(Files.exists(listener.getLogFilePath()));
     Assert.assertTrue(Files.size(listener.getLogFilePath()) > 0);
   }
 
   @Test
   public void testSendingInvalidHttpCacheEvent() throws InterruptedException {
-    RuleKeyLoggerListener listener = newInstance(1);
+    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
+    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.HIT));
     listener.close();
+    bgTaskManager.notify(Notification.COMMAND_END);
     Assert.assertFalse(Files.exists(listener.getLogFilePath()));
   }
 
   @Test
   public void testSendingBuildEvent() throws InterruptedException, IOException {
-    RuleKeyLoggerListener listener = newInstance(1);
+    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
+    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
     listener.onBuildRuleEvent(createBuildEvent());
     listener.close();
+    bgTaskManager.notify(Notification.COMMAND_END);
     Assert.assertTrue(Files.exists(listener.getLogFilePath()));
     Assert.assertTrue(Files.size(listener.getLogFilePath()) > 0);
   }
@@ -142,7 +156,9 @@ public class RuleKeyLoggerListenerTest {
         CacheResult.builder().setType(type).setCacheSource("random source").build());
   }
 
-  private RuleKeyLoggerListener newInstance(int minLinesForAutoFlush) {
-    return new RuleKeyLoggerListener(projectFilesystem, info, outputExecutor, minLinesForAutoFlush);
+  private RuleKeyLoggerListener newInstance(
+      BackgroundTaskManager bgTaskManager, int minLinesForAutoFlush) {
+    return new RuleKeyLoggerListener(
+        projectFilesystem, info, outputExecutor, bgTaskManager, minLinesForAutoFlush);
   }
 }

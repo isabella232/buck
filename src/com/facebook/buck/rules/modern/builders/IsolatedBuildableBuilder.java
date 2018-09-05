@@ -20,6 +20,10 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.AbstractBuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -36,7 +40,6 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.modern.Deserializer;
 import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.ModernBuildRule;
@@ -284,12 +287,21 @@ public abstract class IsolatedBuildableBuilder {
     }
 
     try (Scope ignored = LeafEvents.scope(eventBus, "steps")) {
+      ProjectFilesystem filesystem = filesystemFunction.apply(reconstructed.target.getCell());
+      ModernBuildRule.injectFieldsIfNecessary(
+          filesystem,
+          reconstructed.target,
+          reconstructed.buildable,
+          new SourcePathRuleFinder(
+              new AbstractBuildRuleResolver() {
+                @Override
+                public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+                  throw new RuntimeException("Cannot resolve rules in deserialized MBR state.");
+                }
+              }));
       for (Step step :
           ModernBuildRule.stepsForBuildable(
-              buildContext,
-              reconstructed.buildable,
-              filesystemFunction.apply(reconstructed.target.getCell()),
-              reconstructed.target)) {
+              buildContext, reconstructed.buildable, filesystem, reconstructed.target)) {
         new DefaultStepRunner()
             .runStepForBuildTarget(executionContext, step, Optional.of(reconstructed.target));
       }

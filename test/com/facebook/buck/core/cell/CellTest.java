@@ -20,7 +20,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -160,8 +159,8 @@ public class CellTest {
             .setFilesystem(filesystem1)
             .setCellConfigOverride(
                 CellConfig.builder()
-                    .put(RelativeCellName.fromComponents("second"), "test", "value", "cell2")
-                    .put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
+                    .put(CellName.of("second"), "test", "value", "cell2")
+                    .put(CellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
                     .build())
             .build();
     BuildTarget target =

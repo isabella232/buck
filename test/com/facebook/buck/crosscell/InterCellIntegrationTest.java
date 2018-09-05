@@ -37,28 +37,15 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
-import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.TargetSpecResolver;
+import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
-import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -94,7 +81,6 @@ import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-import org.pf4j.PluginManager;
 
 /** Cross-cell related integration tests that don't fit anywhere else. */
 public class InterCellIntegrationTest {
@@ -383,22 +369,7 @@ public class InterCellIntegrationTest {
     registerCell(secondary, "primary", primary);
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
-    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
-    ParserConfig parserConfig = primary.asCell().getBuckConfig().getView(ParserConfig.class);
-    KnownRuleTypesProvider knownRuleTypesProvider =
-        TestKnownRuleTypesProvider.create(pluginManager);
-    TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
-    Parser parser =
-        new DefaultParser(
-            new PerBuildStateFactory(
-                coercerFactory,
-                new ConstructorArgMarshaller(coercerFactory),
-                knownRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
-            parserConfig,
-            coercerFactory,
-            new TargetSpecResolver());
-    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
+    Parser parser = TestParserFactory.create(primary.asCell().getBuckConfig());
 
     Cell primaryCell = primary.asCell();
     BuildTarget namedTarget =
@@ -406,7 +377,6 @@ public class InterCellIntegrationTest {
 
     // It's enough that this parses cleanly.
     parser.buildTargetGraph(
-        eventBus,
         primaryCell,
         false,
         MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
@@ -478,11 +448,10 @@ public class InterCellIntegrationTest {
     TestDataHelper.overrideBuckconfig(
         secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
 
-    Path arg = tmp.newFile("buckconfig");
-    Files.write(arg, ImmutableList.of("[cxx]", "  cc ="));
+    Files.write(secondary.resolve("buckconfig"), ImmutableList.of("[cxx]", "  cc ="));
 
     ProcessResult result =
-        primary.runBuckBuild("--config-file", "secondary//=" + arg, "//:cxxbinary");
+        primary.runBuckBuild("--config-file", "secondary//buckconfig", "//:cxxbinary");
 
     result.assertSuccess();
   }

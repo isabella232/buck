@@ -33,15 +33,15 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -54,6 +54,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
 import java.io.IOException;
@@ -125,7 +126,7 @@ abstract class GoDescriptors {
       GoPlatform platform,
       Iterable<BuildTarget> deps,
       Iterable<BuildTarget> cgoDeps,
-      List<FileType> goFileTypes) {
+      List<ListType> goListTypes) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -178,7 +179,7 @@ abstract class GoDescriptors {
         ImmutableList.copyOf(assemblerFlags),
         platform,
         extraAsmOutputsBuilder.build(),
-        goFileTypes);
+        goListTypes);
   }
 
   @VisibleForTesting
@@ -212,7 +213,8 @@ abstract class GoDescriptors {
       ActionGraphBuilder graphBuilder,
       CxxPlatform cxxPlatform,
       Iterable<BuildRule> deps,
-      Linker.LinkableDepType linkStyle) {
+      Linker.LinkableDepType linkStyle,
+      Iterable<Arg> externalLinkerFlags) {
 
     // find all the CGoLibraries being in direct or non direct dependency to
     // declared deps
@@ -241,7 +243,7 @@ abstract class GoDescriptors {
             r -> Optional.empty());
 
     // skip setting any arg if no linkable inputs are present
-    if (linkableInput.getArgs().size() == 0) {
+    if (linkableInput.getArgs().size() == 0 && Iterables.size(externalLinkerFlags) == 0) {
       return argsBuilder.build();
     }
 
@@ -254,6 +256,7 @@ abstract class GoDescriptors {
     // add all arguments needed to link in the C/C++ platform runtime.
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(linkStyle)));
     argsBuilder.addAll(linkableInput.getArgs());
+    argsBuilder.addAll(externalLinkerFlags);
 
     return argsBuilder.build();
   }
@@ -269,6 +272,7 @@ abstract class GoDescriptors {
       List<String> compilerFlags,
       List<String> assemblerFlags,
       List<String> linkerFlags,
+      List<String> externalLinkerFlags,
       GoPlatform platform) {
     BuildTarget libraryTarget =
         buildTarget.withAppendedFlavors(InternalFlavor.of("compile"), platform.getFlavor());
@@ -291,7 +295,7 @@ abstract class GoDescriptors {
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableList.toImmutableList()),
             ImmutableList.of(),
-            Arrays.asList(FileType.GoFiles));
+            Arrays.asList(ListType.GoFiles));
     graphBuilder.addToIndex(library);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
@@ -331,17 +335,19 @@ abstract class GoDescriptors {
                     .addAll(BuildableSupport.getDepsCollection(cxxLinker, ruleFinder))
                     .build())
             .withoutExtraDeps(),
-        Optional.of(cxxLinker),
-        getCxxLinkerArgs(
-            graphBuilder,
-            platform.getCxxPlatform(),
-            library.getBuildDeps(),
-            Linker.LinkableDepType.STATIC_PIC),
         resources,
         symlinkTree,
         library,
         platform.getLinker(),
+        cxxLinker,
         ImmutableList.copyOf(linkerFlags),
+        getCxxLinkerArgs(
+            graphBuilder,
+            platform.getCxxPlatform(),
+            library.getBuildDeps(),
+            Linker.LinkableDepType.STATIC_PIC,
+            StringArg.from(
+                Iterables.concat(platform.getExternalLinkerFlags(), externalLinkerFlags))),
         platform);
   }
 
@@ -388,6 +394,7 @@ abstract class GoDescriptors {
                   goBuckConfig,
                   ImmutableSet.of(writeFile.getSourcePathToOutput()),
                   ImmutableSortedSet.of(),
+                  ImmutableList.of(),
                   ImmutableList.of(),
                   ImmutableList.of(),
                   ImmutableList.of(),
@@ -466,18 +473,17 @@ abstract class GoDescriptors {
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       ImmutableSet<GoLinkable> linkables) {
-    ImmutableMap.Builder<Path, SourcePath> treeMapBuilder = ImmutableMap.builder();
-    for (GoLinkable linkable : linkables) {
-      for (Map.Entry<Path, SourcePath> linkInput : linkable.getGoLinkInput().entrySet()) {
-        treeMapBuilder.put(
-            getPathInSymlinkTree(pathResolver, linkInput.getKey(), linkInput.getValue()),
-            linkInput.getValue());
-      }
-    }
 
     ImmutableMap<Path, SourcePath> treeMap;
     try {
-      treeMap = treeMapBuilder.build();
+      treeMap =
+          linkables
+              .stream()
+              .flatMap(linkable -> linkable.getGoLinkInput().entrySet().stream())
+              .collect(
+                  ImmutableMap.toImmutableMap(
+                      entry -> getPathInSymlinkTree(pathResolver, entry.getKey(), entry.getValue()),
+                      entry -> entry.getValue()));
     } catch (IllegalArgumentException ex) {
       throw new HumanReadableException(
           ex,

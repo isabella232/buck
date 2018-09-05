@@ -1887,6 +1887,58 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'cxx' /}
+  {param name: 'should_remap_host_platform' /}
+  {param example_value: 'true' /}
+  {param description}
+    <p>
+    Whether the <code>default</code> flavor should be remapped to the
+    {sp}<a href="#cxx.host_platform"><code>host_platform</code></a>.
+    If <code>host_platform</code> is not set, Buck will fall back to the
+    inferred host platform.
+    </p>
+
+    <p>
+    Default is <code>false</code>.
+    </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'host_platform' /}
+  {param example_value: 'linux-x86_64' /}
+  {param description}
+    <p>
+    Override the inferred <code>host_platform</code> for build rules. Unused unless
+    {sp}<a href="#cxx.should_remap_host_platform"><code>should_remap_host_platform</code></a>{sp}
+    is also set to true.
+    </p>
+
+    <p>
+    Default is inferred based on the local computer from one of
+    <ul>
+      <li><code>LINUX</code></li>
+      <li><code>MACOS</code></li>
+      <li><code>FREEBSD</code></li>
+      <li><code>WINDOWS</code></li>
+    </ul>
+    </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'default_platform' /}
+  {param example_value: 'iphonesimulator-x86_64' /}
+  {param description}
+    <p>
+      Override the default platform for build rules.
+    </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
   {param name: 'pch_enabled' /}
   {param example_value: 'false' /}
   {param description}
@@ -1914,7 +1966,7 @@ cxx_library(
   {param description}
     The number of jobs that each C/C++ link rule consumes when running.
     By default, this is <code>1</code>, but this can overridden to change
-    how many link rules can execute in parallel for a given <code>-j</code>
+    how many link rules can execute in parallel for a given <code>-j</code>{sp}
     value.
     This is useful for builds with large I/O intensive static links where using
     a lower <code>-j</code> value is undesirable (since it reduces the parallelism
@@ -2381,7 +2433,7 @@ cxx_library(
 {call buckconfig.entry}
   {param section: 'intellij' /}
   {param name: 'project_compiler_output_url' /}
-  {param example_value: 'build-ij/classes' /}
+  {param example_value: 'intellij-out/classes' /}
   {param description}
     The output directory for IntelliJ's builds.
   {/param}
@@ -2762,6 +2814,19 @@ cxx_library(
     <code>true</code> if Buck should output to a machine readable log file under name <code>
     buck-machine-log</code>. Log entries are formatted one per line like <code>< Event type >
     < space >< JSON ></code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'log' /}
+  {param name: 'build_details_template' /}
+  {param example_value}
+    {literal}"Details at https://example.com/builds/{build_id}"{/literal}
+  {/param}
+  {param description}
+    If provided, Buck prints the specified string at the end of each build.
+    The string <code>{lb}build_id{rb}</code> is replaced with the current build ID.
+    This can be helpful to link to external systems that may have more details about the build.
   {/param}
 {/call}
 

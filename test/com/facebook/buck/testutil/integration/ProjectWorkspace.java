@@ -36,6 +36,8 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProviderFactory;
 import com.facebook.buck.io.ExecutableFinder;
@@ -45,13 +47,10 @@ import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
-import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.testutil.AbstractWorkspace;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TestConsole;
@@ -606,7 +605,6 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
     return LocalCellProviderFactory.create(
             filesystem,
-            WatchmanFactory.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
             rootCellCellPathResolver.getPathMapping(),

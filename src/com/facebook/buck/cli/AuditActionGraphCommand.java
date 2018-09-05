@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -27,8 +26,8 @@ import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
 import com.facebook.buck.core.util.graph.Dot;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
@@ -69,7 +68,6 @@ public class AuditActionGraphCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphForTargetNodeSpecs(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   pool.getListeningExecutorService(),
@@ -84,14 +82,8 @@ public class AuditActionGraphCommand extends AbstractCommand {
       // Create the action graph.
       ActionGraphAndBuilder actionGraphAndBuilder =
           params
-              .getActionGraphCache()
-              .getActionGraph(
-                  params.getBuckEventBus(),
-                  targetGraphAndBuildTargets.getTargetGraph(),
-                  params.getCell().getCellProvider(),
-                  params.getBuckConfig().getView(ActionGraphConfig.class),
-                  params.getRuleKeyConfiguration(),
-                  params.getPoolSupplier());
+              .getActionGraphProvider()
+              .getActionGraph(targetGraphAndBuildTargets.getTargetGraph());
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder());
 

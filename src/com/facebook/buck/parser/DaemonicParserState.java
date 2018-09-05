@@ -17,11 +17,12 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.counters.Counter;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.TagSetCounter;
@@ -29,14 +30,13 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
 import com.facebook.buck.io.watchman.WatchmanPathEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
-import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
+import com.facebook.buck.util.concurrent.AutoCloseableReadWriteLock;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
@@ -214,7 +214,8 @@ public class DaemonicParserState {
       // invalidated mid-way through the parse).
       invalidateIfProjectBuildFileParserStateChanged(cell);
 
-      ImmutableSet.Builder<Map<String, Object>> withoutMetaIncludesBuilder = ImmutableSet.builder();
+      ImmutableSet.Builder<Map<String, Object>> withoutMetaIncludesBuilder =
+          ImmutableSet.builderWithExpectedSize(rawNodes.size());
       ImmutableSet.Builder<Path> dependentsOfEveryNode = ImmutableSet.builder();
       ImmutableMap<String, Optional<String>> env = ImmutableMap.of();
       for (Map<String, Object> rawNode : rawNodes) {
@@ -299,8 +300,8 @@ public class DaemonicParserState {
   @GuardedBy("cachedStateLock")
   private Map<Path, Iterable<String>> cachedIncludes;
 
-  private final AutoCloseableReadWriteUpdateLock cachedStateLock;
-  private final AutoCloseableReadWriteUpdateLock cellStateLock;
+  private final AutoCloseableReadWriteLock cachedStateLock;
+  private final AutoCloseableReadWriteLock cellStateLock;
 
   public DaemonicParserState(
       TypeCoercerFactory typeCoercerFactory,
@@ -347,8 +348,8 @@ public class DaemonicParserState {
 
     this.rawNodeCache = new DaemonicRawCacheView();
 
-    this.cachedStateLock = new AutoCloseableReadWriteUpdateLock();
-    this.cellStateLock = new AutoCloseableReadWriteUpdateLock();
+    this.cachedStateLock = new AutoCloseableReadWriteLock();
+    this.cellStateLock = new AutoCloseableReadWriteLock();
   }
 
   TypeCoercerFactory getTypeCoercerFactory() {

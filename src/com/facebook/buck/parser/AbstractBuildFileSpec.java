@@ -20,12 +20,12 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.watchman.ProjectWatch;
 import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.io.watchman.WatchmanClient;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -263,7 +263,7 @@ abstract class AbstractBuildFileSpec {
 
   /** @return paths to build files that this spec match in the given {@link ProjectFilesystem}. */
   public ImmutableSet<Path> findBuildFiles(
-      Cell cell, ParserConfig.BuildFileSearchMethod buildFileSearchMethod)
+      Cell cell, Watchman watchman, ParserConfig.BuildFileSearchMethod buildFileSearchMethod)
       throws IOException, InterruptedException {
     ImmutableSet.Builder<Path> buildFiles = ImmutableSet.builder();
 
@@ -271,7 +271,7 @@ abstract class AbstractBuildFileSpec {
         cell.getFilesystem(),
         cell.getBuildFileName(),
         buildFileSearchMethod,
-        cell.getWatchman(),
+        watchman,
         buildFiles::add);
 
     return buildFiles.build();

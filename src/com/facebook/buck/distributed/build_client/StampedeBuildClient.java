@@ -19,6 +19,7 @@ import com.facebook.buck.command.LocalBuildExecutorInvoker;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
 import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistLocalBuildMode;
@@ -26,7 +27,6 @@ import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -115,11 +115,12 @@ public class StampedeBuildClient {
       ClientStatsTracker clientStatsTracker,
       boolean waitGracefullyForDistributedBuildThreadToFinish,
       long distributedBuildThreadKillTimeoutSeconds,
-      Optional<String> autoStampedeMessage) {
+      Optional<String> autoStampedeMessage,
+      RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer) {
     this.localBuildExecutorInvoker = localBuildExecutorInvoker;
     this.eventBus = eventBus;
     this.clientStatsTracker = clientStatsTracker;
-    this.remoteBuildRuleSynchronizer = new RemoteBuildRuleSynchronizer();
+    this.remoteBuildRuleSynchronizer = remoteBuildRuleSynchronizer;
     this.autoStampedeMessage = autoStampedeMessage;
     this.racerBuildRunner =
         createStampedeLocalBuildRunner(

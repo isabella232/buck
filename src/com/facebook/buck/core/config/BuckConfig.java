@@ -61,6 +61,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /** Structured representation of data read from a {@code .buckconfig} file. */
 public class BuckConfig {
@@ -111,7 +112,9 @@ public class BuckConfig {
             "chrome_trace_generation",
             "compress_traces",
             "max_traces",
-            "public_announcements"));
+            "public_announcements",
+            "log_build_id_to_console_enabled",
+            "build_details_template"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of("ide_prompt"));
     ignoreFieldsForDaemonRestartBuilder.put("ui", ImmutableSet.of("superconsole"));
     ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
@@ -223,23 +226,17 @@ public class BuckConfig {
     Optional<ImmutableList<String>> rawPaths =
         config.getOptionalListWithoutComments(section, field);
 
-    if (rawPaths.isPresent()) {
-      ImmutableList<Path> paths =
-          rawPaths
-              .get()
-              .stream()
-              .map(
-                  input ->
-                      convertPath(
-                          input,
-                          resolve,
-                          String.format(
-                              "Error in %s.%s: Cell-relative path not found", section, field)))
-              .collect(ImmutableList.toImmutableList());
-      return Optional.of(paths);
+    if (!rawPaths.isPresent()) {
+      return Optional.empty();
     }
 
-    return Optional.empty();
+    Stream<Path> paths = rawPaths.get().stream().map(this::getPathFromVfs);
+    if (resolve) {
+      paths = paths.map(projectFilesystem::getPathForRelativePath);
+    }
+    paths = paths.filter(projectFilesystem::exists);
+
+    return Optional.of(paths.collect(ImmutableList.toImmutableList()));
   }
 
   public ImmutableSet<String> getBuildTargetForAliasAsString(String possiblyFlavoredAlias) {
@@ -847,12 +844,6 @@ public class BuckConfig {
         : getPathFromVfs(pathString);
   }
 
-  private Path convertPath(String pathString, boolean resolve, String error) {
-    return resolve
-        ? checkPathExistsAndResolve(pathString, error)
-        : checkPathExists(pathString, error);
-  }
-
   public Path checkPathExistsAndResolve(String pathString, String errorMsg) {
     return projectFilesystem.getPathForRelativePath(checkPathExists(pathString, errorMsg));
   }
@@ -1007,5 +998,9 @@ public class BuckConfig {
    */
   public boolean getShouldDeleteTemporaries() {
     return config.getBooleanValue("build", "delete_temporaries", false);
+  }
+
+  public Optional<String> getBuildDetailsTemplate() {
+    return config.get("log", "build_details_template");
   }
 }

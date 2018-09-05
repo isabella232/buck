@@ -22,7 +22,7 @@ import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
 import com.facebook.buck.core.util.graph.Dot;
 import com.facebook.buck.core.util.graph.Dot.Builder;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
@@ -191,10 +191,11 @@ public class QueryCommand extends AbstractCommand {
                     new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
-                        params.getCell().getBuckConfig(), params.getExecutableFinder()))
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getWatchman(),
+                    params.getBuckEventBus())
                 .create(
                     params.getParser().getPermState(),
-                    params.getBuckEventBus(),
                     pool.getListeningExecutorService(),
                     params.getCell(),
                     getEnableParserProfiling(),

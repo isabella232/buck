@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -83,6 +83,7 @@ public class GoBinaryDescription
         args.getCompilerFlags(),
         args.getAssemblerFlags(),
         args.getLinkerFlags(),
+        args.getExternalLinkerFlags(),
         platform);
   }
 
@@ -124,6 +125,8 @@ public class GoBinaryDescription
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
+
+    ImmutableList<String> getExternalLinkerFlags();
 
     @Value.NaturalOrder
     ImmutableSortedSet<SourcePath> getResources();

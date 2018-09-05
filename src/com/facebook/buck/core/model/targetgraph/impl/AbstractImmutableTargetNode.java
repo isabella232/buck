@@ -16,7 +16,7 @@
 
 package com.facebook.buck.core.model.targetgraph.impl;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -38,7 +38,6 @@ import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 /**
@@ -143,18 +142,6 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
     return Sets.union(getBuildDeps(), getTargetGraphOnlyDeps());
   }
 
-  /**
-   * Stream-style API for getting dependencies. This may return duplicates if certain dependencies
-   * are in both declared deps and exported deps.
-   *
-   * <p>This method can be faster than {@link #getBuildDeps()} in cases where repeated traversals
-   * and set operations are not necessary, as it avoids creating the intermediate set.
-   */
-  @Override
-  public Stream<BuildTarget> getBuildDepsStream() {
-    return Stream.concat(getDeclaredDeps().stream(), getExtraDeps().stream());
-  }
-
   @Override
   public boolean isVisibleTo(TargetNode<?> viewer) {
     return getVisibilityChecker().isVisibleTo(viewer);
@@ -164,7 +151,8 @@ abstract class AbstractImmutableTargetNode<T> implements TargetNode<T> {
   public void isVisibleToOrThrow(TargetNode<?> viewer) {
     if (!isVisibleTo(viewer)) {
       throw new HumanReadableException(
-          "%s depends on %s, which is not visible", viewer, getBuildTarget());
+          "%s depends on %s, which is not visible. More info at:\nhttps://buckbuild.com/concept/visibility.html",
+          viewer, getBuildTarget());
     }
   }
 
