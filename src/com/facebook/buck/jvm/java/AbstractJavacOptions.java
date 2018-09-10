@@ -35,7 +35,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.immutables.value.Value;
@@ -103,9 +102,6 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   public AnnotationProcessingParams getAnnotationProcessingParams() {
     return AnnotationProcessingParams.EMPTY;
   }
-
-  // TODO(cjhopman): Should this be added to the rulekey?
-  public abstract Set<String> getSafeAnnotationProcessors();
 
   @AddToRuleKey
   public abstract List<String> getExtraArguments();
@@ -192,14 +188,14 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
     AnnotationProcessingParams annotationProcessingParams = getAnnotationProcessingParams();
     if (!annotationProcessingParams.isEmpty()) {
       ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
-          annotationProcessingParams.getAnnotationProcessors(filesystem, pathResolver);
+          annotationProcessingParams.getAnnotationProcessors();
 
       // Specify processorpath to search for processors.
       optionsConsumer.addOptionValue(
           "processorpath",
           annotationProcessors
               .stream()
-              .map(ResolvedJavacPluginProperties::getClasspath)
+              .map(properties -> properties.getClasspath(pathResolver, filesystem))
               .flatMap(Arrays::stream)
               .distinct()
               .map(

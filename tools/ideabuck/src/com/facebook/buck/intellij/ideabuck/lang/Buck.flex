@@ -43,6 +43,7 @@ LINE_COMMENT=#.*
 GLOB_KEYWORD=(glob|subdir_glob)
 LOAD_KEYWORD=load
 MACROS=[A-Z_]([A-Z0-9_])+
+DOC_STRING=\"\"\".*\"\"\"?
 DOUBLE_QUOTED_STRING=\"([^\\\"\r\n]|\\[^\r\n])*\"?
 SINGLE_QUOTED_STRING='([^\\'\r\n]|\\[^\r\n])*'?
 NUMBER=-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]*)?
@@ -68,12 +69,14 @@ IDENTIFIER=[:jletter:] [:jletterdigit:]*
   "}"                         { return R_CURLY; }
   "{"                         { return L_CURLY; }
   ":"                         { return COLUMN; }
+  "%"                         { return PERCENT; }
 
   {BOOLEAN}                   { return BOOLEAN; }
   {LINE_COMMENT}              { return LINE_COMMENT; }
   {GLOB_KEYWORD}              { return GLOB_KEYWORD; }
   {LOAD_KEYWORD}              { return LOAD_KEYWORD; }
   {MACROS}                    { return MACROS; }
+  {DOC_STRING}                { return DOC_STRING; }
   {DOUBLE_QUOTED_STRING}      { return DOUBLE_QUOTED_STRING; }
   {SINGLE_QUOTED_STRING}      { return SINGLE_QUOTED_STRING; }
   {NUMBER}                    { return NUMBER; }

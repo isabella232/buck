@@ -14,20 +14,13 @@
  * under the License.
  */
 
-package com.facebook.buck.rules;
+package com.facebook.buck.core.rules.configsetting;
 
-import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.impl.DependencyAggregation;
-import java.util.stream.Stream;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.select.SelectableConfigurationContext;
 
-public final class DependencyAggregationTestUtil {
-  private DependencyAggregationTestUtil() {}
-
-  /** Return dependencies of a rule, traversing through any dependency aggregations. */
-  public static Stream<BuildRule> getDisaggregatedDeps(BuildRule rule) {
-    return rule.getBuildDeps()
-        .stream()
-        .flatMap(
-            (x) -> x instanceof DependencyAggregation ? x.getBuildDeps().stream() : Stream.of(x));
-  }
+/** {@link SelectableConfigurationContext} for {@link ConfigSettingSelectable}. */
+public interface ConfigSettingSelectableConfigurationContext
+    extends SelectableConfigurationContext {
+  BuckConfig getBuckConfig();
 }

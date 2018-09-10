@@ -57,7 +57,7 @@ public class JarBuildStepsFactory
 
   private final BuildTarget libraryTarget;
 
-  @AddToRuleKey private final ConfiguredCompiler configuredCompiler;
+  @AddToRuleKey private final CompileToJarStepFactory configuredCompiler;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> resources;
   @AddToRuleKey private final ResourcesParameters resourcesParameters;
@@ -70,7 +70,7 @@ public class JarBuildStepsFactory
 
   private final boolean trackClassUsage;
   private final boolean trackJavacPhaseEvents;
-  private final boolean isRequiredForSourceOnlyAbi;
+  @AddToRuleKey private final boolean isRequiredForSourceOnlyAbi;
   @AddToRuleKey private final RemoveClassesPatternsMatcher classesToRemoveFromJar;
 
   @AddToRuleKey private final AbiGenerationMode abiGenerationMode;
@@ -130,7 +130,7 @@ public class JarBuildStepsFactory
 
   public JarBuildStepsFactory(
       BuildTarget libraryTarget,
-      ConfiguredCompiler configuredCompiler,
+      CompileToJarStepFactory configuredCompiler,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<SourcePath> resources,
       ResourcesParameters resourcesParameters,
@@ -238,8 +238,7 @@ public class JarBuildStepsFactory
 
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,
@@ -286,8 +285,7 @@ public class JarBuildStepsFactory
     CompilerParameters compilerParameters = getCompilerParameters(context, filesystem, buildTarget);
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,
