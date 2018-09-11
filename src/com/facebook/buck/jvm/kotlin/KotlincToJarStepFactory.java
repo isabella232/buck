@@ -56,6 +56,7 @@ import java.io.ObjectOutputStream;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -330,11 +331,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             .add(CLASSES_ARG + filesystem.resolve(classesOutput))
             .add(INCREMENTAL_ARG + filesystem.resolve(incrementalData))
             .add(STUBS_ARG + filesystem.resolve(stubsOutput))
-            .add(
-                AP_OPTIONS
-                    + encodeOptions(
-                        Collections.singletonMap(
-                            KAPT_GENERATED, filesystem.resolve(kaptGenerated).toString())))
+            .add(AP_OPTIONS + getApoptions(filesystem.resolve(kaptGenerated).toString()))
             .add(JAVAC_ARG + encodeOptions(Collections.emptyMap()))
             .add(LIGHT_ANALYSIS + "true") // TODO: Provide value as argument
             .add(CORRECT_ERROR_TYPES + "false") // TODO: Provide value as argument
@@ -415,6 +412,24 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 buildContext.getBuildCellRootPath(), filesystem, location)));
+  }
+
+  private String getApoptions(String kaptGeneratedPath) {
+    Map<String, String> apoptionsMap = new HashMap<>();
+    
+    apoptionsMap.put(KAPT_GENERATED, kaptGeneratedPath);
+
+    // Add any annotation processor options in extra_arguments
+    for (String arg : javacOptions.getExtraArguments()) {
+      int equalsIndex = arg.indexOf('=');
+      if (arg.startsWith("-A") && equalsIndex != -1) {
+        String key = arg.substring(2, equalsIndex); // 2 to ignore '-A'
+        String value = arg.substring(equalsIndex + 1);
+        apoptionsMap.put(key, value);
+      }
+    }
+
+    return encodeOptions(apoptionsMap);
   }
 
   private String encodeOptions(Map<String, String> options) {
