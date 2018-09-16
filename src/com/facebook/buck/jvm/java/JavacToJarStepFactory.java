@@ -70,12 +70,17 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
         libraryJarParameters);
   }
 
-  private static void addAnnotationGenFolderStep(
+  private void addAnnotationGenFolderStep(
       BuildTarget invokingTarget,
       ProjectFilesystem filesystem,
       Builder<Step> steps,
       BuildableContext buildableContext,
-      BuildContext buildContext) {
+      BuildContext buildContext,
+      boolean fromKotlin) {
+    if (fromKotlin) {
+      return;
+    }
+
     Path annotationGenFolder =
         CompilerOutputPaths.getAnnotationPath(filesystem, invokingTarget).get();
     steps.addAll(
@@ -94,10 +99,22 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
       /* output params */
       Builder<Step> steps,
       BuildableContext buildableContext) {
+    createCompileStep(context, projectFilesystem, invokingRule, parameters, steps, buildableContext, false);
+  }
+
+  public void createCompileStep(
+      BuildContext context,
+      ProjectFilesystem projectFilesystem,
+      BuildTarget invokingRule,
+      CompilerParameters parameters,
+      /* output params */
+      Builder<Step> steps,
+      BuildableContext buildableContext,
+      boolean fromKotlin) {
     JavacOptions buildTimeOptions =
         javacOptions.withBootclasspathFromContext(extraClasspathProvider);
 
-    addAnnotationGenFolderStep(invokingRule, projectFilesystem, steps, buildableContext, context);
+    addAnnotationGenFolderStep(invokingRule, projectFilesystem, steps, buildableContext, context, fromKotlin);
 
     steps.add(
         new JavacStep(
@@ -124,7 +141,7 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
     Preconditions.checkArgument(postprocessClassesCommands.isEmpty());
     CompilerParameters compilerParameters = pipeline.getCompilerParameters();
 
-    addAnnotationGenFolderStep(target, projectFilesystem, steps, buildableContext, context);
+    addAnnotationGenFolderStep(target, projectFilesystem, steps, buildableContext, context, false);
 
     if (!pipeline.isRunning()) {
       addCompilerSetupSteps(
