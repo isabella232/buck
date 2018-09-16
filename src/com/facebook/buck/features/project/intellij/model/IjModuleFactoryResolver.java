@@ -73,6 +73,12 @@ public interface IjModuleFactoryResolver {
   Optional<Path> getAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode);
 
   /**
+   * @param targetNode node which may use annotation processors.
+   * @return path to the kapt output if any kapt processors are configured for the given node.
+   */
+  Optional<Path> getKaptAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode);
+
+  /**
    * @param targetNode node which may specify it's own compiler output path.
    * @return path to the classes that make up the compiler output.
    */

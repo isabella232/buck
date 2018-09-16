@@ -20,8 +20,10 @@ import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.AndroidResourceDescriptionArg;
+import com.facebook.buck.android.AndroidLibraryDescriptionArg;
 import com.facebook.buck.android.DummyRDotJava;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -128,6 +130,21 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     }
 
     return CompilerOutputPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget());
+  }
+
+  @Override
+  public Optional<Path> getKaptAnnotationOutputPath(
+      TargetNode<? extends JvmLibraryArg> targetNode) {
+    if (targetNode.getConstructorArg() instanceof AndroidLibraryDescriptionArg) {
+      AndroidLibraryDescriptionArg androidArgs = ((AndroidLibraryDescriptionArg) targetNode.getConstructorArg());
+      if (androidArgs.getLanguage().isPresent() && androidArgs.getLanguage().get().equals(
+          AndroidLibraryDescription.JvmLanguage.KOTLIN)) {
+        return Optional.of(
+            BuildTargetPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget(), "__%s_kapt_generated__"));
+      }
+    }
+
+    return Optional.empty();
   }
 
   @Override
