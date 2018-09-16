@@ -36,6 +36,7 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
+import com.facebook.buck.android.AndroidLibraryDescriptionArg;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -279,6 +280,17 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
     context.addGeneratedSourceCodeFolder(
         folderFactory.create(
             annotationOutputPath, false, ImmutableSortedSet.of(annotationOutputPath)));
+
+    if (jvmLibraryTargetNode.getConstructorArg() instanceof AndroidLibraryDescriptionArg) {
+      Optional<Path> kaptOutput = moduleFactoryResolver.getKaptAnnotationOutputPath(jvmLibraryTargetNode);
+      if (!kaptOutput.isPresent()) {
+        return;
+      }
+      Path kaptOutputPath = kaptOutput.get();
+      context.addGeneratedSourceCodeFolder(
+          folderFactory.create(kaptOutputPath, false,ImmutableSortedSet.of(kaptOutputPath))
+      );
+    }
   }
 
   private void addGeneratedOutputIfNeeded(

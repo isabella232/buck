@@ -128,7 +128,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     Path stubsOutput =
         BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_stubs__");
     Path sourcesOutput =
-        BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_sources__");
+        BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_gen__");
     Path classesOutput =
         BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_classes__");
     Path kaptGeneratedOutput =
@@ -269,7 +269,8 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             invokingRule,
             javacParameters,
             steps,
-            buildableContext);
+            buildableContext,
+            true);
   }
 
   private void addAnnotationGenFolderStep(
