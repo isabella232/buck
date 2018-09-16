@@ -270,7 +270,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             javacParameters,
             steps,
             buildableContext,
-            false);
+            true);
   }
 
   private void addAnnotationGenFolderStep(
