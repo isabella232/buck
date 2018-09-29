@@ -218,7 +218,7 @@ public class WorkspaceAndProjectGenerator {
       outputDirectory =
           BuildTargetPaths.getGenPath(rootCell.getFilesystem(), workspaceBuildTarget, "%s")
               .getParent()
-              .resolve(workspaceName + ".xcodeproj");
+              .resolve(workspaceName + "-BUCK.xcodeproj");
     } else {
       outputDirectory =
           workspaceBuildTarget
@@ -392,7 +392,7 @@ public class WorkspaceAndProjectGenerator {
   private void writeWorkspaceMetaData(Path outputDirectory, String workspaceName)
       throws IOException {
     Path path =
-        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + ".xcworkspace");
+        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace");
     WorkspaceMetadataWriter workspaceMetadataWriter =
         new WorkspaceMetadataWriter(
             "1",
@@ -1157,7 +1157,7 @@ public class WorkspaceAndProjectGenerator {
               .getCellRelativeBasePath()
               .getPath()
               .toPath(rootCell.getFilesystem().getFileSystem())
-              .resolve(project.getName() + ".xcodeproj");
+              .resolve(project.getName() + "-BUCK.xcodeproj");
 
       SchemeGenerator schemeGenerator =
           buildSchemeGenerator(
@@ -1219,7 +1219,7 @@ public class WorkspaceAndProjectGenerator {
       Path schemeOutputDirectory =
           combinedProject
               ? outputDirectory
-              : outputDirectory.resolve(workspaceName + ".xcworkspace");
+              : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace");
 
       SchemeGenerator schemeGenerator =
           buildSchemeGenerator(
