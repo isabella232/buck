@@ -205,7 +205,7 @@ public class WorkspaceAndProjectGenerator {
       outputDirectory =
           BuildTargetPaths.getGenPath(rootCell.getFilesystem(), workspaceBuildTarget, "%s")
               .getParent()
-              .resolve(workspaceName + ".xcodeproj");
+              .resolve(workspaceName + "-BUCK.xcodeproj");
     } else {
       outputDirectory = workspaceBuildTarget.getBasePath();
     }
@@ -286,7 +286,7 @@ public class WorkspaceAndProjectGenerator {
   private void writeWorkspaceMetaData(Path outputDirectory, String workspaceName)
       throws IOException {
     Path path =
-        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + ".xcworkspace");
+        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace");
     rootCell.getFilesystem().mkdirs(path);
     ImmutableList<String> requiredTargetsStrings =
         getRequiredBuildTargets()
@@ -947,7 +947,7 @@ public class WorkspaceAndProjectGenerator {
               schemeName,
               combinedProject
                   ? outputDirectory
-                  : outputDirectory.resolve(workspaceName + ".xcworkspace"),
+                  : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace"),
               parallelizeBuild,
               runnablePath,
               remoteRunnablePath,
