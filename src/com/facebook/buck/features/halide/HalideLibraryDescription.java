@@ -314,6 +314,7 @@ public class HalideLibraryDescription
           graphBuilder,
           cxxPlatform,
           headersBuilder.build(),
+          Optional.empty(),
           HeaderVisibility.PUBLIC,
           true);
     } else if (flavors.contains(HALIDE_COMPILER_FLAVOR)) {
