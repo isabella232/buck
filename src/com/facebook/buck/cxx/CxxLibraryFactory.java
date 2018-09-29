@@ -751,6 +751,7 @@ public class CxxLibraryFactory {
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
             buildTarget, graphBuilder, ruleFinder, pathResolver, Optional.of(cxxPlatform), args),
+        Optional.empty(),
         HeaderVisibility.PRIVATE,
         shouldCreatePrivateHeaderSymlinks);
   }
@@ -771,6 +772,7 @@ public class CxxLibraryFactory {
         mode,
         CxxDescriptionEnhancer.parseExportedHeaders(
             buildTarget, graphBuilder, ruleFinder, pathResolver, Optional.empty(), args),
+        Optional.empty(),
         HeaderVisibility.PUBLIC);
   }
 
@@ -793,6 +795,7 @@ public class CxxLibraryFactory {
         cxxPlatform,
         CxxDescriptionEnhancer.parseExportedPlatformHeaders(
             buildTarget, graphBuilder, ruleFinder, pathResolver, cxxPlatform, args),
+        Optional.empty(),
         HeaderVisibility.PUBLIC,
         shouldCreatePublicHeaderSymlinks);
   }
