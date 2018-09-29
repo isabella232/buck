@@ -217,7 +217,7 @@ public class WorkspaceAndProjectGenerator {
       outputDirectory =
           BuildTargetPaths.getGenPath(rootCell.getFilesystem(), workspaceBuildTarget, "%s")
               .getParent()
-              .resolve(workspaceName + ".xcodeproj");
+              .resolve(workspaceName + "-BUCK.xcodeproj");
     } else {
       outputDirectory = workspaceBuildTarget.getBasePath();
     }
@@ -384,7 +384,7 @@ public class WorkspaceAndProjectGenerator {
   private void writeWorkspaceMetaData(Path outputDirectory, String workspaceName)
       throws IOException {
     Path path =
-        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + ".xcworkspace");
+        combinedProject ? outputDirectory : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace");
     rootCell.getFilesystem().mkdirs(path);
     ImmutableList<String> requiredTargetsStrings =
         getRequiredBuildTargets().stream()
@@ -1148,7 +1148,7 @@ public class WorkspaceAndProjectGenerator {
           pbxTargetToBuildTarget.get(project.getTargets().get(0));
       BuildTarget buildTarget = buildTargets.iterator().next();
       Path projectOutputDirectory =
-          buildTarget.getBasePath().resolve(project.getName() + ".xcodeproj");
+          buildTarget.getBasePath().resolve(project.getName() + "-BUCK.xcodeproj");
 
       SchemeGenerator schemeGenerator =
           buildSchemeGenerator(
@@ -1210,7 +1210,7 @@ public class WorkspaceAndProjectGenerator {
       Path schemeOutputDirectory =
           combinedProject
               ? outputDirectory
-              : outputDirectory.resolve(workspaceName + ".xcworkspace");
+              : outputDirectory.resolve(workspaceName + "-BUCK.xcworkspace");
 
       SchemeGenerator schemeGenerator =
           buildSchemeGenerator(
