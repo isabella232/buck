@@ -16,19 +16,6 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
-import com.facebook.buck.core.description.arg.HasTests;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.actiongraph.ActionGraph;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.type.BuildRuleType;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
@@ -41,18 +28,28 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.model.BuildFileTree;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.SpeculativeParsing;
+import com.facebook.buck.parser.PerBuildState.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
+import com.facebook.buck.rules.ActionGraph;
+import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasTests;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.ParallelRuleKeyCalculator;
+import com.facebook.buck.rules.RuleDepsCache;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -60,18 +57,19 @@ import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetGraphHashing;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.facebook.buck.util.hashing.FilePathHashLoader;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -316,7 +314,7 @@ public class TargetsCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     try (CommandThreadManager pool =
             new CommandThreadManager("Targets", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
+        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
             getForkJoinPoolSupplier(params.getBuckConfig())) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
 
@@ -339,9 +337,9 @@ public class TargetsCommand extends AbstractCommand {
   private ExitCode runWithExecutor(
       CommandRunnerParams params,
       ListeningExecutorService executor,
-      CloseableMemoizedSupplier<ForkJoinPool> poolSupplier)
-      throws IOException, InterruptedException, BuildFileParseException, CycleException,
-          VersionException {
+      CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          CycleException, VersionException {
     Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses =
         getDescriptionClassFromParams(params);
     if (!descriptionClasses.isPresent()) {
@@ -412,8 +410,9 @@ public class TargetsCommand extends AbstractCommand {
   private void printDotFormat(
       CommandRunnerParams params,
       ListeningExecutorService executor,
-      CloseableMemoizedSupplier<ForkJoinPool> poolSupplier)
-      throws IOException, InterruptedException, BuildFileParseException, VersionException {
+      CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          VersionException {
     TargetGraphAndBuildTargets targetGraphAndTargets = buildTargetGraphAndTargets(params, executor);
     ActionGraphAndResolver result =
         params
@@ -421,7 +420,6 @@ public class TargetsCommand extends AbstractCommand {
             .getActionGraph(
                 params.getBuckEventBus(),
                 targetGraphAndTargets.getTargetGraph(),
-                params.getCell().getCellProvider(),
                 params.getBuckConfig(),
                 params.getRuleKeyConfiguration(),
                 poolSupplier);
@@ -461,7 +459,7 @@ public class TargetsCommand extends AbstractCommand {
                       + " "
                       + node.getType()
                       + " "
-                      + ruleKeyFactory.build(node))
+                      + ruleKeyFactory.build(node).toString())
           .setNodeToTypeName(node -> node.getType())
           .build()
           .writeOutput(params.getConsole().getStdOut());
@@ -472,7 +470,7 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses)
-      throws InterruptedException, BuildFileParseException, IOException {
+      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
     if (getArguments().isEmpty()) {
       ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
       TargetGraphAndBuildTargets completeTargetGraphAndBuildTargets =
@@ -560,7 +558,8 @@ public class TargetsCommand extends AbstractCommand {
 
   private TargetGraphAndBuildTargets buildTargetGraphAndTargets(
       CommandRunnerParams params, ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildFileParseException, VersionException {
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          VersionException {
     ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
     // Parse the entire action graph, or (if targets are specified), only the specified targets and
     // their dependencies. If we're detecting test changes we need the whole graph as tests are not
@@ -661,8 +660,8 @@ public class TargetsCommand extends AbstractCommand {
   ImmutableSortedMap<String, TargetNode<?, ?>> getMatchingNodes(
       TargetGraph graph,
       Optional<ImmutableSet<Path>> referencedFiles,
-      Optional<ImmutableSet<BuildTarget>> matchingBuildTargets,
-      Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses,
+      final Optional<ImmutableSet<BuildTarget>> matchingBuildTargets,
+      final Optional<ImmutableSet<Class<? extends Description<?>>>> descriptionClasses,
       boolean detectTestChanges,
       String buildFileName) {
     ImmutableSet<TargetNode<?, ?>> directOwners;
@@ -692,8 +691,14 @@ public class TargetsCommand extends AbstractCommand {
                     return false;
                   }
 
-                  return !descriptionClasses.isPresent()
-                      || descriptionClasses.get().contains(targetNode.getDescription().getClass());
+                  if (descriptionClasses.isPresent()
+                      && !descriptionClasses
+                          .get()
+                          .contains(targetNode.getDescription().getClass())) {
+                    return false;
+                  }
+
+                  return true;
                 });
     ImmutableSortedMap.Builder<String, TargetNode<?, ?>> matchingNodesBuilder =
         ImmutableSortedMap.naturalOrder();
@@ -712,7 +717,7 @@ public class TargetsCommand extends AbstractCommand {
    *     nodes}).
    */
   private static ImmutableSet<TargetNode<?, ?>> getDependentNodes(
-      TargetGraph graph, ImmutableSet<TargetNode<?, ?>> nodes, boolean detectTestChanges) {
+      final TargetGraph graph, ImmutableSet<TargetNode<?, ?>> nodes, boolean detectTestChanges) {
     ImmutableMultimap.Builder<TargetNode<?, ?>, TargetNode<?, ?>> extraEdgesBuilder =
         ImmutableMultimap.builder();
 
@@ -731,9 +736,10 @@ public class TargetsCommand extends AbstractCommand {
         }
       }
     }
-    ImmutableMultimap<TargetNode<?, ?>, TargetNode<?, ?>> extraEdges = extraEdgesBuilder.build();
+    final ImmutableMultimap<TargetNode<?, ?>, TargetNode<?, ?>> extraEdges =
+        extraEdgesBuilder.build();
 
-    ImmutableSet.Builder<TargetNode<?, ?>> builder = ImmutableSet.builder();
+    final ImmutableSet.Builder<TargetNode<?, ?>> builder = ImmutableSet.builder();
     AbstractBreadthFirstTraversal<TargetNode<?, ?>> traversal =
         new AbstractBreadthFirstTraversal<TargetNode<?, ?>>(nodes) {
           @Override
@@ -769,25 +775,21 @@ public class TargetsCommand extends AbstractCommand {
     Iterator<TargetNode<?, ?>> targetNodeIterator = targetNodes.iterator();
 
     try (PerBuildState state =
-        new PerBuildStateFactory()
-            .create(
-                params.getTypeCoercerFactory(),
-                params.getParser().getPermState(),
-                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                params.getBuckEventBus(),
-                new ParserPythonInterpreterProvider(
-                    params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                executor,
-                params.getCell(),
-                params.getKnownBuildRuleTypesProvider(),
-                getEnableParserProfiling(),
-                SpeculativeParsing.DISABLED)) {
+        new PerBuildState(
+            params.getParser(),
+            params.getBuckEventBus(),
+            params.getExecutableFinder(),
+            executor,
+            params.getCell(),
+            params.getKnownBuildRuleTypesProvider(),
+            getEnableParserProfiling(),
+            SpeculativeParsing.DISABLED)) {
 
       while (targetNodeIterator.hasNext()) {
         TargetNode<?, ?> targetNode = targetNodeIterator.next();
-        Map<String, Object> targetNodeAttributes =
-            params.getParser().getTargetNodeRawAttributes(state, params.getCell(), targetNode);
-        if (targetNodeAttributes == null) {
+        Map<String, Object> rawTargetNode =
+            params.getParser().getRawTargetNode(state, params.getCell(), targetNode);
+        if (rawTargetNode == null) {
           params
               .getConsole()
               .printErrorText(
@@ -802,13 +804,13 @@ public class TargetsCommand extends AbstractCommand {
             field
                 .getter
                 .apply(targetResult)
-                .ifPresent(value -> targetNodeAttributes.put(field.name, value));
+                .ifPresent(value -> rawTargetNode.put(field.name, value));
           }
         }
-        targetNodeAttributes.put(
+        rawTargetNode.put(
             "fully_qualified_name", targetNode.getBuildTarget().getFullyQualifiedName());
         if (isShowCellPath) {
-          targetNodeAttributes.put("buck.cell_path", targetNode.getBuildTarget().getCellPath());
+          rawTargetNode.put("buck.cell_path", targetNode.getBuildTarget().getCellPath());
         }
 
         // Print the build rule information as JSON.
@@ -817,8 +819,7 @@ public class TargetsCommand extends AbstractCommand {
           ObjectMappers.WRITER
               .withDefaultPrettyPrinter()
               .writeValue(
-                  stringWriter,
-                  attributesPatternsMatcher.filterMatchingMapKeys(targetNodeAttributes));
+                  stringWriter, attributesPatternsMatcher.filterMatchingMapKeys(rawTargetNode));
         } catch (IOException e) {
           // Shouldn't be possible while writing to a StringWriter...
           throw new RuntimeException(e);
@@ -863,8 +864,9 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndTargetNodes,
-      CloseableMemoizedSupplier<ForkJoinPool> poolSupplier)
-      throws IOException, InterruptedException, BuildFileParseException, CycleException {
+      CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          CycleException {
 
     TargetResultBuilders targetResultBuilders = new TargetResultBuilders();
     if (isShowTargetHash) {
@@ -896,7 +898,6 @@ public class TargetsCommand extends AbstractCommand {
                 .getActionGraph(
                     params.getBuckEventBus(),
                     targetGraphAndTargetNodes.getFirst(),
-                    params.getCell().getCellProvider(),
                     params.getBuckConfig(),
                     params.getRuleKeyConfiguration(),
                     poolSupplier);
@@ -923,7 +924,7 @@ public class TargetsCommand extends AbstractCommand {
                             ruleFinder,
                             ruleKeyCacheScope.getCache(),
                             Optional.ofNullable(ruleKeyLogger)),
-                        new DefaultRuleDepsCache(buildRuleResolver.get()),
+                        new RuleDepsCache(buildRuleResolver.get()),
                         (eventBus, rule) -> () -> {}));
           }
         }
@@ -991,7 +992,7 @@ public class TargetsCommand extends AbstractCommand {
                   .getGeneratedSourcePath()
                   .map(
                       path -> {
-                        Path rootPath = params.getCell().getFilesystem().getRootPath();
+                        final Path rootPath = params.getCell().getFilesystem().getRootPath();
                         Path sameFsPath = rootPath.resolve(path.toString());
                         Path returnPath = isShowFullOutput ? path : rootPath.relativize(sameFsPath);
                         return returnPath.toString();
@@ -1042,7 +1043,7 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndTargetNodes)
-      throws InterruptedException, BuildFileParseException, IOException {
+      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
 
     if (isDetectTestChanges) {
       ImmutableSet<BuildTarget> explicitTestTargets =
@@ -1125,7 +1126,8 @@ public class TargetsCommand extends AbstractCommand {
       ListeningExecutorService executor,
       Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndTargetNodes,
       TargetResultBuilders resultBuilders)
-      throws IOException, InterruptedException, BuildFileParseException, CycleException {
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          CycleException {
     LOG.debug("Getting target hash for %s", targetGraphAndTargetNodes.getSecond());
 
     Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndNodesWithTests =
@@ -1141,8 +1143,8 @@ public class TargetsCommand extends AbstractCommand {
                 params.getBuckEventBus(),
                 targetGraphWithTests,
                 fileHashLoader,
-                targetGraphAndNodesWithTests.getSecond(),
-                executor)
+                params.getBuckConfig().getNumThreads(),
+                targetGraphAndNodesWithTests.getSecond())
             .hashTargetGraph();
 
     ImmutableMap<BuildTarget, HashCode> finalHashes =
@@ -1158,7 +1160,7 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   private ImmutableMap<BuildTarget, HashCode> rehashWithTestsIfNeeded(
-      TargetGraph targetGraphWithTests,
+      final TargetGraph targetGraphWithTests,
       Iterable<TargetNode<?, ?>> inputTargets,
       ImmutableMap<BuildTarget, HashCode> buildTargetHashes)
       throws CycleException {

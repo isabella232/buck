@@ -20,12 +20,10 @@ import com.facebook.buck.event.EventKey;
 
 public class RuleKeyCacheResultEvent extends AbstractBuckEvent {
   private final RuleKeyCacheResult ruleKeyCacheResult;
-  private final boolean cacheHitExpected;
 
-  public RuleKeyCacheResultEvent(RuleKeyCacheResult ruleKeyCacheResult, boolean cacheHitExpected) {
+  public RuleKeyCacheResultEvent(RuleKeyCacheResult ruleKeyCacheResult) {
     super(EventKey.unique());
     this.ruleKeyCacheResult = ruleKeyCacheResult;
-    this.cacheHitExpected = cacheHitExpected;
   }
 
   public RuleKeyCacheResult getRuleKeyCacheResult() {
@@ -39,10 +37,6 @@ public class RuleKeyCacheResultEvent extends AbstractBuckEvent {
 
   @Override
   protected String getValueString() {
-    return getEventName() + getEventKey();
-  }
-
-  public boolean isCacheHitExpected() {
-    return cacheHitExpected;
+    return getEventName() + getEventKey().toString();
   }
 }

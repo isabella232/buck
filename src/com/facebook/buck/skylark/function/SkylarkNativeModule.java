@@ -16,9 +16,6 @@
 
 package com.facebook.buck.skylark.function;
 
-import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
-import com.google.devtools.build.lib.events.Location;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkModule;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkModuleCategory;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkSignature;
@@ -64,33 +61,7 @@ public class SkylarkNativeModule {
         @SuppressWarnings("unused")
         public String invoke(FuncallExpression ast, Environment env) throws EvalException {
           env.checkLoadingPhase("native.package_name", ast.getLocation());
-          PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
-          return packageContext.getPackageIdentifier().getPackageFragment().getPathString();
-        }
-      };
-
-  @SkylarkSignature(
-    name = "repository_name",
-    objectType = SkylarkNativeModule.class,
-    returnType = String.class,
-    doc =
-        "The name of the repository the rule or build extension is called from. "
-            + "For example, in packages that are called into existence inside of the cell "
-            + "<code>foo</code> it will return <code>@foo</code>. In packages in the main "
-            + "repository (or standalone project), it will be set to <code>@</code>.",
-    parameters = {},
-    useLocation = true,
-    useAst = true,
-    useEnvironment = true
-  )
-  public static final BuiltinFunction repositoryName =
-      new BuiltinFunction("repository_name") {
-        @SuppressWarnings("unused")
-        public String invoke(Location location, FuncallExpression ast, Environment env)
-            throws EvalException {
-          env.checkLoadingPhase("native.repository_name", location);
-          PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
-          return packageContext.getPackageIdentifier().getRepository().getName();
+          return (String) env.lookup("PACKAGE_NAME");
         }
       };
 

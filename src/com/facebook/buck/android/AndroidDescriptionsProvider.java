@@ -49,28 +49,36 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
     ApkConfig apkConfig = new ApkConfig(config);
 
     AndroidLibraryCompilerFactory defaultAndroidCompilerFactory =
-        new DefaultAndroidLibraryCompilerFactory(javaConfig, scalaConfig, kotlinBuckConfig);
+        new DefaultAndroidLibraryCompilerFactory(
+            toolchainProvider, javaConfig, scalaConfig, kotlinBuckConfig);
 
     AndroidManifestFactory androidManifestFactory = new AndroidManifestFactory();
 
     return Arrays.asList(
-        new AndroidAarDescription(androidManifestFactory, cxxBuckConfig, javaConfig),
+        new AndroidAarDescription(
+            toolchainProvider, androidManifestFactory, cxxBuckConfig, javaConfig),
         new AndroidManifestDescription(androidManifestFactory),
         new AndroidAppModularityDescription(),
         new AndroidBinaryDescription(
-            javaConfig, proGuardConfig, config, cxxBuckConfig, dxConfig, apkConfig),
-        new AndroidBuildConfigDescription(javaConfig),
+            toolchainProvider,
+            javaConfig,
+            proGuardConfig,
+            config,
+            cxxBuckConfig,
+            dxConfig,
+            apkConfig),
+        new AndroidBuildConfigDescription(toolchainProvider, javaConfig),
         new AndroidInstrumentationApkDescription(
-            javaConfig, proGuardConfig, cxxBuckConfig, dxConfig, apkConfig),
-        new AndroidInstrumentationTestDescription(config),
-        new AndroidLibraryDescription(javaConfig, defaultAndroidCompilerFactory),
-        new AndroidPrebuiltAarDescription(javaConfig),
-        new AndroidResourceDescription(androidBuckConfig),
+            toolchainProvider, javaConfig, proGuardConfig, cxxBuckConfig, dxConfig, apkConfig),
+        new AndroidInstrumentationTestDescription(config, toolchainProvider),
+        new AndroidLibraryDescription(toolchainProvider, javaConfig, defaultAndroidCompilerFactory),
+        new AndroidPrebuiltAarDescription(toolchainProvider, javaConfig),
+        new AndroidResourceDescription(toolchainProvider, androidBuckConfig),
         new RobolectricTestDescription(
             toolchainProvider, javaConfig, defaultAndroidCompilerFactory),
         new PrebuiltNativeLibraryDescription(),
-        new NdkLibraryDescription(),
-        new GenAidlDescription(),
+        new NdkLibraryDescription(toolchainProvider),
+        new GenAidlDescription(toolchainProvider),
         new ApkGenruleDescription(toolchainProvider, sandboxExecutionStrategy));
   }
 }

@@ -1,3 +1,0 @@
-src_with_deps.o: foo/src_with_deps.c \
-  foo/dep_one.h \
-  foo/dep_two.h

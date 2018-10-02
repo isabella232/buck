@@ -110,11 +110,11 @@ public class PatternTestSelector implements TestSelector {
       builder.append('!');
     }
     if (classPattern != null) {
-      builder.append(classPattern);
+      builder.append(classPattern.toString());
     }
     builder.append('#');
     if (methodPattern != null) {
-      builder.append(methodPattern);
+      builder.append(methodPattern.toString());
     }
     return builder.toString();
   }
@@ -166,14 +166,14 @@ public class PatternTestSelector implements TestSelector {
 
   @Override
   public boolean matchesClassName(String className) {
-    if (classPattern == null || className == null) {
+    if (classPattern == null) {
       return true;
     }
     return classPattern.matcher(className).find();
   }
 
   private boolean matchesMethodName(String methodName) {
-    if (methodPattern == null || methodName == null) {
+    if (methodPattern == null) {
       return true;
     }
     return methodPattern.matcher(methodName).find();

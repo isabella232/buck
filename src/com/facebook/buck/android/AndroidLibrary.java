@@ -18,11 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
@@ -30,17 +25,18 @@ import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.UnusedDependenciesFinderFactory;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildDeps;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -61,10 +57,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   public static Builder builder(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      ToolchainProvider toolchainProvider,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
-      CellPathResolver cellPathResolver,
       JavaBuckConfig javaBuckConfig,
       JavacOptions javacOptions,
       AndroidLibraryDescription.CoreArg args,
@@ -72,10 +66,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     return new Builder(
         buildTarget,
         projectFilesystem,
-        toolchainProvider,
         params,
         buildRuleResolver,
-        cellPathResolver,
         javaBuckConfig,
         javacOptions,
         args,
@@ -93,15 +85,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       SortedSet<BuildRule> fullJarDeclaredDeps,
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
-      ImmutableSortedSet<BuildRule> fullJarExportedProvidedDeps,
       @Nullable BuildTarget abiJar,
       @Nullable BuildTarget sourceOnlyAbiJar,
       Optional<String> mavenCoords,
       Optional<SourcePath> manifestFile,
       ImmutableSortedSet<BuildTarget> tests,
-      boolean requiredForSourceOnlyAbi,
-      UnusedDependenciesAction unusedDependenciesAction,
-      Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory) {
+      boolean requiredForSourceOnlyAbi) {
     super(
         buildTarget,
         projectFilesystem,
@@ -112,14 +101,11 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         fullJarDeclaredDeps,
         fullJarExportedDeps,
         fullJarProvidedDeps,
-        fullJarExportedProvidedDeps,
         abiJar,
         sourceOnlyAbiJar,
         mavenCoords,
         tests,
-        requiredForSourceOnlyAbi,
-        unusedDependenciesAction,
-        unusedDependenciesFinderFactory);
+        requiredForSourceOnlyAbi);
     this.manifestFile = manifestFile;
   }
 
@@ -141,10 +127,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     protected Builder(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
-        ToolchainProvider toolchainProvider,
         BuildRuleParams params,
         BuildRuleResolver buildRuleResolver,
-        CellPathResolver cellPathResolver,
         JavaBuckConfig javaBuckConfig,
         JavacOptions javacOptions,
         AndroidLibraryDescription.CoreArg args,
@@ -154,10 +138,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
           new DefaultJavaLibraryRules.Builder(
               buildTarget,
               projectFilesystem,
-              toolchainProvider,
               params,
               buildRuleResolver,
-              cellPathResolver,
               compilerFactory,
               javaBuckConfig,
               args);
@@ -174,14 +156,11 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                 SortedSet<BuildRule> firstOrderPackageableDeps,
                 ImmutableSortedSet<BuildRule> fullJarExportedDeps,
                 ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
-                ImmutableSortedSet<BuildRule> fullJarExportedProvidedDeps,
                 @Nullable BuildTarget abiJar,
                 @Nullable BuildTarget sourceOnlyAbiJar,
                 Optional<String> mavenCoords,
                 ImmutableSortedSet<BuildTarget> tests,
-                boolean requiredForSourceOnlyAbi,
-                UnusedDependenciesAction unusedDependenciesAction,
-                Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory) {
+                boolean requiredForSourceOnlyAbi) {
               return new AndroidLibrary(
                   buildTarget,
                   projectFilesystem,
@@ -192,15 +171,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                   firstOrderPackageableDeps,
                   fullJarExportedDeps,
                   fullJarProvidedDeps,
-                  fullJarExportedProvidedDeps,
                   abiJar,
                   sourceOnlyAbiJar,
                   mavenCoords,
                   args.getManifest(),
                   tests,
-                  requiredForSourceOnlyAbi,
-                  unusedDependenciesAction,
-                  unusedDependenciesFinderFactory);
+                  requiredForSourceOnlyAbi);
             }
           });
       delegateBuilder.setJavacOptions(javacOptions);

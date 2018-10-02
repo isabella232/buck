@@ -18,7 +18,6 @@ package com.facebook.buck.skylark.function;
 
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.packages.PackageFactory;
-import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.skylarkinterface.Param;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkSignature;
@@ -50,10 +49,7 @@ public class ReadConfig {
     name = FUNCTION_NAME,
     objectType = Object.class,
     returnType = Object.class,
-    doc =
-        "Returns a configuration value of <code>.buckconfig</code> or <code>--config</code> flag."
-            + " For example, <code>read_config('foo', 'bar', 'baz')</code> returns"
-            + " <code>bazz</code> if Buck is invoked with <code>--config foo.bar=bazz</code> flag.",
+    doc = "Returns a list of files that match glob search pattern.",
     parameters = {
       @Param(
         name = "section",
@@ -91,8 +87,6 @@ public class ReadConfig {
           @Nullable
           String value =
               packageContext.getRawConfig().getOrDefault(section, ImmutableMap.of()).get(field);
-          ParseContext parseContext = ParseContext.getParseContext(env, ast);
-          parseContext.recordReadConfigurationOption(section, field, value);
           return value != null ? value : defaultValue;
         }
       };

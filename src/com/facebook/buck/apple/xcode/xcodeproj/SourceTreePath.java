@@ -16,8 +16,6 @@
 
 package com.facebook.buck.apple.xcode.xcodeproj;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.util.Optionals;
 import com.google.common.base.Preconditions;
 import java.nio.file.Path;
@@ -29,13 +27,10 @@ import javax.annotation.Nullable;
  * Utility class representing a tuple of (SourceTree, Path) used for uniquely describing a file
  * reference in a group.
  */
-public class SourceTreePath implements Comparable<SourceTreePath>, AddsToRuleKey {
-  @AddToRuleKey private final PBXReference.SourceTree sourceTree;
-
-  @AddToRuleKey(stringify = true)
+public class SourceTreePath implements Comparable<SourceTreePath> {
+  private final PBXReference.SourceTree sourceTree;
   private final Path path;
-
-  @AddToRuleKey private final Optional<String> defaultType;
+  private final Optional<String> defaultType;
 
   public SourceTreePath(
       PBXReference.SourceTree sourceTree, Path path, Optional<String> defaultType) {

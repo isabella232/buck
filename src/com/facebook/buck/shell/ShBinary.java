@@ -16,24 +16,24 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.tool.BinaryBuildRule;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -96,8 +96,10 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     ImmutableList.Builder<String> cellsNamesBuilder = new ImmutableList.Builder<String>();
 
     // Create symlink to the root cell.
-    Path rootPath = cellRoots.getCellPathOrThrow(Optional.empty());
-    Path relativePath = getProjectFilesystem().resolve(output.getParent()).relativize(rootPath);
+    Optional<Path> rootPath = cellRoots.getCellPath(Optional.empty());
+    Preconditions.checkState(rootPath.isPresent(), "The root cell should have a path");
+    Path relativePath =
+        getProjectFilesystem().resolve(output.getParent()).relativize(rootPath.get());
     cellsPathsStringsBuilder.add(Escaper.BASH_ESCAPER.apply(relativePath.toString()));
     cellsNamesBuilder.add(Escaper.BASH_ESCAPER.apply(ROOT_CELL_LINK_NAME));
 
@@ -123,9 +125,11 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Optional<String> resourceCellName = getCellNameForPath(resourcePath);
       // If resourceCellName is Optional.empty(), the call below will
       // return the path of the root cell.
-      Path resourceCellPath = cellRoots.getCellPathOrThrow(resourceCellName);
+      Optional<Path> resourceCellPath = cellRoots.getCellPath(resourceCellName);
+      Preconditions.checkState(
+          resourceCellPath.isPresent(), "cell %s doesn't have a path", resourceCellName);
       // Get the path relative to its cell.
-      Path relativeResourcePath = resourceCellPath.relativize(resourcePath);
+      Path relativeResourcePath = resourceCellPath.get().relativize(resourcePath);
       // Get the path when referenced in the symlink created for the cell in the output folder.
       Path linkedResourcePath =
           Paths.get(resourceCellName.orElse(ROOT_CELL_LINK_NAME)).resolve(relativeResourcePath);
@@ -159,10 +163,11 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     // Match root path.
     Optional<Optional<String>> rootCellName = Optional.of(Optional.empty());
-    Path rootPath = cellRoots.getCellPathOrThrow(Optional.empty());
-    if (path.startsWith(rootPath)) {
+    Optional<Path> rootPath = cellRoots.getCellPath(Optional.empty());
+    Preconditions.checkState(rootPath.isPresent(), "The root cell should have a path");
+    if (path.startsWith(rootPath.get())) {
       result = rootCellName;
-      matchedPath = rootPath;
+      matchedPath = rootPath.get();
     }
 
     // Match other cells.

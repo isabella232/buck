@@ -16,29 +16,28 @@
 
 package com.facebook.buck.jvm.java.autodeps;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -47,17 +46,20 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.List;
 
-/** A BuildRule for extracting java symbols for java autodepsk */
-final class JavaSymbolsRule extends AbstractBuildRule implements InitializableFromDisk<Symbols> {
+final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols> {
 
   interface SymbolsFinder extends AddsToRuleKey {
     Symbols extractSymbols() throws IOException;
   }
 
-  public static final Flavor JAVA_SYMBOLS = InternalFlavor.of("java_symbols");
+  private static final String TYPE = "java_symbols";
+  public static final Flavor JAVA_SYMBOLS = InternalFlavor.of(TYPE);
+
+  private final BuildTarget buildTarget;
 
   @AddToRuleKey private final SymbolsFinder symbolsFinder;
 
+  private final ProjectFilesystem projectFilesystem;
   private final Path outputPath;
   private final BuildOutputInitializer<Symbols> outputInitializer;
 
@@ -65,11 +67,11 @@ final class JavaSymbolsRule extends AbstractBuildRule implements InitializableFr
       BuildTarget javaLibraryBuildTarget,
       SymbolsFinder symbolsFinder,
       ProjectFilesystem projectFilesystem) {
-    super(javaLibraryBuildTarget.withFlavors(JAVA_SYMBOLS), projectFilesystem);
+    this.buildTarget = javaLibraryBuildTarget.withFlavors(JAVA_SYMBOLS);
     this.symbolsFinder = symbolsFinder;
-    this.outputPath =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__%s__.json");
-    this.outputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
+    this.projectFilesystem = projectFilesystem;
+    this.outputPath = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__%s__.json");
+    this.outputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
   public Symbols getFeatures() {
@@ -98,7 +100,8 @@ final class JavaSymbolsRule extends AbstractBuildRule implements InitializableFr
     Step extractSymbolsStep =
         new AbstractExecutionStep("java-symbols") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) throws IOException {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             try (OutputStream output = getProjectFilesystem().newFileOutputStream(outputPath)) {
               ObjectMappers.WRITER.writeValue(output, symbolsFinder.extractSymbols());
             }
@@ -111,6 +114,21 @@ final class JavaSymbolsRule extends AbstractBuildRule implements InitializableFr
   }
 
   @Override
+  public BuildTarget getBuildTarget() {
+    return buildTarget;
+  }
+
+  @Override
+  public String toString() {
+    return getFullyQualifiedName();
+  }
+
+  @Override
+  public String getType() {
+    return TYPE;
+  }
+
+  @Override
   public ImmutableSortedSet<BuildRule> getBuildDeps() {
     return ImmutableSortedSet.of();
   }
@@ -118,6 +136,26 @@ final class JavaSymbolsRule extends AbstractBuildRule implements InitializableFr
   @Override
   public SourcePath getSourcePathToOutput() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
+  }
+
+  @Override
+  public ProjectFilesystem getProjectFilesystem() {
+    return projectFilesystem;
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (!(obj instanceof BuildRule)) {
+      return false;
+    }
+
+    BuildRule that = (BuildRule) obj;
+    return this.getBuildTarget().equals(that.getBuildTarget());
+  }
+
+  @Override
+  public int hashCode() {
+    return buildTarget.hashCode();
   }
 
   @Override

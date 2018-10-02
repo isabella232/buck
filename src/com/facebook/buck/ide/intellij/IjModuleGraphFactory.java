@@ -15,8 +15,6 @@
  */
 package com.facebook.buck.ide.intellij;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.ide.intellij.aggregation.AggregationModule;
 import com.facebook.buck.ide.intellij.aggregation.AggregationModuleFactory;
 import com.facebook.buck.ide.intellij.aggregation.AggregationTree;
@@ -29,6 +27,8 @@ import com.facebook.buck.ide.intellij.model.IjModuleType;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.IjProjectElement;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
@@ -62,7 +62,7 @@ public final class IjModuleGraphFactory {
       TargetGraph targetGraph,
       IjModuleFactory moduleFactory,
       AggregationModuleFactory aggregationModuleFactory,
-      int minimumPathDepth,
+      final int minimumPathDepth,
       ImmutableSet<String> ignoredTargetLabels) {
 
     Stream<TargetNode<?, ?>> nodes =
@@ -162,11 +162,11 @@ public final class IjModuleGraphFactory {
   }
 
   private static ImmutableSet<IjProjectElement> getProjectElementFromBuildTargets(
-      TargetGraph targetGraph,
-      IjLibraryFactory libraryFactory,
-      ImmutableMap<BuildTarget, IjModule> rulesToModules,
-      IjModule module,
-      Stream<BuildTarget> buildTargetStream) {
+      final TargetGraph targetGraph,
+      final IjLibraryFactory libraryFactory,
+      final ImmutableMap<BuildTarget, IjModule> rulesToModules,
+      final IjModule module,
+      final Stream<BuildTarget> buildTargetStream) {
     return buildTargetStream
         .filter(
             input -> {
@@ -205,14 +205,14 @@ public final class IjModuleGraphFactory {
    *     and Ma contains Ta and Mb contains Tb.
    */
   public static IjModuleGraph from(
-      ProjectFilesystem projectFilesystem,
-      IjProjectConfig projectConfig,
-      TargetGraph targetGraph,
-      IjLibraryFactory libraryFactory,
-      IjModuleFactory moduleFactory,
-      AggregationModuleFactory aggregationModuleFactory) {
+      final ProjectFilesystem projectFilesystem,
+      final IjProjectConfig projectConfig,
+      final TargetGraph targetGraph,
+      final IjLibraryFactory libraryFactory,
+      final IjModuleFactory moduleFactory,
+      final AggregationModuleFactory aggregationModuleFactory) {
     ImmutableSet<String> ignoredTargetLabels = projectConfig.getIgnoredTargetLabels();
-    ImmutableMap<BuildTarget, IjModule> rulesToModules =
+    final ImmutableMap<BuildTarget, IjModule> rulesToModules =
         createModules(
             projectFilesystem,
             projectConfig,
@@ -221,16 +221,16 @@ public final class IjModuleGraphFactory {
             aggregationModuleFactory,
             projectConfig.getAggregationMode().getGraphMinimumDepth(targetGraph.getNodes().size()),
             ignoredTargetLabels);
-    ExportedDepsClosureResolver exportedDepsClosureResolver =
+    final ExportedDepsClosureResolver exportedDepsClosureResolver =
         new ExportedDepsClosureResolver(targetGraph, ignoredTargetLabels);
-    TransitiveDepsClosureResolver transitiveDepsClosureResolver =
+    final TransitiveDepsClosureResolver transitiveDepsClosureResolver =
         new TransitiveDepsClosureResolver(targetGraph, ignoredTargetLabels);
     ImmutableMap.Builder<IjProjectElement, ImmutableMap<IjProjectElement, DependencyType>>
         depsBuilder = ImmutableMap.builder();
-    Set<IjLibrary> referencedLibraries = new HashSet<>();
+    final Set<IjLibrary> referencedLibraries = new HashSet<>();
     Optional<Path> extraCompileOutputRootPath = projectConfig.getExtraCompilerOutputModulesPath();
 
-    for (IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
+    for (final IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
       Map<IjProjectElement, DependencyType> moduleDeps = new LinkedHashMap<>();
 
       for (Map.Entry<BuildTarget, DependencyType> entry : module.getDependencies().entrySet()) {

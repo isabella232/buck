@@ -16,8 +16,6 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.util.exceptions.WrapsException;
-import com.facebook.buck.util.function.ThrowingConsumer;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import java.util.Comparator;
@@ -257,7 +255,7 @@ final class RichStreamImpl<T> implements RichStream<T> {
     try {
       forEach(wrapped(action));
     } catch (TunneledException e) {
-      throw this.<E>unwrap(e);
+      this.<E>unwrap(e);
     }
   }
 
@@ -267,7 +265,7 @@ final class RichStreamImpl<T> implements RichStream<T> {
     try {
       forEachOrdered(wrapped(action));
     } catch (TunneledException e) {
-      throw this.<E>unwrap(e);
+      this.<E>unwrap(e);
     }
   }
 
@@ -293,14 +291,14 @@ final class RichStreamImpl<T> implements RichStream<T> {
    * from the current stream instance, to guard against mistakes that leak {@code
    * TunneledException}s.
    */
-  private <E extends Exception> E unwrap(TunneledException e) {
+  private <E extends Exception> void unwrap(TunneledException e) throws E {
     // e.getCause(): E | AnythingElse
     Preconditions.checkState(
         e.owner == this, "Caught TunneledException should be the one thrown by the same stream.");
     // e.getCause(): E
     @SuppressWarnings("unchecked")
     E cause = (E) e.getCause();
-    return cause;
+    throw cause;
   }
 
   /**
@@ -310,7 +308,7 @@ final class RichStreamImpl<T> implements RichStream<T> {
    * single operation, this value should be sufficient to differentiate an instance thrown from the
    * current stream object, and an instance thrown by another.
    */
-  private static final class TunneledException extends RuntimeException implements WrapsException {
+  private static final class TunneledException extends RuntimeException {
     final Object owner;
 
     TunneledException(Object owner, Throwable cause) {

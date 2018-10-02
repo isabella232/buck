@@ -35,20 +35,21 @@ public class WindowsFS {
     int flags =
         (dirLink ? WindowsFSLibrary.SYMBOLIC_LINK_FLAG_DIRECTORY : 0)
             | WindowsFSLibrary.SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
-    String symlinkPathString = (symlink.isAbsolute() ? "\\\\?\\" : "") + symlink;
-    String targetPathString = (target.isAbsolute() ? "\\\\?\\" : "") + target;
+    String symlinkPathString = (symlink.isAbsolute() ? "\\\\?\\" : "") + symlink.toString();
+    String targetPathString = (target.isAbsolute() ? "\\\\?\\" : "") + target.toString();
     boolean created =
         WindowsFSLibrary.INSTANCE.CreateSymbolicLinkW(symlinkPathString, targetPathString, flags);
     int lastError = WindowsFSLibrary.INSTANCE.GetLastError();
     if (!created || lastError != 0) {
       throw new IOException(
-          "Tried to link "
+          "Failed to create a symlink (dir: "
+              + dirLink
+              + ")"
               + symlinkPathString
               + " to "
               + targetPathString
-              + " (winapi error: "
-              + lastError
-              + ")");
+              + " winapi error: "
+              + lastError);
     }
   }
 }

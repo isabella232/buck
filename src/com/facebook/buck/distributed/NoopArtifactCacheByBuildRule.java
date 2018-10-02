@@ -20,6 +20,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -42,7 +43,7 @@ public class NoopArtifactCacheByBuildRule implements ArtifactCacheByBuildRule {
   }
 
   @Override
-  public ListenableFuture<BuildRule> uploadFromLocal(BuildRule rule) {
+  public ListenableFuture<BuildRule> uploadFromLocal(BuildRule rule) throws IOException {
     return Futures.immediateFuture(rule);
   }
 
@@ -58,5 +59,5 @@ public class NoopArtifactCacheByBuildRule implements ArtifactCacheByBuildRule {
   }
 
   @Override
-  public void close() {}
+  public void close() throws Exception {}
 }

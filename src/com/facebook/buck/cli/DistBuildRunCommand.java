@@ -16,8 +16,6 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.BuildJobStateSerializer;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -26,10 +24,8 @@ import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.distributed.FileMaterializationStatsTracker;
-import com.facebook.buck.distributed.build_slave.BuildSlaveService;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
-import com.facebook.buck.distributed.build_slave.CapacityService;
 import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.build_slave.HealthCheckStatsTracker;
@@ -43,7 +39,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.DistBuildSlaveEventBusListener;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -51,6 +47,7 @@ import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -65,16 +62,13 @@ import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
 
 public class DistBuildRunCommand extends AbstractDistBuildCommand {
-  private static final Logger LOG = Logger.get(DistBuildRunCommand.class);
 
   public static final String BUILD_STATE_FILE_ARG_NAME = "--build-state-file";
   public static final String BUILD_STATE_FILE_ARG_USAGE = "File containing the BuildStateJob data.";
-  public static final int SHUTDOWN_TIMEOUT_MINUTES = 1;
 
   @Nullable
   @Option(name = BUILD_STATE_FILE_ARG_NAME, usage = BUILD_STATE_FILE_ARG_USAGE)
@@ -142,8 +136,6 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
       params.getBuckEventBus().post(new DistBuildRunEvent(stampedeId.get(), getBuildSlaveRunId()));
     }
 
-    LOG.info("Starting DistBuildRunCommand.");
-
     timeStatsTracker.startTimer(SlaveEvents.TOTAL_RUNTIME);
     timeStatsTracker.startTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME);
     Console console = params.getConsole();
@@ -179,7 +171,6 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 params.getEnvironment(),
                 params.getProcessExecutor(),
                 params.getExecutableFinder(),
-                params.getBuckModuleManager(),
                 params.getPluginManager(),
                 params.getProjectFilesystemFactory());
         timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_STATE_LOADING_TIME);
@@ -188,11 +179,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
             getConcurrencyLimit(state.getRootCell().getBuckConfig());
 
         try (CommandThreadManager pool =
-                new CommandThreadManager(
-                    getClass().getName(),
-                    concurrencyLimit,
-                    SHUTDOWN_TIMEOUT_MINUTES,
-                    TimeUnit.MINUTES);
+                new CommandThreadManager(getClass().getName(), concurrencyLimit);
             RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
                 new EventPostingRuleKeyCacheScope<>(
                     params.getBuckEventBus(),
@@ -201,78 +188,58 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
           // Note that we cannot use the same pool of build threads for file materialization
           // because usually all build threads are waiting for files to be materialized, and
           // there is no thread left for the FileContentsProvider(s) to use.
-          DistBuildConfig distBuildConfig =
-              new DistBuildConfig(state.getRootCell().getBuckConfig());
           FileContentsProvider multiSourceFileContentsProvider =
               DistBuildFactory.createMultiSourceContentsProvider(
                   service,
-                  distBuildConfig,
+                  new DistBuildConfig(state.getRootCell().getBuckConfig()),
                   fileMaterializationStatsTracker,
                   params.getScheduledExecutor(),
                   Preconditions.checkNotNull(params.getExecutors().get(ExecutorPool.CPU)),
                   params.getProjectFilesystemFactory(),
                   getGlobalCacheDirOptional());
 
-          try (BuildSlaveService buildSlaveService =
-              DistBuildFactory.newBuildSlaveService(params)) {
-            CapacityService capacityService =
-                DistBuildFactory.newCapacityService(buildSlaveService, getBuildSlaveRunId());
-            DistBuildSlaveExecutor distBuildExecutor =
-                DistBuildFactory.createDistBuildExecutor(
-                    state,
-                    params,
-                    pool.getWeightedListeningExecutorService(),
-                    service,
-                    Preconditions.checkNotNull(distBuildMode),
-                    coordinatorPort,
-                    coordinatorAddress,
-                    stampedeId,
-                    capacityService,
-                    getBuildSlaveRunId(),
-                    multiSourceFileContentsProvider,
-                    healthCheckStatsTracker,
-                    timeStatsTracker,
-                    getCoordinatorBuildRuleEventsPublisher(),
-                    getMinionBuildProgressTracker(),
-                    ruleKeyCacheScope);
+          DistBuildSlaveExecutor distBuildExecutor =
+              DistBuildFactory.createDistBuildExecutor(
+                  state,
+                  params,
+                  pool.getWeightedListeningExecutorService(),
+                  service,
+                  Preconditions.checkNotNull(distBuildMode),
+                  coordinatorPort,
+                  coordinatorAddress,
+                  stampedeId,
+                  getBuildSlaveRunId(),
+                  multiSourceFileContentsProvider,
+                  healthCheckStatsTracker,
+                  timeStatsTracker,
+                  getCoordinatorBuildRuleEventsPublisher(),
+                  getMinionBuildProgressTracker(),
+                  ruleKeyCacheScope);
 
-            distBuildExecutor.onBuildSlavePreparationCompleted(
-                () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
+          distBuildExecutor.onBuildSlavePreparationCompleted(
+              () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
 
-            LOG.info("Starting to process build with DistBuildExecutor.");
+          // All preparation work is done, so start building.
+          int returnCode = distBuildExecutor.buildAndReturnExitCode();
+          multiSourceFileContentsProvider.close();
+          timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
 
-            // All preparation work is done, so start building.
-            ExitCode returnCode;
-            try {
-              returnCode = distBuildExecutor.buildAndReturnExitCode();
-            } catch (Throwable ex) {
-              LOG.error(ex, "buildAndReturnExitCode() failed");
-              throw ex;
-            }
-            LOG.info(
-                "%s returned with exit code: [%d].",
-                distBuildExecutor.getClass().getName(), returnCode.getCode());
-            multiSourceFileContentsProvider.close();
-            LOG.info("Successfully shut down the source file provider.");
-            timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
-
-            if (slaveEventListener != null) {
-              slaveEventListener.sendFinalServerUpdates(returnCode.getCode());
-              LOG.info("Sent the final slave status and events.");
-            }
-
-            if (returnCode == ExitCode.SUCCESS) {
-              console.printSuccess(
-                  String.format(
-                      "Successfully ran distributed build [%s] in [%d millis].",
-                      buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME)));
-            } else {
-              console.printErrorText(
-                  "Failed distributed build [%s] in [%d millis].",
-                  buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME));
-            }
-            return returnCode;
+          if (slaveEventListener != null) {
+            slaveEventListener.sendFinalServerUpdates();
+            slaveEventListener.publishBuildSlaveFinishedEvent(returnCode);
           }
+
+          if (returnCode == 0) {
+            console.printSuccess(
+                String.format(
+                    "Successfully ran distributed build [%s] in [%d millis].",
+                    buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME)));
+          } else {
+            console.printErrorText(
+                "Failed distributed build [%s] in [%d millis].",
+                buildName, timeStatsTracker.getElapsedTimeMs(SlaveEvents.TOTAL_RUNTIME));
+          }
+          return ExitCode.map(returnCode);
         }
       } catch (HumanReadableException e) {
         logBuildFailureEvent(e.getHumanReadableErrorMessage(), slaveEventListener);

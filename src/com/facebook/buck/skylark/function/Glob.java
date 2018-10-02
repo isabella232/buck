@@ -103,7 +103,7 @@ public class Glob {
             Boolean excludeDirectories,
             FuncallExpression ast,
             Environment env)
-            throws EvalException, IOException, InterruptedException {
+            throws EvalException, IOException {
           PackageContext packageContext = PackageFactory.getPackageContext(env, ast);
           try {
             return SkylarkList.MutableList.copyOf(

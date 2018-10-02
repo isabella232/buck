@@ -16,13 +16,17 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.core.toolchain.tool.DelegatingTool;
-import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.rules.DelegatingTool;
+import com.facebook.buck.rules.Tool;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
+import java.util.function.Function;
 
 /** Preprocessor implementation for the Windows toolchain. */
 public class WindowsPreprocessor extends DelegatingTool implements Preprocessor {
+
+  private static Function<String, String> prependIncludeFlag = "/I"::concat;
+
   public WindowsPreprocessor(Tool tool) {
     super(tool);
   }
@@ -40,23 +44,19 @@ public class WindowsPreprocessor extends DelegatingTool implements Preprocessor 
     return false;
   }
 
-  private static String prependIncludeFlag(String includeRoot) {
-    return "/I" + includeRoot;
-  }
-
   @Override
   public Iterable<String> localIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, WindowsPreprocessor::prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override
   public Iterable<String> systemIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, WindowsPreprocessor::prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override
   public Iterable<String> quoteIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, WindowsPreprocessor::prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override

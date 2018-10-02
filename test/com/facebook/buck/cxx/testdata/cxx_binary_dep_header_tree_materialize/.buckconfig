@@ -1,5 +1,0 @@
-[build]
-engine = shallow
-
-[cache]
-mode = dir

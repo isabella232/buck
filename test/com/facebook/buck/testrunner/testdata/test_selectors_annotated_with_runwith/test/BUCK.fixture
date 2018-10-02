@@ -1,8 +1,0 @@
-java_test(
-    name = "broken",
-    srcs = glob(["*.java"]),
-    deps = [
-        "buck//third-party/java/junit:junit",
-        "//src:runner",
-    ],
-)

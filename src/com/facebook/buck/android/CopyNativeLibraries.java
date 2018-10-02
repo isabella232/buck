@@ -20,21 +20,20 @@ import com.android.common.SdkConstants;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -46,6 +45,7 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -212,14 +212,14 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), getBinPath())));
 
-    Path pathToNativeLibs = getPathToNativeLibsDir();
+    final Path pathToNativeLibs = getPathToNativeLibsDir();
 
     steps.addAll(
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), pathToNativeLibs)));
 
-    Path pathToNativeLibsAssets = getPathToNativeLibsAssetsDir();
+    final Path pathToNativeLibsAssets = getPathToNativeLibsAssetsDir();
 
     steps.addAll(
         MakeCleanDirectoryStep.of(
@@ -252,7 +252,7 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
         context, getProjectFilesystem(), stripLibAssetRules, pathToNativeLibsAssets, steps);
 
-    Path pathToMetadataTxt = getPathToMetadataTxt();
+    final Path pathToMetadataTxt = getPathToMetadataTxt();
     steps.add(
         createMetadataStep(getProjectFilesystem(), getPathToMetadataTxt(), getPathToAllLibsDir()));
 
@@ -267,7 +267,8 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
       ProjectFilesystem filesystem, Path pathToMetadataTxt, Path pathToAllLibsDir) {
     return new AbstractExecutionStep("hash_native_libs") {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         ImmutableList.Builder<String> metadataLines = ImmutableList.builder();
         for (Path nativeLib : filesystem.getFilesUnderPath(pathToAllLibsDir)) {
           Sha1HashCode filesha1 = filesystem.computeSha1(nativeLib);
@@ -288,9 +289,9 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
 
   static void copyNativeLibrary(
       BuildContext context,
-      ProjectFilesystem filesystem,
+      final ProjectFilesystem filesystem,
       Path sourceDir,
-      Path destinationDir,
+      final Path destinationDir,
       ImmutableSet<TargetCpuType> cpuFilters,
       ImmutableList.Builder<Step> steps) {
 
@@ -303,14 +304,14 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
         Optional<String> abiDirectoryComponent = getAbiDirectoryComponent(cpuType);
         Preconditions.checkState(abiDirectoryComponent.isPresent());
 
-        Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
+        final Path libSourceDir = sourceDir.resolve(abiDirectoryComponent.get());
         Path libDestinationDir = destinationDir.resolve(abiDirectoryComponent.get());
 
-        MkdirStep mkDirStep =
+        final MkdirStep mkDirStep =
             MkdirStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
                     context.getBuildCellRootPath(), filesystem, libDestinationDir));
-        CopyStep copyStep =
+        final CopyStep copyStep =
             CopyStep.forDirectory(
                 filesystem, libSourceDir, libDestinationDir, CopyStep.DirectoryMode.CONTENTS_ONLY);
         steps.add(
@@ -354,13 +355,15 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
     steps.add(
         new AbstractExecutionStep("rename_native_executables") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) throws IOException {
-            ImmutableSet.Builder<Path> executablesBuilder = ImmutableSet.builder();
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
+            final ImmutableSet.Builder<Path> executablesBuilder = ImmutableSet.builder();
             filesystem.walkRelativeFileTree(
                 destinationDir,
                 new SimpleFileVisitor<Path>() {
                   @Override
-                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                  public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                      throws IOException {
                     if (file.toString().endsWith("-disguised-exe")) {
                       executablesBuilder.add(file);
                     }

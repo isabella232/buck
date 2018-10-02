@@ -27,6 +27,7 @@ import java.io.Writer;
 import java.util.Iterator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
@@ -48,7 +49,7 @@ class TraceDataHandler extends AbstractHandler {
   @Override
   public void handle(
       String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
-      throws IOException {
+      throws IOException, ServletException {
     if ("GET".equals(baseRequest.getMethod())) {
       doGet(baseRequest, response);
     } else {

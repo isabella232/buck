@@ -17,7 +17,7 @@
 package com.facebook.buck.versions;
 
 import com.facebook.buck.event.AbstractBuckEvent;
-import com.facebook.buck.event.BuckEvent;
+import com.facebook.buck.event.BroadcastEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.WorkAdvanceEvent;
@@ -48,10 +48,6 @@ public abstract class VersionedTargetGraphEvent extends AbstractBuckEvent
     return new Finished(started);
   }
 
-  public static Timeout timeout() {
-    return new Timeout();
-  }
-
   public static class Started extends VersionedTargetGraphEvent {
 
     private Started() {
@@ -76,7 +72,7 @@ public abstract class VersionedTargetGraphEvent extends AbstractBuckEvent
     }
   }
 
-  public static class Cache extends VersionedTargetGraphEvent implements BuckEvent {
+  public static class Cache extends VersionedTargetGraphEvent implements BroadcastEvent {
 
     private final String eventName;
 
@@ -108,18 +104,6 @@ public abstract class VersionedTargetGraphEvent extends AbstractBuckEvent
     @Override
     public String getEventName() {
       return eventName;
-    }
-  }
-
-  public static class Timeout extends VersionedTargetGraphEvent {
-
-    private Timeout() {
-      super(EventKey.unique());
-    }
-
-    @Override
-    public String getEventName() {
-      return "VersionedTargetGraphTimedOut";
     }
   }
 }

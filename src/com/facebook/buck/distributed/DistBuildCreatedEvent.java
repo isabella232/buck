@@ -38,7 +38,7 @@ public class DistBuildCreatedEvent extends AbstractBuckEvent {
 
   @Override
   public String getEventName() {
-    return DIST_BUILD_CREATED;
+    return this.getClass().getName();
   }
 
   public String getConsoleLogLine() {

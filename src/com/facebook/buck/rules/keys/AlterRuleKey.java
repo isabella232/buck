@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.rules.RuleKeyObjectSink;
 
 interface AlterRuleKey {
   void amendKey(RuleKeyObjectSink sink, Object appendable);

@@ -17,7 +17,6 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.TeeInputStream;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
@@ -29,6 +28,7 @@ import com.facebook.buck.test.selectors.TestDescription;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Preconditions;
@@ -283,7 +283,7 @@ class XctoolRunTestsStep implements Step {
     ProcessExecutorParams processExecutorParams = processExecutorParamsBuilder.build();
 
     // Only launch one instance of xctool at the time
-    AtomicBoolean stutterLockIsNotified = new AtomicBoolean(false);
+    final AtomicBoolean stutterLockIsNotified = new AtomicBoolean(false);
     try {
       LOG.debug("Running command: %s", processExecutorParams);
 
@@ -559,7 +559,8 @@ class XctoolRunTestsStep implements Step {
     }
   }
 
-  private void acquireStutterLock(AtomicBoolean stutterLockIsNotified) throws InterruptedException {
+  private void acquireStutterLock(final AtomicBoolean stutterLockIsNotified)
+      throws InterruptedException {
     if (!xctoolStutterTimeout.isPresent()) {
       return;
     }

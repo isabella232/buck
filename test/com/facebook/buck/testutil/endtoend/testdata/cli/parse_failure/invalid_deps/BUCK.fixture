@@ -1,5 +1,0 @@
-cxx_binary(
-    name = "main",
-    srcs = [],
-    deps = [":main-cxx"],
-)

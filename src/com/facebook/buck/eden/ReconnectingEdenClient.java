@@ -65,7 +65,7 @@ final class ReconnectingEdenClient implements EdenClient {
   private long lastSuccessfulRequest = 0;
 
   /** @param socketFile to connect to when creating a Thrift client. */
-  ReconnectingEdenClient(Path socketFile, Clock clock) {
+  ReconnectingEdenClient(final Path socketFile, Clock clock) {
     this(
         () -> {
           // Creates a new EdenService.Client by creating a new connection via the socketFile.
@@ -97,7 +97,7 @@ final class ReconnectingEdenClient implements EdenClient {
   }
 
   private List<SHA1Result> attemptGetSHA1(String mountPoint, List<String> paths)
-      throws IOException, TException {
+      throws EdenError, IOException, TException {
     List<SHA1Result> sha1s = getConnectedClient().getSHA1(mountPoint, paths);
     lastSuccessfulRequest = clock.currentTimeMillis();
     return sha1s;
@@ -114,7 +114,8 @@ final class ReconnectingEdenClient implements EdenClient {
     return attemptGetBindMounts(mountPoint);
   }
 
-  private List<String> attemptGetBindMounts(String mountPoint) throws IOException, TException {
+  private List<String> attemptGetBindMounts(String mountPoint)
+      throws EdenError, IOException, TException {
     List<String> bindMounts = getConnectedClient().getBindMounts(mountPoint);
     lastSuccessfulRequest = clock.currentTimeMillis();
     return bindMounts;

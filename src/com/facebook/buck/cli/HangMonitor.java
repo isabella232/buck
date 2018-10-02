@@ -51,7 +51,7 @@ public class HangMonitor extends AbstractScheduledService {
   }
 
   @Override
-  protected void runOneIteration() {
+  protected void runOneIteration() throws Exception {
     if (eventsSeenSinceLastCheck.get() > 0) {
       eventsSeenSinceLastCheck.set(0);
       return;

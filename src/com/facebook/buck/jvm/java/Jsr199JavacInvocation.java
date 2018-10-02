@@ -16,8 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.api.BuckTracing;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
@@ -35,6 +33,8 @@ import com.facebook.buck.jvm.java.tracing.JavacPhaseEventLogger;
 import com.facebook.buck.jvm.java.tracing.TracingTaskListener;
 import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.MostExecutors.NamedThreadFactory;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.JarBuilder;
@@ -93,7 +93,6 @@ class Jsr199JavacInvocation implements Javac.Invocation {
   @Nullable private final JarParameters libraryJarParameters;
   @Nullable private final SourceOnlyAbiRuleInfo ruleInfo;
   private final boolean trackClassUsage;
-  private final boolean trackJavacPhaseEvents;
 
   @Nullable private CompilerWorker worker;
 
@@ -106,7 +105,6 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       boolean trackClassUsage,
-      boolean trackJavacPhaseEvents,
       @Nullable JarParameters abiJarParameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
@@ -125,7 +123,6 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     this.javaSourceFilePaths = javaSourceFilePaths;
     this.pathToSrcsList = pathToSrcsList;
     this.trackClassUsage = trackClassUsage;
-    this.trackJavacPhaseEvents = trackJavacPhaseEvents;
     this.abiJarParameters = abiJarParameters;
     this.libraryJarParameters = libraryJarParameters;
     this.abiGenerationMode = abiGenerationMode;
@@ -186,7 +183,6 @@ class Jsr199JavacInvocation implements Javac.Invocation {
   }
 
   private class CompilerWorker implements AutoCloseable {
-
     private final ListeningExecutorService executor;
 
     private final SettableFuture<Integer> compilerResult = SettableFuture.create();
@@ -245,26 +241,22 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       javacTask.addPostEnterCallback(
           topLevelTypes -> {
             try {
-              if (buildSuccessful()) {
-                // Only attempt to build stubs if the build is successful so far; errors can
-                // put javac into an unknown state.
-                JarBuilder jarBuilder = newJarBuilder(jarParameters).setShouldHashEntries(true);
-                StubGenerator stubGenerator =
-                    new StubGenerator(
-                        getTargetVersion(options),
-                        javacTask.getElements(),
-                        javacTask.getTypes(),
-                        javacTask.getMessager(),
-                        jarBuilder,
-                        context.getEventSink(),
-                        abiCompatibilityMode,
-                        options.contains("-parameters"));
-                stubGenerator.generate(topLevelTypes);
-                jarBuilder.createJarFile(
-                    context
-                        .getProjectFilesystem()
-                        .getPathForRelativePath(jarParameters.getJarPath()));
-              }
+              JarBuilder jarBuilder = newJarBuilder(jarParameters).setShouldHashEntries(true);
+              StubGenerator stubGenerator =
+                  new StubGenerator(
+                      getTargetVersion(options),
+                      javacTask.getElements(),
+                      javacTask.getTypes(),
+                      javacTask.getMessager(),
+                      jarBuilder,
+                      context.getEventSink(),
+                      abiCompatibilityMode,
+                      options.contains("-parameters"));
+              stubGenerator.generate(topLevelTypes);
+              jarBuilder.createJarFile(
+                  context
+                      .getProjectFilesystem()
+                      .getPathForRelativePath(jarParameters.getJarPath()));
 
               debugLogDiagnostics();
               if (buildSuccessful()) {
@@ -406,7 +398,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     private String startCompiler(BuckJavacTaskProxy javacTask)
         throws ExecutionException, InterruptedException {
       if (compilerThreadName == null) {
-        SettableFuture<String> threadName = SettableFuture.create();
+        final SettableFuture<String> threadName = SettableFuture.create();
         compilerResult.setFuture(
             executor.submit(
                 () -> {
@@ -417,14 +409,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                       new JavacEventSinkScopedSimplePerfEvent(
                           context.getEventSink(), invokingRule.toString());
                   try {
-                    boolean success = false;
-                    try {
-                      success = javacTask.call();
-                    } catch (IllegalStateException ex) {
-                      if (ex.getLocalizedMessage().equals("no source files")) {
-                        success = true;
-                      }
-                    }
+                    boolean success = javacTask.call();
                     if (javacTask instanceof FrontendOnlyJavacTaskProxy) {
                       if (success) {
                         return 0;
@@ -587,9 +572,6 @@ class Jsr199JavacInvocation implements Javac.Invocation {
           // TranslatingJavacPhaseTracer is AutoCloseable so that it can detect the end of tracing
           // in some unusual situations
           addCloseable(tracer);
-          if (trackJavacPhaseEvents) {
-            javacTask.setTaskListener(new TracingTaskListener(tracer, taskListener));
-          }
 
           // Ensure annotation processors are loaded from their own classloader. If we don't do
           // this, then the evidence suggests that they get one polluted with Buck's own classpath,
@@ -603,6 +585,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                   invokingRule);
           addCloseable(processorFactory);
 
+          javacTask.setTaskListener(new TracingTaskListener(tracer, taskListener));
           javacTask.setProcessors(processorFactory.createProcessors(pluginFields));
           lazyJavacTask = javacTask;
         } catch (IOException e) {
@@ -614,7 +597,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       return lazyJavacTask;
     }
 
-    private JarBuilder newJarBuilder(JarParameters jarParameters) {
+    private JarBuilder newJarBuilder(JarParameters jarParameters) throws IOException {
       JarBuilder jarBuilder = new JarBuilder();
       Preconditions.checkNotNull(inMemoryFileManager).writeToJar(jarBuilder);
       return jarBuilder

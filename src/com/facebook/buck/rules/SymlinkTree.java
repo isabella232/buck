@@ -16,18 +16,11 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -35,7 +28,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.SymlinkTreeMergeStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -43,68 +35,37 @@ import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multiset;
-import com.google.common.collect.Ordering;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 
-/** Creates a tree of symlinks inside of a given directory */
-public class SymlinkTree extends AbstractBuildRule
-    implements HasRuntimeDeps, SupportsInputBasedRuleKey {
+public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBasedRuleKey {
 
   private final String category;
   private final Path root;
   private final ImmutableSortedMap<Path, SourcePath> links;
+  private final BuildTarget target;
+  private final ProjectFilesystem filesystem;
 
   private final String type;
-  private final ImmutableMultimap<Path, SourcePath> directoriesToMerge;
-  private final ImmutableSortedSet<BuildRule> buildDeps;
 
-  /**
-   * Creates an instance of {@link SymlinkTree}
-   *
-   * @param category A name used in the symlink steps
-   * @param target The target for this rule
-   * @param filesystem The filesystem that the tree lives on
-   * @param root The directory to create symlinks in
-   * @param links A map of path within the link tree to the target of the symlikm
-   * @param directoriesToMerge A map of relative paths within the link tree into which files from
-   *     the value will be recursively linked. e.g. if a file at /tmp/foo/bar should be linked as
-   *     /tmp/symlink-root/subdir/bar, the map should contain {Paths.get("subdir"),
-   *     SourcePath(Paths.get("tmp", "foo")) }
-   * @param ruleFinder Used to iterate over {@code directoriesToMerge} in order get the build time
-   */
   public SymlinkTree(
       String category,
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      ImmutableMap<Path, SourcePath> links,
-      ImmutableMultimap<Path, SourcePath> directoriesToMerge,
-      SourcePathRuleFinder ruleFinder) {
-    super(target, filesystem);
+      final ImmutableMap<Path, SourcePath> links) {
     this.category = category;
-    this.directoriesToMerge = directoriesToMerge;
-
-    this.buildDeps =
-        directoriesToMerge
-            .values()
-            .stream()
-            .map(ruleFinder::getRule)
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    this.target = target;
+    this.filesystem = filesystem;
 
     Preconditions.checkState(
         !root.isAbsolute(), "Expected symlink tree root to be relative: %s", root);
@@ -118,20 +79,6 @@ public class SymlinkTree extends AbstractBuildRule
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     sink.setReflectively("links", getLinksForRuleKey());
-    // TODO: For now, this will hash the directory and the contents of the files. We should add
-    //       something similar to NonHashableSourcePathContainer that only looks at paths that
-    //       exist, and ignores their contents.
-    sink.setReflectively(
-        "merge_dirs",
-        // Turn our multimap into something properly ordered by path with the multimap values sorted
-        directoriesToMerge
-            .keySet()
-            .stream()
-            .collect(
-                ImmutableSortedMap.toImmutableSortedMap(
-                    String::compareTo,
-                    Path::toString,
-                    k -> ImmutableList.sortedCopyOf(directoriesToMerge.get(k)))));
   }
 
   /**
@@ -192,6 +139,11 @@ public class SymlinkTree extends AbstractBuildRule
   }
 
   @Override
+  public BuildTarget getBuildTarget() {
+    return target;
+  }
+
+  @Override
   public String getType() {
     return type;
   }
@@ -206,12 +158,13 @@ public class SymlinkTree extends AbstractBuildRule
    */
   @Override
   public ImmutableSortedSet<BuildRule> getBuildDeps() {
-    return buildDeps;
+    return ImmutableSortedSet.of();
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
+
     return new ImmutableList.Builder<Step>()
         .add(getVerifyStep())
         .addAll(
@@ -224,21 +177,6 @@ public class SymlinkTree extends AbstractBuildRule
                 getProjectFilesystem(),
                 root,
                 context.getSourcePathResolver().getMappedPaths(links)))
-        .add(
-            new SymlinkTreeMergeStep(
-                category,
-                getProjectFilesystem(),
-                root,
-                directoriesToMerge
-                    .entries()
-                    .stream()
-                    .collect(
-                        ImmutableSetMultimap.toImmutableSetMultimap(
-                            Entry::getKey,
-                            entry ->
-                                context
-                                    .getSourcePathResolver()
-                                    .getAbsolutePath(entry.getValue())))))
         .build();
   }
 
@@ -259,11 +197,17 @@ public class SymlinkTree extends AbstractBuildRule
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), root);
   }
 
+  @Override
+  public ProjectFilesystem getProjectFilesystem() {
+    return filesystem;
+  }
+
   @VisibleForTesting
   protected Step getVerifyStep() {
     return new AbstractExecutionStep("verify_symlink_tree") {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         for (ImmutableMap.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
           for (Path pathPart : entry.getKey()) {
             if (pathPart.toString().equals("..")) {
@@ -316,5 +260,10 @@ public class SymlinkTree extends AbstractBuildRule
 
   public ImmutableSortedMap<Path, SourcePath> getLinks() {
     return links;
+  }
+
+  @Override
+  public String toString() {
+    return getFullyQualifiedName();
   }
 }

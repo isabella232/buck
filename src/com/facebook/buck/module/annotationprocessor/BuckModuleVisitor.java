@@ -64,7 +64,7 @@ class BuckModuleVisitor extends SimpleElementVisitor6<Void, TypeElement> {
           .getMessager()
           .printMessage(
               Diagnostic.Kind.ERROR,
-              "Cannot collect information about Buck modules: " + ThrowablesUtils.toString(e),
+              "Cannot collect information Buck modules: " + e.getMessage(),
               type);
       hadError = true;
     }
@@ -101,11 +101,31 @@ class BuckModuleVisitor extends SimpleElementVisitor6<Void, TypeElement> {
       AnnotationMirror buckModuleAnnotation) {
     String packageName = getPackageName(type);
     String className = type.getSimpleName().toString();
+    String buckModuleName = getParamsFromAnnotationOrFail(type, buckModuleAnnotation, "id");
     List<String> dependencies = extractDependencies(buckModuleAnnotation);
 
     buckModuleDescriptors.add(
         new BuckModuleDescriptor(
-            buckModuleAnnotationType, packageName, className, packageName, dependencies));
+            buckModuleAnnotationType, packageName, className, buckModuleName, dependencies));
+  }
+
+  private String getParamsFromAnnotationOrFail(
+      TypeElement type, AnnotationMirror annotation, String paramName) {
+
+    String value = getAnnotationParameterAsString(annotation, paramName);
+
+    if (value == null || value.isEmpty()) {
+      processingEnv
+          .getMessager()
+          .printMessage(
+              Diagnostic.Kind.ERROR,
+              "Required parameter '" + paramName + "' not found or is empty",
+              type,
+              annotation);
+      throw new IllegalArgumentException();
+    }
+
+    return value;
   }
 
   private List<String> extractDependencies(AnnotationMirror buckModuleAnnotation) {
@@ -123,7 +143,8 @@ class BuckModuleVisitor extends SimpleElementVisitor6<Void, TypeElement> {
         throw new RuntimeException("Could not find BuckModule annotation in " + dependencyType);
       }
 
-      String dependencyBuckModuleId = getPackageName(dependencyType);
+      String dependencyBuckModuleId =
+          getParamsFromAnnotationOrFail(dependencyType, dependencyBuckModuleAnnotation, "id");
 
       dependenciesIds.add(dependencyBuckModuleId);
     }
@@ -144,7 +165,7 @@ class BuckModuleVisitor extends SimpleElementVisitor6<Void, TypeElement> {
     }
 
     @SuppressWarnings("unchecked")
-    List<AnnotationValue> parameters = (List<AnnotationValue>) parameter;
+    final List<AnnotationValue> parameters = (List<AnnotationValue>) parameter;
 
     Types types = processingEnv.getTypeUtils();
     List<TypeElement> typeElements = new ArrayList<>();
@@ -166,6 +187,12 @@ class BuckModuleVisitor extends SimpleElementVisitor6<Void, TypeElement> {
       throw new RuntimeException("Invalid type of " + element + ". Need to be a TypeElement");
     }
     return (TypeElement) element;
+  }
+
+  @Nullable
+  public static String getAnnotationParameterAsString(
+      AnnotationMirror annotation, String parameterName) {
+    return (String) getAnnotationParameter(annotation, parameterName);
   }
 
   @Nullable

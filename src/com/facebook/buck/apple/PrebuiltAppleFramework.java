@@ -18,18 +18,9 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.model.HasOutputName;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -37,10 +28,18 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableCacheKey;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -49,8 +48,6 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -78,10 +75,11 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
   private final FlavorDomain<AppleCxxPlatform> applePlatformFlavorDomain;
 
   private final LoadingCache<NativeLinkableCacheKey, NativeLinkableInput> nativeLinkableCache =
-      CacheBuilder.newBuilder().build(CacheLoader.from(this::getNativeLinkableInputUncached));
+      NativeLinkable.getNativeLinkableInputCache(this::getNativeLinkableInputUncached);
 
-  private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache =
-      new TransitiveCxxPreprocessorInputCache(this);
+  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+      transitiveCxxPreprocessorInputCache =
+          CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
   public PrebuiltAppleFramework(
       BuildTarget buildTarget,
@@ -159,8 +157,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
   }
 
   @Override
-  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
@@ -168,8 +165,7 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public CxxPreprocessorInput getCxxPreprocessorInput(final CxxPlatform cxxPlatform) {
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
     if (isPlatformSupported(cxxPlatform)) {
@@ -181,27 +177,25 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
+      CxxPlatform cxxPlatform) {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkable> getNativeLinkableDeps() {
     return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return getNativeLinkableDeps(ruleResolver);
+    return getNativeLinkableDeps();
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
-      BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
     return ImmutableList.of();
   }
 
@@ -225,17 +219,18 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
     if (type == Linker.LinkableDepType.SHARED) {
       Optional<AppleCxxPlatform> appleCxxPlatform =
           applePlatformFlavorDomain.getValue(ImmutableSet.of(cxxPlatform.getFlavor()));
-      boolean isMacTarget =
+      final boolean isMacTarget =
           appleCxxPlatform
               .map(p -> p.getAppleSdk().getApplePlatform().getType() == ApplePlatformType.MAC)
               .orElse(false);
-      String loaderPath = isMacTarget ? "@loader_path/../Frameworks" : "@loader_path/Frameworks";
-      String executablePath =
+      final String loaderPath =
+          isMacTarget ? "@loader_path/../Frameworks" : "@loader_path/Frameworks";
+      final String executablePath =
           isMacTarget ? "@executable_path/../Frameworks" : "@loader_path/Frameworks";
       linkerArgsBuilder.addAll(StringArg.from("-rpath", loaderPath, "-rpath", executablePath));
     }
 
-    ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
+    final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
     return NativeLinkableInput.of(linkerArgs, frameworkPaths.build(), Collections.emptySet());
   }
 
@@ -244,22 +239,19 @@ public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtr
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ImmutableSet<LanguageExtensions> languageExtensions) {
     // forceLinkWhole is not needed for PrebuiltAppleFramework so we provide constant value
     return nativeLinkableCache.getUnchecked(
         NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, false, cxxPlatform));
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return this.preferredLinkage;
   }
 
   @Override
-  public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
     return ImmutableMap.of();
   }
 }

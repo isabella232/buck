@@ -17,17 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.CalculateClassAbi;
@@ -38,14 +27,25 @@ import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.java.MaybeRequiredForSourceOnlyAbiArg;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -59,8 +59,8 @@ import org.immutables.value.Value;
  * Description for a {@link BuildRule} that wraps an {@code .aar} file as an Android dependency.
  *
  * <p>This represents an Android Library Project packaged as an {@code .aar} bundle as specified by:
- * https://developer.android.com/studio/projects/android-library#aar-contents. When it is in the
- * packageable deps of an {@link AndroidBinary}, its contents will be included in the generated APK.
+ * http://tools.android.com/tech-docs/new-build-system/aar-format. When it is in the packageable
+ * deps of an {@link AndroidBinary}, its contents will be included in the generated APK.
  *
  * <p>Note that the {@code aar} may be specified as a {@link SourcePath}, so it could be either a
  * binary {@code .aar} file checked into version control, or a zip file that conforms to the {@code
@@ -80,9 +80,12 @@ public class AndroidPrebuiltAarDescription
     return Sets.difference(flavors, KNOWN_FLAVORS).isEmpty();
   }
 
+  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
 
-  public AndroidPrebuiltAarDescription(JavaBuckConfig javaBuckConfig) {
+  public AndroidPrebuiltAarDescription(
+      ToolchainProvider toolchainProvider, JavaBuckConfig javaBuckConfig) {
+    this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
   }
 
@@ -93,13 +96,14 @@ public class AndroidPrebuiltAarDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
       AndroidPrebuiltAarDescriptionArg args) {
-    BuildRuleResolver buildRuleResolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     ImmutableSet<Flavor> flavors = buildTarget.getFlavors();
     if (flavors.contains(AAR_UNZIP_FLAVOR)) {
@@ -166,7 +170,6 @@ public class AndroidPrebuiltAarDescription
           args.getRequiredForSourceOnlyAbi());
     }
 
-    ToolchainProvider toolchainProvider = context.getToolchainProvider();
     if (flavors.contains(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR)) {
       AndroidPlatformTarget androidPlatformTarget =
           toolchainProvider.getByName(
@@ -182,7 +185,7 @@ public class AndroidPrebuiltAarDescription
 
     BuildRule prebuiltJarRule =
         buildRuleResolver.requireRule(
-            ImmutableBuildTarget.of(
+            BuildTarget.of(
                 buildTarget.checkUnflavored(), ImmutableSet.of(AAR_PREBUILT_JAR_FLAVOR)));
     Preconditions.checkState(
         prebuiltJarRule instanceof PrebuiltJar,

@@ -19,7 +19,6 @@ package com.facebook.buck.util.cache.impl;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.ExperimentEvent;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
 import com.google.common.collect.ImmutableList;
@@ -36,12 +35,10 @@ class ComboFileHashCache implements FileHashCacheEngine {
   private long sha1Mismatches = 0;
 
   public ComboFileHashCache(
-      ValueLoader<HashCodeAndFileType> hashLoader,
-      ValueLoader<Long> sizeLoader,
-      ProjectFilesystem filesystem) {
+      ValueLoader<HashCodeAndFileType> hashLoader, ValueLoader<Long> sizeLoader) {
     this(
         LoadingCacheFileHashCache.createWithStats(hashLoader, sizeLoader),
-        FileSystemMapFileHashCache.createWithStats(hashLoader, sizeLoader, filesystem));
+        FileSystemMapFileHashCache.createWithStats(hashLoader, sizeLoader));
   }
 
   public ComboFileHashCache(FileHashCacheEngine... engines) {

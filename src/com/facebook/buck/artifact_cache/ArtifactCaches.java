@@ -27,7 +27,6 @@ import com.facebook.buck.artifact_cache.config.HttpCacheEntry;
 import com.facebook.buck.artifact_cache.config.MultiFetchType;
 import com.facebook.buck.artifact_cache.config.SQLiteCacheEntry;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ExperimentEvent;
@@ -39,6 +38,7 @@ import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SingleUriService;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.randomizedtrial.RandomizedTrial;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.CharMatcher;
@@ -224,7 +224,7 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
    * @return a cache
    */
   public static Optional<ArtifactCache> newServedCache(
-      ArtifactCacheBuckConfig buckConfig, ProjectFilesystem projectFilesystem) {
+      ArtifactCacheBuckConfig buckConfig, final ProjectFilesystem projectFilesystem) {
     return buckConfig
         .getServedLocalCache()
         .map(input -> createDirArtifactCache(Optional.empty(), input, projectFilesystem));
@@ -411,8 +411,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
 
   private static ArtifactCache createRetryingArtifactCache(
       HttpCacheEntry cacheDescription,
-      String hostToReportToRemote,
-      BuckEventBus buckEventBus,
+      final String hostToReportToRemote,
+      final BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
@@ -435,8 +435,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
 
   private static ArtifactCache createHttpArtifactCache(
       HttpCacheEntry cacheDescription,
-      String hostToReportToRemote,
-      BuckEventBus buckEventBus,
+      final String hostToReportToRemote,
+      final BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
@@ -475,8 +475,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
     dispatcher.setMaxRequestsPerHost((int) config.getThreadPoolSize());
     storeClientBuilder.dispatcher(dispatcher);
 
-    ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
-    ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
+    final ImmutableMap<String, String> readHeaders = cacheDescription.getReadHeaders();
+    final ImmutableMap<String, String> writeHeaders = cacheDescription.getWriteHeaders();
 
     // If write headers are specified, add them to every default client request.
     if (!writeHeaders.isEmpty()) {
@@ -563,7 +563,6 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
             .setHttpWriteExecutorService(httpWriteExecutorService)
             .setHttpFetchExecutorService(httpFetchExecutorService)
             .setErrorTextTemplate(cacheDescription.getErrorMessageFormat())
-            .setErrorTextLimit(cacheDescription.getErrorMessageLimit())
             .build());
   }
 

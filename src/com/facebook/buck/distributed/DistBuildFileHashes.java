@@ -16,17 +16,16 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.actiongraph.ActionGraph;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
@@ -44,11 +43,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -57,15 +54,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
-import javax.annotation.Nullable;
 
 /**
  * Responsible for extracting file hash and {@link RuleKey} information from the {@link ActionGraph}
  * and presenting it as a Thrift data structure.
  */
 public class DistBuildFileHashes {
-  private static final Logger LOG = Logger.get(DistBuildFileHashes.class);
-
   // Map<CellIndex, BuildJobStateFileHashes>.
   private final Map<Integer, RecordedFileHashes> remoteFileHashes;
   private final LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory> ruleKeyFactories;
@@ -81,7 +75,7 @@ public class DistBuildFileHashes {
       DistBuildCellIndexer cellIndexer,
       ListeningExecutorService executorService,
       RuleKeyConfiguration ruleKeyConfiguration,
-      Cell rootCell) {
+      final Cell rootCell) {
 
     this.remoteFileHashes = new HashMap<>();
 
@@ -122,16 +116,16 @@ public class DistBuildFileHashes {
   }
 
   public static LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory> createRuleKeyFactories(
-      SourcePathResolver sourcePathResolver,
-      SourcePathRuleFinder ruleFinder,
-      FileHashCache fileHashCache,
-      RuleKeyConfiguration ruleKeyConfiguration) {
+      final SourcePathResolver sourcePathResolver,
+      final SourcePathRuleFinder ruleFinder,
+      final FileHashCache fileHashCache,
+      final RuleKeyConfiguration ruleKeyConfiguration) {
 
     return CacheBuilder.newBuilder()
         .build(
             new CacheLoader<ProjectFilesystem, DefaultRuleKeyFactory>() {
               @Override
-              public DefaultRuleKeyFactory load(ProjectFilesystem key) {
+              public DefaultRuleKeyFactory load(ProjectFilesystem key) throws Exception {
                 // Create a new RuleKeyCache to make computation visit the
                 // RecordingProjectFileHashCache
                 return new DefaultRuleKeyFactory(
@@ -145,10 +139,10 @@ public class DistBuildFileHashes {
 
   private static ListenableFuture<ImmutableMap<BuildRule, RuleKey>> ruleKeyComputation(
       ActionGraph actionGraph,
-      LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory> ruleKeyFactories,
+      final LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory> ruleKeyFactories,
       ListeningExecutorService executorService) {
     List<ListenableFuture<Map.Entry<BuildRule, RuleKey>>> ruleKeyEntries = new ArrayList<>();
-    for (BuildRule rule : Sets.newLinkedHashSet(actionGraph.getNodes())) {
+    for (final BuildRule rule : Sets.newLinkedHashSet(actionGraph.getNodes())) {
       ruleKeyEntries.add(
           executorService.submit(
               () ->
@@ -162,28 +156,12 @@ public class DistBuildFileHashes {
 
   private static ListenableFuture<ImmutableList<RecordedFileHashes>> fileHashesComputation(
       ListenableFuture<Void> ruleKeyComputationForSideEffect,
-      ImmutableList<RecordedFileHashes> remoteFileHashes,
+      final ImmutableList<RecordedFileHashes> remoteFileHashes,
       ListeningExecutorService executorService) {
-    ListenableFuture<ImmutableList<RecordedFileHashes>> asyncHashes =
-        Futures.transform(
-            ruleKeyComputationForSideEffect,
-            input -> ImmutableList.copyOf(remoteFileHashes),
-            executorService);
-    Futures.addCallback(
-        asyncHashes,
-        new FutureCallback<ImmutableList<RecordedFileHashes>>() {
-          @Override
-          public void onSuccess(@Nullable ImmutableList<RecordedFileHashes> result) {
-            LOG.info("Finished Stampede FileHashComputation successfully.");
-          }
-
-          @Override
-          public void onFailure(Throwable t) {
-            LOG.warn("Failed to compute FileHashes for Stampede.");
-          }
-        },
-        MoreExecutors.directExecutor());
-    return asyncHashes;
+    return Futures.transform(
+        ruleKeyComputationForSideEffect,
+        input -> ImmutableList.copyOf(remoteFileHashes),
+        executorService);
   }
 
   public List<BuildJobStateFileHashes> getFileHashes() throws IOException, InterruptedException {
@@ -211,7 +189,7 @@ public class DistBuildFileHashes {
   private void checkNoDuplicates(ImmutableList<BuildJobStateFileHashes> hashes) {
     for (BuildJobStateFileHashes hash : hashes) {
       if (hash.isSetEntries()) {
-        Maps.uniqueIndex(hash.entries, entry -> entry.getPath().getPath());
+        Maps.uniqueIndex(hash.entries, entry -> entry.getPath().getPath().toString());
       }
     }
   }
@@ -223,7 +201,7 @@ public class DistBuildFileHashes {
   }
 
   public static ImmutableMap<Path, BuildJobStateFileHashEntry> indexEntriesByPath(
-      ProjectFilesystem projectFilesystem, BuildJobStateFileHashes remoteFileHashes) {
+      final ProjectFilesystem projectFilesystem, BuildJobStateFileHashes remoteFileHashes) {
     if (!remoteFileHashes.isSetEntries()) {
       return ImmutableMap.of();
     }
@@ -237,7 +215,7 @@ public class DistBuildFileHashes {
 
   public static ImmutableMap<ArchiveMemberPath, BuildJobStateFileHashEntry>
       indexEntriesByArchivePath(
-          ProjectFilesystem projectFilesystem, BuildJobStateFileHashes remoteFileHashes) {
+          final ProjectFilesystem projectFilesystem, BuildJobStateFileHashes remoteFileHashes) {
     if (!remoteFileHashes.isSetEntries()) {
       return ImmutableMap.of();
     }

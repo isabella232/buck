@@ -16,22 +16,22 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.google.common.collect.ImmutableCollection;
-import java.util.Optional;
+import com.facebook.buck.rules.BuildRule;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
- * ClassInfo is used by ModernBuildRule to extract information from an AddsToRuleKey instance. It
- * computes various things (rulekeys, deps, etc) by iterating over all the fields of the
- * AddsToRuleKey.
+ * ClassInfo is used by ModernBuildRule to extract information from a Buildable instance. It
+ * computes various things (rulekeys, deps, etc) by iterating over all the fields of the Buildable.
  */
-public interface ClassInfo<T extends AddsToRuleKey> {
-  /** Returns a lower underscore name for this type. */
+public interface ClassInfo<T extends Buildable> {
+  /** Computes the deps of ruleImpl and adds the to depsBuilder. */
+  void computeDeps(
+      T ruleImpl, InputRuleResolver inputRuleResolver, Consumer<BuildRule> depsBuilder);
+
+  /** Adds all outputPaths in ruleImpl to the dataBuilder. */
+  void getOutputs(T ruleImpl, BiConsumer<String, OutputPath> dataBuilder);
+
+  /** Returns the rule typename for Buildables of this type. */
   String getType();
-
-  <E extends Exception> void visit(T value, ValueVisitor<E> visitor) throws E;
-
-  Optional<ClassInfo<? super T>> getSuperInfo();
-
-  ImmutableCollection<FieldInfo<?>> getFieldInfos();
 }

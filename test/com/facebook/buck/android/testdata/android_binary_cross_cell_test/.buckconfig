@@ -1,6 +1,0 @@
-[repositories]
-  main = .
-  other_repo = other_repo
-
-[project]
-  embedded_cell_buck_out_enabled = true

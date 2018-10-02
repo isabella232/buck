@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.event.listener;
 
-import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.google.common.annotations.VisibleForTesting;
@@ -49,11 +49,6 @@ public class BuildRuleThreadTracker {
 
     this.threadsToRunningBuildRuleEvent.putAll(threadsToRunningBuildRuleEvent);
     this.threadsToRunningTestRuleEvent.putAll(threadsToRunningTestRuleEvent);
-  }
-
-  public void reset() {
-    threadsToRunningBuildRuleEvent.clear();
-    threadsToRunningTestRuleEvent.clear();
   }
 
   public ConcurrentMap<Long, Optional<? extends BuildRuleEvent.BeginningBuildRuleEvent>>

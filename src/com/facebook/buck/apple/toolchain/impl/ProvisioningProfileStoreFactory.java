@@ -52,12 +52,14 @@ public class ProvisioningProfileStoreFactory implements ToolchainFactory<Provisi
   }
 
   public static ProvisioningProfileStore fromSearchPath(
-      ProcessExecutor executor, ImmutableList<String> readCommand, Path searchPath) {
+      final ProcessExecutor executor,
+      final ImmutableList<String> readCommand,
+      final Path searchPath) {
     LOG.debug("Provisioning profile search path: " + searchPath);
     return ProvisioningProfileStore.of(
         MoreSuppliers.memoize(
             () -> {
-              Builder<ProvisioningProfileMetadata> profilesBuilder = ImmutableList.builder();
+              final Builder<ProvisioningProfileMetadata> profilesBuilder = ImmutableList.builder();
               try {
                 Files.walkFileTree(
                     searchPath.toAbsolutePath(),

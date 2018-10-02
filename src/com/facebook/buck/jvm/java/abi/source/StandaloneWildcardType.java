@@ -56,10 +56,10 @@ class StandaloneWildcardType extends StandaloneTypeMirror implements WildcardTyp
     builder.append('?');
     if (extendsBound != null) {
       builder.append(" extends ");
-      builder.append(extendsBound);
+      builder.append(extendsBound.toString());
     } else if (superBound != null) {
       builder.append(" super ");
-      builder.append(superBound);
+      builder.append(superBound.toString());
     }
 
     return builder.toString();

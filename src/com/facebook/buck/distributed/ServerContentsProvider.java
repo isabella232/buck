@@ -158,9 +158,7 @@ public class ServerContentsProvider implements FileContentsProvider {
           hashCodes.size(), onlyIfBufferIsFull ? "buffer was full" : "scheduled");
       resultFuture.set(service.multiFetchSourceFiles(hashCodes));
     } catch (IOException e) {
-      LOG.error(e);
-      resultFuture.setException(e);
-      return 0;
+      throw new RuntimeException(e);
     }
 
     return hashCodes.size();

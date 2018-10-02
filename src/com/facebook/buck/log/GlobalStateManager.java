@@ -16,7 +16,7 @@
 
 package com.facebook.buck.log;
 
-import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
@@ -83,12 +83,12 @@ public class GlobalStateManager {
   }
 
   public LoggerIsMappedToThreadScope setupLoggers(
-      InvocationInfo info,
+      final InvocationInfo info,
       OutputStream consoleHandlerStream,
-      OutputStream consoleHandlerOriginalStream,
-      Verbosity consoleHandlerVerbosity) {
-    long threadId = Thread.currentThread().getId();
-    String commandId = info.getCommandId();
+      final OutputStream consoleHandlerOriginalStream,
+      final Verbosity consoleHandlerVerbosity) {
+    final long threadId = Thread.currentThread().getId();
+    final String commandId = info.getCommandId();
 
     ReferenceCountedWriter defaultWriter = createReferenceCountedWriter(info.getLogFilePath());
     ReferenceCountedWriter newWriter = defaultWriter.newReference();
@@ -113,7 +113,8 @@ public class GlobalStateManager {
     return new LoggerIsMappedToThreadScope() {
       @Override
       public Closeable setWriter(ConsoleHandlerState.Writer writer) {
-        ConsoleHandlerState.Writer previousWriter = commandIdToConsoleHandlerWriter.get(commandId);
+        final ConsoleHandlerState.Writer previousWriter =
+            commandIdToConsoleHandlerWriter.get(commandId);
         commandIdToConsoleHandlerWriter.put(commandId, writer);
         return () -> commandIdToConsoleHandlerWriter.put(commandId, previousWriter);
       }
@@ -152,7 +153,7 @@ public class GlobalStateManager {
     };
   }
 
-  private void createUserFriendlySymLink(InvocationInfo info) {
+  private void createUserFriendlySymLink(final InvocationInfo info) {
     try {
       String symlinkName = "last_" + info.getSubCommand();
       Path symlinkPath = info.getBuckLogDir().resolve(symlinkName);
@@ -281,7 +282,7 @@ public class GlobalStateManager {
    * @exception IOException if an I/O error occurs.
    */
   @Override
-  protected void finalize() {
+  protected void finalize() throws IOException {
     // Close off any log file writers that may still be hanging about.
     List<String> allKeys = Lists.newArrayList(commandIdToLogFileHandlerWriter.keySet());
     for (String commandId : allKeys) {

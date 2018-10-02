@@ -18,19 +18,19 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleSdk;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxInferEnhancer;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -51,17 +51,21 @@ public class MultiarchFileInfos {
    * Inspect the given build target and return information about it if its a fat binary.
    *
    * @return non-empty when the target represents a fat binary.
-   * @throws HumanReadableException when the target is a fat binary but has incompatible flavors.
+   * @throws com.facebook.buck.util.HumanReadableException when the target is a fat binary but has
+   *     incompatible flavors.
    */
   public static Optional<MultiarchFileInfo> create(
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms, BuildTarget target) {
+      final FlavorDomain<AppleCxxPlatform> appleCxxPlatforms, BuildTarget target) {
     ImmutableList<ImmutableSortedSet<Flavor>> thinFlavorSets =
         generateThinFlavors(appleCxxPlatforms.getFlavors(), target.getFlavors());
     if (thinFlavorSets.size() <= 1) { // Actually a thin binary
       return Optional.empty();
     }
 
-    assertTargetSupportsMultiarch(target);
+    if (!Sets.intersection(target.getFlavors(), FORBIDDEN_BUILD_ACTIONS).isEmpty()) {
+      throw new HumanReadableException(
+          "%s: Fat binaries is only supported when building an actual binary.", target);
+    }
 
     AppleCxxPlatform representativePlatform = null;
     AppleSdk sdk = null;
@@ -89,24 +93,6 @@ public class MultiarchFileInfos {
     }
 
     return Optional.of(builder.build());
-  }
-
-  public static void checkTargetSupportsMultiarch(
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms, BuildTarget target) {
-    ImmutableList<ImmutableSortedSet<Flavor>> thinFlavorSets =
-        generateThinFlavors(appleCxxPlatforms.getFlavors(), target.getFlavors());
-    if (thinFlavorSets.size() <= 1) { // Actually a thin binary
-      return;
-    }
-
-    assertTargetSupportsMultiarch(target);
-  }
-
-  private static void assertTargetSupportsMultiarch(BuildTarget target) {
-    if (!Sets.intersection(target.getFlavors(), FORBIDDEN_BUILD_ACTIONS).isEmpty()) {
-      throw new HumanReadableException(
-          "%s: Fat binaries is only supported when building an actual binary.", target);
-    }
   }
 
   /**

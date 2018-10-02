@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -31,10 +31,6 @@ abstract class AbstractDistBuildClientStats {
   abstract Optional<String> buckClientErrorMessage();
 
   abstract boolean performedLocalBuild();
-
-  abstract boolean performedRacingBuild();
-
-  abstract Optional<Boolean> racingBuildFinishedFirst();
 
   abstract Optional<Boolean> isLocalFallbackBuildEnabled();
 

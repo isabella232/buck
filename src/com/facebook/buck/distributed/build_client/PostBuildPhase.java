@@ -154,7 +154,7 @@ public class PostBuildPhase {
       return Futures.immediateFuture(null);
     }
 
-    List<ListenableFuture<Pair<BuildSlaveRunId, Optional<BuildSlaveFinishedStats>>>>
+    final List<ListenableFuture<Pair<BuildSlaveRunId, Optional<BuildSlaveFinishedStats>>>>
         slaveFinishedStatsFutures = new ArrayList<>(job.getBuildSlavesSize());
     for (BuildSlaveInfo info : job.getBuildSlaves()) {
       BuildSlaveRunId runId = info.getBuildSlaveRunId();
@@ -166,7 +166,7 @@ public class PostBuildPhase {
               }));
     }
 
-    Builder builder = BuildSlaveStats.builder().setStampedeId(job.getStampedeId());
+    final Builder builder = BuildSlaveStats.builder().setStampedeId(job.getStampedeId());
     return Futures.transform(
         Futures.allAsList(slaveFinishedStatsFutures),
         statsList -> createAndPublishBuildSlaveStats(builder, statsList, consoleEventsDispatcher),
@@ -193,7 +193,7 @@ public class PostBuildPhase {
     try {
       finishedStats = distBuildService.fetchBuildSlaveFinishedStats(job.getStampedeId(), runId);
       if (!finishedStats.isPresent()) {
-        LOG.warn("BuildSlaveFinishedStats was not set for RunId:[%s] from frontend.", runId);
+        LOG.error("BuildSlaveFinishedStats was not set for RunId:[%s] from frontend.", runId);
       }
     } catch (IOException ex) {
       LOG.error(

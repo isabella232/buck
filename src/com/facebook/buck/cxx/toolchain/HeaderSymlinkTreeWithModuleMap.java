@@ -1,5 +1,5 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright 2015-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -18,17 +18,18 @@ package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.apple.clang.ModuleMap;
 import com.facebook.buck.apple.clang.UmbrellaHeader;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,6 +39,11 @@ import java.util.Optional;
 
 public final class HeaderSymlinkTreeWithModuleMap extends HeaderSymlinkTree {
 
+  private static final Logger LOG = Logger.get(HeaderSymlinkTreeWithModuleMap.class);
+
+  @AddToRuleKey(stringify = true)
+  private final Path moduleMapPath;
+
   @AddToRuleKey private final Optional<String> moduleName;
 
   private HeaderSymlinkTreeWithModuleMap(
@@ -45,73 +51,90 @@ public final class HeaderSymlinkTreeWithModuleMap extends HeaderSymlinkTree {
       ProjectFilesystem filesystem,
       Path root,
       ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder,
       Optional<String> moduleName) {
-    super(target, filesystem, root, links, ruleFinder);
+    super(target, filesystem, root, links);
     this.moduleName = moduleName;
+    this.moduleMapPath = getPath(filesystem, target, moduleName.orElse(""));
   }
 
   public static HeaderSymlinkTreeWithModuleMap create(
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
+      ImmutableMap<Path, SourcePath> links) {
     Optional<String> moduleName = getModuleName(links);
-    return new HeaderSymlinkTreeWithModuleMap(
-        target, filesystem, root, links, ruleFinder, moduleName);
+    return new HeaderSymlinkTreeWithModuleMap(target, filesystem, root, links, moduleName);
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    if (moduleName.isPresent()) {
-      return ExplicitBuildTargetSourcePath.of(
-          getBuildTarget(),
-          moduleMapPath(getProjectFilesystem(), getBuildTarget(), moduleName.get()));
-    } else {
-      return super.getSourcePathToOutput();
-    }
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), moduleMapPath);
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
+    LOG.debug("Generating post-build steps to write modulemap to %s", moduleMapPath);
     ImmutableSortedSet<Path> paths = getLinks().keySet();
     ImmutableList.Builder<Step> builder =
         ImmutableList.<Step>builder().addAll(super.getBuildSteps(context, buildableContext));
-    moduleName.ifPresent(
-        moduleName -> {
-          builder.add(
-              new ModuleMapStep(
-                  getProjectFilesystem(),
-                  moduleMapPath(getProjectFilesystem(), getBuildTarget(), moduleName),
-                  new ModuleMap(
-                      moduleName,
-                      containsSwiftHeader(paths, moduleName)
+    if (moduleName.isPresent()) {
+      boolean hasUmbrella = false;
+      for (Path path : paths) {
+        if (path.toString().contains("-umbrella.h")) {
+          hasUmbrella = true;
+          break;
+        }
+      }
+      builder.add(
+          new WriteFileStep(
+              getProjectFilesystem(),
+              new ModuleMap(
+                      moduleName.get(),
+                      paths.contains(Paths.get(moduleName.get(), moduleName.get() + "-Swift.h"))
                           ? ModuleMap.SwiftMode.INCLUDE_SWIFT_HEADER
-                          : ModuleMap.SwiftMode.NO_SWIFT)));
+                          : ModuleMap.SwiftMode.NO_SWIFT,
+                      hasUmbrella)
+                  .render(),
+              moduleMapPath,
+              false));
 
-          Path umbrellaHeaderPath = Paths.get(moduleName, moduleName + ".h");
-          if (!paths.contains(umbrellaHeaderPath)) {
-            builder.add(
-                new WriteFileStep(
+      String umbrellaHeader = moduleName.get();
+      if (hasUmbrella) {
+        umbrellaHeader += "-umbrella";
+      }
+      Path umbrellaHeaderPath = Paths.get(moduleName.get(), umbrellaHeader + ".h");
+      boolean containsUmbrellaHeader = paths.contains(umbrellaHeaderPath);
+      if (!containsUmbrellaHeader) {
+        builder.add(
+            new WriteFileStep(
+                getProjectFilesystem(),
+                new UmbrellaHeader(
+                        moduleName.get(),
+                        getLinks()
+                            .keySet()
+                            .stream()
+                            .map(x -> x.getFileName().toString())
+                            .collect(ImmutableList.toImmutableList()))
+                    .render(),
+                BuildTargets.getGenPath(
                     getProjectFilesystem(),
-                    new UmbrellaHeader(
-                            moduleName,
-                            getLinks()
-                                .keySet()
-                                .stream()
-                                .map(x -> x.getFileName().toString())
-                                .collect(ImmutableList.toImmutableList()))
-                        .render(),
-                    BuildTargets.getGenPath(
-                        getProjectFilesystem(),
-                        getBuildTarget(),
-                        "%s/" + umbrellaHeaderPath.toString()),
-                    false));
-          }
-        });
+                    getBuildTarget(),
+                    "%s/" + umbrellaHeaderPath.toString()),
+                false));
+      }
+    }
     return builder.build();
+  }
+
+  @Override
+  public Path getIncludePath() {
+    return getRoot();
+  }
+
+  @Override
+  public Optional<Path> getModuleMap() {
+    return Optional.of(getProjectFilesystem().resolve(moduleMapPath));
   }
 
   static Optional<String> getModuleName(ImmutableMap<Path, SourcePath> links) {
@@ -122,11 +145,8 @@ public final class HeaderSymlinkTreeWithModuleMap extends HeaderSymlinkTree {
     }
   }
 
-  static Path moduleMapPath(ProjectFilesystem filesystem, BuildTarget target, String moduleName) {
+  @VisibleForTesting
+  static Path getPath(ProjectFilesystem filesystem, BuildTarget target, String moduleName) {
     return BuildTargets.getGenPath(filesystem, target, "%s/" + moduleName + "/module.modulemap");
-  }
-
-  private static boolean containsSwiftHeader(ImmutableSortedSet<Path> paths, String moduleName) {
-    return paths.contains(Paths.get(moduleName, moduleName + "-Swift.h"));
   }
 }

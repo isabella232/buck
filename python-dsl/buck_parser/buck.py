@@ -361,10 +361,6 @@ class IncorrectArgumentsException(TypeError):
         super(IncorrectArgumentsException, self).__init__(message)
 
 
-class BuildFileFailError(Exception):
-    pass
-
-
 def provide_as_native_rule(func):
     NATIVE_FUNCTIONS.append(func)
     return func
@@ -398,8 +394,8 @@ def add_rule(rule, build_env):
             'rules \'name\' field must be a string.  Found %s.' % rule_name)
 
     if rule_name in build_env.rules:
-        raise ValueError('Duplicate rule definition \'%s\' found.  Found %s and %s' %
-                         (rule_name, rule, build_env.rules[rule_name]))
+        raise ValueError('Duplicate rule definition found.  Found %s and %s' %
+                         (rule, build_env.rules[rule_name]))
     rule['buck.base_path'] = build_env.base_path
 
     build_env.rules[rule_name] = rule
@@ -436,15 +432,6 @@ def glob(includes, excludes=None, include_dotfiles=False, build_env=None, search
             build_env.diagnostics,
             build_env.watchman_glob_stat_results,
             build_env.watchman_use_glob_generator)
-        if results:
-            # glob should consistently return paths of type str, but
-            # watchman client returns unicode instead.
-            # Extra check is added to make this conversion resilient to
-            # wachman API changes.
-            results = [
-                res.encode("utf-8") if isinstance(res, unicode) else res
-                for res in results
-            ]
 
     if results is None:
         results = glob_internal(
@@ -530,32 +517,6 @@ def subdir_glob(glob_specs, excludes=None, prefix=None, build_env=None, search_b
     return merge_maps(*results)
 
 
-def _get_package_name(func_name, build_env=None):
-    """The name of the package being evaluated.
-
-    For example, in the BUCK file "some/package/BUCK", its value will be
-    "some/package".
-    If the BUCK file calls a function defined in a *.bzl file, package_name()
-    will return the package of the calling BUCK file. For example, if there is
-    a BUCK file at "some/package/BUCK" and "some/other/package/ext.bzl"
-    extension file, when BUCK file calls a function inside of ext.bzl file
-    it will still return "some/package" and not "some/other/package".
-
-    This function is intended to be used from within a build defs file that
-    likely contains macros that could be called from any build file.
-    Such macros may need to know the base path of the file in which they
-    are defining new build rules.
-
-    :return: a string, such as "java/com/facebook". Note there is no
-             trailing slash. The return value will be "" if called from
-             the build file in the root of the project.
-    :rtype: str
-    """
-    assert isinstance(build_env, BuildFileContext), (
-        "Cannot use `%s()` at the top-level of an included file." % func_name)
-    return build_env.base_path
-
-
 @provide_for_build
 def get_base_path(build_env=None):
     """Get the base path to the build file that was initially evaluated.
@@ -570,7 +531,9 @@ def get_base_path(build_env=None):
              the build file in the root of the project.
     :rtype: str
     """
-    return _get_package_name("get_base_path", build_env=build_env)
+    assert isinstance(build_env, BuildFileContext), (
+        "Cannot use `get_base_path()` at the top-level of an included file.")
+    return build_env.base_path
 
 
 @provide_for_build
@@ -595,7 +558,7 @@ def package_name(build_env=None):
              the build file in the root of the project.
     :rtype: str
     """
-    return _get_package_name("package_name", build_env=build_env)
+    return get_base_path(build_env=build_env)
 
 
 @provide_for_build
@@ -608,7 +571,7 @@ def fail(message, attr=None, build_env=None):
     """
     attribute_prefix = ("attribute " + attr + ": " if attr is not None else "")
     msg = attribute_prefix + str(message)
-    raise BuildFileFailError(msg)
+    raise AssertionError(msg)
 
 
 @provide_for_build
@@ -628,27 +591,6 @@ def get_cell_name(build_env=None):
     assert isinstance(build_env, BuildFileContext), (
         "Cannot use `get_cell_name()` at the top-level of an included file.")
     return build_env.cell_name
-
-
-@provide_as_native_rule
-def repository_name(build_env=None):
-    """
-    Get the repository (cell) name of the build file that was initially
-    evaluated.
-
-    This function is intended to be used from within a build defs file that
-    likely contains macros that could be called from any build file.
-    Such macros may need to know the base path of the file in which they
-    are defining new build rules.
-
-    :return: a string, such as "@cell". The return value will be "@" if
-             the build file is in the main (standalone) repository.
-             :rtype: str
-
-    """
-    assert isinstance(build_env, BuildFileContext), (
-        "Cannot use `repository_name()` at the top-level of an included file.")
-    return "@" + build_env.cell_name
 
 
 def flatten_list_of_dicts(list_of_dicts):

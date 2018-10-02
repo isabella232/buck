@@ -16,8 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.AbstractSet;
 import java.util.Collections;

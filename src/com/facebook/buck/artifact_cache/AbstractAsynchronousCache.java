@@ -18,13 +18,13 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.Scope;
+import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -355,7 +355,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   @Override
-  public final ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
+  public final ListenableFuture<Void> store(final ArtifactInfo info, final BorrowablePath output) {
     if (!getCacheReadMode().isWritable()) {
       return Futures.immediateFuture(null);
     }
@@ -368,11 +368,11 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
       return Futures.immediateFuture(null);
     }
 
-    Path tmp;
+    final Path tmp;
     try {
       tmp = getPathForArtifact(output);
     } catch (IOException e) {
-      LOG.error(e, "Failed to store artifact in temp file: " + output.getPath());
+      LOG.error(e, "Failed to store artifact in temp file: " + output.getPath().toString());
       return Futures.immediateFuture(null);
     }
 

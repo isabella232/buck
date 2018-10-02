@@ -16,18 +16,16 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -47,9 +45,8 @@ public final class HeaderSymlinkTreeWithHeaderMap extends HeaderSymlinkTree {
       ProjectFilesystem filesystem,
       Path root,
       ImmutableMap<Path, SourcePath> links,
-      Path headerMapPath,
-      SourcePathRuleFinder ruleFinder) {
-    super(target, filesystem, root, links, ruleFinder);
+      Path headerMapPath) {
+    super(target, filesystem, root, links);
     this.headerMapPath = headerMapPath;
   }
 
@@ -57,11 +54,9 @@ public final class HeaderSymlinkTreeWithHeaderMap extends HeaderSymlinkTree {
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
+      ImmutableMap<Path, SourcePath> links) {
     Path headerMapPath = getPath(filesystem, target);
-    return new HeaderSymlinkTreeWithHeaderMap(
-        target, filesystem, root, links, headerMapPath, ruleFinder);
+    return new HeaderSymlinkTreeWithHeaderMap(target, filesystem, root, links, headerMapPath);
   }
 
   @Override
@@ -94,9 +89,8 @@ public final class HeaderSymlinkTreeWithHeaderMap extends HeaderSymlinkTree {
   }
 
   @Override
-  public PathSourcePath getIncludeSourcePath() {
-    return PathSourcePath.of(
-        getProjectFilesystem(), getProjectFilesystem().getBuckPaths().getBuckOut());
+  public Path getIncludePath() {
+    return getProjectFilesystem().resolve(getProjectFilesystem().getBuckPaths().getBuckOut());
   }
 
   @Override

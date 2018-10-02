@@ -18,16 +18,16 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
-import com.facebook.buck.core.build.engine.buildinfo.BuildInfo;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.BuildInfo;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sqlite.RetryBusyHandler;
 import com.facebook.buck.util.sqlite.SQLiteUtils;
 import com.facebook.buck.util.types.Pair;
@@ -429,7 +429,7 @@ public class SQLiteArtifactCache implements ArtifactCache {
           db.getContentToEvict(totalSizeBytes - maxBytesAfterDeletion.get());
 
       for (String filepath : contentToEvict.getFirst()) {
-        MostFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
+        MoreFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
       }
 
       Timestamp evictionCutoff = contentToEvict.getSecond();

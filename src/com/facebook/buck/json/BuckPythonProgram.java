@@ -17,16 +17,14 @@ package com.facebook.buck.json;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.BuckPyFunction;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -91,8 +89,8 @@ class BuckPythonProgram implements AutoCloseable {
         URL url = Resources.getResource("buck_parser");
 
         if ("jar".equals(url.getProtocol())) {
-          // Buck is being executed from a JAR file. Extract the jar file from the resource path,
-          // and verify it is correct.
+          // Buck is being executed from a JAR file. Extract the jar file from the resource path, and
+          // verify it is correct.
           // When python attempts to import `buck_parser`, it will see the jar file, and load it via
           // zipimport, and look into the `buck_parser` directory in the root of the jar.
           JarURLConnection connection = (JarURLConnection) url.openConnection();
@@ -127,16 +125,10 @@ class BuckPythonProgram implements AutoCloseable {
       out.write("from buck_parser.buck import *\n\n");
       BuckPyFunction function = new BuckPyFunction(typeCoercerFactory, CoercedTypeCache.INSTANCE);
       for (Description<?> description : descriptions) {
-        try {
-          out.write(
-              function.toPythonFunction(
-                  DescriptionCache.getBuildRuleType(description),
-                  description.getConstructorArgType()));
-          out.write('\n');
-        } catch (RuntimeException e) {
-          throw new BuckUncheckedExecutionException(
-              e, "When writing python function for %s.", description.getClass().getName());
-        }
+        out.write(
+            function.toPythonFunction(
+                Description.getBuildRuleType(description), description.getConstructorArgType()));
+        out.write('\n');
       }
     }
 
@@ -149,24 +141,23 @@ class BuckPythonProgram implements AutoCloseable {
               .join(
                   "from __future__ import absolute_import",
                   "import sys",
-                  "sys.path.insert(0, "
-                      + Escaper.escapeAsPythonString(MorePaths.pathWithUnixSeparators(pathlibDir))
-                      + ")",
-                  "sys.path.insert(0, "
-                      + Escaper.escapeAsPythonString(MorePaths.pathWithUnixSeparators(watchmanDir))
-                      + ")",
-                  "sys.path.insert(0, "
-                      + Escaper.escapeAsPythonString(MorePaths.pathWithUnixSeparators(typingDir))
-                      + ")",
+                  "sys.path.insert(0, \""
+                      + Escaper.escapeAsBashString(MorePaths.pathWithUnixSeparators(pathlibDir))
+                      + "\")",
+                  "sys.path.insert(0, \""
+                      + Escaper.escapeAsBashString(MorePaths.pathWithUnixSeparators(watchmanDir))
+                      + "\")",
+                  "sys.path.insert(0, \""
+                      + Escaper.escapeAsBashString(MorePaths.pathWithUnixSeparators(typingDir))
+                      + "\")",
                   // Path to the bundled python code.
-                  "sys.path.insert(0, "
-                      + Escaper.escapeAsPythonString(MorePaths.pathWithUnixSeparators(pythonPath))
-                      + ")",
+                  "sys.path.insert(0, \""
+                      + Escaper.escapeAsBashString(MorePaths.pathWithUnixSeparators(pythonPath))
+                      + "\")",
                   // Path to the generated rules stub.
-                  "sys.path.insert(0, "
-                      + Escaper.escapeAsPythonString(
-                          MorePaths.pathWithUnixSeparators(generatedRoot))
-                      + ")",
+                  "sys.path.insert(0, \""
+                      + Escaper.escapeAsBashString(MorePaths.pathWithUnixSeparators(generatedRoot))
+                      + "\")",
                   "if __name__ == '__main__':",
                   "    try:",
                   "        from buck_parser import buck",
@@ -187,7 +178,7 @@ class BuckPythonProgram implements AutoCloseable {
   @Override
   public void close() throws IOException {
     if (cleanupEnabled) {
-      MostFiles.deleteRecursively(this.rootDirectory);
+      MoreFiles.deleteRecursively(this.rootDirectory);
     }
   }
 

@@ -73,7 +73,8 @@ public abstract class MachOAbstractCommand extends AbstractCommand {
   }
 
   @Override
-  public final ExitCode runWithoutHelp(CommandRunnerParams params) throws IOException {
+  public final ExitCode runWithoutHelp(CommandRunnerParams params)
+      throws IOException, InterruptedException {
     Preconditions.checkNotNull(binary, BINARY_OPTION + " must be set");
     Preconditions.checkNotNull(output, OUTPUT_OPTION + " must be set");
     Preconditions.checkNotNull(oldCompDir, OLD_COMPDIR_OPTION + " must be set");

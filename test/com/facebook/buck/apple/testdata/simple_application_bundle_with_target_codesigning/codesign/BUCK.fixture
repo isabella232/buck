@@ -1,5 +1,0 @@
-sh_binary(
-    name = "codesign",
-    main = "codesign.sh",
-    visibility = ["PUBLIC"],
-)

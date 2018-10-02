@@ -36,7 +36,7 @@ public class ShellDescriptionsProvider implements DescriptionProvider {
 
     return Arrays.asList(
         new CommandAliasDescription(Platform.detect()),
-        new ExportFileDescription(config),
+        new ExportFileDescription(),
         new GenruleDescription(toolchainProvider, config, context.getSandboxExecutionStrategy()),
         new ShBinaryDescription(),
         new ShTestDescription(config),

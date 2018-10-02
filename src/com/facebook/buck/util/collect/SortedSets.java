@@ -298,7 +298,10 @@ public class SortedSets {
     if (Objects.equals(left, right)) {
       return true;
     }
-    return NATURAL_COMPARATORS.contains(left) && NATURAL_COMPARATORS.contains(right);
+    if (NATURAL_COMPARATORS.contains(left) && NATURAL_COMPARATORS.contains(right)) {
+      return true;
+    }
+    return false;
   }
 
   public static <T> int sizeEstimate(SortedSet<T> set) {

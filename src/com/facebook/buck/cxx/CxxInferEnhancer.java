@@ -16,15 +16,6 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorConvertible;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
@@ -33,8 +24,17 @@ import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorConvertible;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.util.RichStream;
@@ -89,7 +89,7 @@ public final class CxxInferEnhancer {
     }
   }
 
-  public static final FlavorDomain<InferFlavors> INFER_FLAVOR_DOMAIN =
+  public static FlavorDomain<InferFlavors> INFER_FLAVOR_DOMAIN =
       FlavorDomain.from("Infer flavors", InferFlavors.class);
 
   public static BuildRule requireInferRule(
@@ -256,20 +256,18 @@ public final class CxxInferEnhancer {
   }
 
   private <T extends BuildRule> ImmutableSet<T> requireTransitiveDependentLibraries(
-      CxxPlatform cxxPlatform,
-      Iterable<? extends BuildRule> deps,
-      Flavor requiredFlavor,
-      Class<T> ruleClass) {
-    ImmutableSet.Builder<T> depsBuilder = ImmutableSet.builder();
+      final CxxPlatform cxxPlatform,
+      final Iterable<? extends BuildRule> deps,
+      final Flavor requiredFlavor,
+      final Class<T> ruleClass) {
+    final ImmutableSet.Builder<T> depsBuilder = ImmutableSet.builder();
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
       @Override
       public Iterable<BuildRule> visit(BuildRule buildRule) {
         if (buildRule instanceof CxxLibrary) {
           CxxLibrary library = (CxxLibrary) buildRule;
           depsBuilder.add(
-              (ruleClass.cast(
-                  library.requireBuildRule(
-                      ruleResolver, requiredFlavor, cxxPlatform.getFlavor()))));
+              (ruleClass.cast(library.requireBuildRule(requiredFlavor, cxxPlatform.getFlavor()))));
           return buildRule.getBuildDeps();
         }
         return ImmutableSet.of();
@@ -289,7 +287,6 @@ public final class CxxInferEnhancer {
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         target,
         cxxPlatform,
-        ruleResolver,
         deps,
         ImmutableListMultimap.copyOf(
             Multimaps.transformValues(
@@ -305,7 +302,6 @@ public final class CxxInferEnhancer {
         args.getFrameworks(),
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
             cxxPlatform,
-            ruleResolver,
             RichStream.from(deps).filter(CxxPreprocessorDep.class::isInstance).toImmutableList()),
         args.getIncludeDirs(),
         sandboxTree,
@@ -342,7 +338,6 @@ public final class CxxInferEnhancer {
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             target,
             filesystem,
-            ruleFinder,
             ruleResolver,
             cxxPlatform,
             headers,

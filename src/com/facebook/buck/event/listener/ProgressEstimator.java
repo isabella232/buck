@@ -19,7 +19,7 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ProgressEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -73,17 +73,6 @@ public class ProgressEstimator {
     this.command = null;
     this.buckEventBus = buckEventBus;
     this.expectationsStorage = null;
-  }
-
-  /**
-   * Reset the stats associated with BuildRuleEvent counts. Can be used to reset progress estimation
-   * for a second build instance.
-   */
-  public void resetBuildData() {
-    numberOfRules.set(0);
-    numberOfStartedRules.set(0);
-    numberOfFinishedRules.set(0);
-    buildProgress.set(-1.0);
   }
 
   public void setCurrentCommand(String commandName, ImmutableList<String> commandArgs) {

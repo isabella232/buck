@@ -1,4 +1,0 @@
-export_file(
-    name = "export",
-    src = "secondary//:exported",
-)

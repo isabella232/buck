@@ -44,7 +44,7 @@ public class SymlinkTreeStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return getShortName() + " @ " + root;
+    return getShortName() + " @ " + root.toString();
   }
 
   @Override

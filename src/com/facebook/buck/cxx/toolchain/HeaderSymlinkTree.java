@@ -16,14 +16,11 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SymlinkTree;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -33,9 +30,8 @@ public class HeaderSymlinkTree extends SymlinkTree {
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
-    super("cxx_header", target, filesystem, root, links, ImmutableMultimap.of(), ruleFinder);
+      ImmutableMap<Path, SourcePath> links) {
+    super("cxx_header", target, filesystem, root, links);
   }
 
   /**
@@ -47,8 +43,8 @@ public class HeaderSymlinkTree extends SymlinkTree {
    * <p>This path should not be added to rulekeys as a SourcePath (in some cases it points to the
    * entire buck-out).
    */
-  public PathSourcePath getIncludeSourcePath() {
-    return PathSourcePath.of(getProjectFilesystem(), getProjectFilesystem().relativize(getRoot()));
+  public Path getIncludePath() {
+    return getRoot();
   }
 
   /** Get path of the header map indexing this tree if one exists. */
@@ -57,6 +53,10 @@ public class HeaderSymlinkTree extends SymlinkTree {
   }
 
   public Optional<SourcePath> getHeaderMapSourcePath() {
+    return Optional.empty();
+  }
+
+  public Optional<Path> getModuleMap() {
     return Optional.empty();
   }
 }

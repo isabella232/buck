@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple.xcode;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -78,8 +77,8 @@ public class XCScheme {
   }
 
   public enum AdditionalActions {
-    PRE_SCHEME_ACTIONS,
-    POST_SCHEME_ACTIONS,
+    PRE,
+    POST,
     ;
   }
 
@@ -117,54 +116,12 @@ public class XCScheme {
     }
   }
 
-  public static class SchemePrePostAction {
-    private final Optional<BuildableReference> buildableReference;
-    private String command;
-
-    public SchemePrePostAction(Optional<BuildableReference> buildableReference, String command) {
-      this.buildableReference = buildableReference;
-      this.command = command;
-    }
-
-    public Optional<BuildableReference> getBuildableReference() {
-      return buildableReference;
-    }
-
-    public String getCommand() {
-      return command;
-    }
-  }
-
-  public abstract static class SchemeAction {
-    private final Optional<ImmutableList<SchemePrePostAction>> preActions;
-    private final Optional<ImmutableList<SchemePrePostAction>> postActions;
-
-    public SchemeAction(
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      this.preActions = preActions;
-      this.postActions = postActions;
-    }
-
-    public Optional<ImmutableList<SchemePrePostAction>> getPreActions() {
-      return this.preActions;
-    }
-
-    public Optional<ImmutableList<SchemePrePostAction>> getPostActions() {
-      return this.postActions;
-    }
-  }
-
-  public static class BuildAction extends SchemeAction {
+  public static class BuildAction {
     private List<BuildActionEntry> buildActionEntries;
 
     private final boolean parallelizeBuild;
 
-    public BuildAction(
-        boolean parallelizeBuild,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+    public BuildAction(boolean parallelizeBuild) {
       buildActionEntries = new ArrayList<>();
       this.parallelizeBuild = parallelizeBuild;
     }
@@ -213,7 +170,7 @@ public class XCScheme {
     }
   }
 
-  public static class LaunchAction extends SchemeAction {
+  public static class LaunchAction {
 
     public enum LaunchStyle {
       /** Starts the process with attached debugger. */
@@ -236,10 +193,7 @@ public class XCScheme {
         Optional<String> runnablePath,
         Optional<String> remoteRunnablePath,
         LaunchStyle launchStyle,
-        Optional<ImmutableMap<String, String>> environmentVariables,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+        Optional<ImmutableMap<String, String>> environmentVariables) {
       this.buildableReference = buildableReference;
       this.buildConfiguration = buildConfiguration;
       this.runnablePath = runnablePath;
@@ -273,7 +227,7 @@ public class XCScheme {
     }
   }
 
-  public static class ProfileAction extends SchemeAction {
+  public static class ProfileAction {
     BuildableReference buildableReference;
     private final String buildConfiguration;
     private final Optional<ImmutableMap<String, String>> environmentVariables;
@@ -281,10 +235,7 @@ public class XCScheme {
     public ProfileAction(
         BuildableReference buildableReference,
         String buildConfiguration,
-        Optional<ImmutableMap<String, String>> environmentVariables,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+        Optional<ImmutableMap<String, String>> environmentVariables) {
       this.buildableReference = buildableReference;
       this.buildConfiguration = buildConfiguration;
       this.environmentVariables = environmentVariables;
@@ -303,17 +254,13 @@ public class XCScheme {
     }
   }
 
-  public static class TestAction extends SchemeAction {
+  public static class TestAction {
     List<TestableReference> testables;
     private final String buildConfiguration;
     private final Optional<ImmutableMap<String, String>> environmentVariables;
 
     public TestAction(
-        String buildConfiguration,
-        Optional<ImmutableMap<String, String>> environmentVariables,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+        String buildConfiguration, Optional<ImmutableMap<String, String>> environmentVariables) {
       this.testables = new ArrayList<>();
       this.buildConfiguration = buildConfiguration;
       this.environmentVariables = environmentVariables;
@@ -348,14 +295,10 @@ public class XCScheme {
     }
   }
 
-  public static class AnalyzeAction extends SchemeAction {
+  public static class AnalyzeAction {
     public final String buildConfiguration;
 
-    public AnalyzeAction(
-        String buildConfiguration,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+    public AnalyzeAction(String buildConfiguration) {
       this.buildConfiguration = buildConfiguration;
     }
 
@@ -364,14 +307,10 @@ public class XCScheme {
     }
   }
 
-  public static class ArchiveAction extends SchemeAction {
+  public static class ArchiveAction {
     public final String buildConfiguration;
 
-    public ArchiveAction(
-        String buildConfiguration,
-        Optional<ImmutableList<SchemePrePostAction>> preActions,
-        Optional<ImmutableList<SchemePrePostAction>> postActions) {
-      super(preActions, postActions);
+    public ArchiveAction(String buildConfiguration) {
       this.buildConfiguration = buildConfiguration;
     }
 

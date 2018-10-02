@@ -34,7 +34,7 @@ public class PBXGroup extends PBXReference {
     BY_NAME,
 
     /** Group contents will not be sorted, and will remain in the order they were added. */
-    UNSORTED
+    UNSORTED;
   }
 
   // Unfortunately, we can't determine this at constructor time, because CacheBuilder
@@ -59,7 +59,7 @@ public class PBXGroup extends PBXReference {
             .build(
                 new CacheLoader<String, PBXGroup>() {
                   @Override
-                  public PBXGroup load(String key) {
+                  public PBXGroup load(String key) throws Exception {
                     PBXGroup group = new PBXGroup(key, null, SourceTree.GROUP);
                     children.add(group);
                     return group;
@@ -71,7 +71,7 @@ public class PBXGroup extends PBXReference {
             .build(
                 new CacheLoader<String, PBXVariantGroup>() {
                   @Override
-                  public PBXVariantGroup load(String key) {
+                  public PBXVariantGroup load(String key) throws Exception {
                     PBXVariantGroup group = new PBXVariantGroup(key, null, SourceTree.GROUP);
                     children.add(group);
                     return group;
@@ -83,7 +83,7 @@ public class PBXGroup extends PBXReference {
             .build(
                 new CacheLoader<SourceTreePath, PBXFileReference>() {
                   @Override
-                  public PBXFileReference load(SourceTreePath key) {
+                  public PBXFileReference load(SourceTreePath key) throws Exception {
                     PBXFileReference ref = key.createFileReference();
                     children.add(ref);
                     return ref;
@@ -95,7 +95,7 @@ public class PBXGroup extends PBXReference {
             .build(
                 new CacheLoader<SourceTreePath, XCVersionGroup>() {
                   @Override
-                  public XCVersionGroup load(SourceTreePath key) {
+                  public XCVersionGroup load(SourceTreePath key) throws Exception {
                     XCVersionGroup ref = key.createVersionGroup();
                     children.add(ref);
                     return ref;

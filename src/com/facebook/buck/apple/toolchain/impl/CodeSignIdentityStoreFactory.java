@@ -51,7 +51,7 @@ public class CodeSignIdentityStoreFactory implements ToolchainFactory<CodeSignId
    * <p>The loading process is deferred till first access.
    */
   public static CodeSignIdentityStore fromSystem(
-      ProcessExecutor processExecutor, ImmutableList<String> command) {
+      final ProcessExecutor processExecutor, ImmutableList<String> command) {
     return CodeSignIdentityStore.of(
         MoreSuppliers.memoize(
             () -> {
@@ -96,7 +96,7 @@ public class CodeSignIdentityStoreFactory implements ToolchainFactory<CodeSignId
                         .setSubjectCommonName(subjectCommonName)
                         .build();
                 builder.add(identity);
-                LOG.debug("Found code signing identity: " + identity);
+                LOG.debug("Found code signing identity: " + identity.toString());
               }
               ImmutableList<CodeSignIdentity> allValidIdentities = builder.build();
               if (allValidIdentities.isEmpty()) {

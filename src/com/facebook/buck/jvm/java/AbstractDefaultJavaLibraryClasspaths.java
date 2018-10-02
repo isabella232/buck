@@ -16,15 +16,15 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -163,16 +163,11 @@ abstract class AbstractDefaultJavaLibraryClasspaths {
   }
 
   @Value.Lazy
-  Iterable<BuildRule> getCompileTimeFirstOrderDeps() {
-    return Iterables.concat(
-        getAllFirstOrderNonProvidedDeps(),
-        Preconditions.checkNotNull(getDeps()).getProvidedDeps(),
-        Preconditions.checkNotNull(getDeps()).getExportedProvidedDeps());
-  }
-
-  @Value.Lazy
   ImmutableSet<BuildRule> getCompileTimeClasspathUnfilteredFullDeps() {
-    Iterable<BuildRule> firstOrderDeps = getCompileTimeFirstOrderDeps();
+    Iterable<BuildRule> firstOrderDeps =
+        Iterables.concat(
+            getAllFirstOrderNonProvidedDeps(),
+            Preconditions.checkNotNull(getDeps()).getProvidedDeps());
 
     ImmutableSet<BuildRule> rulesExportedByDependencies =
         BuildRules.getUnsortedExportedRules(firstOrderDeps);

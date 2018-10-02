@@ -84,7 +84,7 @@ public class ProcessHelper {
   /** Gets resource consumption of the process subtree rooted at the process with the given pid. */
   @Nullable
   public ProcessResourceConsumption getTotalResourceConsumption(long pid) {
-    ProcessResourceConsumption[] res = new ProcessResourceConsumption[] {null};
+    final ProcessResourceConsumption[] res = new ProcessResourceConsumption[] {null};
     ProcessTree tree = processTree.get();
     tree.visitAllDescendants(
         pid,
@@ -141,7 +141,7 @@ public class ProcessHelper {
         return false;
       }
     } else {
-      throw new IllegalArgumentException("Unknown process class: " + process.getClass());
+      throw new IllegalArgumentException("Unknown process class: " + process.getClass().toString());
     }
   }
 
@@ -174,7 +174,7 @@ public class ProcessHelper {
       }
       return pid;
     } else {
-      throw new IllegalArgumentException("Unknown process class: " + process.getClass());
+      throw new IllegalArgumentException("Unknown process class: " + process.getClass().toString());
     }
   }
 

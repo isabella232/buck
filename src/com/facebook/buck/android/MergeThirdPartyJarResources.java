@@ -17,11 +17,11 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.resources.ResourcesZipBuilder;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
@@ -84,7 +84,8 @@ public class MergeThirdPartyJarResources extends ModernBuildRule<MergeThirdParty
       ImmutableSet<Path> thirdPartyJars, Path absoluteMergedPath) {
     return new AbstractExecutionStep("merging_third_party_jar_resources") {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         try (ResourcesZipBuilder builder = new ResourcesZipBuilder(absoluteMergedPath)) {
           for (Path jar : thirdPartyJars) {
             try (ZipFile base = new ZipFile(jar.toFile())) {

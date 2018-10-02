@@ -18,14 +18,14 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -62,7 +62,8 @@ class AndroidBinaryInstallGraphEnhancer {
   }
 
   public void enhance(BuildRuleResolver resolver) {
-    if (androidInstallConfig.getConcurrentInstallEnabled(Optional.empty())) {
+    if (androidInstallConfig.getConcurrentInstallEnabled(
+        Optional.ofNullable(resolver.getEventBus()))) {
       if (exopackageEnabled()) {
         enhanceForConcurrentExopackageInstall(resolver);
       } else {

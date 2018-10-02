@@ -21,13 +21,13 @@ import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.step.AdbOptions;
@@ -101,7 +101,7 @@ public class UninstallCommand extends AbstractCommand {
 
     try (CommandThreadManager pool =
             new CommandThreadManager("Uninstall", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
+        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
             getForkJoinPoolSupplier(params.getBuckConfig())) {
       TargetGraphAndBuildTargets result =
           params
@@ -119,7 +119,6 @@ public class UninstallCommand extends AbstractCommand {
               .getActionGraph(
                   params.getBuckEventBus(),
                   result.getTargetGraph(),
-                  params.getCell().getCellProvider(),
                   params.getBuckConfig(),
                   params.getRuleKeyConfiguration(),
                   poolSupplier)
@@ -151,7 +150,7 @@ public class UninstallCommand extends AbstractCommand {
     }
     HasInstallableApk hasInstallableApk = (HasInstallableApk) buildRule;
 
-    AndroidDevicesHelper adbHelper = getExecutionContext().getAndroidDevicesHelper().get();
+    final AndroidDevicesHelper adbHelper = getExecutionContext().getAndroidDevicesHelper().get();
 
     // Find application package name from manifest and uninstall from matching devices.
     SourcePathResolver pathResolver =

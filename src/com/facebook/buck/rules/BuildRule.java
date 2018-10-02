@@ -16,18 +16,9 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
-import com.facebook.buck.core.rules.provider.MissingProviderException;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.views.JsonViews;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.Step;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -102,9 +93,6 @@ public interface BuildRule extends Comparable<BuildRule> {
   @JsonIgnore
   boolean isCacheable();
 
-  /** Whether this {@link BuildRule} may have any steps to build. */
-  boolean hasBuildSteps();
-
   /**
    * Add additional details when calculating this rule's {@link RuleKey} which isn't available via
    * reflection.
@@ -119,56 +107,5 @@ public interface BuildRule extends Comparable<BuildRule> {
     }
 
     return this.getBuildTarget().compareTo(that.getBuildTarget());
-  }
-
-  /**
-   * Updates the build rule resolver and associated objects for this build rule.
-   *
-   * <p>Build rules sometimes hold field references to build rule resolvers. If this build rule is
-   * to be cached, it must update its build rule resolver when a new action graph is constructed to
-   * avoid leaking the entire action graph it was originally associated with.
-   */
-  @SuppressWarnings("unused")
-  void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver);
-
-  /**
-   * Whether the BuildRule is implemented with {@link BuildRuleInfoProvider}. This will be removed
-   * once all {@link BuildRule} have been converted to using providers
-   */
-  boolean hasProviders();
-
-  /**
-   * Exposes information about the BuildRule to BuildRules that depend on this BuildRule during
-   * action graph construction. If {@link #hasProviders()} is {@code false},
-   * UnsupportedOperationException will be thrown.
-   *
-   * @param providerKey the key to the provider desired
-   * @param <T> the type of the provider
-   * @return the provider of the type desired from this BuildRule
-   * @throws MissingProviderException if the required provider is not present
-   */
-  <T extends BuildRuleInfoProvider> T getProvider(BuildRuleInfoProvider.ProviderKey providerKey)
-      throws MissingProviderException;
-
-  /**
-   * Exposes all the providers about this BuildRule to BuildRules that depend on this BuildRule
-   * during action graph construction. If {@link #hasProviders()} is {@code false}, {@link
-   * UnsupportedOperationException} will be thrown.
-   *
-   * @return an immutable BuildRuleInfoProviderCollection containing all providers for this
-   *     BuildRule
-   */
-  BuildRuleInfoProviderCollection getProviderCollection();
-
-  /**
-   * @return true if this rule, and all rules which that depend on it, should be built locally i.e.
-   *     on the machine that initiated a build instead of one of the remote workers taking part in
-   *     the distributed build.
-   */
-  default boolean shouldBuildLocally() {
-    return false;
   }
 }

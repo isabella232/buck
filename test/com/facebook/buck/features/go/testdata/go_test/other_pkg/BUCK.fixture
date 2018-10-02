@@ -1,5 +1,0 @@
-go_library(
-    name = "base",
-    srcs = ["base.go"],
-    visibility = ["PUBLIC"],
-)

@@ -17,12 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
@@ -36,21 +30,22 @@ import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
-import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.DependencyMode;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -60,9 +55,7 @@ import java.util.Collections;
 import java.util.Optional;
 import org.immutables.value.Value;
 
-public class RobolectricTestDescription
-    implements Description<RobolectricTestDescriptionArg>,
-        ImplicitDepsInferringDescription<RobolectricTestDescriptionArg> {
+public class RobolectricTestDescription implements Description<RobolectricTestDescriptionArg> {
 
 
   private final ToolchainProvider toolchainProvider;
@@ -83,28 +76,16 @@ public class RobolectricTestDescription
     return RobolectricTestDescriptionArg.class;
   }
 
-  private CxxPlatform getCxxPlatform(RobolectricTestDescriptionArg args) {
-    return args.getDefaultCxxPlatform()
-        .map(
-            toolchainProvider
-                    .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                    .getCxxPlatforms()
-                ::getValue)
-        .orElse(
-            toolchainProvider
-                .getByName(JavaCxxPlatformProvider.DEFAULT_NAME, JavaCxxPlatformProvider.class)
-                .getDefaultJavaCxxPlatform());
-  }
-
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       RobolectricTestDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     if (HasJavaAbi.isClassAbiTarget(buildTarget)) {
       Preconditions.checkArgument(
@@ -173,22 +154,21 @@ public class RobolectricTestDescription
             args.getCxxLibraryWhitelist(),
             resolver,
             ruleFinder,
-            getCxxPlatform(args));
+            toolchainProvider
+                .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
+                .getDefaultCxxPlatform());
     params = cxxLibraryEnhancement.updatedParams;
 
     BuildTarget testLibraryBuildTarget =
         buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
-    CellPathResolver cellRoots = context.getCellPathResolver();
 
     JavaLibrary testsLibrary =
         resolver.addToIndex(
             DefaultJavaLibrary.rulesBuilder(
                     testLibraryBuildTarget,
                     projectFilesystem,
-                    context.getToolchainProvider(),
                     params,
                     resolver,
-                    cellRoots,
                     compilerFactory.getCompiler(
                         args.getLanguage().orElse(AndroidLibraryDescription.JvmLanguage.JAVA)),
                     javaBuckConfig,
@@ -239,19 +219,6 @@ public class RobolectricTestDescription
         javaBuckConfig
             .getDelegate()
             .getBooleanValue("test", "pass_robolectric_directories_in_file", false));
-  }
-
-  @Override
-  public void findDepsForTargetFromConstructorArgs(
-      BuildTarget buildTarget,
-      CellPathResolver cellRoots,
-      RobolectricTestDescriptionArg constructorArg,
-      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    if (constructorArg.getUseCxxLibraries().orElse(false)) {
-      targetGraphOnlyDepsBuilder.addAll(
-          CxxPlatforms.getParseTimeDeps(getCxxPlatform(constructorArg)));
-    }
   }
 
   @BuckStyleImmutable

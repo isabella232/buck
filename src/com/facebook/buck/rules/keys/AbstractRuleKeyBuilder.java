@@ -16,14 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.NonHashableSourcePathContainer;
+import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.types.Either;
@@ -156,6 +157,22 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
     if (val instanceof NonHashableSourcePathContainer) {
       SourcePath sourcePath = ((NonHashableSourcePathContainer) val).getSourcePath();
       return setNonHashingSourcePath(sourcePath);
+    }
+
+    if (val instanceof SourceWithFlags) {
+      SourceWithFlags source = (SourceWithFlags) val;
+      try (RuleKeyScopedHasher.ContainerScope containerScope =
+          scopedHasher.containerScope(RuleKeyHasher.Container.TUPLE)) {
+        try (Scope ignored = containerScope.elementScope()) {
+          setSourcePath(source.getSourcePath());
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
+        try (Scope ignored = containerScope.elementScope()) {
+          setReflectively(source.getFlags());
+        }
+      }
+      return this;
     }
 
     return setSingleValue(val);

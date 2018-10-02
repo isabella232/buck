@@ -1,4 +1,0 @@
-robolectric_test(
-    name = "tip",
-    srcs = glob(["src/**/*.java"]),
-)

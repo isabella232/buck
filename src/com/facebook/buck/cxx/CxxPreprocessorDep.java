@@ -16,9 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.model.BuildTarget;
 import com.google.common.collect.ImmutableMap;
 
 /**
@@ -30,20 +29,18 @@ public interface CxxPreprocessorDep {
 
   BuildTarget getBuildTarget();
 
-  Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+  Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform);
 
   /**
    * Returns the preprocessor input that represents this rule's public (exported) declarations. This
    * includes any exported preprocessor flags, headers, etc.
    */
-  CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+  CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform);
 
   /**
    * Returns all transitive preprocessor inputs for this library. This includes public headers (and
    * exported preprocessor flags) of all exported dependencies.
    */
   ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+      CxxPlatform cxxPlatform);
 }

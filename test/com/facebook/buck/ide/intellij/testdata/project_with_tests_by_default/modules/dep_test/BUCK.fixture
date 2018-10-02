@@ -1,6 +1,0 @@
-java_library(
-    name = "dep_test",
-    srcs = [
-        "Test.java",
-    ],
-)

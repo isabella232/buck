@@ -16,17 +16,16 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -57,7 +56,8 @@ public class TargetNodeParsePipeline
 
   private static final Logger LOG = Logger.get(TargetNodeParsePipeline.class);
 
-  private final ParserTargetNodeFactory<Map<String, Object>> delegate;
+  private final ParserTargetNodeFactory<TargetNode<?, ?>> delegate;
+  private final BuckEventBus eventBus;
   private final boolean speculativeDepsTraversal;
   private final RawNodeParsePipeline rawNodeParsePipeline;
   private final SimplePerfEvent.Scope targetNodePipelineLifetimeEventScope;
@@ -75,15 +75,16 @@ public class TargetNodeParsePipeline
    */
   public TargetNodeParsePipeline(
       Cache<BuildTarget, TargetNode<?, ?>> cache,
-      ParserTargetNodeFactory<Map<String, Object>> targetNodeDelegate,
+      ParserTargetNodeFactory<TargetNode<?, ?>> targetNodeDelegate,
       ListeningExecutorService executorService,
       BuckEventBus eventBus,
       boolean speculativeDepsTraversal,
       RawNodeParsePipeline rawNodeParsePipeline,
       KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
-    super(executorService, cache, eventBus);
+    super(executorService, cache);
 
     this.delegate = targetNodeDelegate;
+    this.eventBus = eventBus;
     this.speculativeDepsTraversal = speculativeDepsTraversal;
     this.rawNodeParsePipeline = rawNodeParsePipeline;
     this.targetNodePipelineLifetimeEventScope =
@@ -94,20 +95,20 @@ public class TargetNodeParsePipeline
   @Override
   protected BuildTarget getBuildTarget(
       Path root, Optional<String> cellName, Path buildFile, Map<String, Object> from) {
-    return ImmutableBuildTarget.of(
+    return BuildTarget.of(
         RawNodeParsePipeline.parseBuildTargetFromRawRule(root, cellName, from, buildFile));
   }
 
   @Override
   @SuppressWarnings("CheckReturnValue")
   protected TargetNode<?, ?> computeNode(
-      Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      BuildTarget buildTarget,
-      Map<String, Object> rawNode,
+      final Cell cell,
+      final KnownBuildRuleTypes knownBuildRuleTypes,
+      final BuildTarget buildTarget,
+      final Map<String, Object> rawNode,
       AtomicLong processedBytes)
       throws BuildTargetException {
-    try (SimplePerfEvent.Scope scope =
+    try (final SimplePerfEvent.Scope scope =
         SimplePerfEvent.scopeIgnoringShortEvents(
             eventBus,
             PerfEventId.of("GetTargetNode"),
@@ -120,7 +121,7 @@ public class TargetNodeParsePipeline
           perfEventId ->
               SimplePerfEvent.scopeIgnoringShortEvents(
                   eventBus, perfEventId, scope, getMinimumPerfEventTimeMs(), TimeUnit.MILLISECONDS);
-      TargetNode<?, ?> targetNode =
+      final TargetNode<?, ?> targetNode =
           delegate.createTargetNode(
               cell,
               knownBuildRuleTypes,
@@ -141,7 +142,7 @@ public class TargetNodeParsePipeline
                     getNodeJob(
                         depCell,
                         depKnownBuildRuleTypes,
-                        ImmutableBuildTarget.of(depTarget.getUnflavoredBuildTarget()),
+                        BuildTarget.of(depTarget.getUnflavoredBuildTarget()),
                         processedBytes);
                   }
                   getNodeJob(depCell, depKnownBuildRuleTypes, depTarget, processedBytes);

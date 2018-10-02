@@ -1,5 +1,0 @@
-genrule(
-    name = "mkdir",
-    out = "directory",
-    cmd = "mkdir $OUT && echo something> $OUT/file",
-)

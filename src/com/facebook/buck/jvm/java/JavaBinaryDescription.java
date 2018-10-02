@@ -16,15 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.description.arg.HasTests;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -33,14 +24,23 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
@@ -87,16 +87,17 @@ public class JavaBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       JavaBinaryDescriptionArg args) {
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableMap<String, SourcePath> nativeLibraries =
-        JavaLibraryRules.getNativeLibraries(
-            params.getBuildDeps(), getCxxPlatform(args), context.getBuildRuleResolver());
+        JavaLibraryRules.getNativeLibraries(params.getBuildDeps(), getCxxPlatform(args));
     BuildTarget binaryBuildTarget = buildTarget;
     BuildRuleParams binaryParams = params;
 
@@ -110,7 +111,6 @@ public class JavaBinaryDescription
         toolchainProvider
             .getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class)
             .getJavaOptions();
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     // Construct the build rule to build the binary JAR.
     ImmutableSet<JavaLibrary> transitiveClasspathDeps =
@@ -131,8 +131,7 @@ public class JavaBinaryDescription
             args.getBlacklist(),
             transitiveClasspathDeps,
             transitiveClasspaths,
-            javaBuckConfig.shouldCacheBinaries(),
-            javaBuckConfig.getDuplicatesLogLevel());
+            javaBuckConfig.shouldCacheBinaries());
 
     // If we're packaging native libraries, construct the rule to build the fat JAR, which packages
     // up the original binary JAR and any required native libraries.

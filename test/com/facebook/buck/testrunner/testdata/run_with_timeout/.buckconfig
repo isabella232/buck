@@ -1,3 +1,0 @@
-[test]
-    # Maximum timeout of 0.5s per test.
-    timeout = 500

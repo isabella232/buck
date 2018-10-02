@@ -1,3 +1,0 @@
-[project]
-  pre_process = ./preprocess.sh
-  ide = intellij

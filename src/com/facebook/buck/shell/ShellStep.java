@@ -16,9 +16,9 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -91,14 +91,10 @@ public abstract class ShellStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws InterruptedException, IOException {
-    ImmutableList<String> command = getShellCommand(context);
-    if (command.size() == 0) {
-      return StepExecutionResult.of(0);
-    }
-
     // Kick off a Process in which this ShellCommand will be run.
     ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
-    builder.setCommand(command);
+
+    builder.setCommand(getShellCommand(context));
     Map<String, String> environment = new HashMap<>();
     setProcessEnvironment(context, environment, workingDirectory.toString());
     if (LOG.isDebugEnabled()) {
@@ -208,9 +204,7 @@ public abstract class ShellStep implements Step {
   public final ImmutableList<String> getShellCommand(ExecutionContext context) {
     if (shellCommandArgs == null) {
       shellCommandArgs = getShellCommandInternal(context);
-      if (shellCommandArgs.size() > 0) {
-        LOG.debug("Command: %s", Joiner.on(" ").join(shellCommandArgs));
-      }
+      LOG.debug("Command: %s", Joiner.on(" ").join(shellCommandArgs));
     }
     return shellCommandArgs;
   }

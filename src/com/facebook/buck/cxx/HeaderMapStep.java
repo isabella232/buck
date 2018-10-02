@@ -46,7 +46,7 @@ class HeaderMapStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return "header map @ " + output;
+    return "header map @ " + output.toString();
   }
 
   @Override

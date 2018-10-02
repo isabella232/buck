@@ -16,24 +16,23 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.tool.BinaryBuildRule;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.test.rule.TestRule;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -62,8 +61,8 @@ import java.util.stream.Stream;
 abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, BinaryBuildRule {
 
-  @AddToRuleKey private final ImmutableMap<String, Arg> env;
-  @AddToRuleKey private final Supplier<ImmutableList<Arg>> args;
+  @AddToRuleKey private final ImmutableMap<String, String> env;
+  @AddToRuleKey private final Supplier<ImmutableList<String>> args;
   @AddToRuleKey private final Tool executable;
 
   @AddToRuleKey
@@ -82,8 +81,8 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Tool executable,
-      ImmutableMap<String, Arg> env,
-      Supplier<ImmutableList<Arg>> args,
+      ImmutableMap<String, String> env,
+      Supplier<ImmutableList<String>> args,
       ImmutableSortedSet<? extends SourcePath> resources,
       ImmutableSet<SourcePath> additionalCoverageTargets,
       Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
@@ -158,7 +157,7 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                     .addAll(
                         getShellCommand(
                             buildContext.getSourcePathResolver(), getPathToTestResults()))
-                    .addAll(Arg.stringify(args.get(), buildContext.getSourcePathResolver()))
+                    .addAll(args.get())
                     .build(),
                 getEnv(buildContext.getSourcePathResolver()),
                 getPathToTestExitCode(),
@@ -212,7 +211,7 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      ExecutionContext executionContext,
+      final ExecutionContext executionContext,
       SourcePathResolver pathResolver,
       boolean isUsingTestSelectors) {
     return () -> {
@@ -265,11 +264,11 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   protected ImmutableMap<String, String> getEnv(SourcePathResolver pathResolver) {
     return new ImmutableMap.Builder<String, String>()
         .putAll(executable.getEnvironment(pathResolver))
-        .putAll(Arg.stringify(env, pathResolver))
+        .putAll(env)
         .build();
   }
 
-  protected Supplier<ImmutableList<Arg>> getArgs() {
+  protected Supplier<ImmutableList<String>> getArgs() {
     return args;
   }
 }

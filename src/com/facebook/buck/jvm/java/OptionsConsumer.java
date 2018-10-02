@@ -18,9 +18,9 @@ package com.facebook.buck.jvm.java;
 import java.util.Collection;
 
 public interface OptionsConsumer {
-  void addOptionValue(String option, String value);
+  void addOptionValue(final String option, final String value);
 
-  void addFlag(String flagName);
+  void addFlag(final String flagName);
 
-  void addExtras(Collection<String> extras);
+  void addExtras(final Collection<String> extras);
 }

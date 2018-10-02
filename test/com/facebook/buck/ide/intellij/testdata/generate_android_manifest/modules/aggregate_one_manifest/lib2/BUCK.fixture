@@ -1,3 +1,0 @@
-android_library(
-    name = "lib2",
-)

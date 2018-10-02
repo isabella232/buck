@@ -32,6 +32,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -176,15 +177,13 @@ public class SplitZipStep implements Step {
             filesystem, proguardFullConfigFile, proguardMappingFile, skipProguard);
     Predicate<String> requiredInPrimaryZip =
         createRequiredInPrimaryZipPredicate(translatorFactory, classes);
-    ImmutableSet<String> wantedInPrimaryZip =
+    final ImmutableSet<String> wantedInPrimaryZip =
         getWantedPrimaryDexEntries(translatorFactory, classes);
-    ImmutableSet<String> secondaryHeadSet = getSecondaryHeadSet(translatorFactory);
-    ImmutableSet<String> secondaryTailSet = getSecondaryTailSet(translatorFactory);
-    ImmutableMultimap<APKModule, String> additionalDexStoreClasses =
+    final ImmutableSet<String> secondaryHeadSet = getSecondaryHeadSet(translatorFactory);
+    final ImmutableSet<String> secondaryTailSet = getSecondaryTailSet(translatorFactory);
+    final ImmutableMultimap<APKModule, String> additionalDexStoreClasses =
         APKModuleGraph.getAPKModuleToClassesMap(
-            apkModuleToJarPathMap,
-            translatorFactory.createNullableObfuscationFunction(),
-            filesystem);
+            apkModuleToJarPathMap, translatorFactory.createObfuscationFunction(), filesystem);
 
     ZipSplitterFactory zipSplitterFactory;
     zipSplitterFactory =
@@ -256,10 +255,10 @@ public class SplitZipStep implements Step {
       ProguardTranslatorFactory translatorFactory,
       Supplier<ImmutableList<ClassNode>> classesSupplier)
       throws IOException {
-    Function<String, String> deobfuscate = translatorFactory.createDeobfuscationFunction();
-    ImmutableSet<String> primaryDexClassNames =
+    final Function<String, String> deobfuscate = translatorFactory.createDeobfuscationFunction();
+    final ImmutableSet<String> primaryDexClassNames =
         getRequiredPrimaryDexClassNames(translatorFactory, classesSupplier);
-    ClassNameFilter primaryDexFilter =
+    final ClassNameFilter primaryDexFilter =
         ClassNameFilter.fromConfiguration(dexSplitMode.getPrimaryDexPatterns());
 
     return classFileName -> {
@@ -267,8 +266,11 @@ public class SplitZipStep implements Step {
       String internalClassName =
           Preconditions.checkNotNull(deobfuscate.apply(classFileName.replaceAll("\\.class$", "")));
 
-      return primaryDexClassNames.contains(internalClassName)
-          || primaryDexFilter.matches(internalClassName);
+      if (primaryDexClassNames.contains(internalClassName)) {
+        return true;
+      }
+
+      return primaryDexFilter.matches(internalClassName);
     };
   }
 
@@ -287,19 +289,16 @@ public class SplitZipStep implements Step {
 
     if (primaryDexClassesFile.isPresent()) {
       Iterable<String> classes =
-          filesystem
-              .readLines(primaryDexClassesFile.get())
-              .stream()
-              .map(String::trim)
-              .filter(SplitZipStep::isNeitherEmptyNorComment)
-              .collect(Collectors.toList());
+          FluentIterable.from(filesystem.readLines(primaryDexClassesFile.get()))
+              .transform(String::trim)
+              .filter(SplitZipStep::isNeitherEmptyNorComment);
       builder.addAll(classes);
     }
 
     // If there is a scenario file but overflow is not allowed, then the scenario dependencies
     // are required, and therefore get added here.
     if (!dexSplitMode.isPrimaryDexScenarioOverflowAllowed() && primaryDexScenarioFile.isPresent()) {
-      addScenarioClasses(translatorFactory, classesSupplier, builder, primaryDexScenarioFile.get());
+      addScenarioClasses(translatorFactory, classesSupplier, builder);
     }
 
     return builder.build();
@@ -370,7 +369,7 @@ public class SplitZipStep implements Step {
     // If there is a scenario file and overflow is allowed, then the scenario dependencies
     // are wanted but not required, and therefore get added here.
     if (dexSplitMode.isPrimaryDexScenarioOverflowAllowed() && primaryDexScenarioFile.isPresent()) {
-      addScenarioClasses(translatorFactory, classesSupplier, builder, primaryDexScenarioFile.get());
+      addScenarioClasses(translatorFactory, classesSupplier, builder);
     }
 
     return builder
@@ -391,29 +390,20 @@ public class SplitZipStep implements Step {
   private void addScenarioClasses(
       ProguardTranslatorFactory translatorFactory,
       Supplier<ImmutableList<ClassNode>> classesSupplier,
-      ImmutableSet.Builder<String> builder,
-      Path scenarioFile)
+      ImmutableSet.Builder<String> builder)
       throws IOException {
-
-    Function<String, String> obfuscationFunction = translatorFactory.createObfuscationFunction();
-    Function<String, String> deObfuscationFunction =
-        translatorFactory.createDeobfuscationFunction();
 
     ImmutableList<Type> scenarioClasses =
         filesystem
-            .readLines(scenarioFile)
+            .readLines(primaryDexScenarioFile.get())
             .stream()
             .map(String::trim)
             .filter(SplitZipStep::isNeitherEmptyNorComment)
-            .map(obfuscationFunction)
+            .map(translatorFactory.createObfuscationFunction())
             .map(Type::getObjectType)
             .collect(ImmutableList.toImmutableList());
 
-    ImmutableSet.Builder<String> classBuilder = ImmutableSet.builder();
-    FirstOrderHelper.addTypesAndDependencies(scenarioClasses, classesSupplier.get(), classBuilder);
-
-    builder.addAll(
-        classBuilder.build().stream().map(deObfuscationFunction).collect(Collectors.toSet()));
+    FirstOrderHelper.addTypesAndDependencies(scenarioClasses, classesSupplier.get(), builder);
   }
 
   @VisibleForTesting
@@ -501,7 +491,7 @@ public class SplitZipStep implements Step {
   }
 
   public Supplier<Multimap<Path, Path>> getOutputToInputsMapSupplier(
-      Path secondaryOutputDir, Path additionalOutputDir) {
+      final Path secondaryOutputDir, final Path additionalOutputDir) {
     return () -> {
       Preconditions.checkState(
           outputFiles != null,

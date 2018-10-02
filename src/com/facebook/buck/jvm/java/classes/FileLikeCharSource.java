@@ -33,7 +33,7 @@ public class FileLikeCharSource extends CharSource {
 
   @Override
   public Reader openStream() throws IOException {
-    InputStream is = fileLike.getInput();
+    final InputStream is = fileLike.getInput();
     return new InputStreamReader(is, UTF_8) {
       @Override
       public void close() throws IOException {

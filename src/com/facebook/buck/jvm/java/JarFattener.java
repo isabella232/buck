@@ -16,23 +16,21 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.tool.BinaryBuildRule;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BinaryBuildRule;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -50,6 +48,7 @@ import com.google.common.io.ByteSource;
 import com.google.common.io.Resources;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -71,7 +70,7 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
-  private SourcePathRuleFinder ruleFinder;
+  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey private final Javac javac;
   @AddToRuleKey private final JavacOptions javacOptions;
   @AddToRuleKey private final SourcePath innerJar;
@@ -223,12 +222,13 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   /** @return a {@link Step} that generates the fat jar info resource. */
-  private Step writeFatJarInfo(Path destination, ImmutableMap<String, String> nativeLibraries) {
+  private Step writeFatJarInfo(
+      Path destination, final ImmutableMap<String, String> nativeLibraries) {
 
     ByteSource source =
         new ByteSource() {
           @Override
-          public InputStream openStream() {
+          public InputStream openStream() throws IOException {
             FatJar fatJar = new FatJar(FAT_JAR_INNER_JAR, nativeLibraries);
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try {
@@ -244,7 +244,7 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   /** @return a {@link Step} that writes the final from the resource named {@code name}. */
-  private Step writeFromResource(Path destination, String name) {
+  private Step writeFromResource(Path destination, final String name) {
     return new WriteFileStep(
         getProjectFilesystem(),
         Resources.asByteSource(Resources.getResource(name)),
@@ -271,13 +271,5 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public ImmutableMap<String, SourcePath> getNativeLibraries() {
     return nativeLibraries;
-  }
-
-  @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.ruleFinder = ruleFinder;
   }
 }

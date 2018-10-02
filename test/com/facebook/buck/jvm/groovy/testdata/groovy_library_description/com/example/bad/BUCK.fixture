@@ -1,7 +1,0 @@
-groovy_library(
-    name = "fail",
-    srcs = ["Fail.groovy"],
-    visibility = [
-        "PUBLIC",
-    ],
-)

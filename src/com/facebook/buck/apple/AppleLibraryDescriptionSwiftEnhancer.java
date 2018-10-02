@@ -17,23 +17,24 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibrary;
+import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.PreprocessorFlags;
-import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCompile;
@@ -47,6 +48,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class AppleLibraryDescriptionSwiftEnhancer {
   @SuppressWarnings("unused")
@@ -56,7 +58,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
       BuildRuleParams params,
-      AppleNativeTargetDescriptionArg args,
+      CxxLibraryDescription.CommonArg args,
       ProjectFilesystem filesystem,
       CxxPlatform platform,
       AppleCxxPlatform applePlatform,
@@ -83,8 +85,10 @@ public class AppleLibraryDescriptionSwiftEnhancer {
 
     PreprocessorFlags.Builder flagsBuilder = PreprocessorFlags.builder();
     inputs.forEach(input -> flagsBuilder.addAllIncludes(input.getIncludes()));
-    inputs.forEach(input -> flagsBuilder.addAllFrameworkPaths(input.getFrameworks()));
     PreprocessorFlags preprocessorFlags = flagsBuilder.build();
+
+    Optional<CxxPreprocessorInput> underlyingModule =
+        AppleLibraryDescription.underlyingModuleCxxPreprocessorInput(target, resolver, platform);
 
     return SwiftLibraryDescription.createSwiftCompileRule(
         platform,
@@ -98,7 +102,8 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         filesystem,
         swiftArgs,
         preprocessor,
-        preprocessorFlags);
+        preprocessorFlags,
+        underlyingModule.isPresent());
   }
 
   /**
@@ -109,12 +114,18 @@ public class AppleLibraryDescriptionSwiftEnhancer {
       BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform) {
     CxxLibrary lib = (CxxLibrary) resolver.requireRule(target.withFlavors());
     ImmutableMap<BuildTarget, CxxPreprocessorInput> transitiveMap =
-        TransitiveCxxPreprocessorInputCache.computeTransitiveCxxToPreprocessorInputMap(
-            platform, lib, false, resolver);
+        CxxPreprocessables.computeTransitiveCxxToPreprocessorInputMap(platform, lib, false);
 
     ImmutableSet.Builder<CxxPreprocessorInput> builder = ImmutableSet.builder();
     builder.addAll(transitiveMap.values());
-    builder.add(lib.getPublicCxxPreprocessorInputExcludingDelegate(platform, resolver));
+
+    // TODO: only if modular else next line
+    // builder.add(lib.getPublicCxxPreprocessorInputExcludingDelegate(platform));
+    Optional<CxxPreprocessorInput> underlyingModule =
+        AppleLibraryDescription.underlyingModuleCxxPreprocessorInput(target, resolver, platform);
+    if (underlyingModule.isPresent()) {
+      builder.add(underlyingModule.get());
+    }
 
     return builder.build();
   }
@@ -122,7 +133,21 @@ public class AppleLibraryDescriptionSwiftEnhancer {
   public static BuildRule createObjCGeneratedHeaderBuildRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      SourcePathRuleFinder ruleFinder,
+      BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
+      HeaderVisibility headerVisibility) {
+    ImmutableMap<Path, SourcePath> headers =
+        getObjCGeneratedHeader(buildTarget, resolver, cxxPlatform, headerVisibility);
+
+    Path outputPath = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s");
+    HeaderSymlinkTreeWithHeaderMap headerMapRule =
+        HeaderSymlinkTreeWithHeaderMap.create(buildTarget, projectFilesystem, outputPath, headers);
+
+    return headerMapRule;
+  }
+
+  public static ImmutableMap<Path, SourcePath> getObjCGeneratedHeader(
+      BuildTarget buildTarget,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       HeaderVisibility headerVisibility) {
@@ -134,13 +159,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
 
     ImmutableMap.Builder<Path, SourcePath> headerLinks = ImmutableMap.builder();
     headerLinks.put(objCImportPath, objCGeneratedPath);
-
-    Path outputPath = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s");
-    HeaderSymlinkTreeWithHeaderMap headerMapRule =
-        HeaderSymlinkTreeWithHeaderMap.create(
-            buildTarget, projectFilesystem, outputPath, headerLinks.build(), ruleFinder);
-
-    return headerMapRule;
+    return headerLinks.build();
   }
 
   private static Path getObjCGeneratedHeaderSourceIncludePath(

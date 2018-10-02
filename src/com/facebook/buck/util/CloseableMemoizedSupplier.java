@@ -16,9 +16,10 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.util.function.ThrowingConsumer;
+import com.facebook.buck.util.CloseableWrapper.ThrowingConsumer;
 import com.google.common.base.Supplier;
-import java.util.function.Consumer;
+import com.google.common.base.Suppliers;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Convenience wrapper class to attach closeable functionality to suppliers of resources to be
@@ -30,7 +31,7 @@ import java.util.function.Consumer;
  * <pre>{@code
  * class Main {
  *  public static void main() {
- *    try (CloseableMemoizedSupplier<Resource> closeableSupplier =
+ *    try (CloseableMemoizedSupplier<Resource, Exception> closeableSupplier =
  *        CloseableMemoizedSupplier.of(Resource::new, resource::shutDown)) {
  *      if (condition) {
  *        useResource(closeableSupplier.get())
@@ -44,12 +45,16 @@ import java.util.function.Consumer;
  * <p>The above will only construct the Resource if condition is true, and close the constructed
  * resource appropriately.
  */
-public class CloseableMemoizedSupplier<T>
-    extends AbstractCloseableMemoizedSupplier<T, RuntimeException> {
+public class CloseableMemoizedSupplier<T, E extends Exception>
+    implements AutoCloseable, Supplier<T> {
 
-  private CloseableMemoizedSupplier(
-      Supplier<T> supplier, ThrowingConsumer<T, RuntimeException> closer) {
-    super(supplier, closer);
+  private AtomicReference<State> state = new AtomicReference<>(State.UNINITIALIZED);
+  private final ThrowingConsumer<T, E> closer;
+  private final Supplier<T> supplier;
+
+  private CloseableMemoizedSupplier(Supplier<T> supplier, ThrowingConsumer<T, E> closer) {
+    this.supplier = Suppliers.memoize(supplier);
+    this.closer = closer;
   }
 
   /**
@@ -59,8 +64,34 @@ public class CloseableMemoizedSupplier<T>
    * @param supplier the Supplier of a resource to be closed
    * @param closer the method to close the resource
    */
-  public static <T, E extends Exception> CloseableMemoizedSupplier<T> of(
-      Supplier<T> supplier, Consumer<T> closer) {
-    return new CloseableMemoizedSupplier<>(supplier, toClose -> closer.accept(toClose));
+  public static <T, E extends Exception> CloseableMemoizedSupplier<T, E> of(
+      Supplier<T> supplier, ThrowingConsumer<T, E> closer) {
+    return new CloseableMemoizedSupplier<>(supplier, closer);
+  }
+
+  /** @return the resource from the supplier */
+  @Override
+  public T get() {
+    if (state.compareAndSet(State.UNINITIALIZED, State.INITIALIZED)
+        || state.get() == State.INITIALIZED) {
+      return supplier.get();
+    }
+    throw new IllegalStateException("Cannot call get() after close()");
+  }
+
+  @Override
+  public void close() throws E {
+    if (state.compareAndSet(State.UNINITIALIZED, State.CLOSED)) {
+      return;
+    }
+    if (state.compareAndSet(State.INITIALIZED, State.CLOSED)) {
+      closer.accept(supplier.get());
+    }
+  }
+
+  private enum State {
+    UNINITIALIZED,
+    INITIALIZED,
+    CLOSED,
   }
 }

@@ -16,22 +16,24 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -56,9 +58,12 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       CommandAliasDescriptionArg args) {
 
     if (args.getPlatformExe().isEmpty() && !args.getExe().isPresent()) {
@@ -69,10 +74,8 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
     ImmutableList.Builder<Arg> toolArgs = ImmutableList.builder();
     ImmutableSortedMap.Builder<String, Arg> toolEnv = ImmutableSortedMap.naturalOrder();
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
     StringWithMacrosConverter macrosConverter =
-        StringWithMacrosConverter.of(
-            buildTarget, context.getCellPathResolver(), resolver, MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(buildTarget, cellRoots, resolver, MACRO_EXPANDERS);
 
     for (StringWithMacros x : args.getArgs()) {
       toolArgs.add(macrosConverter.convert(x));
@@ -90,7 +93,7 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
 
     return new CommandAlias(
         buildTarget,
-        context.getProjectFilesystem(),
+        projectFilesystem,
         exe,
         platformExe.build(),
         toolArgs.build(),

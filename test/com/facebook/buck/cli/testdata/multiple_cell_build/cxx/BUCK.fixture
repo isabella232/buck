@@ -1,5 +1,0 @@
-cxx_library(
-    name = "cxx",
-    srcs = ["lib.cpp"],
-    visibility = ["PUBLIC"],
-)

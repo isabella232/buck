@@ -15,14 +15,13 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
@@ -44,18 +43,17 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
   private final PipelineNodeCache<BuildTarget, T> cache;
   protected final ListeningExecutorService executorService;
 
-  public ConvertingPipeline(
-      ListeningExecutorService executorService,
-      Cache<BuildTarget, T> cache,
-      BuckEventBus eventBus) {
-    super(eventBus);
+  public ConvertingPipeline(ListeningExecutorService executorService, Cache<BuildTarget, T> cache) {
     this.cache = new PipelineNodeCache<>(cache);
     this.executorService = executorService;
   }
 
   @Override
   public ListenableFuture<ImmutableSet<T>> getAllNodesJob(
-      Cell cell, KnownBuildRuleTypes knownBuildRuleTypes, Path buildFile, AtomicLong processedBytes)
+      final Cell cell,
+      KnownBuildRuleTypes knownBuildRuleTypes,
+      final Path buildFile,
+      AtomicLong processedBytes)
       throws BuildTargetException {
     // TODO(csarbora): this hits the chained pipeline before hitting the cache
     ListenableFuture<List<T>> allNodesListJob =
@@ -68,7 +66,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
 
               ImmutableList.Builder<ListenableFuture<T>> allNodeJobs = ImmutableList.builder();
 
-              for (F from : allToConvert) {
+              for (final F from : allToConvert) {
                 if (isValid(from)) {
                   BuildTarget target =
                       getBuildTarget(cell.getRoot(), cell.getCanonicalName(), buildFile, from);
@@ -82,8 +80,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
                             }
                             return dispatchComputeNode(
                                 cell, knownBuildRuleTypes, target, processedBytes, from);
-                          },
-                          eventBus));
+                          }));
                 }
               }
 
@@ -95,9 +92,9 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
 
   @Override
   public ListenableFuture<T> getNodeJob(
-      Cell cell,
+      final Cell cell,
       KnownBuildRuleTypes knownBuildRuleTypes,
-      BuildTarget buildTarget,
+      final BuildTarget buildTarget,
       AtomicLong processedBytes)
       throws BuildTargetException {
     return cache.getJobWithCacheLookup(
@@ -109,8 +106,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
                 from ->
                     dispatchComputeNode(
                         cell, knownBuildRuleTypes, buildTarget, processedBytes, from),
-                MoreExecutors.directExecutor()),
-        eventBus);
+                MoreExecutors.directExecutor()));
   }
 
   protected boolean isValid(F from) {

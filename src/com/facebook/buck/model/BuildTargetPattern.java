@@ -15,8 +15,6 @@
  */
 package com.facebook.buck.model;
 
-import com.facebook.buck.core.model.BuildTarget;
-
 /** A pattern that matches one or more build targets. */
 public interface BuildTargetPattern {
 
@@ -24,7 +22,7 @@ public interface BuildTargetPattern {
 
   /**
    * Value used in a build file to specify this pattern, devoid of any {@link
-   * com.facebook.buck.core.cell.Cell} prefix.
+   * com.facebook.buck.rules.Cell} prefix.
    */
   String getCellFreeRepresentation();
 }

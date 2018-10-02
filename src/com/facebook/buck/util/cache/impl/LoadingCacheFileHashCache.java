@@ -20,23 +20,18 @@ import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
-import com.facebook.buck.util.cache.JarHashCodeAndFileType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 
@@ -44,7 +39,6 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
 
   private final LoadingCache<Path, HashCodeAndFileType> loadingCache;
   private final LoadingCache<Path, Long> sizeCache;
-  private final Map<Path, Set<Path>> parentToChildCache = new ConcurrentHashMap<>();
 
   private LoadingCacheFileHashCache(
       ValueLoader<HashCodeAndFileType> hashLoader, ValueLoader<Long> sizeLoader) {
@@ -53,10 +47,8 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
             .build(
                 new CacheLoader<Path, HashCodeAndFileType>() {
                   @Override
-                  public HashCodeAndFileType load(Path path) {
-                    HashCodeAndFileType hashCodeAndFileType = hashLoader.load(path);
-                    updateParent(path);
-                    return hashCodeAndFileType;
+                  public HashCodeAndFileType load(Path path) throws Exception {
+                    return hashLoader.load(path);
                   }
                 });
     sizeCache =
@@ -64,21 +56,10 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
             .build(
                 new CacheLoader<Path, Long>() {
                   @Override
-                  public Long load(Path path) {
-                    long size = sizeLoader.load(path);
-                    updateParent(path);
-                    return size;
+                  public Long load(Path path) throws Exception {
+                    return sizeLoader.load(path);
                   }
                 });
-  }
-
-  private void updateParent(Path path) {
-    Path parent = path.getParent();
-    if (parent != null) {
-      Set<Path> children =
-          parentToChildCache.computeIfAbsent(parent, key -> Sets.newConcurrentHashSet());
-      children.add(path);
-    }
   }
 
   public static FileHashCacheEngine createWithStats(
@@ -90,13 +71,11 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
   @Override
   public void put(Path path, HashCodeAndFileType value) {
     loadingCache.put(path, value);
-    updateParent(path);
   }
 
   @Override
   public void putSize(Path path, long value) {
     sizeCache.put(path, value);
-    updateParent(path);
   }
 
   @Override
@@ -108,12 +87,10 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
                   Preconditions.checkNotNull(entry);
 
                   // If we get a invalidation for a file which is a prefix of our current one, this
-                  // means the invalidation is of a symlink which points to a directory (since
-                  // events
+                  // means the invalidation is of a symlink which points to a directory (since events
                   // won't be triggered for directories).  We don't fully support symlinks, however,
                   // we do support some limited flows that use them to point to read-only storage
-                  // (e.g. the `project.read_only_paths`).  For these limited flows to work
-                  // correctly,
+                  // (e.g. the `project.read_only_paths`).  For these limited flows to work correctly,
                   // we invalidate.
                   if (entry.getKey().startsWith(path)) {
                     return true;
@@ -122,7 +99,11 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
                   // Otherwise, we want to invalidate the entry if the path matches it.  We also
                   // invalidate any directories that contain this entry, so use the following
                   // comparison to capture both these scenarios.
-                  return path.startsWith(entry.getKey());
+                  if (path.startsWith(entry.getKey())) {
+                    return true;
+                  }
+
+                  return false;
                 })
             .keySet();
     for (Path pathToInvalidate : pathsToInvalidate) {
@@ -132,22 +113,18 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
 
   @Override
   public void invalidate(Path path) {
-    loadingCache.invalidate(path);
-    sizeCache.invalidate(path);
-    Set<Path> children = parentToChildCache.remove(path);
-
-    // recursively invalidate all recorded children (underlying files and subfolders)
-    if (children != null) {
-      children.forEach(this::invalidate);
-    }
-
-    Path parent = path.getParent();
-    if (parent != null) {
-      Set<Path> siblings = parentToChildCache.get(parent);
-      if (siblings != null) {
-        siblings.remove(path);
+    HashCodeAndFileType cached = loadingCache.getIfPresent(path);
+    invalidateImmediate(path);
+    if (cached != null) {
+      for (Path child : cached.getChildren()) {
+        invalidateImmediate(path.resolve(child));
       }
     }
+  }
+
+  private void invalidateImmediate(Path path) {
+    loadingCache.invalidate(path);
+    sizeCache.invalidate(path);
   }
 
   @Override
@@ -167,8 +144,7 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
   public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
     Path relativeFilePath = archiveMemberPath.getArchivePath().normalize();
     try {
-      JarHashCodeAndFileType fileHashCodeAndFileType =
-          (JarHashCodeAndFileType) loadingCache.get(relativeFilePath);
+      HashCodeAndFileType fileHashCodeAndFileType = loadingCache.get(relativeFilePath);
       Path memberPath = archiveMemberPath.getMemberPath();
       HashCodeAndFileType memberHashCodeAndFileType =
           fileHashCodeAndFileType.getContents().get(memberPath);
@@ -197,7 +173,6 @@ class LoadingCacheFileHashCache implements FileHashCacheEngine {
   public void invalidateAll() {
     loadingCache.invalidateAll();
     sizeCache.invalidateAll();
-    parentToChildCache.clear();
   }
 
   @Override

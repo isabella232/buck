@@ -67,7 +67,7 @@ public class JavaInMemoryFileObject extends JarFileObject {
     isOpened = true;
     return new OutputStream() {
       @Override
-      public void write(int b) {
+      public void write(int b) throws IOException {
         bos.write(b);
       }
 

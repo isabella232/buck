@@ -25,7 +25,7 @@ public enum ActionGraphParallelizationMode implements WithProbability {
   EXPERIMENT_UNSTABLE(0.0),
   ;
 
-  public static final ActionGraphParallelizationMode DEFAULT = DISABLED;
+  public static ActionGraphParallelizationMode DEFAULT = DISABLED;
 
   private final double probability;
 

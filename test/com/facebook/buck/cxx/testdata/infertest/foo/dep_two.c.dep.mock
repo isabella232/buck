@@ -1,1 +1,0 @@
-dep_two.o: foo/dep_two.c

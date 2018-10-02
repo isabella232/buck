@@ -62,25 +62,19 @@ public class ClientStatsTracker {
     MATERIALIZE_SLAVE_LOGS,
   }
 
-  public static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
-
   @GuardedBy("this")
   private final Map<DistBuildClientStat, Stopwatch> stopwatchesByType = new HashMap<>();
 
   @GuardedBy("this")
   private final Map<DistBuildClientStat, Long> durationsMsByType = new HashMap<>();
 
-  private volatile String stampedeId = PENDING_STAMPEDE_ID;
+  private volatile Optional<String> stampedeId = Optional.empty();
 
   private volatile Optional<Integer> distributedBuildExitCode = Optional.empty();
 
   private volatile Optional<Boolean> isLocalFallbackBuildEnabled = Optional.empty();
 
   private volatile boolean performedLocalBuild = false;
-
-  private volatile boolean performedRacingBuild = false;
-
-  private volatile boolean racingBuildFinishedFirst = false;
 
   private volatile boolean buckClientError = false;
 
@@ -124,6 +118,9 @@ public class ClientStatsTracker {
   }
 
   public synchronized DistBuildClientStats generateStats() {
+    // Without a Stampede ID there is nothing useful to record.
+    Preconditions.checkArgument(stampedeId.isPresent());
+
     if (!buckClientError) {
       generateStatsPreconditionChecksNoException();
     } else {
@@ -133,7 +130,7 @@ public class ClientStatsTracker {
 
     DistBuildClientStats.Builder builder =
         DistBuildClientStats.builder()
-            .setStampedeId(stampedeId)
+            .setStampedeId(stampedeId.get())
             .setPerformedLocalBuild(performedLocalBuild)
             .setBuckClientError(buckClientError)
             .setBuildLabel(buildLabel);
@@ -146,11 +143,6 @@ public class ClientStatsTracker {
       builder.setLocalBuildExitCode(localBuildExitCode);
       builder.setLocalBuildDurationMs(getDurationOrEmpty(PERFORM_LOCAL_BUILD));
       builder.setPostBuildAnalysisDurationMs(getDurationOrEmpty(POST_BUILD_ANALYSIS));
-    }
-
-    builder.setPerformedRacingBuild(performedRacingBuild);
-    if (performedRacingBuild) {
-      builder.setRacingBuildFinishedFirst(racingBuildFinishedFirst);
     }
 
     builder.setLocalPreparationDurationMs(getDurationOrEmpty(LOCAL_PREPARATION));
@@ -189,20 +181,12 @@ public class ClientStatsTracker {
     this.performedLocalBuild = performedLocalBuild;
   }
 
-  public void setPerformedRacingBuild(boolean performedRacingBuild) {
-    this.performedRacingBuild = performedRacingBuild;
-  }
-
-  public void setRacingBuildFinishedFirst(boolean racingBuildFinishedFirst) {
-    this.racingBuildFinishedFirst = racingBuildFinishedFirst;
-  }
-
   public void setLocalBuildExitCode(int localBuildExitCode) {
     this.localBuildExitCode = Optional.of(localBuildExitCode);
   }
 
   public void setStampedeId(String stampedeId) {
-    this.stampedeId = stampedeId;
+    this.stampedeId = Optional.of(stampedeId);
   }
 
   public synchronized void setDistributedBuildExitCode(int distributedBuildExitCode) {
@@ -211,6 +195,10 @@ public class ClientStatsTracker {
 
   public void setIsLocalFallbackBuildEnabled(boolean isLocalFallbackBuildEnabled) {
     this.isLocalFallbackBuildEnabled = Optional.of(isLocalFallbackBuildEnabled);
+  }
+
+  public boolean hasStampedeId() {
+    return stampedeId.isPresent();
   }
 
   public void setBuckClientError(boolean buckClientError) {

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
@@ -44,8 +43,8 @@ public class AppleResources {
    * @return The recursive resource buildables.
    */
   public static ImmutableSet<AppleResourceDescriptionArg> collectRecursiveResources(
-      TargetGraph targetGraph,
-      Optional<AppleDependenciesCache> cache,
+      final TargetGraph targetGraph,
+      final Optional<AppleDependenciesCache> cache,
       TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -59,11 +58,10 @@ public class AppleResources {
   }
 
   public static <T> AppleBundleResources collectResourceDirsAndFiles(
-      TargetGraph targetGraph,
+      final TargetGraph targetGraph,
       BuildRuleResolver resolver,
-      Optional<AppleDependenciesCache> cache,
-      TargetNode<T, ?> targetNode,
-      AppleCxxPlatform appleCxxPlatform) {
+      final Optional<AppleDependenciesCache> cache,
+      TargetNode<T, ?> targetNode) {
     AppleBundleResources.Builder builder = AppleBundleResources.builder();
 
     Iterable<TargetNode<?, ?>> resourceNodes =
@@ -72,8 +70,7 @@ public class AppleResources {
             cache,
             AppleBuildRules.RecursiveDependenciesMode.COPYING,
             targetNode,
-            IS_APPLE_BUNDLE_RESOURCE_NODE,
-            Optional.of(appleCxxPlatform));
+            IS_APPLE_BUNDLE_RESOURCE_NODE);
     ProjectFilesystem filesystem = targetNode.getFilesystem();
 
     for (TargetNode<?, ?> resourceNode : resourceNodes) {

@@ -1,7 +1,0 @@
-cxx_binary(
-    name = "simple_successful_helloworld",
-    srcs = [
-        "main.cpp",
-    ],
-    link_style = "static",
-)

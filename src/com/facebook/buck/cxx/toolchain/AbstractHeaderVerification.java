@@ -16,11 +16,9 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.regex.Pattern;
@@ -33,16 +31,14 @@ import org.immutables.value.Value;
  */
 @Value.Immutable
 @BuckStyleImmutable
-abstract class AbstractHeaderVerification implements AddsToRuleKey {
+abstract class AbstractHeaderVerification implements RuleKeyAppendable {
 
   @Value.Parameter
-  @AddToRuleKey
   public abstract Mode getMode();
 
   /** @return a list of regexes which match headers which should be exempt from verification. */
   @Value.Parameter
   @Value.NaturalOrder
-  @AddToRuleKey
   protected abstract ImmutableSortedSet<String> getWhitelist();
 
   /**
@@ -52,7 +48,6 @@ abstract class AbstractHeaderVerification implements AddsToRuleKey {
    */
   @Value.Parameter
   @Value.NaturalOrder
-  @CustomFieldBehavior(DefaultFieldSerialization.class)
   protected abstract ImmutableSortedSet<String> getPlatformWhitelist();
 
   @Value.Derived
@@ -74,6 +69,14 @@ abstract class AbstractHeaderVerification implements AddsToRuleKey {
       }
     }
     return false;
+  }
+
+  @Override
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink.setReflectively("mode", getMode());
+    if (getMode() != Mode.IGNORE) {
+      sink.setReflectively("whitelist", getWhitelist());
+    }
   }
 
   public HeaderVerification withPlatformWhitelist(Iterable<String> elements) {

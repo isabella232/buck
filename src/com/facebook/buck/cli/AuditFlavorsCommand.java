@@ -17,11 +17,11 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.UserFlavor;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -31,8 +31,8 @@ import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;

@@ -16,10 +16,9 @@
 
 package com.facebook.buck.rules.query;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.HasDepsQuery;
-import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
@@ -27,6 +26,9 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasProvidedDepsQuery;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -110,7 +112,12 @@ public final class QueryUtils {
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             declaredDeps);
-    try {
+    try (SimplePerfEvent.Scope ignored =
+        SimplePerfEvent.scope(
+            Optional.ofNullable(resolver.getEventBus()),
+            PerfEventId.of("resolve_dep_query"),
+            "target",
+            target.toString())) {
       QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
       Set<QueryTarget> queryTargets = cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
       return queryTargets

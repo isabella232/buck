@@ -92,7 +92,8 @@ final class CxxCollectAndLogInferDependenciesStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws IOException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     ImmutableList<String> output;
     if (analysisRule.isPresent()) {
       output = processAnalysisRule(analysisRule.get());

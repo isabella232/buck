@@ -16,17 +16,16 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Flavored;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PatternAndMessage;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class UnexpectedFlavorException extends HumanReadableException {
 
@@ -65,9 +64,8 @@ public class UnexpectedFlavorException extends HumanReadableException {
   public static UnexpectedFlavorException createWithSuggestions(
       Flavored flavored, Cell cell, BuildTarget target) {
     ImmutableSet<Flavor> invalidFlavors = getInvalidFlavors(flavored, target);
-    ImmutableSet<Flavor> validFlavors = getValidFlavors(flavored, target);
     // Get the specific message
-    String exceptionMessage = createDefaultMessage(target, invalidFlavors, validFlavors);
+    String exceptionMessage = createDefaultMessage(target, invalidFlavors);
     // Get some suggestions on how to solve it.
     Optional<ImmutableSet<PatternAndMessage>> configMessagesForFlavors =
         cell.getBuckConfig().getUnexpectedFlavorsMessages();
@@ -106,39 +104,22 @@ public class UnexpectedFlavorException extends HumanReadableException {
   }
 
   private static ImmutableSet<Flavor> getInvalidFlavors(Flavored flavored, BuildTarget target) {
-    return target
-        .getFlavors()
-        .stream()
-        .filter(flavor -> !flavored.hasFlavors(ImmutableSet.of(flavor)))
-        .collect(ImmutableSet.toImmutableSet());
-  }
-
-  private static ImmutableSet<Flavor> getValidFlavors(Flavored flavored, BuildTarget target) {
-    return target
-        .getFlavors()
-        .stream()
-        .filter(flavor -> flavored.hasFlavors(ImmutableSet.of(flavor)))
-        .collect(ImmutableSet.toImmutableSet());
+    ImmutableSet.Builder<Flavor> builder = ImmutableSet.builder();
+    for (Flavor flavor : target.getFlavors()) {
+      if (!flavored.hasFlavors(ImmutableSet.of(flavor))) {
+        builder.add(flavor);
+      }
+    }
+    return builder.build();
   }
 
   private static String createDefaultMessage(
-      BuildTarget target, ImmutableSet<Flavor> invalidFlavors, ImmutableSet<Flavor> validFlavors) {
-    String invalidFlavorsStr =
-        invalidFlavors
-            .stream()
-            .map(Flavor::toString)
-            .collect(Collectors.joining(System.lineSeparator()));
-
-    String validFlavorsStr =
-        validFlavors
-            .stream()
-            .map(Flavor::getName)
-            .collect(Collectors.joining(System.lineSeparator()));
-
+      BuildTarget target, ImmutableSet<Flavor> invalidFlavors) {
+    ImmutableSet<String> invalidFlavorsStr =
+        invalidFlavors.stream().map(Flavor::toString).collect(ImmutableSet.toImmutableSet());
     String invalidFlavorsDisplayStr = String.join(", ", invalidFlavorsStr);
-
     return String.format(
-        "The following flavor(s) are not supported on target %s:\n%s\n\nAvailable flavors are:\n%s\n",
-        target, invalidFlavorsDisplayStr, validFlavorsStr);
+        "The following flavor(s) are not supported on target %s:\n%s.",
+        target, invalidFlavorsDisplayStr);
   }
 }

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
@@ -27,31 +26,30 @@ import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Preconditions;
-import java.util.function.Function;
 import javax.annotation.Nullable;
 
 public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
 
   private final KotlinBuckConfig kotlinBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
-  private final Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier;
+  private final ExtraClasspathProvider extraClasspathProvider;
 
   public KotlinConfiguredCompilerFactory(
       KotlinBuckConfig kotlinBuckConfig, JavaBuckConfig javaBuckConfig) {
-    this(kotlinBuckConfig, javaBuckConfig, (toolchainProvider) -> ExtraClasspathProvider.EMPTY);
+    this(kotlinBuckConfig, javaBuckConfig, ExtraClasspathProvider.EMPTY);
   }
 
   public KotlinConfiguredCompilerFactory(
       KotlinBuckConfig kotlinBuckConfig,
       JavaBuckConfig javaBuckConfig,
-      Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier) {
+      ExtraClasspathProvider extraClasspathProvider) {
     super();
     this.kotlinBuckConfig = kotlinBuckConfig;
     this.javaBuckConfig = javaBuckConfig;
-    this.extraClasspathProviderSupplier = extraClasspathProviderSupplier;
+    this.extraClasspathProvider = extraClasspathProvider;
   }
 
   @Override
@@ -61,17 +59,15 @@ public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
       ProjectFilesystem projectFilesystem,
       @Nullable JvmLibraryArg args,
       JavacOptions javacOptions,
-      BuildRuleResolver buildRuleResolver,
-      ToolchainProvider toolchainProvider) {
+      BuildRuleResolver buildRuleResolver) {
     return new KotlincToJarStepFactory(
         sourcePathResolver,
         ruleFinder,
         projectFilesystem,
         kotlinBuckConfig.getKotlinc(),
-        kotlinBuckConfig.getKotlinHomeLibraries(),
         Preconditions.checkNotNull((KotlinLibraryDescription.CoreArg) args)
             .getExtraKotlincArguments(),
-        extraClasspathProviderSupplier.apply(toolchainProvider),
+        extraClasspathProvider,
         getJavac(buildRuleResolver, args),
         javacOptions);
   }

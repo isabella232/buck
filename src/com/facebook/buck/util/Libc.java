@@ -60,6 +60,5 @@ public interface Libc extends Library {
     public static int rFSETFD;
 
     public static final int SIGHUP = 1;
-    public static final int SIGINT = 2;
   }
 }

@@ -1,9 +1,0 @@
-genrule(
-    name = "dep3",
-    srcs = glob(["*.txt"]),
-    out = "test",
-    cmd = "$SRCS",
-    visibility = [
-        "PUBLIC",
-    ],
-)

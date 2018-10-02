@@ -105,9 +105,9 @@ public final class MoreStrings {
   }
 
   public static String truncatePretty(String data) {
-    int keepFirstChars = 10000;
-    int keepLastChars = 10000;
-    String truncateMessage = "...\n<truncated>\n...";
+    final int keepFirstChars = 10000;
+    final int keepLastChars = 10000;
+    final String truncateMessage = "...\n<truncated>\n...";
     return truncateMiddle(data, keepFirstChars, keepLastChars, truncateMessage);
   }
 

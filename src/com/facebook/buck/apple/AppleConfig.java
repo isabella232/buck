@@ -19,20 +19,20 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
-import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
-import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
-import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
+import com.facebook.buck.rules.ConstantToolProvider;
+import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Option;
 import com.facebook.buck.util.ProcessExecutor.Result;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.zip.ZipCompressionLevel;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
@@ -60,10 +60,6 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   private static final Logger LOG = Logger.get(AppleConfig.class);
   public static final String APPLE_SECTION = "apple";
-
-  private static final String FORCE_LOAD_LINK_WHOLE_LIBRARY_ENABLED =
-      "force_load_link_whole_library";
-  private static final String FORCE_LOAD_LIBRARY_PATH = "force_load_library_path";
 
   private final BuckConfig delegate;
 
@@ -139,7 +135,7 @@ public class AppleConfig implements ConfigView<BuckConfig> {
    *     --print-path}.
    */
   private static Supplier<Optional<Path>> createAppleDeveloperDirectorySupplier(
-      ProcessExecutor processExecutor) {
+      final ProcessExecutor processExecutor) {
     return MoreSuppliers.memoize(
         () -> {
           ProcessExecutorParams processExecutorParams =
@@ -190,7 +186,7 @@ public class AppleConfig implements ConfigView<BuckConfig> {
   }
 
   public ToolProvider getCodesignProvider() {
-    String codesignField = "codesign";
+    final String codesignField = "codesign";
     Optional<BuildTarget> target = delegate.getMaybeBuildTarget(APPLE_SECTION, codesignField);
     String source = String.format("[%s] %s", APPLE_SECTION, codesignField);
     if (target.isPresent()) {
@@ -202,6 +198,19 @@ public class AppleConfig implements ConfigView<BuckConfig> {
           new HashedFileTool(delegate.getPathSourcePath(codesignPath.orElse(defaultCodesignPath)));
       return new ConstantToolProvider(codesign);
     }
+  }
+
+  /*
+   * Specify the maximum code-signing time before timing out.
+   */
+  public Long getCodesignTimeoutMs() {
+    long timeout = delegate.getLong(APPLE_SECTION, "codesign_timeout").orElse(300000l);
+    if (timeout < 0) {
+      throw new HumanReadableException(
+          "negative timeout (" + timeout + "ms) specified for codesigning");
+    }
+
+    return timeout;
   }
 
   public Optional<String> getXctoolDefaultDestinationSpecifier() {
@@ -282,18 +291,6 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public boolean shouldVerifyBundleResources() {
     return delegate.getBooleanValue(APPLE_SECTION, "verify_bundle_resources", false);
-  }
-
-  public boolean shouldAddLinkerFlagsForLinkWholeLibraries() {
-    return delegate.getBooleanValue(APPLE_SECTION, FORCE_LOAD_LINK_WHOLE_LIBRARY_ENABLED, false);
-  }
-
-  public String getForceLoadLibraryPath(boolean isFocusedTarget) {
-    Optional<String> path = delegate.getValue(APPLE_SECTION, FORCE_LOAD_LIBRARY_PATH);
-    if (!isFocusedTarget && path.isPresent()) {
-      return path.get();
-    }
-    return "$BUILT_PRODUCTS_DIR";
   }
 
   public AppleAssetCatalog.ValidationType assetCatalogValidation() {
@@ -379,16 +376,6 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public Optional<ImmutableList<String>> getToolchainsOverrideForSDKName(String name) {
     return delegate.getOptionalListWithoutComments(APPLE_SECTION, name + "_toolchains_override");
-  }
-
-  public Optional<Path> getXcodeToolReplacement(String toolName) {
-    return getOptionalPath(APPLE_SECTION, toolName + "_replacement");
-  }
-
-  public String getXcodeToolName(String toolName) {
-    return delegate
-        .getValue(APPLE_SECTION, toolName + "_xcode_tool_name_override")
-        .orElse(toolName);
   }
 
   @Value.Immutable

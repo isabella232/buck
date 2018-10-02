@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckTracingEventBusBridge;
 import com.facebook.buck.event.ConsoleEvent;
@@ -24,6 +23,7 @@ import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.jvm.java.tracing.JavacPhaseEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.infer.annotation.Assertions;
 import com.google.common.base.Joiner;
@@ -45,7 +45,8 @@ public class JavacEventSinkToBuckEventBusBridge implements JavacEventSink {
           .build(
               new CacheLoader<BuildTarget, BuckTracingEventBusBridge>() {
                 @Override
-                public BuckTracingEventBusBridge load(@Nonnull BuildTarget target) {
+                public BuckTracingEventBusBridge load(@Nonnull BuildTarget target)
+                    throws Exception {
                   return new BuckTracingEventBusBridge(eventBus, target);
                 }
               });

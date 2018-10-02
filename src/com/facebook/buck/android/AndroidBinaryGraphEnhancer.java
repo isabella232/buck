@@ -29,11 +29,6 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -43,10 +38,15 @@ import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
@@ -102,7 +102,6 @@ public class AndroidBinaryGraphEnhancer {
   private final BuildTarget originalBuildTarget;
   private final SortedSet<BuildRule> originalDeps;
   private final ProjectFilesystem projectFilesystem;
-  private final ToolchainProvider toolchainProvider;
   private final AndroidPlatformTarget androidPlatformTarget;
   private final BuildRuleParams buildRuleParams;
   private final boolean trimResourceIds;
@@ -111,7 +110,6 @@ public class AndroidBinaryGraphEnhancer {
   private final Optional<BuildTarget> nativeLibraryMergeCodeGenerator;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathRuleFinder ruleFinder;
-  private final CellPathResolver cellPathResolver;
   private final PackageType packageType;
   private final boolean shouldPreDex;
   private final DexSplitMode dexSplitMode;
@@ -149,10 +147,8 @@ public class AndroidBinaryGraphEnhancer {
       Optional<SourcePath> duplicateResourceWhitelistPath,
       Optional<String> resourceUnionPackage,
       ImmutableSet<String> locales,
-      Optional<String> localizedStringFileName,
       Optional<SourcePath> manifest,
       Optional<SourcePath> manifestSkeleton,
-      Optional<SourcePath> moduleManifestSkeleton,
       PackageType packageType,
       ImmutableSet<TargetCpuType> cpuFilters,
       boolean shouldBuildStringSourceMap,
@@ -163,8 +159,6 @@ public class AndroidBinaryGraphEnhancer {
       boolean skipCrunchPngs,
       boolean includesVectorDrawables,
       boolean noAutoVersionResources,
-      boolean noVersionTransitionsResources,
-      boolean noAutoAddOverlayResources,
       JavaBuckConfig javaBuckConfig,
       Javac javac,
       JavacOptions javacOptions,
@@ -195,13 +189,11 @@ public class AndroidBinaryGraphEnhancer {
     this.androidPlatformTarget = androidPlatformTarget;
     Preconditions.checkArgument(originalParams.getExtraDeps().get().isEmpty());
     this.projectFilesystem = projectFilesystem;
-    this.toolchainProvider = toolchainProvider;
     this.buildRuleParams = originalParams;
     this.originalBuildTarget = originalBuildTarget;
     this.originalDeps = originalParams.getBuildDeps();
     this.ruleResolver = ruleResolver;
     this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    this.cellPathResolver = cellPathResolver;
     this.packageType = packageType;
     this.shouldPreDex = shouldPreDex;
     this.dexSplitMode = dexSplitMode;
@@ -246,12 +238,10 @@ public class AndroidBinaryGraphEnhancer {
             ExopackageMode.enabledForResources(exopackageModes),
             manifest,
             manifestSkeleton,
-            moduleManifestSkeleton,
             aaptMode,
             resourcesFilter,
             resourceCompressionMode,
             locales,
-            localizedStringFileName,
             resourceUnionPackage,
             shouldBuildStringSourceMap,
             skipCrunchPngs,
@@ -260,10 +250,7 @@ public class AndroidBinaryGraphEnhancer {
             duplicateResourceWhitelistPath,
             manifestEntries,
             postFilterResourcesCmd,
-            noAutoVersionResources,
-            noVersionTransitionsResources,
-            noAutoAddOverlayResources,
-            apkModuleGraph);
+            noAutoVersionResources);
     this.apkModuleGraph = apkModuleGraph;
     this.dxConfig = dxConfig;
     this.nonPreDexedDexBuildableArgs = nonPreDexedDexBuildableArgs;
@@ -277,8 +264,7 @@ public class AndroidBinaryGraphEnhancer {
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
             originalBuildTarget, buildTargetsToExcludeFromDex, resourcesToExclude, apkModuleGraph);
-    collector.addPackageables(
-        AndroidPackageableCollector.getPackageableRules(originalDeps), ruleResolver);
+    collector.addPackageables(AndroidPackageableCollector.getPackageableRules(originalDeps));
     AndroidPackageableCollection packageableCollection = collector.build();
 
     ImmutableList.Builder<SourcePath> proguardConfigsBuilder = ImmutableList.builder();
@@ -340,10 +326,8 @@ public class AndroidBinaryGraphEnhancer {
                   originalBuildTarget.withAppendedFlavors(
                       COMPILE_NATIVE_LIB_MERGE_MAP_GENERATED_CODE_FLAVOR),
                   projectFilesystem,
-                  toolchainProvider,
                   paramsForCompileGenCode,
                   ruleResolver,
-                  cellPathResolver,
                   new JavaConfiguredCompilerFactory(javaBuckConfig),
                   javaBuckConfig,
                   null)
@@ -429,10 +413,8 @@ public class AndroidBinaryGraphEnhancer {
         DefaultJavaLibrary.rulesBuilder(
                 originalBuildTarget.withAppendedFlavors(COMPILE_UBER_R_DOT_JAVA_FLAVOR),
                 projectFilesystem,
-                toolchainProvider,
                 paramsForCompileUberRDotJava,
                 ruleResolver,
-                cellPathResolver,
                 new JavaConfiguredCompilerFactory(javaBuckConfig),
                 javaBuckConfig,
                 null)
@@ -510,7 +492,6 @@ public class AndroidBinaryGraphEnhancer {
         .setDexMergeRule(dexMergeRule)
         .setClasspathEntriesToDex(classpathEntriesToDex)
         .setAPKModuleGraph(apkModuleGraph)
-        .setModuleResourceApkPaths(resourcesEnhancementResult.getModuleResourceApkPaths())
         .build();
   }
 
@@ -673,7 +654,7 @@ public class AndroidBinaryGraphEnhancer {
                     buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(javaLibrary));
                 return new DexProducedFromJavaLibrary(
                     preDexTarget,
-                    javaLibrary.getProjectFilesystem(),
+                    projectFilesystem,
                     androidPlatformTarget,
                     paramsForPreDex,
                     javaLibrary,

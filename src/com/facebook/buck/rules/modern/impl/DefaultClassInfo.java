@@ -16,52 +16,24 @@
 
 package com.facebook.buck.rules.modern.impl;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleImmutable;
-import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ClassInfo;
-import com.facebook.buck.rules.modern.FieldInfo;
-import com.facebook.buck.rules.modern.ValueTypeInfo;
-import com.facebook.buck.rules.modern.ValueVisitor;
+import com.facebook.buck.rules.modern.InputRuleResolver;
+import com.facebook.buck.rules.modern.OutputPath;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
-import com.google.common.collect.Streams;
 import com.google.common.reflect.TypeToken;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Type;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Queue;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import javax.annotation.Nullable;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
-/**
- * Default implementation of ClassInfo. Computes values simply by visiting all referenced fields.
- */
-public class DefaultClassInfo<T extends AddsToRuleKey> implements ClassInfo<T> {
-  private static final Logger LOG = Logger.get(DefaultClassInfo.class);
-
+class DefaultClassInfo<T extends Buildable> implements ClassInfo<T> {
   private final String type;
   private final Optional<ClassInfo<? super T>> superInfo;
   private final ImmutableList<FieldInfo<?>> fields;
@@ -71,62 +43,29 @@ public class DefaultClassInfo<T extends AddsToRuleKey> implements ClassInfo<T> {
         CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, clazz.getSimpleName()).intern();
     this.superInfo = superInfo;
 
-    Optional<Class<?>> immutableBase = findImmutableBase(clazz);
     ImmutableList.Builder<FieldInfo<?>> fieldsBuilder = ImmutableList.builder();
-    if (immutableBase.isPresent()) {
-      Optional<Class<?>> builder = findImmutableBuilder(clazz);
-      ImmutableList<Field> parameterFields;
-      if (builder.isPresent()) {
-        parameterFields = parameterFieldsFromBuilder(builder.get(), clazz);
-      } else {
-        parameterFields = parameterFieldsFromConstructor(clazz);
-      }
-      ImmutableMap<Field, Method> parameterMethods = findMethodsForFields(parameterFields, clazz);
-      parameterFields.forEach(
-          (field) -> {
-            Method method = Preconditions.checkNotNull(parameterMethods.get(field));
-            AddToRuleKey addAnnotation = method.getAnnotation(AddToRuleKey.class);
-            // TODO(cjhopman): Add @ExcludeFromRuleKey annotation and require that all fields are
-            // either explicitly added or explicitly excluded.
-            Optional<CustomFieldBehavior> customBehavior =
-                Optional.ofNullable(method.getDeclaredAnnotation(CustomFieldBehavior.class));
-            if (addAnnotation != null && !addAnnotation.stringify()) {
-              Nullable methodNullable = method.getAnnotation(Nullable.class);
-              boolean methodOptional = Optional.class.isAssignableFrom(method.getReturnType());
-              fieldsBuilder.add(
-                  forFieldWithBehavior(
-                      field, methodNullable != null || methodOptional, customBehavior));
-            } else {
-              fieldsBuilder.add(excludedField(field, customBehavior));
-            }
-          });
-    } else {
-      for (final Field field : clazz.getDeclaredFields()) {
-        // TODO(cjhopman): Make this a Precondition.
-        if (!Modifier.isFinal(field.getModifiers())) {
-          LOG.warn(
-              "All fields of a Buildable must be final (%s.%s)",
-              clazz.getSimpleName(), field.getName());
-        }
+    for (final Field field : clazz.getDeclaredFields()) {
+      field.setAccessible(true);
+      Preconditions.checkArgument(
+          Modifier.isFinal(field.getModifiers()),
+          "All fields of a Buildable must be final (%s.%s)",
+          clazz.getSimpleName(),
+          field.getName());
 
-        if (Modifier.isStatic(field.getModifiers())) {
-          continue;
-        }
-        field.setAccessible(true);
-
-        Optional<CustomFieldBehavior> customBehavior =
-            Optional.ofNullable(field.getDeclaredAnnotation(CustomFieldBehavior.class));
-        AddToRuleKey addAnnotation = field.getAnnotation(AddToRuleKey.class);
-        // TODO(cjhopman): Add @ExcludeFromRuleKey annotation and require that all fields are either
-        // explicitly added or explicitly excluded.
-        if (addAnnotation != null && !addAnnotation.stringify()) {
-          fieldsBuilder.add(
-              forFieldWithBehavior(
-                  field, field.getAnnotation(Nullable.class) != null, customBehavior));
-        } else {
-          fieldsBuilder.add(excludedField(field, customBehavior));
-        }
+      if (Modifier.isStatic(field.getModifiers())) {
+        continue;
       }
+
+      AddToRuleKey addAnnotation = field.getAnnotation(AddToRuleKey.class);
+
+      Preconditions.checkState(
+          addAnnotation != null,
+          "All fields of a Buildable must be annotated with @AddsToRuleKey. %s.%s is missing this annotation.",
+          clazz.getName(),
+          field.getName());
+
+      FieldInfo<?> fieldInfo = FieldInfo.forField(field);
+      fieldsBuilder.add(fieldInfo);
     }
 
     if (clazz.isMemberClass()) {
@@ -143,133 +82,39 @@ public class DefaultClassInfo<T extends AddsToRuleKey> implements ClassInfo<T> {
         if (!Modifier.isStatic(field.getModifiers())) {
           continue;
         }
-        // TODO(cjhopman): Make this a Precondition.
-        if (!Modifier.isFinal(field.getModifiers())) {
-          LOG.warn(
-              "All static fields of a Buildable's outer class must be final (%s.%s)",
-              outerClazz.getSimpleName(), field.getName());
-        }
+        Preconditions.checkArgument(
+            Modifier.isFinal(field.getModifiers()),
+            "All static fields of a Buildable's outer class must be final (%s.%s)",
+            outerClazz.getSimpleName(),
+            field.getName());
+        Preconditions.checkArgument(
+            FieldTypeInfoFactory.isSimpleType(field.getType()),
+            "Static members of Buildable's outer class must be \"simple\" (%s.%s)",
+            outerClazz.getSimpleName(),
+            field.getName());
+        FieldInfo<?> fieldInfo = FieldInfo.forField(field);
+        fieldsBuilder.add(fieldInfo);
       }
     }
     this.fields = fieldsBuilder.build();
   }
 
-  private ImmutableMap<Field, Method> findMethodsForFields(
-      List<Field> parameterFields, Class<?> clazz) {
-    Map<String, Field> possibleNamesMap = new LinkedHashMap<>();
-    for (Field field : parameterFields) {
-      String name = field.getName();
-      String ending = name.substring(1);
-      Character first = name.charAt(0);
-      possibleNamesMap.put("get" + Character.toUpperCase(first) + ending, field);
-      possibleNamesMap.put("is" + Character.toUpperCase(first) + ending, field);
-      possibleNamesMap.put(name, field);
+  @Override
+  public void computeDeps(
+      T ruleImpl, InputRuleResolver inputRuleResolver, Consumer<BuildRule> depsBuilder) {
+    superInfo.ifPresent(
+        classInfo -> classInfo.computeDeps(ruleImpl, inputRuleResolver, depsBuilder));
+    for (FieldInfo<?> extractor : fields) {
+      extractor.extractDep(ruleImpl, inputRuleResolver, depsBuilder);
     }
-    ImmutableMap.Builder<Field, Method> builder = ImmutableMap.builder();
-    Queue<Class<?>> workQueue = new LinkedList<>();
-    Set<Class<?>> seen = new HashSet<>();
-    // Collect the superclasses first so that they are added before interfaces. That seems more
-    // aesthetically pleasing to me.
-    for (Class<?> current = clazz;
-        !Object.class.equals(current);
-        current = current.getSuperclass()) {
-      workQueue.add(current);
-    }
-    while (!workQueue.isEmpty()) {
-      Class<?> cls = workQueue.poll();
-      if (seen.add(cls)) {
-        workQueue.addAll(Arrays.asList(cls.getInterfaces()));
-        if (cls != clazz) {
-          for (final Method method : cls.getDeclaredMethods()) {
-            Field match = possibleNamesMap.remove(method.getName());
-            if (match != null) {
-              builder.put(match, method);
-            }
-          }
-        }
-      }
-    }
-    ImmutableMap<Field, Method> result = builder.build();
-    Set<Field> missing = Sets.difference(ImmutableSet.copyOf(parameterFields), result.keySet());
-    Preconditions.checkState(
-        missing.isEmpty(),
-        new Object() {
-          @Override
-          public String toString() {
-            return String.format(
-                "Could not find methods for fields of class %s: <%s>",
-                clazz.getName(),
-                Joiner.on(", ").join(missing.stream().map(Field::getName).iterator()));
-          }
-        });
-    return result;
   }
 
-  private ImmutableList<Field> parameterFieldsFromConstructor(Class<?> clazz) {
-    Constructor<?>[] constructors = clazz.getDeclaredConstructors();
-    Preconditions.checkState(constructors.length > 0);
-    for (Constructor<?> candidate : constructors) {
-      candidate.setAccessible(true);
-      Class<?>[] parameterTypes = candidate.getParameterTypes();
-      Field[] declaredFields = clazz.getDeclaredFields();
-      if (parameterTypes.length <= declaredFields.length) {
-        ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
-        for (int i = 0; i < parameterTypes.length; i++) {
-          Field field = declaredFields[i];
-          field.setAccessible(true);
-          fieldsBuilder.add(field);
-        }
-        return fieldsBuilder.build();
-      }
+  @Override
+  public void getOutputs(T ruleImpl, BiConsumer<String, OutputPath> dataBuilder) {
+    superInfo.ifPresent(classInfo -> classInfo.getOutputs(ruleImpl, dataBuilder));
+    for (FieldInfo<?> extractor : fields) {
+      extractor.extractOutput(ruleImpl, dataBuilder);
     }
-    throw new IllegalStateException();
-  }
-
-  private ImmutableList<Field> parameterFieldsFromBuilder(Class<?> builder, Class<?> clazz) {
-    ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
-    for (final Field field : builder.getDeclaredFields()) {
-      if (!Modifier.isStatic(field.getModifiers())
-          && !field.getName().equals("initBits")
-          && !field.getName().equals("optBits")) {
-        try {
-          Field classField = clazz.getDeclaredField(field.getName());
-          classField.setAccessible(true);
-          fieldsBuilder.add(classField);
-        } catch (NoSuchFieldException e) {
-          throw new IllegalStateException(e);
-        }
-      }
-    }
-    return fieldsBuilder.build();
-  }
-
-  private Optional<Class<?>> findImmutableBuilder(Class<?> clazz) {
-    Class<?>[] classes = clazz.getDeclaredClasses();
-    for (Class<?> inner : classes) {
-      if (inner.getSimpleName().equals("Builder")) {
-        return Optional.of(inner);
-      }
-    }
-    return Optional.empty();
-  }
-
-  private static Optional<Class<?>> findImmutableBase(Class<?> clazz) {
-    List<Class<?>> bases =
-        Streams.concat(Stream.of(clazz.getSuperclass()), Arrays.stream(clazz.getInterfaces()))
-            .filter(DefaultClassInfo::isImmutableBase)
-            .collect(Collectors.toList());
-
-    Preconditions.checkState(bases.size() < 2);
-    return bases.isEmpty() ? Optional.empty() : Optional.of(bases.get(0));
-  }
-
-  private static boolean isImmutableBase(Class<?> clazz) {
-    // Value.Immutable only has CLASS retention, so we need to detect this based on our own
-    // annotations.
-    return clazz.getAnnotation(BuckStyleImmutable.class) != null
-        || clazz.getAnnotation(BuckStylePackageVisibleImmutable.class) != null
-        || clazz.getAnnotation(BuckStylePackageVisibleTuple.class) != null
-        || clazz.getAnnotation(BuckStyleTuple.class) != null;
   }
 
   @Override
@@ -277,37 +122,38 @@ public class DefaultClassInfo<T extends AddsToRuleKey> implements ClassInfo<T> {
     return type;
   }
 
-  @Override
-  public <E extends Exception> void visit(T value, ValueVisitor<E> visitor) throws E {
-    if (superInfo.isPresent()) {
-      superInfo.get().visit(value, visitor);
+  private static class FieldInfo<T> {
+    private Field field;
+    private FieldTypeInfo<T> fieldTypeInfo;
+
+    FieldInfo(Field field, FieldTypeInfo<T> fieldTypeInfo) {
+      this.field = field;
+      this.fieldTypeInfo = fieldTypeInfo;
     }
-    for (FieldInfo<?> extractor : fields) {
-      extractor.visit(value, visitor);
+
+    static FieldInfo<?> forField(Field field) {
+      Type type = field.getGenericType();
+      FieldTypeInfo<?> fieldTypeInfo = FieldTypeInfoFactory.forFieldTypeToken(TypeToken.of(type));
+      return new FieldInfo<>(field, fieldTypeInfo);
     }
-  }
 
-  @Override
-  public Optional<ClassInfo<? super T>> getSuperInfo() {
-    return superInfo;
-  }
-
-  @Override
-  public ImmutableCollection<FieldInfo<?>> getFieldInfos() {
-    return fields;
-  }
-
-  static FieldInfo<?> forFieldWithBehavior(
-      Field field, boolean isNullable, Optional<CustomFieldBehavior> customBehavior) {
-    Type type = field.getGenericType();
-    ValueTypeInfo<?> valueTypeInfo = ValueTypeInfoFactory.forTypeToken(TypeToken.of(type));
-    if (isNullable) {
-      valueTypeInfo = new NullableValueTypeInfo<>(valueTypeInfo);
+    void extractDep(
+        Buildable ruleImpl, InputRuleResolver inputRuleResolver, Consumer<BuildRule> builder) {
+      fieldTypeInfo.extractDep(getValue(ruleImpl, field), inputRuleResolver, builder);
     }
-    return new FieldInfo<>(field, valueTypeInfo, customBehavior);
-  }
 
-  public static FieldInfo<?> excludedField(Field field, Optional<CustomFieldBehavior> behavior) {
-    return new FieldInfo<>(field, ValueTypeInfos.ExcludedValueTypeInfo.INSTANCE, behavior);
+    void extractOutput(Buildable ruleImpl, BiConsumer<String, OutputPath> builder) {
+      fieldTypeInfo.extractOutput(field.getName(), getValue(ruleImpl, field), builder);
+    }
+
+    private T getValue(Buildable ruleImpl, Field field) {
+      try {
+        @SuppressWarnings("unchecked")
+        T value = (T) field.get(ruleImpl);
+        return value;
+      } catch (IllegalAccessException e) {
+        throw new RuntimeException(e);
+      }
+    }
   }
 }

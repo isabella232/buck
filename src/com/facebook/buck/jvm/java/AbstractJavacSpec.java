@@ -16,29 +16,32 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
+import java.nio.file.Path;
 import java.util.Optional;
 import org.immutables.value.Value;
 
 @Value.Immutable(copy = true)
 @BuckStyleImmutable
-abstract class AbstractJavacSpec {
+abstract class AbstractJavacSpec implements AddsToRuleKey {
   public static final String COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL =
       "com.sun.tools.javac.api.JavacTool";
 
   protected abstract Optional<Either<BuiltInJavac, SourcePath>> getCompiler();
 
-  protected abstract Optional<Either<PathSourcePath, SourcePath>> getJavacPath();
+  protected abstract Optional<Either<Path, SourcePath>> getJavacPath();
 
   protected abstract Optional<SourcePath> getJavacJarPath();
 
   protected abstract Optional<String> getCompilerClassName();
 
   @Value.Lazy
+  @AddToRuleKey
   public JavacProvider getJavacProvider() {
     if (getCompiler().isPresent() && getCompiler().get().isRight()) {
       return new ExternalOrJarBackedJavacProvider(
@@ -49,8 +52,8 @@ abstract class AbstractJavacSpec {
     }
 
     String compilerClassName = getCompilerClassName().orElse(COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL);
-    Javac.Source javacSource = getJavacSource();
-    Javac.Location javacLocation = getJavacLocation();
+    final Javac.Source javacSource = getJavacSource();
+    final Javac.Location javacLocation = getJavacLocation();
     switch (javacSource) {
       case EXTERNAL:
         return new ConstantJavacProvider(ExternalJavac.createJavac(getJavacPath().get()));

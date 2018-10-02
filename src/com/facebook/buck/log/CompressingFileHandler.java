@@ -23,7 +23,9 @@ import java.util.logging.FileHandler;
 
 public class CompressingFileHandler extends FileHandler {
 
-  public CompressingFileHandler() throws IOException, SecurityException {}
+  public CompressingFileHandler() throws IOException, SecurityException {
+    super();
+  }
 
   @Override
   protected synchronized void setOutputStream(OutputStream out) throws SecurityException {

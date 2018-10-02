@@ -15,23 +15,22 @@
  */
 package com.facebook.buck.event.listener;
 
-import static com.facebook.buck.core.build.engine.BuildRuleSuccessType.BUILT_LOCALLY;
+import static com.facebook.buck.rules.BuildRuleSuccessType.BUILT_LOCALLY;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.core.build.engine.BuildRuleStatus;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.build.event.BuildRuleEvent;
-import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.test.event.IndividualTestEvent;
-import com.facebook.buck.core.test.event.TestRunEvent;
-import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildRunEvent;
-import com.facebook.buck.distributed.build_client.StampedeConsoleEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleStatus;
+import com.facebook.buck.rules.IndividualTestEvent;
+import com.facebook.buck.rules.TestRunEvent;
+import com.facebook.buck.rules.TestStatusMessageEvent;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.util.Console;
@@ -96,7 +95,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   }
 
   public static String getBuildLogLine(BuildId buildId) {
-    return "Build UUID: " + buildId;
+    return "Build UUID: " + buildId.toString();
   }
 
   /** Print information regarding the current distributed build. */
@@ -223,11 +222,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     printLines(lines);
   }
 
-  @Subscribe
-  public void logStampedeConsoleEvent(StampedeConsoleEvent event) {
-    logEvent(event.getConsoleEvent());
-  }
-
   @Override
   public void printSevereWarningDirectly(String line) {
     logEvent(ConsoleEvent.severe(line));
@@ -350,10 +344,5 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
     console.getStdErr().println(Joiner.on("\n").join(stringList));
-  }
-
-  @Override
-  public boolean displaysEstimatedProgress() {
-    return true;
   }
 }

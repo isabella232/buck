@@ -19,15 +19,14 @@ package com.facebook.buck.android.packageable;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection.ResourceDetails;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
@@ -72,7 +71,7 @@ public class AndroidPackageableCollector {
         collectionRoot,
         ImmutableSet.of(),
         ImmutableSet.of(),
-        new APKModuleGraph(Optional.empty(), Optional.empty(), TargetGraph.EMPTY, collectionRoot));
+        new APKModuleGraph(TargetGraph.EMPTY, collectionRoot, Optional.empty()));
   }
 
   /**
@@ -91,27 +90,22 @@ public class AndroidPackageableCollector {
     this.apkModuleGraph = apkModuleGraph;
   }
 
-  /** Add packageables */
-  public void addPackageables(
-      Iterable<AndroidPackageable> packageables, BuildRuleResolver ruleResolver) {
+  public void addPackageables(Iterable<AndroidPackageable> packageables) {
     Set<AndroidPackageable> explored = new HashSet<>();
 
     for (AndroidPackageable packageable : packageables) {
-      postOrderTraverse(packageable, explored, ruleResolver);
+      postOrderTraverse(packageable, explored);
     }
   }
 
-  private void postOrderTraverse(
-      AndroidPackageable packageable,
-      Set<AndroidPackageable> explored,
-      BuildRuleResolver ruleResolver) {
+  private void postOrderTraverse(AndroidPackageable packageable, Set<AndroidPackageable> explored) {
     if (explored.contains(packageable)) {
       return;
     }
     explored.add(packageable);
 
-    for (AndroidPackageable dep : packageable.getRequiredPackageables(ruleResolver)) {
-      postOrderTraverse(dep, explored, ruleResolver);
+    for (AndroidPackageable dep : packageable.getRequiredPackageables()) {
+      postOrderTraverse(dep, explored);
     }
     packageable.addToCollector(this);
   }
@@ -246,7 +240,7 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollection build() {
     collectionBuilder.setBuildConfigs(ImmutableMap.copyOf(buildConfigs));
-    ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
+    final ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
     collectionBuilder.addAllJavaLibrariesToDex(
         javaClassProviders
             .stream()

@@ -16,8 +16,6 @@
 
 package com.facebook.buck.android.packageable;
 
-import com.facebook.buck.rules.BuildRuleResolver;
-
 /**
  * Something (usually a {@link com.facebook.buck.rules.BuildRule}) that can be included in an
  * Android package (android_binary or (hopefully soon) aar).
@@ -39,7 +37,7 @@ public interface AndroidPackageable {
    *
    * @return All {@link AndroidPackageable}s that must be included along with this one.
    */
-  Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver);
+  Iterable<AndroidPackageable> getRequiredPackageables();
 
   /**
    * Add concrete resources to the given collector.

@@ -56,10 +56,10 @@ public class WorkerProcessPoolFactory {
    * a new one.
    */
   public WorkerProcessPool getWorkerProcessPool(
-      ExecutionContext context, WorkerProcessParams paramsToUse) {
+      final ExecutionContext context, WorkerProcessParams paramsToUse) {
     ConcurrentMap<String, WorkerProcessPool> processPoolMap;
-    String key;
-    HashCode workerHash;
+    final String key;
+    final HashCode workerHash;
     if (paramsToUse.getWorkerProcessIdentity().isPresent()
         && context.getPersistentWorkerPools().isPresent()) {
       processPoolMap = context.getPersistentWorkerPools().get();
@@ -98,20 +98,20 @@ public class WorkerProcessPoolFactory {
   }
 
   private WorkerProcessPool createWorkerProcessPool(
-      ExecutionContext context,
-      WorkerProcessParams paramsToUse,
+      final ExecutionContext context,
+      final WorkerProcessParams paramsToUse,
       ConcurrentMap<String, WorkerProcessPool> processPoolMap,
       String key,
-      HashCode workerHash) {
-    ProcessExecutorParams processParams =
+      final HashCode workerHash) {
+    final ProcessExecutorParams processParams =
         ProcessExecutorParams.builder()
             .setCommand(getCommand(context.getPlatform(), paramsToUse))
             .setEnvironment(getEnvironmentForProcess(context, paramsToUse))
             .setDirectory(filesystem.getRootPath())
             .build();
 
-    Path workerTmpDir = paramsToUse.getTempDir();
-    AtomicInteger workerNumber = new AtomicInteger(0);
+    final Path workerTmpDir = paramsToUse.getTempDir();
+    final AtomicInteger workerNumber = new AtomicInteger(0);
 
     WorkerProcessPool newPool =
         new WorkerProcessPool(paramsToUse.getMaxWorkers(), workerHash) {

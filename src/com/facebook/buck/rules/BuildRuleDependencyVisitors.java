@@ -37,11 +37,13 @@ public class BuildRuleDependencyVisitors {
    * @see com.facebook.buck.rules.BuildRule
    */
   public static <T> DirectedAcyclicGraph<BuildRule> getBuildRuleDirectedGraphFilteredBy(
-      Iterable<? extends BuildRule> inputs, Predicate<Object> filter, Predicate<Object> traverse) {
+      final Iterable<? extends BuildRule> inputs,
+      final Predicate<Object> filter,
+      final Predicate<Object> traverse) {
 
     // Build up a graph of the inputs and their transitive dependencies, we'll use the graph
     // to topologically sort the dependencies.
-    MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<>();
+    final MutableDirectedGraph<BuildRule> graph = new MutableDirectedGraph<>();
     AbstractBreadthFirstTraversal<BuildRule> visitor =
         new AbstractBreadthFirstTraversal<BuildRule>(inputs) {
           @Override

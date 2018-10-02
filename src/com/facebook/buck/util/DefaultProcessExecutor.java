@@ -36,6 +36,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 /** Executes a {@link Process} and blocks until it is finished. */
@@ -183,46 +184,52 @@ public class DefaultProcessExecutor implements ProcessExecutor {
   public Result waitForLaunchedProcess(LaunchedProcess launchedProcess)
       throws InterruptedException {
     Preconditions.checkState(launchedProcess instanceof LaunchedProcessImpl);
-    Preconditions.checkState(
-        !waitForInternal(
-            ((LaunchedProcessImpl) launchedProcess).process, Optional.empty(), Optional.empty()));
-    int exitCode = ((LaunchedProcessImpl) launchedProcess).process.exitValue();
-
+    int exitCode = ((LaunchedProcessImpl) launchedProcess).process.waitFor();
     return new Result(exitCode, false, Optional.empty(), Optional.empty());
   }
 
   @Override
   public Result waitForLaunchedProcessWithTimeout(
-      LaunchedProcess launchedProcess, long millis, Optional<Consumer<Process>> timeOutHandler)
+      LaunchedProcess launchedProcess,
+      long millis,
+      final Optional<Consumer<Process>> timeOutHandler)
       throws InterruptedException {
     Preconditions.checkState(launchedProcess instanceof LaunchedProcessImpl);
-    Process process = ((LaunchedProcessImpl) launchedProcess).process;
-    boolean timedOut = waitForInternal(process, Optional.of(millis), timeOutHandler);
+    final Process process = ((LaunchedProcessImpl) launchedProcess).process;
+    boolean timedOut = waitForTimeoutInternal(process, millis, timeOutHandler);
     int exitCode = !timedOut ? process.exitValue() : 1;
     return new Result(exitCode, timedOut, Optional.empty(), Optional.empty());
   }
 
   /**
-   * Waits up to {@code timeoutMillis} milliseconds for the given process to finish. If no timeout
-   * is present, waits forever.
+   * Waits up to {@code millis} milliseconds for the given process to finish.
    *
    * @return whether the wait has timed out.
    */
-  private boolean waitForInternal(
-      Process process, Optional<Long> timeoutMs, Optional<Consumer<Process>> timeOutHandler)
+  private boolean waitForTimeoutInternal(
+      final Process process, long millis, final Optional<Consumer<Process>> timeOutHandler)
       throws InterruptedException {
-
-    if (timeoutMs.isPresent()) {
-      if (!process.waitFor(timeoutMs.get(), TimeUnit.MILLISECONDS)) {
-        try {
-          timeOutHandler.ifPresent(consumer -> consumer.accept(process));
-        } catch (RuntimeException e1) {
-          LOG.error(e1, "ProcessExecutor timeOutHandler threw an exception, ignored.");
-        }
-        return true;
+    Future<?> waiter =
+        THREAD_POOL.submit(
+            () -> {
+              try {
+                process.waitFor();
+              } catch (InterruptedException e) {
+                // The thread waiting has hit its timeout.
+              }
+            });
+    try {
+      waiter.get(millis, TimeUnit.MILLISECONDS);
+    } catch (TimeoutException e) {
+      try {
+        timeOutHandler.ifPresent(consumer -> consumer.accept(process));
+      } catch (RuntimeException e1) {
+        LOG.error(e1, "ProcessExecutor timeOutHandler threw an exception, ignored.");
       }
-    } else {
-      process.waitFor();
+      waiter.cancel(true);
+      return true;
+    } catch (ExecutionException e) {
+      throw new IllegalStateException("Unexpected exception thrown from waiter.", e);
     }
     return false;
   }
@@ -290,10 +297,15 @@ public class DefaultProcessExecutor implements ProcessExecutor {
       }
 
       // Wait for the process to complete.  If a timeout was given, we wait up to the timeout
-      // for it to finish then force kill it.  If no timeout was given, just wait for it forever.
-      timedOut = waitForInternal(process, timeOutMs, timeOutHandler);
-      if (timedOut && !processHelper.hasProcessFinished(process)) {
-        process.destroyForcibly();
+      // for it to finish then force kill it.  If no timeout was given, just wait for it using
+      // the regular `waitFor` method.
+      if (timeOutMs.isPresent()) {
+        timedOut = waitForTimeoutInternal(process, timeOutMs.get(), timeOutHandler);
+        if (!processHelper.hasProcessFinished(process)) {
+          process.destroyForcibly();
+        }
+      } else {
+        process.waitFor();
       }
 
       stdOutTerminationFuture.get();

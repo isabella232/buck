@@ -16,17 +16,17 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.ImmutableCollection;
 import java.util.Objects;
 
 /** A base class for {@link Arg}s which wrap a {@link FrameworkPath}. */
 abstract class FrameworkPathArg implements Arg {
-  @AddToRuleKey final ImmutableSortedSet<FrameworkPath> frameworkPaths;
+  @AddToRuleKey protected final ImmutableCollection<FrameworkPath> frameworkPaths;
 
-  public FrameworkPathArg(ImmutableSortedSet<FrameworkPath> frameworkPaths) {
+  public FrameworkPathArg(ImmutableCollection<FrameworkPath> frameworkPaths) {
     this.frameworkPaths = frameworkPaths;
   }
 

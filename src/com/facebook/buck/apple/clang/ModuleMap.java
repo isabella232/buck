@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple.clang;
 
-import com.google.common.base.Objects;
 import org.stringtemplate.v4.ST;
 
 /**
@@ -35,11 +34,12 @@ public class ModuleMap {
 
   private final SwiftMode swiftMode;
   private final String moduleName;
+  private final boolean hasUmbrella;
 
   private String generatedModule;
   private static final String template =
       "module <module_name> {\n"
-          + "    umbrella header \"<module_name>.h\"\n"
+          + "    umbrella header \"<module_header>.h\"\n"
           + "\n"
           + "    export *\n"
           + "    module * { export * }\n"
@@ -59,16 +59,28 @@ public class ModuleMap {
           + "<endif>"
           + "\n";
 
+  public ModuleMap(String moduleName, SwiftMode swiftMode, boolean hasUmbrella) {
+    this.moduleName = moduleName;
+    this.swiftMode = swiftMode;
+    this.hasUmbrella = hasUmbrella;
+  }
+
   public ModuleMap(String moduleName, SwiftMode swiftMode) {
     this.moduleName = moduleName;
     this.swiftMode = swiftMode;
+    this.hasUmbrella = false;
   }
 
   public String render() {
     if (this.generatedModule == null) {
+      String moduleHeader = moduleName;
+      if (hasUmbrella) {
+        moduleHeader += "-umbrella";
+      }
       ST st =
           new ST(template)
               .add("module_name", moduleName)
+              .add("module_header", moduleHeader)
               .add("include_swift_header", false)
               .add("exclude_swift_header", false);
       switch (swiftMode) {
@@ -84,20 +96,5 @@ public class ModuleMap {
       this.generatedModule = st.render();
     }
     return this.generatedModule;
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    if (!(obj instanceof ModuleMap)) {
-      return false;
-    }
-    ModuleMap that = (ModuleMap) obj;
-    return Objects.equal(this.swiftMode, that.swiftMode)
-        && Objects.equal(this.moduleName, that.moduleName);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hashCode(swiftMode, moduleName);
   }
 }

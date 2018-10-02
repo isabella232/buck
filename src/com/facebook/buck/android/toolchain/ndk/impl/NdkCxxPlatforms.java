@@ -26,13 +26,6 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformTargetConfiguration
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkTargetArchAbi;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
-import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
-import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -53,6 +46,12 @@ import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.rules.ConstantToolProvider;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.Assertions;
@@ -160,9 +159,7 @@ public class NdkCxxPlatforms {
                             ? 14
                             : ndkVersion.startsWith("15.")
                                 ? 15
-                                : ndkVersion.startsWith("16.")
-                                    ? 16
-                                    : ndkVersion.startsWith("17.") ? 17 : -1;
+                                : ndkVersion.startsWith("16.") ? 16 : -1;
   }
 
   public static String getDefaultGccVersionForNdk(String ndkVersion) {
@@ -504,7 +501,6 @@ public class NdkCxxPlatforms {
                     ElfSharedLibraryInterfaceParams.of(
                         new ConstantToolProvider(
                             getGccTool(toolchainPaths, "objcopy", version, executableFinder)),
-                        ImmutableList.of(),
                         config.getSharedLibraryInterfaces()
                             == SharedLibraryInterfaceParams.Type.DEFINED_ONLY))
                 : Optional.empty())
@@ -570,20 +566,20 @@ public class NdkCxxPlatforms {
     return AndroidNdkResolver.findNdkVersionFromDirectory(ndkRoot).get();
   }
 
-  private static PathSourcePath getToolPath(
+  private static Path getToolPath(
       NdkCxxToolchainPaths toolchainPaths, String tool, ExecutableFinder executableFinder) {
     Path expected = toolchainPaths.getToolPath(tool);
     Optional<Path> path = executableFinder.getOptionalExecutable(expected, ImmutableMap.of());
     Preconditions.checkState(path.isPresent(), expected.toString());
-    return PathSourcePath.of(toolchainPaths.filesystem, path.get());
+    return path.get();
   }
 
-  private static PathSourcePath getGccToolPath(
+  private static Path getGccToolPath(
       NdkCxxToolchainPaths toolchainPaths, String tool, ExecutableFinder executableFinder) {
     Path expected = toolchainPaths.getGccToolchainBinPath().resolve(tool);
     Optional<Path> path = executableFinder.getOptionalExecutable(expected, ImmutableMap.of());
     Preconditions.checkState(path.isPresent(), expected.toString());
-    return PathSourcePath.of(toolchainPaths.filesystem, path.get());
+    return path.get();
   }
 
   private static Tool getGccTool(
@@ -693,7 +689,7 @@ public class NdkCxxPlatforms {
 
     // Add the path to the C/C++ runtime libraries, if necessary.
     if (cxxRuntime != NdkCxxRuntime.SYSTEM) {
-      flags.add("-L" + toolchainPaths.getCxxRuntimeLibsDirectory());
+      flags.add("-L" + toolchainPaths.getCxxRuntimeLibsDirectory().toString());
     }
 
     return new GnuLinker(
@@ -936,7 +932,7 @@ public class NdkCxxPlatforms {
     }
 
     Path processPathPattern(Path root, String pattern) {
-      String key = root + "/" + pattern;
+      String key = root.toString() + "/" + pattern;
       Path result = cachedPaths.get(key);
       if (result == null) {
         String[] segments = pattern.split("/");
@@ -960,7 +956,8 @@ public class NdkCxxPlatforms {
           result = result.resolve(s);
         }
         if (strict) {
-          Assertions.assertCondition(result.toFile().exists(), result + " doesn't exist.");
+          Assertions.assertCondition(
+              result.toFile().exists(), result.toString() + " doesn't exist.");
         }
         cachedPaths.put(key, result);
       }

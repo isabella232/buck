@@ -109,7 +109,7 @@ public class DistBuildSourceFilesCommand extends AbstractDistBuildCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager(
                 "DistBuildSourceFiles", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
+        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
             getForkJoinPoolSupplier(params.getBuckConfig())) {
       BuildJobState jobState =
           BuildCommand.getAsyncDistBuildState(

@@ -35,34 +35,35 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.SpeculativeParsing;
+import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DescriptionCache;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasInstallHelpers;
 import com.facebook.buck.rules.InstallTrigger;
 import com.facebook.buck.rules.NoopInstallable;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
@@ -99,7 +100,6 @@ public class InstallCommand extends BuildCommand {
   private static final ImmutableList<String> APPLE_SIMULATOR_APPS =
       ImmutableList.of("Simulator.app", "iOS Simulator.app");
   private static final String DEFAULT_APPLE_SIMULATOR_NAME = "iPhone 5s";
-  private static final String DEFAULT_APPLE_TV_SIMULATOR_NAME = "Apple TV";
   private static final InstallResult FAILURE =
       InstallResult.builder().setExitCode(ExitCode.RUN_ERROR).build();
 
@@ -211,7 +211,6 @@ public class InstallCommand extends BuildCommand {
       throws IOException, InterruptedException {
     assertArguments(params);
 
-    BuildRunResult buildRunResult;
     try (CommandThreadManager pool =
             new CommandThreadManager("Install", getConcurrencyLimit(params.getBuckConfig()));
         TriggerCloseable triggerCloseable = new TriggerCloseable(params)) {
@@ -227,8 +226,7 @@ public class InstallCommand extends BuildCommand {
       }
 
       // Build the targets
-      buildRunResult = run(params, pool, installHelperTargets);
-      ExitCode exitCode = buildRunResult.getExitCode();
+      ExitCode exitCode = super.run(params, pool, installHelperTargets);
       if (exitCode != ExitCode.SUCCESS) {
         return exitCode;
       }
@@ -236,20 +234,17 @@ public class InstallCommand extends BuildCommand {
 
     // Install the targets
     try {
-      return install(params, buildRunResult);
+      return install(params);
     } catch (NoSuchBuildTargetException e) {
       throw new HumanReadableException(e.getHumanReadableErrorMessage());
     }
   }
 
   @Override
-  protected Iterable<BuildTarget> getAdditionalTargetsToBuild(
-      GraphsAndBuildTargets graphsAndBuildTargets) {
-    BuildRuleResolver resolver =
-        graphsAndBuildTargets.getGraphs().getActionGraphAndResolver().getResolver();
+  protected Iterable<BuildTarget> getAdditionalTargetsToBuild(BuildRuleResolver resolver) {
     ImmutableList.Builder<BuildTarget> builder = ImmutableList.builder();
-    builder.addAll(super.getAdditionalTargetsToBuild(graphsAndBuildTargets));
-    for (BuildTarget target : graphsAndBuildTargets.getBuildTargets()) {
+    builder.addAll(super.getAdditionalTargetsToBuild(resolver));
+    for (BuildTarget target : getBuildTargets()) {
       BuildRule rule = resolver.getRule(target);
       if (rule instanceof HasInstallHelpers) {
         // An install command never explicitly "requires" the install flavor. This ensures that the
@@ -270,13 +265,13 @@ public class InstallCommand extends BuildCommand {
     return builder.build();
   }
 
-  private ExitCode install(CommandRunnerParams params, BuildRunResult buildRunResult)
+  private ExitCode install(CommandRunnerParams params)
       throws IOException, InterruptedException, NoSuchBuildTargetException {
 
-    Build build = getBuild();
+    Build build = super.getBuild();
     ExitCode exitCode = ExitCode.SUCCESS;
 
-    for (BuildTarget buildTarget : buildRunResult.getBuildTargets()) {
+    for (BuildTarget buildTarget : getBuildTargets()) {
 
       BuildRule buildRule = build.getRuleResolver().requireRule(buildTarget);
       SourcePathResolver pathResolver =
@@ -340,7 +335,7 @@ public class InstallCommand extends BuildCommand {
 
   private ImmutableSet<String> getInstallHelperTargets(
       CommandRunnerParams params, ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildFileParseException {
+      throws IOException, InterruptedException, BuildTargetException, BuildFileParseException {
 
     ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
     ImmutableSet.Builder<String> installHelperTargets = ImmutableSet.builder();
@@ -363,7 +358,7 @@ public class InstallCommand extends BuildCommand {
                           getEnableParserProfiling(),
                           executor,
                           ImmutableList.of(spec),
-                          SpeculativeParsing.DISABLED,
+                          PerBuildState.SpeculativeParsing.DISABLED,
                           parserConfig.getDefaultFlavorsMode()))
               .transformAndConcat(Functions.identity())
               .first()
@@ -380,8 +375,8 @@ public class InstallCommand extends BuildCommand {
                   target);
 
       if (node != null
-          && node.getBuildRuleType()
-              .equals(DescriptionCache.getBuildRuleType(AppleBundleDescription.class))) {
+          && Description.getBuildRuleType(node.getDescription())
+              .equals(Description.getBuildRuleType(AppleBundleDescription.class))) {
         for (Flavor flavor : node.getBuildTarget().getFlavors()) {
           if (ApplePlatform.needsInstallHelper(flavor.getName())) {
             AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
@@ -407,8 +402,8 @@ public class InstallCommand extends BuildCommand {
       ExecutionContext executionContext,
       SourcePathResolver pathResolver,
       CommandRunnerParams params)
-      throws InterruptedException {
-    AndroidDevicesHelper adbHelper = executionContext.getAndroidDevicesHelper().get();
+      throws IOException, InterruptedException {
+    final AndroidDevicesHelper adbHelper = executionContext.getAndroidDevicesHelper().get();
 
     boolean concurrentInstallEnabled = false;
     // concurrentInstall is currently only implemented for AndroidBinary (and not subclasses).
@@ -468,7 +463,7 @@ public class InstallCommand extends BuildCommand {
         params.getConsole().printBuildFailure(hre.getMessage());
         return ExitCode.RUN_ERROR;
       } catch (Exception e) {
-        throw new BuckUncheckedExecutionException(e, "When starting activity.");
+        throw new BuckUncheckedExecutionException("When starting activity.");
       }
     }
 
@@ -482,12 +477,11 @@ public class InstallCommand extends BuildCommand {
       ProcessExecutor processExecutor,
       SourcePathResolver pathResolver)
       throws IOException, InterruptedException, NoSuchBuildTargetException {
-    String platformName = appleBundle.getPlatformName();
-    if (isSimulator(platformName)) {
+    if (appleBundle.getPlatformName().equals(ApplePlatform.IPHONESIMULATOR.getName())) {
       return installAppleBundleForSimulator(
           params, appleBundle, pathResolver, projectFilesystem, processExecutor);
     }
-    if (isDevice(platformName)) {
+    if (appleBundle.getPlatformName().equals(ApplePlatform.IPHONEOS.getName())) {
       return installAppleBundleForDevice(
           params, appleBundle, projectFilesystem, processExecutor, pathResolver);
     }
@@ -507,10 +501,10 @@ public class InstallCommand extends BuildCommand {
       throws IOException {
     AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
-    Path helperPath;
+    final Path helperPath;
     Optional<BuildTarget> helperTarget = appleConfig.getAppleDeviceHelperTarget();
     if (helperTarget.isPresent()) {
-      BuildRuleResolver resolver = getBuild().getRuleResolver();
+      BuildRuleResolver resolver = super.getBuild().getRuleResolver();
       BuildRule buildRule = resolver.requireRule(helperTarget.get());
       if (buildRule == null) {
         params
@@ -947,13 +941,8 @@ public class InstallCommand extends BuildCommand {
         simulatorByName = Optional.of(simulator);
         // We assume the simulators are sorted by OS version, so we'll keep
         // looking for a more recent simulator with this name.
-      } else if (isIPhoneSimulator(appleBundle.getPlatformName())
-          && simulator.getName().equals(DEFAULT_APPLE_SIMULATOR_NAME)) {
+      } else if (simulator.getName().equals(DEFAULT_APPLE_SIMULATOR_NAME)) {
         LOG.debug("Got default match (%s): %s", DEFAULT_APPLE_SIMULATOR_NAME, simulator);
-        defaultSimulator = Optional.of(simulator);
-      } else if (isAppleTVSimulator(appleBundle.getPlatformName())
-          && simulator.getName().equals(DEFAULT_APPLE_TV_SIMULATOR_NAME)) {
-        LOG.debug("Got default match (%s): %s", DEFAULT_APPLE_TV_SIMULATOR_NAME, simulator);
         defaultSimulator = Optional.of(simulator);
       }
     }
@@ -989,23 +978,6 @@ public class InstallCommand extends BuildCommand {
   @Override
   public boolean isReadOnly() {
     return false;
-  }
-
-  private boolean isSimulator(String platformName) {
-    return platformName.equals(ApplePlatform.IPHONESIMULATOR.getName())
-        || platformName.equals(ApplePlatform.APPLETVSIMULATOR.getName());
-  }
-
-  private boolean isDevice(String platformName) {
-    return platformName.equals(ApplePlatform.IPHONEOS.getName());
-  }
-
-  private boolean isIPhoneSimulator(String platformName) {
-    return platformName.equals(ApplePlatform.IPHONESIMULATOR.getName());
-  }
-
-  private boolean isAppleTVSimulator(String platformName) {
-    return platformName.equals(ApplePlatform.APPLETVSIMULATOR.getName());
   }
 
   private static class TriggerCloseable implements Closeable {
@@ -1055,10 +1027,5 @@ public class InstallCommand extends BuildCommand {
     private static Path getAbsoluteTriggerPath(Cell cell) {
       return cell.getFilesystem().resolve(getTriggerPath(cell));
     }
-  }
-
-  @Override
-  public boolean performsBuild() {
-    return true;
   }
 }

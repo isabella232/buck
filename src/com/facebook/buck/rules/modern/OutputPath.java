@@ -16,15 +16,15 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
  * Represents an output path of a Buildable. Can be converted to a Path with an OutputPathResolver.
  */
-public class OutputPath implements AddsToRuleKey {
+public final class OutputPath implements AddsToRuleKey {
   @AddToRuleKey(stringify = true)
   private final Path path;
 
@@ -46,21 +46,5 @@ public class OutputPath implements AddsToRuleKey {
 
   Path getPath() {
     return path;
-  }
-
-  public static Internals internals() {
-    return Internals.INSTANCE;
-  }
-
-  /**
-   * Provides access to internal implementation details of OutputPaths. Using this should be
-   * avoided.
-   */
-  public static class Internals {
-    private static final Internals INSTANCE = new Internals();
-
-    public Path getPath(OutputPath outputPath) {
-      return outputPath.getPath();
-    }
   }
 }

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import javax.annotation.Nullable;
@@ -54,9 +54,8 @@ public final class BuildOutputInitializer<T> {
   }
 
   /**
-   * This should be invoked only by the build engine (currently, {@link
-   * com.facebook.buck.core.build.engine.impl.CachingBuildEngine}) that invoked {@link
-   * #initializeFromDisk()}.
+   * This should be invoked only by the build engine (currently, {@link CachingBuildEngine}) that
+   * invoked {@link #initializeFromDisk()}.
    *
    * <p>
    *

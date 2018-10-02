@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.toolchain.tool.DelegatingTool;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DelegatingTool;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
@@ -87,7 +87,7 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
-      ImmutableList<? extends SourcePath> symbolFiles) {
+      Iterable<? extends SourcePath> symbolFiles) {
     throw new UnsupportedOperationException();
   }
 
@@ -127,7 +127,7 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
 
   @Override
   public Iterable<Arg> importLibrary(Path output) {
-    return StringArg.from("/IMPLIB:" + importLibraryPath(output));
+    return StringArg.from("/IMPLIB:" + importLibraryPath(output).toString());
   }
 
   @Override

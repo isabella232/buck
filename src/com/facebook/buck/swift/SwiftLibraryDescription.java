@@ -16,22 +16,6 @@
 
 package com.facebook.buck.swift;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.description.arg.HasSrcs;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorConvertible;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -51,20 +35,36 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorConvertible;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasSrcs;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -147,22 +147,25 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       SwiftLibraryDescriptionArg args) {
 
     Optional<LinkerMapMode> flavoredLinkerMapMode =
         LinkerMapMode.FLAVOR_DOMAIN.getValue(buildTarget);
     buildTarget =
         LinkerMapMode.removeLinkerMapModeFlavorInTarget(buildTarget, flavoredLinkerMapMode);
-    UnflavoredBuildTarget unflavoredBuildTarget = buildTarget.getUnflavoredBuildTarget();
+    final UnflavoredBuildTarget unflavoredBuildTarget = buildTarget.getUnflavoredBuildTarget();
 
     // See if we're building a particular "type" and "platform" of this library, and if so, extract
     // them from the flavors attached to the build target.
     Optional<Map.Entry<Flavor, CxxPlatform>> platform =
         getCxxPlatforms().getFlavorAndValue(buildTarget);
-    ImmutableSortedSet<Flavor> buildFlavors = buildTarget.getFlavors();
+    final ImmutableSortedSet<Flavor> buildFlavors = buildTarget.getFlavors();
     ImmutableSortedSet<BuildRule> filteredExtraDeps =
         params
             .getExtraDeps()
@@ -184,11 +187,8 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
     FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain =
         swiftPlatformsProvider.getSwiftCxxPlatforms();
 
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
-    CellPathResolver cellRoots = context.getCellPathResolver();
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
     if (!buildFlavors.contains(SWIFT_COMPANION_FLAVOR) && platform.isPresent()) {
-      CxxPlatform cxxPlatform = platform.get().getValue();
+      final CxxPlatform cxxPlatform = platform.get().getValue();
       Optional<SwiftPlatform> swiftPlatform = swiftPlatformFlavorDomain.getValue(buildTarget);
       if (!swiftPlatform.isPresent()) {
         throw new HumanReadableException("Platform %s is missing swift compiler", cxxPlatform);
@@ -259,7 +259,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
       CxxPreprocessorInput inputs =
           CxxPreprocessorInput.concat(
               CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                  cxxPlatform, resolver, params.getBuildDeps()));
+                  cxxPlatform, params.getBuildDeps()));
       PreprocessorFlags cxxDeps =
           PreprocessorFlags.of(
               Optional.empty(),
@@ -272,7 +272,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
       Preprocessor preprocessor = cxxPlatform.getCpp().resolve(resolver);
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-      BuildTarget buildTargetCopy = buildTarget;
+      final BuildTarget buildTargetCopy = buildTarget;
       return new SwiftCompile(
           cxxPlatform,
           swiftBuckConfig,
@@ -303,7 +303,9 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
           args.getEnableObjcInterop(),
           args.getBridgingHeader(),
           preprocessor,
-          cxxDeps);
+          cxxDeps,
+          false,
+          args.getMinDeploymentVersion());
     }
 
     // Otherwise, we return the generic placeholder of this library.
@@ -355,7 +357,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
         NativeLinkableInput.builder()
             .from(
                 swiftRuntimeLinkable.getNativeLinkableInput(
-                    cxxPlatform, Linker.LinkableDepType.SHARED, resolver))
+                    cxxPlatform, Linker.LinkableDepType.SHARED))
             .addAllArgs(rule.getAstLinkArgs())
             .addAllArgs(rule.getFileListLinkArg());
     return resolver.addToIndex(
@@ -387,10 +389,12 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
   }
 
   public Optional<BuildRule> createCompanionBuildRule(
-      BuildRuleCreationContext context,
+      final TargetGraph targetGraph,
       BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       CxxLibraryDescription.CommonArg args) {
     if (!isSwiftTarget(buildTarget)) {
       boolean hasSwiftSource =
@@ -413,7 +417,15 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
     SwiftLibraryDescriptionArg delegateArgs = delegateArgsBuilder.build();
     if (!delegateArgs.getSrcs().isEmpty()) {
       return Optional.of(
-          resolver.addToIndex(createBuildRule(context, buildTarget, params, delegateArgs)));
+          resolver.addToIndex(
+              createBuildRule(
+                  targetGraph,
+                  buildTarget,
+                  projectFilesystem,
+                  params,
+                  resolver,
+                  cellRoots,
+                  delegateArgs)));
     } else {
       return Optional.empty();
     }
@@ -431,13 +443,14 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
       ProjectFilesystem projectFilesystem,
       SwiftLibraryDescriptionArg args,
       Preprocessor preprocessor,
-      PreprocessorFlags preprocessFlags) {
+      PreprocessorFlags preprocessFlags,
+      boolean importUnderlyingModule) {
 
     DepsBuilder srcsDepsBuilder = new DepsBuilder(ruleFinder);
     args.getSrcs().forEach(src -> srcsDepsBuilder.add(src));
     BuildRuleParams paramsWithSrcDeps = params.copyAppendingExtraDeps(srcsDepsBuilder.build());
 
-    BuildTarget buildTargetCopy = buildTarget;
+    final BuildTarget buildTargetCopy = buildTarget;
     return new SwiftCompile(
         cxxPlatform,
         swiftBuckConfig,
@@ -459,7 +472,9 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
         args.getEnableObjcInterop(),
         args.getBridgingHeader(),
         preprocessor,
-        preprocessFlags);
+        preprocessFlags,
+        importUnderlyingModule,
+        args.getMinDeploymentVersion());
   }
 
   public static boolean isSwiftTarget(BuildTarget buildTarget) {
@@ -498,5 +513,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
     Optional<SourcePath> getBridgingHeader();
 
     Optional<NativeLinkable.Linkage> getPreferredLinkage();
+
+    Optional<String> getMinDeploymentVersion();
   }
 }

@@ -82,7 +82,7 @@ class UnixDomainSocketLibrary {
 
       @Override
       protected List<String> getFieldOrder() {
-        return Arrays.asList("sunLen", "sunFamily");
+        return Arrays.asList(new String[] {"sunLen", "sunFamily"});
       }
     }
 
@@ -136,7 +136,7 @@ class UnixDomainSocketLibrary {
 
     @Override
     protected List<String> getFieldOrder() {
-      return Arrays.asList("sunFamily", "sunPath");
+      return Arrays.asList(new String[] {"sunFamily", "sunPath"});
     }
   }
 

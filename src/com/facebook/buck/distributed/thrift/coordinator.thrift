@@ -28,17 +28,14 @@ struct WorkUnit {
 
 struct GetWorkRequest {
   1: optional string minionId;
-
-  2: optional stampede.MinionType minionType;
-
-  3: optional stampede.StampedeId stampedeId;
+  2: optional stampede.StampedeId stampedeId;
 
   // If a build had just finished, include the exit code.
-  4: optional i32 lastExitCode;
+  3: optional i32 lastExitCode;
 
   // All build targets that the minion has finished building (since last request),
   // and that have completed their upload to the cache.
-  5: optional list<string> finishedTargets;
+  4: optional list<string> finishedTargets;
 
   // Note: a node finishing, doesn't mean the work unit it was part of is finished
   // and as a result the corresponding number of nodes to fetch might be zero.
@@ -55,7 +52,6 @@ struct GetWorkResponse {
 struct ReportMinionAliveRequest {
   1: optional string minionId;
   2: optional stampede.StampedeId stampedeId;
-  3: optional stampede.BuildSlaveRunId runId;
 }
 
 struct ReportMinionAliveResponse {

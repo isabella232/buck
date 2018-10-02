@@ -16,12 +16,12 @@
 
 package com.facebook.buck.event.listener;
 
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.build.event.BuildRuleEvent;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.eventbus.Subscribe;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -40,11 +40,7 @@ public class JavaUtilsLoggingBuildListener implements BuckEventListener {
   private static final Logger LOG = Logger.getLogger(JavaUtilsLoggingBuildListener.class.getName());
   private static final Level LEVEL = Level.INFO;
 
-  public JavaUtilsLoggingBuildListener(ProjectFilesystem filesystem) {
-    ensureLogFileIsWritten(filesystem);
-  }
-
-  private static void ensureLogFileIsWritten(ProjectFilesystem filesystem) {
+  public static void ensureLogFileIsWritten(ProjectFilesystem filesystem) {
     if (!filesystem.exists(filesystem.getBuckPaths().getScratchDir())) {
       try {
         filesystem.mkdirs(filesystem.getBuckPaths().getScratchDir());

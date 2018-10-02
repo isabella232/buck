@@ -16,14 +16,13 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -31,6 +30,7 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.DefaultFilteredDirectoryCopier;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.FilteredDirectoryCopier;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;
@@ -46,7 +46,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -69,9 +68,7 @@ public class FilterResourcesSteps {
 
   @VisibleForTesting
   static final Pattern NON_ENGLISH_STRINGS_FILE_PATH =
-      Pattern.compile("\\b|.*/res/values-([a-z]{2})(?:-r([A-Z]{2}))*/.*.xml");
-
-  static final String DEFAULT_STRINGS_FILE_NAME = "strings.xml";
+      Pattern.compile("\\b|.*/res/values-([a-z]{2})(?:-r([A-Z]{2}))*/strings.xml");
 
   private final ProjectFilesystem filesystem;
   private final ImmutableBiMap<Path, Path> inResDirToOutResDirMap;
@@ -79,7 +76,6 @@ public class FilterResourcesSteps {
   private final boolean enableStringWhitelisting;
   private final ImmutableSet<Path> whitelistedStringDirs;
   private final ImmutableSet<String> locales;
-  private final String localizedStringFileName;
   private final FilteredDirectoryCopier filteredDirectoryCopier;
   private final CopyStep copyStep = new CopyStep();
   private final ScaleStep scaleStep = new ScaleStep();
@@ -114,7 +110,6 @@ public class FilterResourcesSteps {
       boolean enableStringWhitelisting,
       ImmutableSet<Path> whitelistedStringDirs,
       ImmutableSet<String> locales,
-      Optional<String> localizedStringFileName,
       FilteredDirectoryCopier filteredDirectoryCopier,
       @Nullable Set<ResourceFilters.Density> targetDensities,
       @Nullable DrawableFinder drawableFinder,
@@ -129,10 +124,6 @@ public class FilterResourcesSteps {
     this.enableStringWhitelisting = enableStringWhitelisting;
     this.whitelistedStringDirs = whitelistedStringDirs;
     this.locales = locales;
-    this.localizedStringFileName =
-        localizedStringFileName.isPresent()
-            ? localizedStringFileName.get()
-            : DEFAULT_STRINGS_FILE_NAME;
     this.filteredDirectoryCopier = filteredDirectoryCopier;
     this.targetDensities = targetDensities;
     this.drawableFinder = drawableFinder;
@@ -213,13 +204,13 @@ public class FilterResourcesSteps {
               drawables, targetDensities, /* canDownscale */ canDownscale(context)));
     }
 
-    boolean localeFilterEnabled = !locales.isEmpty();
+    final boolean localeFilterEnabled = !locales.isEmpty();
     if (localeFilterEnabled || enableStringWhitelisting) {
       pathPredicates.add(
           path -> {
-            String filePath = MorePaths.pathWithUnixSeparators(path);
-            Matcher matcher = NON_ENGLISH_STRINGS_FILE_PATH.matcher(filePath);
-            if (!matcher.matches() || !filePath.endsWith(localizedStringFileName)) {
+            Matcher matcher =
+                NON_ENGLISH_STRINGS_FILE_PATH.matcher(MorePaths.pathWithUnixSeparators(path));
+            if (!matcher.matches()) {
               return true;
             }
 
@@ -287,7 +278,8 @@ public class FilterResourcesSteps {
 
         // Replace density qualifier with target density using regular expression to match
         // the qualifier in the context of a path to a drawable.
-        String fromDensity = (density == ResourceFilters.Density.NO_QUALIFIER ? "" : "-") + density;
+        String fromDensity =
+            (density == ResourceFilters.Density.NO_QUALIFIER ? "" : "-") + density.toString();
         Path destination =
             Paths.get(
                 MorePaths.pathWithUnixSeparators(drawable)
@@ -334,7 +326,7 @@ public class FilterResourcesSteps {
     @Override
     public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException {
-      ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
+      final ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
       for (Path dir : dirs) {
         filesystem.walkRelativeFileTree(
             dir,
@@ -465,14 +457,11 @@ public class FilterResourcesSteps {
     @Nullable private ProjectFilesystem filesystem;
     @Nullable private ImmutableBiMap<Path, Path> inResDirToOutResDirMap;
     @Nullable private ResourceFilter resourceFilter;
-    private Optional<String> localizedStringFileName;
     private ImmutableSet<Path> whitelistedStringDirs = ImmutableSet.of();
     private ImmutableSet<String> locales = ImmutableSet.of();
     private boolean enableStringWhitelisting = false;
 
-    private Builder() {
-      this.localizedStringFileName = Optional.empty();
-    }
+    private Builder() {}
 
     public Builder setTarget(BuildTarget target) {
       this.target = target;
@@ -509,11 +498,6 @@ public class FilterResourcesSteps {
       return this;
     }
 
-    public Builder setLocalizedStringFileName(Optional<String> fileName) {
-      this.localizedStringFileName = fileName;
-      return this;
-    }
-
     public FilterResourcesSteps build() {
       Preconditions.checkNotNull(filesystem);
       Preconditions.checkNotNull(resourceFilter);
@@ -526,7 +510,6 @@ public class FilterResourcesSteps {
           enableStringWhitelisting,
           whitelistedStringDirs,
           locales,
-          localizedStringFileName,
           DefaultFilteredDirectoryCopier.getInstance(),
           resourceFilter.getDensities(),
           DefaultDrawableFinder.getInstance(),

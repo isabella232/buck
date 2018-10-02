@@ -17,8 +17,8 @@
 package com.facebook.buck.android.exopackage;
 
 import com.facebook.buck.android.exopackage.ExopackageInfo.DexInfo;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -75,7 +75,7 @@ public class ModuleExoHelper {
    *     a mapping back to the module name where they came from
    */
   public ImmutableMap<Path, String> getMetadataToInstall() throws Exception {
-    Builder<Path, String> builder = ImmutableMap.builder();
+    final Builder<Path, String> builder = ImmutableMap.builder();
     for (DexInfo info : dexInfoForModules) {
       Path metadataFile = pathResolver.getAbsolutePath(info.getMetadata());
       if (!Files.exists(metadataFile)) {
@@ -83,11 +83,11 @@ public class ModuleExoHelper {
       }
       Path dirname = metadataFile.getParent().getFileName();
       String onDeviceName = String.format("%s.metadata", dirname);
-      String metadataContents = new String(Files.readAllBytes(metadataFile));
+      final String metadataContents = new String(Files.readAllBytes(metadataFile));
       builder.put(MODULAR_DEX_DIR.resolve(onDeviceName), metadataContents);
     }
     // Top level metadata.txt containing the list of jars
-    String fileListing =
+    final String fileListing =
         getFilesToInstall()
             .entrySet()
             .stream()
@@ -110,7 +110,7 @@ public class ModuleExoHelper {
   private ImmutableMap<String, Path> getRequiredDexFiles() throws IOException {
     ImmutableMap.Builder<String, Path> builder = ImmutableMap.builder();
     for (DexInfo dexInfo : dexInfoForModules) {
-      Path metadataFile = pathResolver.getAbsolutePath(dexInfo.getMetadata());
+      final Path metadataFile = pathResolver.getAbsolutePath(dexInfo.getMetadata());
       if (!Files.exists(metadataFile)) {
         continue;
       }

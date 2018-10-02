@@ -21,19 +21,20 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.artifact_cache.NoopArtifactCache.NoopArtifactCacheFactory;
 import com.facebook.buck.cli.output.PrintStreamPathOutputPresenter;
 import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
+import com.facebook.buck.cli.parameter_extractors.ProjectViewParameters;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.ide.intellij.IjProjectBuckConfig;
 import com.facebook.buck.ide.intellij.IjProjectCommandHelper;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
@@ -226,19 +227,24 @@ public class ProjectCommand extends BuildCommand {
   private String generatedFilesListFilename = null;
 
   @Option(
-    name = "--update",
+    name = "--view",
     usage =
-        "Instead of generating a whole project, only regenerate the module files for the "
-            + "given targets, possibly updating the top-level modules list."
+        "Deprecated: this feature will be removed in future versions, see "
+            + "https://github.com/facebook/buck/issues/1567."
+            + "\n"
+            + "Option that builds a Project View which is a directory containing symlinks to a single"
+            + " project's code and resources. This directory looks a lot like a standard IntelliJ "
+            + "project with all resources under /res, but what's really important is that it "
+            + "generates a single IntelliJ module, so that editing is much faster than when you "
+            + "use 'plain' `buck project`.\n"
+            + "\n"
+            + "This option specifies the path to the Project View directory."
   )
-  private boolean updateOnly = false;
+  @Nullable
+  private String projectView = null;
 
   private Optional<String> getPathToPreProcessScript(BuckConfig buckConfig) {
     return buckConfig.getValue("project", "pre_process");
-  }
-
-  private Optional<String> getPathToPostProcessScript(BuckConfig buckConfig) {
-    return buckConfig.getValue("project", "post_process");
   }
 
   private Optional<Ide> getIdeFromBuckConfig(BuckConfig buckConfig) {
@@ -255,7 +261,7 @@ public class ProjectCommand extends BuildCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    Ide projectIde =
+    final Ide projectIde =
         (ide == null) ? getIdeFromBuckConfig(params.getBuckConfig()).orElse(null) : ide;
 
     if (projectIde == null) {
@@ -290,8 +296,8 @@ public class ProjectCommand extends BuildCommand {
                     includeTransitiveDependencies,
                     skipBuild || !build);
 
-            ProjectGeneratorParameters projectGeneratorParameters =
-                new ProjectGeneratorParametersImplementation(params);
+            ProjectViewParameters projectViewParameters =
+                new ProjectViewParametersImplementation(params);
             IjProjectCommandHelper projectCommandHelper =
                 new IjProjectCommandHelper(
                     params.getBuckEventBus(),
@@ -307,7 +313,7 @@ public class ProjectCommand extends BuildCommand {
                     (buildTargets, disableCaching) ->
                         runBuild(params, buildTargets, disableCaching),
                     arguments -> parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), arguments),
-                    projectGeneratorParameters);
+                    projectViewParameters);
             result = projectCommandHelper.parseTargetsAndRunProjectGenerator(getArguments());
             break;
           case XCODE:
@@ -363,10 +369,7 @@ public class ProjectCommand extends BuildCommand {
             // unreachable
             throw new IllegalStateException("'ide' should always be of type 'INTELLIJ' or 'XCODE'");
         }
-        rc = runPostprocessScriptIfNeeded(params, projectIde);
-        if (rc != 0) {
-          return ExitCode.map(rc);
-        }
+
       } finally {
         params.getBuckEventBus().post(ProjectGenerationEvent.finished());
       }
@@ -399,23 +402,12 @@ public class ProjectCommand extends BuildCommand {
 
   private int runPreprocessScriptIfNeeded(CommandRunnerParams params, Ide projectIde)
       throws IOException, InterruptedException {
-    Optional<String> script = getPathToPreProcessScript(params.getBuckConfig());
-    return runScriptIfNeeded(script, params, projectIde);
-  }
-
-  private int runPostprocessScriptIfNeeded(CommandRunnerParams params, Ide projectIde)
-      throws IOException, InterruptedException {
-    Optional<String> script = getPathToPostProcessScript(params.getBuckConfig());
-    return runScriptIfNeeded(script, params, projectIde);
-  }
-
-  private int runScriptIfNeeded(
-      Optional<String> optionalPathToScript, CommandRunnerParams params, Ide projectIde)
-      throws IOException, InterruptedException {
-    if (!optionalPathToScript.isPresent()) {
+    Optional<String> pathToPreProcessScript = getPathToPreProcessScript(params.getBuckConfig());
+    if (!pathToPreProcessScript.isPresent()) {
       return 0;
     }
-    String pathToScript = optionalPathToScript.get();
+
+    String pathToScript = pathToPreProcessScript.get();
     if (!Paths.get(pathToScript).isAbsolute()) {
       pathToScript =
           params
@@ -434,7 +426,7 @@ public class ProjectCommand extends BuildCommand {
                 ImmutableMap.<String, String>builder()
                     .putAll(params.getEnvironment())
                     .put("BUCK_PROJECT_TARGETS", Joiner.on(" ").join(getArguments()))
-                    .put("BUCK_PROJECT_TYPE", projectIde.toString().toLowerCase())
+                    .put("BUCK_PROJECT_TYPE", detectBuckProjectType(projectIde))
                     .build())
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();
@@ -452,6 +444,13 @@ public class ProjectCommand extends BuildCommand {
       processExecutor.destroyProcess(process, /* force */ false);
       processExecutor.waitForProcess(process);
     }
+  }
+
+  private String detectBuckProjectType(Ide projectIde) {
+    if (projectIde == Ide.INTELLIJ && projectView != null) {
+      return "intellij-view";
+    }
+    return projectIde.toString().toLowerCase();
   }
 
   @Override
@@ -513,13 +512,27 @@ public class ProjectCommand extends BuildCommand {
     }
 
     @Override
-    public boolean isUpdateOnly() {
-      return updateOnly;
+    public Verbosity getVerbosity() {
+      return getConsole().getVerbosity();
+    }
+  }
+
+  private class ProjectViewParametersImplementation extends ProjectGeneratorParametersImplementation
+      implements ProjectViewParameters {
+
+    private ProjectViewParametersImplementation(CommandRunnerParams parameters) {
+      super(parameters);
     }
 
     @Override
-    public Verbosity getVerbosity() {
-      return getConsole().getVerbosity();
+    public boolean hasViewPath() {
+      return projectView != null && !projectView.trim().isEmpty(); // --view '' is possible
+    }
+
+    @Override
+    @Nullable
+    public String getViewPath() {
+      return projectView;
     }
   }
 }

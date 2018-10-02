@@ -26,8 +26,7 @@ public enum AppleBundleExtension {
   XCTEST,
   DSYM,
   XPC,
-  PREFPANE,
-  QLGENERATOR;
+  PREFPANE;
 
   public String toFileExtension() {
     switch (this) {
@@ -49,10 +48,8 @@ public enum AppleBundleExtension {
         return "xpc";
       case PREFPANE:
         return "prefPane";
-      case QLGENERATOR:
-        return "qlgenerator";
       default:
-        throw new IllegalStateException("Invalid bundle extension value: " + this);
+        throw new IllegalStateException("Invalid bundle extension value: " + this.toString());
     }
   }
 }

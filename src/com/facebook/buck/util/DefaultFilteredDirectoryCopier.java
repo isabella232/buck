@@ -58,7 +58,11 @@ public class DefaultFilteredDirectoryCopier implements FilteredDirectoryCopier {
   }
 
   @Override
-  public void copyDir(ProjectFilesystem filesystem, Path srcDir, Path destDir, Predicate<Path> pred)
+  public void copyDir(
+      final ProjectFilesystem filesystem,
+      final Path srcDir,
+      final Path destDir,
+      final Predicate<Path> pred)
       throws IOException {
 
     // Remove existing contents if any.

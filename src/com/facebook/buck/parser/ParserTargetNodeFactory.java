@@ -16,22 +16,23 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
 import com.facebook.buck.rules.TargetNode;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.function.Function;
 
 /** Creates {@link TargetNode} instances for the parser. */
 public interface ParserTargetNodeFactory<T> {
-  TargetNode<?, ?> createTargetNode(
+  T createTargetNode(
       Cell cell,
       KnownBuildRuleTypes knownBuildRuleTypes,
       Path buildFile,
       BuildTarget target,
-      T rawNode,
+      Map<String, Object> rawNode,
       Function<PerfEventId, SimplePerfEvent.Scope> perfEventScope);
 }

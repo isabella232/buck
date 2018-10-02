@@ -16,9 +16,8 @@
 
 package com.facebook.buck.command;
 
-import com.facebook.buck.core.build.engine.BuildEngineResult;
-import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
-import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.rules.BuildEngineResult;
+import com.facebook.buck.rules.CachingBuildEngine;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -35,7 +34,7 @@ public interface BuildExecutor {
    * @throws IOException
    * @throws InterruptedException
    */
-  ExitCode buildLocallyAndReturnExitCode(
+  int buildLocallyAndReturnExitCode(
       Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport)
       throws IOException, InterruptedException;
 
@@ -55,7 +54,7 @@ public interface BuildExecutor {
    * @param resultFutures - result from initializeBuild call
    * @return exit code
    */
-  ExitCode waitForBuildToFinish(
+  int waitForBuildToFinish(
       Iterable<String> targetsToBuild,
       List<BuildEngineResult> resultFutures,
       Optional<Path> pathToBuildReport);

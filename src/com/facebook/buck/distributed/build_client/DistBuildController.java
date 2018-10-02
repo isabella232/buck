@@ -16,22 +16,17 @@
 
 package com.facebook.buck.distributed.build_client;
 
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.build.event.BuildEvent.DistBuildStarted;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.ExitCode;
-import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildMode;
-import com.facebook.buck.distributed.thrift.BuildStatus;
-import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.ParallelRuleKeyCalculator;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
@@ -53,9 +48,7 @@ public class DistBuildController {
   private final BuildPhase buildPhase;
   private final PostBuildPhase postBuildPhase;
   private final Console console;
-  private final DistBuildStarted startedEvent;
 
-  private final ListenableFuture<BuildJobState> asyncJobState;
   private final AtomicReference<StampedeId> stampedeIdReference;
 
   /** Result of a distributed build execution. */
@@ -72,9 +65,7 @@ public class DistBuildController {
   public DistBuildController(DistBuildControllerArgs args) {
     this.stampedeIdReference = args.getStampedeIdReference();
     this.eventBus = args.getBuckEventBus();
-    this.startedEvent = args.getDistBuildStartedEvent();
     this.consoleEventsDispatcher = new ConsoleEventsDispatcher(eventBus);
-    this.asyncJobState = args.getAsyncJobState();
     this.preBuildPhase =
         new PreBuildPhase(
             args.getDistBuildService(),
@@ -116,31 +107,29 @@ public class DistBuildController {
       FileHashCache fileHashCache,
       InvocationInfo invocationInfo,
       BuildMode buildMode,
-      MinionRequirements minionRequirements,
+      int numberOfMinions,
       String repository,
       String tenantId,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> ruleKeyCalculatorFuture)
-      throws InterruptedException {
+      throws IOException, InterruptedException {
     Pair<StampedeId, ListenableFuture<Void>> stampedeIdAndPendingPrepFuture = null;
     try {
       stampedeIdAndPendingPrepFuture =
-          Preconditions.checkNotNull(
-              preBuildPhase.runPreDistBuildLocalStepsAsync(
-                  executorService,
-                  projectFilesystem,
-                  fileHashCache,
-                  eventBus,
-                  invocationInfo.getBuildId(),
-                  buildMode,
-                  minionRequirements,
-                  repository,
-                  tenantId,
-                  ruleKeyCalculatorFuture));
+          preBuildPhase.runPreDistBuildLocalStepsAsync(
+              executorService,
+              projectFilesystem,
+              fileHashCache,
+              eventBus,
+              invocationInfo.getBuildId(),
+              buildMode,
+              numberOfMinions,
+              repository,
+              tenantId,
+              ruleKeyCalculatorFuture);
     } catch (DistBuildService.DistBuildRejectedException ex) {
       eventBus.post(
-          new StampedeConsoleEvent(
-              ConsoleEvent.createForMessageWithAnsiEscapeCodes(
-                  Level.WARNING, console.getAnsi().asWarningText(ex.getMessage()))));
+          ConsoleEvent.createForMessageWithAnsiEscapeCodes(
+              Level.WARNING, console.getAnsi().asWarningText(ex.getMessage())));
       return createFailedExecutionResult(
           Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
     } catch (IOException | RuntimeException ex) {
@@ -149,6 +138,7 @@ public class DistBuildController {
           Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
     }
 
+    stampedeIdAndPendingPrepFuture = Preconditions.checkNotNull(stampedeIdAndPendingPrepFuture);
     stampedeIdReference.set(stampedeIdAndPendingPrepFuture.getFirst());
 
     ListenableFuture<Void> pendingPrepFuture = stampedeIdAndPendingPrepFuture.getSecond();
@@ -177,20 +167,11 @@ public class DistBuildController {
               invocationInfo,
               ruleKeyCalculatorFuture);
     } catch (IOException | RuntimeException ex) { // Important: Don't swallow InterruptedException
-      // Don't print an error here, because we might have failed due to local finishing first.
-      LOG.warn(ex, "Distributed build step failed.");
+      LOG.error(ex, "Distributed build step failed.");
       return createFailedExecutionResult(
           Preconditions.checkNotNull(stampedeIdReference.get()),
           ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION);
     }
-
-    // Send DistBuildFinished event if we reach this point without throwing.
-    boolean buildSuccess =
-        buildResult.getFinalBuildJob().getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY);
-    eventBus.post(
-        BuildEvent.distBuildFinished(
-            startedEvent,
-            buildSuccess ? 0 : ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode()));
 
     // Note: always returns distributed exit code 0
     // TODO(alisdair,ruibm,shivanker): consider new exit code if failed to fetch finished stats
@@ -201,10 +182,8 @@ public class DistBuildController {
         consoleEventsDispatcher);
   }
 
-  private ExecutionResult createFailedExecutionResult(StampedeId stampedeId, ExitCode exitCode) {
-    LOG.warn("Stampede failed. Cancel async job state computation if that's still going on.");
-    asyncJobState.cancel(true);
-    eventBus.post(BuildEvent.distBuildFinished(startedEvent, exitCode.getCode()));
+  private static ExecutionResult createFailedExecutionResult(
+      StampedeId stampedeId, ExitCode exitCode) {
     return new ExecutionResult(stampedeId, exitCode.getCode());
   }
 }

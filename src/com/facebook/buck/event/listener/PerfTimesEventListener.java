@@ -17,9 +17,6 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.build.event.BuildRuleEvent;
-import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -29,8 +26,11 @@ import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
+import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.eventbus.Subscribe;
@@ -104,7 +104,9 @@ public class PerfTimesEventListener implements BuckEventListener {
    */
   @Subscribe
   public synchronized void onRuleKeyCalculationStarted(BuildRuleEvent.StartedRuleKeyCalc event) {
-    ruleKeysCosts.computeIfAbsent(event.getBuildRule(), buildRule -> new TimeCostEntry<>(event));
+    ruleKeysCosts.computeIfAbsent(
+        event.getBuildRule(),
+        buildRule -> ruleKeysCosts.put(buildRule, new TimeCostEntry<>(event)));
   }
 
   /**
@@ -161,7 +163,7 @@ public class PerfTimesEventListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) {}
+  public void outputTrace(BuildId buildId) throws InterruptedException {}
 
   public static class PerfTimesEvent extends AbstractBuckEvent {
     private String eventName;

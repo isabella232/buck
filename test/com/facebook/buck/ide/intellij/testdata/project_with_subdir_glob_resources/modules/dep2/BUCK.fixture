@@ -1,9 +1,0 @@
-android_resource(
-    name = "dep2",
-    assets = subdir_glob([("assets", "**")]),
-    package = "com.test",
-    res = subdir_glob([("res", "**")]),
-    visibility = [
-        "PUBLIC",
-    ],
-)

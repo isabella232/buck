@@ -16,9 +16,6 @@
 
 package com.facebook.buck.jvm.groovy;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -31,13 +28,16 @@ import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -67,16 +67,16 @@ public class GroovyTestDescription implements Description<GroovyTestDescriptionA
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       GroovyTestDescriptionArg args) {
     BuildTarget testsLibraryBuildTarget =
         buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
-    CellPathResolver cellRoots = context.getCellPathResolver();
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
             toolchainProvider
@@ -91,10 +91,8 @@ public class GroovyTestDescription implements Description<GroovyTestDescriptionA
         new DefaultJavaLibraryRules.Builder(
                 testsLibraryBuildTarget,
                 projectFilesystem,
-                context.getToolchainProvider(),
                 params,
                 resolver,
-                cellRoots,
                 new GroovyConfiguredCompilerFactory(groovyBuckConfig),
                 javaBuckConfig,
                 args)

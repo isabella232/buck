@@ -29,6 +29,7 @@ import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.logging.Handler;
 import java.util.logging.LogManager;
@@ -120,7 +121,7 @@ public class LogConfig {
     if (handlers == null) {
       return;
     }
-    for (Handler h : handlers) {
+    for (Handler h : Arrays.asList(handlers)) {
       h.flush();
     }
   }
@@ -135,7 +136,7 @@ public class LogConfig {
       ST st = new ST(template);
       st.add(
           "default_file_pattern",
-          MorePaths.pathWithUnixSeparators(logConfigSetup.getLogFilePath()));
+          MorePaths.pathWithUnixSeparators(logConfigSetup.getLogFilePath()).toString());
       st.add("default_count", logConfigSetup.getCount());
       st.add("default_max_size_bytes", logConfigSetup.getMaxLogSizeBytes());
       String result = st.render();

@@ -21,37 +21,6 @@ struct StampedeId {
   1 : optional string id;
 }
 
-# Identifies the hardware category for a particular minion when running in
-# mixed environment.
-enum MinionType {
-    UNKNOWN = 0,
-    LOW_SPEC = 1,
-    # This is the default, and should always be used for minion running on
-    # coordinator machine
-    STANDARD_SPEC = 2,
-}
-
-enum SchedulingEnvironmentType {
-    UNKNOWN = 0,
-    # Nodes in build are scheduled on machines with identical hardware
-    IDENTICAL_HARDWARE = 1,
-    # Nodes in build are scheduled on machines with varying hardware types
-    # (i.e. low/standard spec)
-    MIXED_HARDWARE = 2,
-}
-
-# Specifies how many of a certain type of minion will be needed for this build
-struct MinionRequirement {
-  1: optional MinionType minionType;
-  2: optional i32 requiredCount;
-}
-
-# Gives requirements for all minion types (only one if running in
-# IDENTICAL_HARDWARE environment)
-struct MinionRequirements {
-  1: optional list<MinionRequirement> requirements;
-}
-
 # Uniquely identifies the run of a specific BuildSlave server.
 # One StampedeId will have one or more BuildSlaveRunId's associated with it.
 # (one BuildSlaveRunId per Minion that contributes to the build).
@@ -92,14 +61,19 @@ enum BuildStatus {
 
   // In the initialization stage, not yet queued for building
   CREATED = 5,
-
-  // Build worker failed health checks
-  LOST = 6,
 }
 
 struct BuildSlaveInfo {
   1: optional BuildSlaveRunId buildSlaveRunId;
   2: optional string hostname;
+
+  // TODO(ruibm): Fields [4-7] have fallen out of sync and should not be used anymore however
+  //              the buck client code otherwise we get compile errors.
+  4: optional i32 stdOutCurrentBatchNumber;
+  5: optional i32 stdOutCurrentBatchLineCount;
+  6: optional i32 stdErrCurrentBatchNumber;
+  7: optional i32 stdErrCurrentBatchLineCount;
+
   8: optional bool logDirZipWritten;
   10: optional BuildStatus status = BuildStatus.UNKNOWN;
 }
@@ -140,19 +114,11 @@ enum LogRequestType {
 
 enum BuildMode {
   UNKNOWN = 0,
-
   REMOTE_BUILD = 1,
-
   // A random BuildSlave will be the Coordinator.
   DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR = 2
-
   // The machine launching the build is the Coordinator.
   DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR = 3,
-
-  // The machine launching the build is the Coordinator and proceeds to a normal
-  // local build using the CachingBuildEngine. Build nodes are sent to be built
-  // remotely in a strategy similar to distcc.
-  LOCAL_BUILD_WITH_REMOTE_EXECUTION = 4,
 }
 
 struct PathInfo {
@@ -179,10 +145,9 @@ struct BuckVersion {
 
 struct BuildModeInfo {
   1: optional BuildMode mode = BuildMode.UNKNOWN;
-  2: optional i32 totalNumberOfMinions; // Deprecated
+  2: optional i32 numberOfMinions;
   3: optional string coordinatorAddress;
   4: optional i32 coordinatorPort;
-  5: optional MinionRequirements minionRequirements;
 }
 
 struct BuildJob {
@@ -245,14 +210,14 @@ struct BuildSlaveEventsRange {
 struct CreateBuildRequest {
   1: optional i64 createTimestampMillis;
   2: optional BuildMode buildMode = BuildMode.REMOTE_BUILD;
-  3: optional i32 totalNumberOfMinions; // Deprecated, use MinionRequirements
+  // Maximum number of minions to be used in this distributed build.
+  3: optional i32 numberOfMinions;
   4: optional string repository;
   5: optional string tenantId;
   6: optional string buckBuildUuid;
   7: optional string username;
   8: optional list<string> buildTargets;
   9: optional string buildLabel;
-  10: optional MinionRequirements minionRequirements;
 }
 
 struct CreateBuildResponse {
@@ -347,7 +312,7 @@ struct MultiGetBuildSlaveLogDirResponse {
 }
 
 # Uniquely identifies a log stream at a particular build slave,
-# and the first batch number to request. Batches numbers start at 0.
+# and the first batch number to request. Batches numbers start at 1.
 struct LogLineBatchRequest {
   1: optional SlaveStream slaveStream;
   2: optional i32 batchNumber;
@@ -468,7 +433,6 @@ struct FetchRuleKeyLogsRequest {
 
 struct FetchRuleKeyLogsResponse {
   1: optional list<RuleKeyLogEntry> ruleKeyLogs;
-  2: optional list<string> lookedUpStoreIds;
 }
 
 struct SetCoordinatorRequest {
@@ -484,7 +448,6 @@ struct EnqueueMinionsRequest {
   1: optional StampedeId stampedeId;
   2: optional string minionQueue;
   3: optional i32 numberOfMinions;
-  4: optional MinionType minionType;
 }
 
 struct EnqueueMinionsResponse {
@@ -504,15 +467,6 @@ struct ReportCoordinatorAliveRequest {
 }
 
 struct ReportCoordinatorAliveResponse {
-}
-
-struct UpdateBuildSlaveBuildStatusRequest {
-  1: optional StampedeId stampedeId;
-  2: optional BuildSlaveRunId runId;
-  3: optional BuildStatus buildStatus;
-}
-
-struct UpdateBuildSlaveBuildStatusResponse {
 }
 
 ##############################################################################
@@ -548,7 +502,6 @@ enum FrontendRequestType {
   ENQUEUE_MINIONS = 26,
   SET_FINAL_BUILD_STATUS = 27,
   REPORT_COORDINATOR_ALIVE = 28,
-  UPDATE_BUILD_SLAVE_BUILD_STATUS = 29,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -583,8 +536,6 @@ struct FrontendRequest {
   26: optional EnqueueMinionsRequest enqueueMinionsRequest;
   27: optional SetFinalBuildStatusRequest setFinalBuildStatusRequest;
   28: optional ReportCoordinatorAliveRequest reportCoordinatorAliveRequest;
-  29: optional UpdateBuildSlaveBuildStatusRequest
-    updateBuildSlaveBuildStatusRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -619,8 +570,6 @@ struct FrontendResponse {
   30: optional EnqueueMinionsResponse enqueueMinionsResponse;
   31: optional SetFinalBuildStatusResponse setFinalBuildStatusResponse;
   32: optional ReportCoordinatorAliveResponse reportCoordinatorAliveResponse;
-  33: optional UpdateBuildSlaveBuildStatusResponse
-    updateBuildSlaveBuildStatusResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

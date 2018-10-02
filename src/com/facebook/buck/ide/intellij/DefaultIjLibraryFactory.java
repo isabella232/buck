@@ -19,7 +19,6 @@ package com.facebook.buck.ide.intellij;
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarDescriptionArg;
 import com.facebook.buck.android.UnzipAar;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.ide.intellij.model.IjLibrary;
 import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
 import com.facebook.buck.ide.intellij.model.IjLibraryFactoryResolver;
@@ -27,6 +26,7 @@ import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarDescriptionArg;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -108,7 +108,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     return Optional.ofNullable(rule);
   }
 
-  private Optional<IjLibrary> createLibrary(TargetNode<?, ?> targetNode) {
+  private Optional<IjLibrary> createLibrary(final TargetNode<?, ?> targetNode) {
     return getRule(targetNode)
         .map(
             rule -> {

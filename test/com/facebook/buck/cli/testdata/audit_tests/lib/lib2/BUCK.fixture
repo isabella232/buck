@@ -1,5 +1,0 @@
-apple_library(
-    name = "lib2",
-    srcs = ["lib2.txt"],
-    visibility = ["PUBLIC"],
-)

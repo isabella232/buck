@@ -1,7 +1,0 @@
-java_test(
-    name = "example",
-    srcs = glob(["*.java"]),
-    deps = [
-        "buck//third-party/java/junit:junit",
-    ],
-)

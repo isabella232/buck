@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.thrift.TException;
 
 /** Handles Coordinator requests while the build is actively running. */
 public class ActiveCoordinatorService implements CoordinatorService.Iface {
@@ -36,16 +37,19 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
 
   private final MinionWorkloadAllocator allocator;
   private final CompletableFuture<ExitState> exitCodeFuture;
+  private final DistBuildTraceTracker chromeTraceTracker;
   private final CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher;
   private final MinionHealthTracker minionHealthTracker;
 
   public ActiveCoordinatorService(
       MinionWorkloadAllocator allocator,
       CompletableFuture<ExitState> exitCodeFuture,
+      DistBuildTraceTracker chromeTraceTracker,
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionHealthTracker minionHealthTracker) {
     this.allocator = allocator;
     this.exitCodeFuture = exitCodeFuture;
+    this.chromeTraceTracker = chromeTraceTracker;
     this.coordinatorBuildRuleEventsPublisher = coordinatorBuildRuleEventsPublisher;
     this.minionHealthTracker = minionHealthTracker;
   }
@@ -60,19 +64,6 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
     coordinatorBuildRuleEventsPublisher.createBuildRuleCompletionEvents(
         ImmutableList.copyOf(request.getFinishedTargets()));
 
-    String minionId = request.getMinionId();
-    if (allocator.hasMinionFailed(minionId)) {
-      // Minion has failed health checks and its work has already been re-assigned.
-      // In the unlikely case it comes back from the dead, tell it to shut down.
-      // TODO(alisdair): consider implementing logic to allow minions to re-join build
-      LOG.warn(
-          String.format(
-              "GetWorkResponse request received from minion [%s] previously marked as dead. Removing it from build.",
-              minionId));
-      response.setContinueBuilding(false);
-      return response;
-    }
-
     if (exitCodeFuture.isDone()) {
       // Tell any remaining minions that the build is finished and that they should shutdown.
       // Note: we cannot assume that when exitCodeFuture was set the first time the
@@ -81,12 +72,12 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
       return response;
     }
 
-    // If the minion died (with a compilation error), then kill the whole build.
+    // If the minion died, then kill the whole build.
     if (request.getLastExitCode() != 0) {
       String msg =
           String.format(
               "Got non zero exit code in GetWorkRequest from minion [%s]. Exit code [%s]",
-              minionId, request.getLastExitCode());
+              request.getMinionId(), request.getLastExitCode());
       LOG.error(msg);
       exitCodeFuture.complete(ExitState.setLocally(request.getLastExitCode(), msg));
       response.setContinueBuilding(false);
@@ -95,14 +86,11 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
 
     List<WorkUnit> newWorkUnitsForMinion =
         allocator.dequeueZeroDependencyNodes(
-            minionId,
-            request.getMinionType(),
-            request.getFinishedTargets(),
-            request.getMaxWorkUnitsToFetch());
+            request.getMinionId(), request.getFinishedTargets(), request.getMaxWorkUnitsToFetch());
 
     // TODO(alisdair): experiment with only sending started event for first node in chain,
     // and then send events for later nodes in the chain as their children finish.
-    ImmutableList.Builder<String> startedTargetsBuilder = ImmutableList.builder();
+    ImmutableList.Builder<String> startedTargetsBuilder = ImmutableList.<String>builder();
     for (WorkUnit workUnit : newWorkUnitsForMinion) {
       startedTargetsBuilder.addAll(workUnit.getBuildTargets());
     }
@@ -111,6 +99,9 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
     if (allocator.haveMostBuildRulesCompleted()) {
       coordinatorBuildRuleEventsPublisher.createMostBuildRulesCompletedEvent();
     }
+
+    chromeTraceTracker.updateWork(
+        request.getMinionId(), request.getFinishedTargets(), newWorkUnitsForMinion);
 
     // If the build is already finished (or just finished with this update, then signal this to
     // the minion.
@@ -132,8 +123,9 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
   }
 
   @Override
-  public ReportMinionAliveResponse reportMinionAlive(ReportMinionAliveRequest request) {
-    minionHealthTracker.reportMinionAlive(request.minionId, request.runId.id);
+  public ReportMinionAliveResponse reportMinionAlive(ReportMinionAliveRequest request)
+      throws TException {
+    minionHealthTracker.reportMinionAlive(request.minionId);
     return new ReportMinionAliveResponse();
   }
 }

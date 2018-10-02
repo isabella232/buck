@@ -53,7 +53,7 @@ public class DalvikAwareOutputStreamHelper implements ZipOutputStreamHelper {
     Preconditions.checkState(Files.exists(outputFile.getParent()));
     this.zipBuilder = new DeterministicZipBuilder(outputFile);
     this.linearAllocLimit = linearAllocLimit;
-    Path reportFile = reportDir.resolve(outputFile.getFileName() + ".txt");
+    Path reportFile = reportDir.resolve(outputFile.getFileName().toString() + ".txt");
     this.reportFileWriter = Files.newBufferedWriter(reportFile, Charsets.UTF_8);
     this.dalvikStatsCache = dalvikStatsCache;
   }
@@ -68,7 +68,10 @@ public class DalvikAwareOutputStreamHelper implements ZipOutputStreamHelper {
       return true;
     }
     int newFieldRefs = Sets.difference(stats.fieldReferences, currentFieldReferences).size();
-    return currentFieldReferences.size() + newFieldRefs > MAX_FIELD_REFERENCES;
+    if (currentFieldReferences.size() + newFieldRefs > MAX_FIELD_REFERENCES) {
+      return true;
+    }
+    return false;
   }
 
   @Override

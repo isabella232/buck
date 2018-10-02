@@ -17,20 +17,15 @@
 package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.command.BuildExecutor;
-import com.facebook.buck.core.build.engine.BuildEngineResult;
-import com.facebook.buck.core.build.engine.BuildResult;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
-import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildEngineResult;
+import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.slb.ThriftException;
-import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -50,7 +45,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
 
 /** {@link DistBuildModeRunner} implementation for running a distributed build as minion only. */
@@ -59,19 +54,15 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   private static final Logger LOG = Logger.get(MinionModeRunner.class);
 
   private final String coordinatorAddress;
-
   private volatile OptionalInt coordinatorPort;
   private final int coordinatorConnectionTimeoutMillis;
   private final ListenableFuture<BuildExecutor> buildExecutorFuture;
   private final StampedeId stampedeId;
-  private final MinionType minionType;
   private final BuildSlaveRunId buildSlaveRunId;
   private final long minionPollLoopIntervalMillis;
 
   private final BuildCompletionChecker buildCompletionChecker;
   private final ExecutorService buildExecutorService;
-
-  private final BuckEventBus eventBus;
 
   private final MinionLocalBuildStateTracker buildTracker;
 
@@ -79,7 +70,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   private final AtomicBoolean finished = new AtomicBoolean(false);
 
   // Aggregate exit code for the minion. Non-zero if any set of build targets failed.
-  private AtomicReference<ExitCode> exitCode = new AtomicReference<>(ExitCode.SUCCESS);
+  private AtomicInteger exitCode = new AtomicInteger(0);
 
   @Nullable private volatile BuildExecutor buildExecutor = null;
 
@@ -89,35 +80,37 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     boolean hasBuildFinished() throws IOException;
   }
 
+  /** Encapsulates a Thrift call */
+  @FunctionalInterface
+  public interface ThriftCall {
+
+    void apply() throws IOException;
+  }
+
   public MinionModeRunner(
       String coordinatorAddress,
       OptionalInt coordinatorPort,
       ListenableFuture<BuildExecutor> buildExecutorFuture,
       StampedeId stampedeId,
-      MinionType minionType,
       BuildSlaveRunId buildSlaveRunId,
-      CapacityTracker capacityTracker,
+      int availableWorkUnitBuildCapacity,
       BuildCompletionChecker buildCompletionChecker,
       long minionPollLoopIntervalMillis,
       MinionBuildProgressTracker minionBuildProgressTracker,
-      int coordinatorConnectionTimeoutMillis,
-      BuckEventBus eventBus) {
+      int coordinatorConnectionTimeoutMillis) {
     this(
         coordinatorAddress,
         coordinatorPort,
         coordinatorConnectionTimeoutMillis,
         buildExecutorFuture,
         stampedeId,
-        minionType,
         buildSlaveRunId,
-        capacityTracker,
+        availableWorkUnitBuildCapacity,
         buildCompletionChecker,
         minionPollLoopIntervalMillis,
         minionBuildProgressTracker,
         MostExecutors.newMultiThreadExecutor(
-            new CommandThreadFactory("MinionBuilderThread"),
-            capacityTracker.getMaxAvailableCapacity()),
-        eventBus);
+            new CommandThreadFactory("MinionBuilderThread"), availableWorkUnitBuildCapacity));
   }
 
   @VisibleForTesting
@@ -127,33 +120,30 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
       int coordinatorConnectionTimeoutMillis,
       ListenableFuture<BuildExecutor> buildExecutorFuture,
       StampedeId stampedeId,
-      MinionType minionType,
       BuildSlaveRunId buildSlaveRunId,
-      CapacityTracker capacityTracker,
+      int maxWorkUnitBuildCapacity,
       BuildCompletionChecker buildCompletionChecker,
       long minionPollLoopIntervalMillis,
       MinionBuildProgressTracker minionBuildProgressTracker,
-      ExecutorService buildExecutorService,
-      BuckEventBus eventBus) {
+      ExecutorService buildExecutorService) {
     this.coordinatorConnectionTimeoutMillis = coordinatorConnectionTimeoutMillis;
     this.minionPollLoopIntervalMillis = minionPollLoopIntervalMillis;
     this.buildExecutorFuture = buildExecutorFuture;
     this.stampedeId = stampedeId;
-    this.minionType = minionType;
     this.buildSlaveRunId = buildSlaveRunId;
     this.coordinatorAddress = coordinatorAddress;
     coordinatorPort.ifPresent(CoordinatorModeRunner::validatePort);
     this.coordinatorPort = coordinatorPort;
+
     this.buildCompletionChecker = buildCompletionChecker;
     this.buildExecutorService = buildExecutorService;
-    this.eventBus = eventBus;
     this.buildTracker =
-        new MinionLocalBuildStateTracker(minionBuildProgressTracker, capacityTracker);
+        new MinionLocalBuildStateTracker(maxWorkUnitBuildCapacity, minionBuildProgressTracker);
 
     LOG.info(
         String.format(
             "Started new minion that can build [%d] work units in parallel",
-            capacityTracker.getMaxAvailableCapacity()));
+            maxWorkUnitBuildCapacity));
   }
 
   @Override
@@ -162,7 +152,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   }
 
   @Override
-  public ExitCode runAndReturnExitCode(HeartbeatService heartbeatService)
+  public int runAndReturnExitCode(HeartbeatService heartbeatService)
       throws IOException, InterruptedException {
     Preconditions.checkState(coordinatorPort.isPresent(), "Coordinator port has not been set.");
     try {
@@ -173,17 +163,23 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
       throw new RuntimeException(msg, e);
     }
 
-    String minionId = generateMinionId(buildSlaveRunId);
-    try (ThriftCoordinatorClient client = newStartedThriftCoordinatorClient();
+    final String minionId = generateMinionId(buildSlaveRunId);
+    try (ThriftCoordinatorClient client =
+            new ThriftCoordinatorClient(
+                coordinatorAddress, stampedeId, coordinatorConnectionTimeoutMillis);
         Closeable healthCheck =
             heartbeatService.addCallback(
-                "MinionIsAlive", createHeartbeatCallback(client, minionId, buildSlaveRunId))) {
+                "MinionIsAlive", createHeartbeatCallback(client, minionId))) {
+      completionCheckingThriftCall(() -> client.start(coordinatorPort.getAsInt()));
+
       while (!finished.get()) {
         signalFinishedTargetsAndFetchMoreWork(minionId, client);
         Thread.sleep(minionPollLoopIntervalMillis);
       }
 
       LOG.info(String.format("Minion [%s] has exited signal/fetch work loop.", minionId));
+
+      completionCheckingThriftCall(() -> client.stop());
     }
 
     // At this point there is no more work to schedule, so wait for the build to finish.
@@ -195,25 +191,13 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     return exitCode.get();
   }
 
-  private ThriftCoordinatorClient newStartedThriftCoordinatorClient() throws IOException {
-    ThriftCoordinatorClient client =
-        new ThriftCoordinatorClient(
-            coordinatorAddress, stampedeId, coordinatorConnectionTimeoutMillis);
-    try {
-      client.start(coordinatorPort.getAsInt());
-    } catch (ThriftException exception) {
-      handleThriftException(exception);
-    }
-    return client;
-  }
-
   private HeartbeatCallback createHeartbeatCallback(
-      ThriftCoordinatorClient client, String minionId, BuildSlaveRunId runId) {
+      ThriftCoordinatorClient client, String minionId) {
     return new HeartbeatCallback() {
       @Override
       public void runHeartbeat() throws IOException {
         LOG.debug(String.format("About to send keep alive heartbeat for Minion [%s]", minionId));
-        client.reportMinionAlive(minionId, runId);
+        client.reportMinionAlive(minionId);
       }
     };
   }
@@ -224,14 +208,10 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
   }
 
   private void signalFinishedTargetsAndFetchMoreWork(
-      String minionId, ThriftCoordinatorClient client) throws IOException {
+      String minionId, ThriftCoordinatorClient client) throws IOException, InterruptedException {
     List<String> targetsToSignal = buildTracker.getTargetsToSignal();
 
-    // Try to reserve available capacity
-    int reservedCapacity = buildTracker.reserveAllAvailableCapacity();
-    if (reservedCapacity == 0
-        && exitCode.get() == ExitCode.SUCCESS
-        && targetsToSignal.size() == 0) {
+    if (!buildTracker.capacityAvailable() && exitCode.get() == 0 && targetsToSignal.size() == 0) {
       return; // Making a request will not move the build forward, so wait a while and try again.
     }
 
@@ -243,13 +223,13 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     try {
       GetWorkResponse response =
           client.getWork(
-              minionId, minionType, exitCode.get().getCode(), targetsToSignal, reservedCapacity);
+              minionId, exitCode.get(), targetsToSignal, buildTracker.getAvailableCapacity());
       if (!response.isContinueBuilding()) {
         LOG.info(String.format("Minion [%s] told to stop building.", minionId));
         finished.set(true);
       }
 
-      buildTracker.enqueueWorkUnitsForBuildingAndCommitCapacity(response.getWorkUnits());
+      buildTracker.enqueueWorkUnitsForBuilding(response.getWorkUnits());
     } catch (ThriftException ex) {
       handleThriftException(ex);
       return;
@@ -265,7 +245,7 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
             performBuildOfWorkUnits(minionId);
           } catch (Exception e) {
             LOG.error(e, "Failed whilst building targets. Terminating build. ");
-            exitCode.set(ExitCode.FATAL_GENERIC);
+            exitCode.set(-1);
             finished.set(true);
           }
         });
@@ -294,15 +274,13 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
     }
 
     // Wait for the targets to finish building and get the exit code.
-    ExitCode lastExitCode =
+    int lastExitCode =
         Preconditions.checkNotNull(buildExecutor)
             .waitForBuildToFinish(targetsToBuild, resultFutures, Optional.empty());
 
-    LOG.info(
-        String.format(
-            "Minion [%s] finished with exit code [%d].", minionId, lastExitCode.getCode()));
+    LOG.info(String.format("Minion [%s] finished with exit code [%d].", minionId, lastExitCode));
 
-    if (lastExitCode != ExitCode.SUCCESS) {
+    if (lastExitCode != 0) {
       exitCode.set(lastExitCode);
     }
   }
@@ -315,12 +293,11 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
           public void onSuccess(@Nullable BuildResult result) {
             Preconditions.checkNotNull(result);
 
-            String fullyQualifiedName = result.getRule().getFullyQualifiedName();
+            final String fullyQualifiedName = result.getRule().getFullyQualifiedName();
 
             if (!result.isSuccess()) {
               LOG.error(String.format("Building of target [%s] failed.", fullyQualifiedName));
-              // Ensure the build doesn't deadlock
-              exitCode.set(ExitCode.BUILD_ERROR);
+              exitCode.set(1); // Ensure the build doesn't deadlock
               return;
             } else {
               LOG.info(String.format("Building of target [%s] completed.", fullyQualifiedName));
@@ -333,15 +310,14 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
           @Override
           public void onFailure(Throwable t) {
             LOG.error(t, String.format("Building of unknown target failed."));
-            // Fail the Stampede build, and ensure it doesn't deadlock.
-            exitCode.set(ExitCode.BUILD_ERROR);
+            exitCode.set(1); // Fail the Stampede build, and ensure it doesn't deadlock.
           }
         },
         MoreExecutors.directExecutor());
   }
 
-  private void registerUploadCompletionHandler(BuildResult buildResult) {
-    String fullyQualifiedName = buildResult.getRule().getFullyQualifiedName();
+  private void registerUploadCompletionHandler(final BuildResult buildResult) {
+    final String fullyQualifiedName = buildResult.getRule().getFullyQualifiedName();
     Futures.addCallback(
         buildResult.getUploadCompleteFuture().orElse(Futures.immediateFuture(null)),
         new FutureCallback<Void>() {
@@ -352,45 +328,21 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
 
           @Override
           public void onFailure(Throwable t) {
-            // TODO(alisdair,ruibm,msienkiewicz): We used to have async upload confirmations from
-            // cache which made this codepath (almost) never get triggered - we would crash the
-            // build if it happened. We need to now look at error rate and decide on a retry/crash
-            // policy. Until then, log and progress as if upload was successful.
-            registerFailedUploadHandler(t, buildResult.getRule(), fullyQualifiedName);
-            buildTracker.recordUploadedTarget(fullyQualifiedName);
+            // TODO(alisdair,ruibm): re-try this, maybe on a different minion.
+            LOG.error(t, String.format("Cache upload failed for target %s", fullyQualifiedName));
+            exitCode.set(1); // Fail the Stampede build, and ensure it doesn't deadlock.
           }
         },
         MoreExecutors.directExecutor());
   }
 
-  private void registerFailedUploadHandler(
-      Throwable uploadThrowable, BuildRule buildRule, String fullyQualifiedName) {
-    Futures.addCallback(
-        Preconditions.checkNotNull(buildExecutor)
-            .getCachingBuildEngine()
-            .getRuleKeyCalculator()
-            .calculate(eventBus, buildRule),
-        new FutureCallback<RuleKey>() {
-          @Override
-          public void onSuccess(RuleKey ruleKey) {
-            LOG.error(
-                uploadThrowable,
-                String.format(
-                    "Cache upload failed for target [%s] with rulekey [%s].",
-                    fullyQualifiedName, ruleKey));
-          }
-
-          @Override
-          public void onFailure(Throwable t) {
-            LOG.error(
-                t,
-                String.format(
-                    "Cache upload failed for target [%s] with unknown rulekey (calculation failed).",
-                    fullyQualifiedName));
-          }
-        },
-        // Rulekey should have already been computed so direct executor is fine.
-        MoreExecutors.directExecutor());
+  private void completionCheckingThriftCall(ThriftCall thriftCall) throws IOException {
+    try {
+      thriftCall.apply();
+    } catch (ThriftException e) {
+      handleThriftException(e);
+      return;
+    }
   }
 
   private void handleThriftException(ThriftException e) throws IOException {

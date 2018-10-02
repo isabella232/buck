@@ -16,8 +16,7 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.core.cell.name.RelativeCellName;
-import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.rules.RelativeCellName;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -58,7 +57,8 @@ public class BuckArgsMethods {
                 new String[] {"python", argsPath.toAbsolutePath().toString(), "--flavors", suffix});
     try (InputStream input = proc.getInputStream();
         OutputStream output = proc.getOutputStream();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(input, Charsets.UTF_8))) {
+        BufferedReader reader =
+            new BufferedReader(new InputStreamReader(input, Charsets.UTF_8)); ) {
       return reader.lines().collect(Collectors.toList());
     }
   }

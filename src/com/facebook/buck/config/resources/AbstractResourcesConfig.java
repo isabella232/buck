@@ -18,11 +18,11 @@ package com.facebook.buck.config.resources;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -65,10 +65,10 @@ abstract class AbstractResourcesConfig implements ConfigView<BuckConfig> {
           ResourceAmounts.RESOURCE_TYPE_COUNT);
       ResourceAmounts amounts =
           ResourceAmounts.of(
-              Integer.parseInt(configAmounts.get(0)),
-              Integer.parseInt(configAmounts.get(1)),
-              Integer.parseInt(configAmounts.get(2)),
-              Integer.parseInt(configAmounts.get(3)));
+              Integer.valueOf(configAmounts.get(0)),
+              Integer.valueOf(configAmounts.get(1)),
+              Integer.valueOf(configAmounts.get(2)),
+              Integer.valueOf(configAmounts.get(3)));
       result.put(ruleName, amounts);
     }
     return result.build();

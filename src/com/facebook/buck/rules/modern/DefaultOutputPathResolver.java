@@ -16,36 +16,32 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import java.nio.file.Path;
 
 class DefaultOutputPathResolver implements OutputPathResolver {
-  private final Path scratchRoot;
-  private final Path genRoot;
+  private final ProjectFilesystem filesystem;
+  private final BuildTarget buildTarget;
 
   DefaultOutputPathResolver(ProjectFilesystem projectFilesystem, BuildTarget buildTarget) {
-    String format = buildTarget.isFlavored() ? "%s" : "%s__";
-    this.scratchRoot = BuildTargets.getScratchPath(projectFilesystem, buildTarget, format);
-    this.genRoot = BuildTargets.getGenPath(projectFilesystem, buildTarget, format);
+    this.filesystem = projectFilesystem;
+    this.buildTarget = buildTarget;
   }
 
   @Override
   public Path getTempPath() {
-    return scratchRoot;
+    return BuildTargets.getScratchPath(filesystem, buildTarget, "%s");
   }
 
   @Override
   public Path resolvePath(OutputPath outputPath) {
-    if (outputPath instanceof PublicOutputPath) {
-      return outputPath.getPath();
-    }
     return getRootPath().resolve(outputPath.getPath());
   }
 
   @Override
   public Path getRootPath() {
-    return genRoot;
+    return BuildTargets.getGenPath(filesystem, buildTarget, "%s");
   }
 }

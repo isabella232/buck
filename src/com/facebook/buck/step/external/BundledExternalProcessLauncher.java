@@ -19,11 +19,17 @@ package com.facebook.buck.step.external;
 import com.facebook.buck.build_type.BuildType;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.util.env.BuckClasspath;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
-import java.util.stream.Collectors;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Provides methods for launching a java binary bundled within the buck binary. */
 public class BundledExternalProcessLauncher {
@@ -58,7 +64,7 @@ public class BundledExternalProcessLauncher {
       case UNKNOWN:
         return getCommandForWhenProbablyRunningUnderTest(entryPoint);
       default:
-        throw new RuntimeException("Unknown build type " + buildType);
+        throw new RuntimeException("Unknown build type " + buildType.toString());
     }
   }
 
@@ -82,7 +88,7 @@ public class BundledExternalProcessLauncher {
       return ImmutableList.of("java", "-cp", runnerJar, entryPoint.getEntryPointName());
     }
     // Right, this means we're running in an ant or intellij test, hold on tight..
-    String classPath = getClasspathArgumentForUnknownBuild();
+    String classPath = getClasspathArgumentForUnknownBuild(entryPoint);
     return ImmutableList.of("java", "-cp", classPath, entryPoint.getEntryPointName());
   }
 
@@ -112,14 +118,47 @@ public class BundledExternalProcessLauncher {
     return classPath;
   }
 
-  private String getClasspathArgumentForUnknownBuild() {
+  private String getClasspathArgumentForUnknownBuild(EntryPoints entryPoint) {
+    // CLASSPATH entries need to be absolute paths, mostly because the JVM gets exec'd with
+    // IntelliJ's CWD when running tests from there.
+    Path cwd = Paths.get("").toAbsolutePath();
+    String classPath = null;
     try {
-      return BuckClasspath.getBuckClasspathForIntellij()
-          .stream()
-          .map(MorePaths::pathWithUnixSeparators)
-          .collect(Collectors.joining(File.pathSeparator));
+      // Move along, no ridiculous hacks here...
+      // Should be something like file:/Users/you/buck/build-ij/classes/production/buck/
+      URL myLocation = null;
+      try {
+        myLocation =
+            this.getClass()
+                .getClassLoader()
+                .loadClass(entryPoint.getEntryPointName())
+                .getProtectionDomain()
+                .getCodeSource()
+                .getLocation();
+      } catch (ClassNotFoundException e) {
+        throw new RuntimeException("Could not find " + entryPoint + ".");
+      }
+      Preconditions.checkState(
+          myLocation.getProtocol().equals("file"),
+          "Don't know how to launch the worker process from %s.",
+          myLocation);
+
+      List<String> classPathEntries = new ArrayList<>();
+      classPathEntries.add(
+          cwd.resolve(MorePaths.pathWithPlatformSeparators(myLocation.getFile())).toString());
+      for (String classpathLine : Files.readAllLines(Paths.get("programs", "classpaths"))) {
+        classpathLine = classpathLine.trim();
+        if (classpathLine.startsWith("#")) {
+          continue;
+        }
+        classPathEntries.add(
+            cwd.resolve(MorePaths.pathWithPlatformSeparators(classpathLine)).toString());
+      }
+
+      classPath = Joiner.on(File.pathSeparatorChar).join(classPathEntries);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+    return classPath;
   }
 }

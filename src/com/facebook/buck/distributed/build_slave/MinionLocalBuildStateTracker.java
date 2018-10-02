@@ -15,9 +15,9 @@
  */
 package com.facebook.buck.distributed.build_slave;
 
-import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.distributed.thrift.WorkUnit;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.BuildResult;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
@@ -29,9 +29,9 @@ import java.util.Set;
 public class MinionLocalBuildStateTracker {
   private static final Logger LOG = Logger.get(MinionLocalBuildStateTracker.class);
 
-  // Keeps track of CPU cores that are currently free at the host minion is running on.
+  // I.e. the number of CPU cores that are currently free at this minion.
   // Each work unit takes up one core.
-  private final CapacityTracker capacityTracker;
+  private int availableWorkUnitCapacity;
 
   // All targets that have finished build (and been uploaded) that need to be signalled
   // back to the coordinator.
@@ -58,14 +58,19 @@ public class MinionLocalBuildStateTracker {
   private final MinionBuildProgressTracker minionBuildProgressTracker;
 
   public MinionLocalBuildStateTracker(
-      MinionBuildProgressTracker minionBuildProgressTracker, CapacityTracker capacityTracker) {
+      int maxWorkUnitBuildCapacity, MinionBuildProgressTracker minionBuildProgressTracker) {
+    availableWorkUnitCapacity = maxWorkUnitBuildCapacity;
     this.minionBuildProgressTracker = minionBuildProgressTracker;
-    this.capacityTracker = capacityTracker;
+  }
+
+  /** @return True if this minion has free capacity to build more targets */
+  public synchronized boolean capacityAvailable() {
+    return availableWorkUnitCapacity != 0;
   }
 
   /** @return Number of additional work units this minion can build */
-  public synchronized int reserveAllAvailableCapacity() {
-    return capacityTracker.reserveAllAvailableCapacity();
+  public synchronized int getAvailableCapacity() {
+    return availableWorkUnitCapacity;
   }
 
   /**
@@ -84,16 +89,8 @@ public class MinionLocalBuildStateTracker {
   }
 
   /** @param newWorkUnits Work Units that have just been fetched from the coordinator */
-  public synchronized void enqueueWorkUnitsForBuildingAndCommitCapacity(
-      List<WorkUnit> newWorkUnits) {
-    int numWorkUnits = newWorkUnits.size();
-
-    // Each fetched work unit is going to occupy one core, mark the core as busy until the
-    // work unit has finished.
-    // Note: we should do this immediately so that we return all the reserved capacity
-    capacityTracker.commitCapacity(numWorkUnits);
-
-    if (numWorkUnits == 0) {
+  public synchronized void enqueueWorkUnitsForBuilding(List<WorkUnit> newWorkUnits) {
+    if (newWorkUnits.size() == 0) {
       return;
     }
     for (WorkUnit workUnit : newWorkUnits) {
@@ -103,7 +100,16 @@ public class MinionLocalBuildStateTracker {
       workUnitsToBuild.add(workUnit);
     }
 
-    LOG.info(String.format("Queued [%d] work units for building.", newWorkUnits.size()));
+    // Each fetched work unit is going to occupy one core, mark the core as busy until the
+    // work unit has finished.
+    // Note: we should do this immediately so that the next GetWork call doesn't attempt
+    // to use the old availableWorkUnitCapacity value.
+    availableWorkUnitCapacity -= newWorkUnits.size();
+
+    LOG.info(
+        String.format(
+            "Queued [%d] work units for building. New available capacity [%d]",
+            newWorkUnits.size(), availableWorkUnitCapacity));
   }
 
   /** @return True if there are queued work units that haven't been build yet */
@@ -155,7 +161,7 @@ public class MinionLocalBuildStateTracker {
       return;
     }
 
-    capacityTracker.returnCapacity();
+    availableWorkUnitCapacity++;
     workUnitTerminalTargets.remove(target);
   }
 

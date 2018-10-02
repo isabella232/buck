@@ -183,7 +183,10 @@ public class BuckRunner {
     List<String> command = fullCommand;
     if (tempPath.isPresent()) {
       command =
-          ImmutableList.<String>builder().addAll(fullCommand).add("@" + tempPath.get()).build();
+          ImmutableList.<String>builder()
+              .addAll(fullCommand)
+              .add("@" + tempPath.get().toString())
+              .build();
     }
     ProcessBuilder builder = new ProcessBuilder(command).redirectError(Redirect.INHERIT);
 

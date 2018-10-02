@@ -22,17 +22,17 @@ import com.facebook.buck.android.redex.ReDexStep;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -42,7 +42,6 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.XzStep;
-import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.zip.RepackZipEntriesStep;
@@ -50,7 +49,6 @@ import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
@@ -111,8 +109,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey private final int apkCompressionLevel;
 
-  @AddToRuleKey private final ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths;
-
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
   private final BuildTarget buildTarget;
@@ -139,7 +135,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       NativeFilesInfo nativeFilesInfo,
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
-      ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths,
       int apkCompressionLevel) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
@@ -155,7 +150,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     this.androidManifestPath = androidManifestPath;
     this.isCompressResources = isCompressResources;
     this.apkModules = apkModules;
-    this.moduleResourceApkPaths = moduleResourceApkPaths;
     this.dexFilesInfo = dexFilesInfo;
     this.nativeFilesInfo = nativeFilesInfo;
     this.packageAssetLibraries = packageAssetLibraries;
@@ -193,9 +187,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     // Copy the transitive closure of native-libs-as-assets to a single directory, if any.
     ImmutableSet.Builder<Path> nativeLibraryAsAssetDirectories = ImmutableSet.builder();
 
-    ImmutableSet.Builder<Path> moduleResourcesDirectories = ImmutableSet.builder();
-
-    for (APKModule module : apkModules) {
+    for (final APKModule module : apkModules) {
       boolean shouldPackageAssetLibraries = packageAssetLibraries || !module.isRootModule();
       if (!ExopackageMode.enabledForNativeLibraries(exopackageModes)
           && nativeFilesInfo.nativeLibsDirs.isPresent()
@@ -217,7 +209,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
                 || !ExopackageMode.enabledForResources(exopackageModes));
         Path pathForNativeLibsAsAssets = getPathForNativeLibsAsAssets();
 
-        Path libSubdirectory =
+        final Path libSubdirectory =
             pathForNativeLibsAsAssets
                 .resolve("assets")
                 .resolve(module.isRootModule() ? "lib" : module.getName());
@@ -230,29 +222,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
             module);
 
         nativeLibraryAsAssetDirectories.add(pathForNativeLibsAsAssets);
-      }
-
-      if (moduleResourceApkPaths.get(module) != null) {
-        SourcePath resourcePath = moduleResourceApkPaths.get(module);
-
-        Path moduleResDirectory =
-            BuildTargets.getScratchPath(
-                getProjectFilesystem(), buildTarget, "__module_res_" + module.getName() + "_%s__");
-
-        Path unpackDirectory = moduleResDirectory.resolve("assets").resolve(module.getName());
-
-        steps.addAll(
-            MakeCleanDirectoryStep.of(
-                BuildCellRelativePath.fromCellRelativePath(
-                    context.getBuildCellRootPath(), getProjectFilesystem(), unpackDirectory)));
-        steps.add(
-            new UnzipStep(
-                getProjectFilesystem(),
-                context.getSourcePathResolver().getAbsolutePath(resourcePath),
-                unpackDirectory,
-                Optional.empty()));
-
-        moduleResourcesDirectories.add(moduleResDirectory);
       }
     }
 
@@ -277,14 +246,13 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
     ImmutableSet<Path> allAssetDirectories =
         ImmutableSet.<Path>builder()
-            .addAll(moduleResourcesDirectories.build())
             .addAll(nativeLibraryAsAssetDirectories.build())
             .addAll(dexFilesInfo.getSecondaryDexDirs(getProjectFilesystem(), pathResolver))
             .build();
 
     SourcePathResolver resolver = context.getSourcePathResolver();
     Path signedApkPath = getSignedApkPath();
-    Path pathToKeystore = resolver.getAbsolutePath(keystorePath);
+    final Path pathToKeystore = resolver.getAbsolutePath(keystorePath);
     Supplier<KeystoreProperties> keystoreProperties =
         getKeystorePropertiesSupplier(resolver, pathToKeystore);
 
@@ -357,9 +325,9 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   private void getStepsForNativeAssets(
       BuildContext context,
       ImmutableList.Builder<Step> steps,
-      Path libSubdirectory,
-      String metadataFilename,
-      APKModule module) {
+      final Path libSubdirectory,
+      final String metadataFilename,
+      final APKModule module) {
 
     steps.addAll(
         MakeCleanDirectoryStep.of(
@@ -367,7 +335,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
                 context.getBuildCellRootPath(), getProjectFilesystem(), libSubdirectory)));
 
     // Input asset libraries are sorted in descending filesize order.
-    ImmutableSortedSet.Builder<Path> inputAssetLibrariesBuilder =
+    final ImmutableSortedSet.Builder<Path> inputAssetLibrariesBuilder =
         ImmutableSortedSet.orderedBy(
             (libPath1, libPath2) -> {
               try {
@@ -409,7 +377,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     }
 
     if (compressAssetLibraries || !module.isRootModule()) {
-      ImmutableList.Builder<Path> outputAssetLibrariesBuilder = ImmutableList.builder();
+      final ImmutableList.Builder<Path> outputAssetLibrariesBuilder = ImmutableList.builder();
       steps.add(
           createRenameAssetLibrariesStep(
               module, inputAssetLibrariesBuilder, outputAssetLibrariesBuilder));
@@ -432,7 +400,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ImmutableList.Builder<Path> outputAssetLibrariesBuilder) {
     return new AbstractExecutionStep("rename_asset_libraries_as_temp_files_" + module.getName()) {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         ProjectFilesystem filesystem = getProjectFilesystem();
         for (Path libPath : inputAssetLibrariesBuilder.build()) {
           Path tempPath = libPath.resolveSibling(libPath.getFileName() + "~");
@@ -451,7 +420,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ImmutableSortedSet.Builder<Path> inputAssetLibrariesBuilder) {
     return new AbstractExecutionStep("write_metadata_for_asset_libraries_" + module.getName()) {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         ProjectFilesystem filesystem = getProjectFilesystem();
         // Walk file tree to find libraries
         filesystem.walkRelativeFileTree(

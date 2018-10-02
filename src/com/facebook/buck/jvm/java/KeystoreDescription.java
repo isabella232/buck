@@ -16,14 +16,17 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleCreationContext;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import org.immutables.value.Value;
 
 public class KeystoreDescription implements Description<KeystoreDescriptionArg> {
@@ -35,12 +38,15 @@ public class KeystoreDescription implements Description<KeystoreDescriptionArg> 
 
   @Override
   public Keystore createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       KeystoreDescriptionArg args) {
     return new Keystore(
-        buildTarget, context.getProjectFilesystem(), params, args.getStore(), args.getProperties());
+        buildTarget, projectFilesystem, params, args.getStore(), args.getProperties());
   }
 
   @BuckStyleImmutable

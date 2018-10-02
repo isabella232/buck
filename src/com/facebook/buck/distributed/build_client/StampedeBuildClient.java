@@ -16,13 +16,12 @@
 package com.facebook.buck.distributed.build_client;
 
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
-import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -38,14 +37,12 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class StampedeBuildClient {
   private static final Logger LOG = Logger.get(StampedeBuildClient.class);
-  public static final String PENDING_STAMPEDE_ID = ClientStatsTracker.PENDING_STAMPEDE_ID;
+  public static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
 
   private final RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer;
   private final AtomicReference<StampedeId> stampedeIdReference =
       new AtomicReference<>(createPendingStampedeId());
   private final BuckEventBus eventBus;
-  private final ClientStatsTracker clientStatsTracker;
-  private final Optional<String> autoStampedeMessage;
 
   private final LocalBuildRunner racerBuildRunner;
   private final LocalBuildRunner synchronizedBuildRunner;
@@ -63,15 +60,11 @@ public class StampedeBuildClient {
       CountDownLatch waitForSynchronizedBuildCalledLatch,
       LocalBuildExecutorInvoker localBuildExecutorInvoker,
       DistBuildControllerInvoker distBuildControllerInvoker,
-      ClientStatsTracker clientStatsTracker,
       boolean waitGracefullyForDistributedBuildThreadToFinish,
-      long distributedBuildThreadKillTimeoutSeconds,
       Optional<StampedeId> stampedeId) {
     stampedeId.ifPresent(id -> this.stampedeIdReference.set(id));
     this.eventBus = eventBus;
-    this.clientStatsTracker = clientStatsTracker;
     this.remoteBuildRuleSynchronizer = remoteBuildRuleSynchronizer;
-    this.autoStampedeMessage = Optional.empty();
     this.racerBuildRunner =
         createStampedeLocalBuildRunner(
             executorForLocalBuild,
@@ -92,8 +85,7 @@ public class StampedeBuildClient {
             executorForDistBuildController,
             distBuildService,
             distBuildStartedEvent,
-            waitGracefullyForDistributedBuildThreadToFinish,
-            distributedBuildThreadKillTimeoutSeconds);
+            waitGracefullyForDistributedBuildThreadToFinish);
   }
 
   public StampedeBuildClient(
@@ -103,16 +95,11 @@ public class StampedeBuildClient {
       DistBuildService distBuildService,
       BuildEvent.DistBuildStarted distBuildStartedEvent,
       LocalBuildExecutorInvoker localBuildExecutorInvoker,
-      DistBuildControllerArgs.Builder distBuildControllerArgsBuilder,
+      DistBuildControllerArgs.Builder distBuildControllerAgrsBuilder,
       DistBuildControllerInvocationArgs distBuildControllerInvocationArgs,
-      ClientStatsTracker clientStatsTracker,
-      boolean waitGracefullyForDistributedBuildThreadToFinish,
-      long distributedBuildThreadKillTimeoutSeconds,
-      Optional<String> autoStampedeMessage) {
+      boolean waitGracefullyForDistributedBuildThreadToFinish) {
     this.eventBus = eventBus;
-    this.clientStatsTracker = clientStatsTracker;
     this.remoteBuildRuleSynchronizer = new RemoteBuildRuleSynchronizer();
-    this.autoStampedeMessage = autoStampedeMessage;
     this.racerBuildRunner =
         createStampedeLocalBuildRunner(
             executorForLocalBuild, localBuildExecutorInvoker, "racer", false, Optional.empty());
@@ -129,13 +116,12 @@ public class StampedeBuildClient {
                 createDistBuildController(
                     remoteBuildRuleSynchronizer,
                     stampedeIdReference,
-                    distBuildControllerArgsBuilder),
+                    distBuildControllerAgrsBuilder),
                 distBuildControllerInvocationArgs),
             executorForDistBuildController,
             distBuildService,
             distBuildStartedEvent,
-            waitGracefullyForDistributedBuildThreadToFinish,
-            distributedBuildThreadKillTimeoutSeconds);
+            waitGracefullyForDistributedBuildThreadToFinish);
   }
 
   /**
@@ -155,7 +141,6 @@ public class StampedeBuildClient {
 
     boolean proceedToLocalSynchronizedBuildPhase = skipRacingPhase;
     if (!skipRacingPhase) {
-      clientStatsTracker.setPerformedRacingBuild(true);
       proceedToLocalSynchronizedBuildPhase =
           !RacingBuildPhase.run(
               distBuildRunner,
@@ -165,11 +150,7 @@ public class StampedeBuildClient {
               eventBus);
     }
 
-    clientStatsTracker.setRacingBuildFinishedFirst(!proceedToLocalSynchronizedBuildPhase);
-
     if (proceedToLocalSynchronizedBuildPhase) {
-      eventBus.post(new DistBuildSuperConsoleEvent(autoStampedeMessage));
-      eventBus.post(BuildEvent.reset());
       SynchronizedBuildPhase.run(
           distBuildRunner,
           synchronizedBuildRunner,
@@ -221,8 +202,7 @@ public class StampedeBuildClient {
       ExecutorService executorToRunDistBuildController,
       DistBuildService distBuildService,
       BuildEvent.DistBuildStarted distBuildStartedEvent,
-      boolean waitGracefullyForDistributedBuildThreadToFinish,
-      long distributedBuildThreadKillTimeoutSeconds) {
+      boolean waitGracefullyForDistributedBuildThreadToFinish) {
     Preconditions.checkNotNull(eventBus);
     Preconditions.checkNotNull(racerBuildRunner);
     Preconditions.checkNotNull(synchronizedBuildRunner);
@@ -242,13 +222,12 @@ public class StampedeBuildClient {
         distBuildStartedEvent,
         remoteBuildRuleSynchronizer,
         buildPhaseLatches,
-        waitGracefullyForDistributedBuildThreadToFinish,
-        distributedBuildThreadKillTimeoutSeconds);
+        waitGracefullyForDistributedBuildThreadToFinish);
   }
 
   private static DistBuildControllerInvoker createDistBuildControllerInvoker(
-      DistBuildController distBuildController,
-      DistBuildControllerInvocationArgs distBuildControllerInvocationArgs) {
+      final DistBuildController distBuildController,
+      final DistBuildControllerInvocationArgs distBuildControllerInvocationArgs) {
     return () -> {
       DistBuildController.ExecutionResult distBuildResult =
           distBuildController.executeAndPrintFailuresToEventBus(
@@ -257,7 +236,7 @@ public class StampedeBuildClient {
               distBuildControllerInvocationArgs.getFileHashCache(),
               distBuildControllerInvocationArgs.getInvocationInfo(),
               distBuildControllerInvocationArgs.getBuildMode(),
-              distBuildControllerInvocationArgs.getMinionRequirements(),
+              distBuildControllerInvocationArgs.getNumberOfMinions(),
               distBuildControllerInvocationArgs.getRepository(),
               distBuildControllerInvocationArgs.getTenantId(),
               distBuildControllerInvocationArgs.getRuleKeyCalculatorFuture());

@@ -28,8 +28,6 @@ import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
-import com.facebook.buck.core.build.event.BuildRuleEvent;
-import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ParsingEvent;
@@ -39,12 +37,13 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsEvent;
-import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectWriter;
@@ -215,14 +214,15 @@ public class MachineReadableLoggerListener implements BuckEventListener {
         .resolve(BuckConstant.BUCK_MACHINE_LOG_FILE_NAME);
   }
 
-  private void writeToLog(String prefix, Object obj) {
+  private void writeToLog(final String prefix, final Object obj) {
     executor.submit(() -> writeToLogImpl(prefix, obj));
   }
 
   private void writeToLogImpl(String prefix, Object obj) {
     try {
+      byte[] serializedObj = objectWriter.writeValueAsBytes(obj);
       outputStream.write((prefix + " ").getBytes(Charsets.UTF_8));
-      objectWriter.without(Feature.AUTO_CLOSE_TARGET).writeValue(outputStream, obj);
+      outputStream.write(serializedObj);
       outputStream.write(NEWLINE);
       outputStream.flush();
     } catch (JsonProcessingException e) {

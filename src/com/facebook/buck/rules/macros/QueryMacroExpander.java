@@ -16,9 +16,9 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.event.PerfEventId;
+import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.NoopQueryEvaluator;
@@ -27,11 +27,13 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.GraphEnhancementQueryEnvironment;
 import com.facebook.buck.rules.query.Query;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -57,7 +59,7 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
       CellPathResolver cellNames,
       Optional<BuildRuleResolver> resolver,
       T input) {
-    GraphEnhancementQueryEnvironment env =
+    final GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
             resolver,
             targetGraph,
@@ -87,7 +89,7 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
   Stream<QueryTarget> resolveQuery(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
       String queryExpression)
       throws MacroException {
     GraphEnhancementQueryEnvironment env =
@@ -98,7 +100,12 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
             cellNames,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             ImmutableSet.of());
-    try {
+    try (SimplePerfEvent.Scope ignored =
+        SimplePerfEvent.scope(
+            Optional.ofNullable(resolver.getEventBus()),
+            PerfEventId.of("resolve_query_macro"),
+            "target",
+            target.toString())) {
       QueryExpression parsedExp = QueryExpression.parse(queryExpression, env);
       Set<QueryTarget> queryTargets = new NoopQueryEvaluator().eval(parsedExp, env);
       return queryTargets.stream();

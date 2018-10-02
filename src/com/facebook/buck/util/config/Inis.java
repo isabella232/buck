@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util.config;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.io.Reader;
@@ -28,14 +28,14 @@ class Inis {
 
   private Inis() {}
 
-  public static ImmutableMap<String, ImmutableMap<String, String>> read(
-      Reader reader, String filename) throws IOException {
+  public static ImmutableMap<String, ImmutableMap<String, String>> read(Reader reader)
+      throws IOException {
     Ini ini = new Ini();
     Config config = ini.getConfig();
     config.setEscape(false);
     config.setEscapeNewline(true);
     ini.load(reader);
-    validateIni(ini, filename);
+    validateIni(ini);
 
     ImmutableMap.Builder<String, ImmutableMap<String, String>> sectionsToEntries =
         ImmutableMap.builder();
@@ -54,15 +54,16 @@ class Inis {
     return sectionsToEntries.build();
   }
 
-  private static void validateIni(Ini ini, String filename) {
+  private static void validateIni(Ini ini) {
     // Verify that no section has the same key specified more than once.
     for (String sectionName : ini.keySet()) {
       Profile.Section section = ini.get(sectionName);
       for (String propertyName : section.keySet()) {
         if (section.getAll(propertyName).size() > 1) {
           throw new HumanReadableException(
-              "Duplicate definition for %s in the [%s] section of %s.",
-              propertyName, sectionName, filename);
+              "Duplicate definition for %s in the [%s] section of your .buckconfig or "
+                  + ".buckconfig.local.",
+              propertyName, sectionName);
         }
       }
     }

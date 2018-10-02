@@ -19,15 +19,15 @@ package com.facebook.buck.distributed;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
 import com.facebook.buck.artifact_cache.CacheResult;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.ParallelRuleKeyCalculator;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.base.Preconditions;
@@ -49,6 +49,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /** Default implementation of {@link ArtifactCacheByBuildRule} used by Stampede. */
@@ -57,6 +58,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
   // TODO(shivanker): Make these configurable.
   private static final int MAX_RULEKEYS_IN_MULTI_CONTAINS_REQUEST = 5000;
 
+  private final AtomicLong queryCreationTotalTimeMs = new AtomicLong(0);
   private final BuildRuleResolver resolver;
   private final BuckEventBus eventBus;
   private final ListeningExecutorService executorService;
@@ -156,7 +158,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
     ListenableFuture<CacheResult> asyncfetchResult;
     try (CloseableHolder<NamedTemporaryFile> tempFile =
         new CloseableHolder<>(
-            new NamedTemporaryFile(MostFiles.sanitize(rule.getBuildTarget().getShortName()), ""))) {
+            new NamedTemporaryFile(MoreFiles.sanitize(rule.getBuildTarget().getShortName()), ""))) {
       asyncfetchResult =
           Futures.transformAsync(
               asyncRuleKey,
@@ -217,8 +219,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
   }
 
   @Override
-  public synchronized void prewarmRemoteContains(ImmutableSet<BuildRule> rulesToBeChecked) {
-    @SuppressWarnings("PMD.PrematureDeclaration")
+  public void prewarmRemoteContains(ImmutableSet<BuildRule> rulesToBeChecked) {
     Stopwatch stopwatch = Stopwatch.createStarted();
     Set<BuildRule> unseenRules =
         rulesToBeChecked
@@ -226,26 +227,15 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
             .filter(rule -> !remoteCacheContainsFutures.containsKey(rule))
             .collect(Collectors.toSet());
 
-    if (unseenRules.size() == 0) {
-      return;
-    }
-
-    LOG.info("Checking remote cache for [%d] new rules.", unseenRules.size());
+    LOG.debug(
+        "Checking remote cache for [%d] new rules out of [%d] total rules.",
+        unseenRules.size(), rulesToBeChecked.size());
     Map<BuildRule, ListenableFuture<RuleKey>> rulesToKeys =
         Maps.asMap(unseenRules, rule -> ruleKeyCalculator.calculate(eventBus, rule));
 
     ListenableFuture<Map<RuleKey, CacheResult>> keysToCacheResultFuture =
         Futures.transformAsync(
-            Futures.allAsList(rulesToKeys.values()),
-            ruleKeys -> {
-              LOG.info(
-                  "Computing RuleKeys for %d new rules took %dms.",
-                  unseenRules.size(), stopwatch.elapsed(TimeUnit.MILLISECONDS));
-              stopwatch.reset();
-              stopwatch.start();
-              return multiContainsAsync(ruleKeys);
-            },
-            executorService);
+            Futures.allAsList(rulesToKeys.values()), this::multiContainsAsync, executorService);
 
     Map<BuildRule, ListenableFuture<Boolean>> containsResultsForUnseenRules =
         Maps.asMap(
@@ -261,13 +251,8 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
                     MoreExecutors.directExecutor()));
 
     remoteCacheContainsFutures.putAll(containsResultsForUnseenRules);
-    Futures.allAsList(containsResultsForUnseenRules.values())
-        .addListener(
-            () ->
-                LOG.info(
-                    "Checking the remote cache for %d rules took %dms.",
-                    unseenRules.size(), stopwatch.elapsed(TimeUnit.MILLISECONDS)),
-            MoreExecutors.directExecutor());
+
+    queryCreationTotalTimeMs.addAndGet(stopwatch.elapsed(TimeUnit.MILLISECONDS));
   }
 
   @Override
@@ -283,9 +268,11 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
         remoteContainsResults -> {
           LOG.info(
               "Hit [%d out of %d] targets checked in the remote cache. "
+                  + "[%d ms] was spent on generating the futures for multi-contains requests. "
                   + "[%d] targets were uploaded from the local cache.",
               remoteContainsResults.stream().filter(r -> r).count(),
               remoteContainsResults.stream().count(),
+              queryCreationTotalTimeMs.get(),
               localUploadFutures.size());
           return null;
         },

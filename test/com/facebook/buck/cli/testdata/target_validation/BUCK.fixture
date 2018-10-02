@@ -1,5 +1,0 @@
-genrule(
-    name = "test-library",
-    out = "test-library",
-    cmd = "echo \"hello\" > $OUT",
-)

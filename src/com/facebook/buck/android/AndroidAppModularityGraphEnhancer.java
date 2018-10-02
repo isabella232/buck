@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -61,8 +61,7 @@ public class AndroidAppModularityGraphEnhancer {
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
             originalBuildTarget, buildTargetsToExcludeFromDex, ImmutableSet.of(), apkModuleGraph);
-    collector.addPackageables(
-        AndroidPackageableCollector.getPackageableRules(originalDeps), ruleResolver);
+    collector.addPackageables(AndroidPackageableCollector.getPackageableRules(originalDeps));
     AndroidPackageableCollection packageableCollection = collector.build();
 
     enhancedDeps.addAll(getTargetsAsRules(packageableCollection.getJavaLibrariesToDex()));

@@ -18,13 +18,12 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
+import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
@@ -38,7 +37,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 
 /** A java-specific "view" of BuckConfig. */
 public class JavaBuckConfig implements ConfigView<BuckConfig> {
@@ -110,11 +108,6 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
         delegate.getListWithoutComments(SECTION, "safe_annotation_processors");
 
     builder.setTrackClassUsage(trackClassUsage());
-    Optional<Boolean> trackJavacPhaseEvents =
-        delegate.getBoolean(SECTION, "track_javac_phase_events");
-    if (trackJavacPhaseEvents.isPresent()) {
-      builder.setTrackJavacPhaseEvents(trackJavacPhaseEvents.get());
-    }
 
     Optional<AbstractJavacOptions.SpoolMode> spoolMode =
         delegate.getEnum(SECTION, "jar_spool_mode", AbstractJavacOptions.SpoolMode.class);
@@ -160,7 +153,7 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
       return false;
     }
 
-    Javac.Source javacSource = getJavacSpec().getJavacSource();
+    final Javac.Source javacSource = getJavacSpec().getJavacSource();
     return (javacSource == Javac.Source.JAR || javacSource == Javac.Source.JDK);
   }
 
@@ -169,8 +162,8 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   @VisibleForTesting
-  Optional<PathSourcePath> getJavacPath() {
-    return getPathToExecutable("javac").map(delegate::getPathSourcePath);
+  Optional<Path> getJavacPath() {
+    return getPathToExecutable("javac");
   }
 
   private Optional<Path> getPathToExecutable(String executableName) {
@@ -241,19 +234,6 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     return delegate.getValue(SECTION, "default_cxx_platform");
   }
 
-  public UnusedDependenciesAction getUnusedDependenciesAction() {
-    return delegate
-        .getEnum(SECTION, "unused_dependencies_action", UnusedDependenciesAction.class)
-        .orElse(UnusedDependenciesAction.IGNORE);
-  }
-
-  public Level getDuplicatesLogLevel() {
-    return delegate
-        .getEnum(SECTION, "duplicates_log_level", DuplicatesLogLevel.class)
-        .orElse(DuplicatesLogLevel.INFO)
-        .getLevel();
-  }
-
   public enum SourceAbiVerificationMode {
     /** Don't verify ABI jars. */
     OFF,
@@ -261,30 +241,5 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     LOG,
     /** Generate ABI jars from classes and from source. Fail on differences. */
     FAIL,
-  }
-
-  /** An action that is executed when a rule that compiles Java code has unused dependencies. */
-  public enum UnusedDependenciesAction {
-    FAIL,
-    WARN,
-    IGNORE
-  }
-
-  /** Logging level duplicates are reported at */
-  public enum DuplicatesLogLevel {
-    WARN(Level.WARNING),
-    INFO(Level.INFO),
-    FINE(Level.FINE),
-    ;
-
-    private final Level level;
-
-    DuplicatesLogLevel(Level level) {
-      this.level = level;
-    }
-
-    public Level getLevel() {
-      return level;
-    }
   }
 }

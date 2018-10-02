@@ -18,11 +18,10 @@ package com.facebook.buck.util.cache.impl;
 
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.util.FileSystemMap;
+import com.facebook.buck.util.PathFragments;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
-import com.facebook.buck.util.cache.JarHashCodeAndFileType;
-import com.facebook.buck.util.filesystem.FileSystemMap;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
@@ -38,19 +37,17 @@ class FileSystemMapFileHashCache implements FileHashCacheEngine {
   private final FileSystemMap<Long> sizeCache;
 
   private FileSystemMapFileHashCache(
-      ValueLoader<HashCodeAndFileType> hashLoader,
-      ValueLoader<Long> sizeLoader,
-      ProjectFilesystem filesystem) {
-    this.loadingCache = new FileSystemMap<>(path -> hashLoader.load(path), filesystem);
-    this.sizeCache = new FileSystemMap<>(path -> sizeLoader.load(path), filesystem);
+      ValueLoader<HashCodeAndFileType> hashLoader, ValueLoader<Long> sizeLoader) {
+    this.loadingCache =
+        new FileSystemMap<>(fragment -> hashLoader.load(PathFragments.fragmentToPath(fragment)));
+    this.sizeCache =
+        new FileSystemMap<>(fragment -> sizeLoader.load(PathFragments.fragmentToPath(fragment)));
   }
 
   public static FileHashCacheEngine createWithStats(
-      ValueLoader<HashCodeAndFileType> hashLoader,
-      ValueLoader<Long> sizeLoader,
-      ProjectFilesystem filesystem) {
+      ValueLoader<HashCodeAndFileType> hashLoader, ValueLoader<Long> sizeLoader) {
     return new StatsTrackingFileHashCacheEngine(
-        new FileSystemMapFileHashCache(hashLoader, sizeLoader, filesystem), "new");
+        new FileSystemMapFileHashCache(hashLoader, sizeLoader), "new");
   }
 
   @Override
@@ -82,8 +79,7 @@ class FileSystemMapFileHashCache implements FileHashCacheEngine {
   @Override
   public HashCode get(ArchiveMemberPath archiveMemberPath) throws IOException {
     Path relativeFilePath = archiveMemberPath.getArchivePath().normalize();
-    JarHashCodeAndFileType fileHashCodeAndFileType =
-        (JarHashCodeAndFileType) loadingCache.get(relativeFilePath);
+    HashCodeAndFileType fileHashCodeAndFileType = loadingCache.get(relativeFilePath);
     Path memberPath = archiveMemberPath.getMemberPath();
     HashCodeAndFileType memberHashCodeAndFileType =
         fileHashCodeAndFileType.getContents().get(memberPath);

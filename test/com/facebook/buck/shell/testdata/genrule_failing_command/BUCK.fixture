@@ -1,5 +1,0 @@
-genrule(
-    name = "fail",
-    out = "fail",
-    bash = "false; echo >&2 hi",
-)

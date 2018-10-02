@@ -1,6 +1,0 @@
-java_library(
-    name = "resources",
-    resources = glob(["**/*"]),
-    resources_root = ".",
-    visibility = ["PUBLIC"],
-)

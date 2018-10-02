@@ -18,19 +18,6 @@ package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.build.engine.BuildEngine;
-import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
-import com.facebook.buck.core.build.engine.BuildEngineResult;
-import com.facebook.buck.core.build.engine.BuildResult;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
@@ -38,17 +25,29 @@ import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildEngine;
+import com.facebook.buck.rules.BuildEngineBuildContext;
+import com.facebook.buck.rules.BuildEngineResult;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.CleanBuildShutdownException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ErrorLogger;
-import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -134,21 +133,24 @@ public class Build implements Closeable {
   }
 
   // This method is thread-safe
-  public ExitCode executeAndPrintFailuresToEventBus(
+  public int executeAndPrintFailuresToEventBus(
       Iterable<BuildTarget> targetsish,
       BuckEventBus eventBus,
       Console console,
-      Optional<Path> pathToBuildReport) {
-    ExitCode exitCode;
+      Optional<Path> pathToBuildReport)
+      throws InterruptedException {
+    int exitCode;
+
+    ImmutableList<BuildRule> rulesToBuild = getRulesToBuild(targetsish);
+
     try {
-      ImmutableList<BuildRule> rulesToBuild = getRulesToBuild(targetsish);
       List<BuildEngineResult> resultFutures = initializeBuild(rulesToBuild);
       exitCode =
           waitForBuildToFinishAndPrintFailuresToEventBus(
               rulesToBuild, resultFutures, eventBus, console, pathToBuildReport);
     } catch (Exception e) {
       reportExceptionToUser(eventBus, e);
-      exitCode = ExitCode.BUILD_ERROR;
+      exitCode = 1;
     }
 
     return exitCode;
@@ -181,10 +183,8 @@ public class Build implements Closeable {
             configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
         ImmutableMap<Path, Path> paths =
             ImmutableMap.of(
-                unconfiguredPaths.getGenDir(),
-                    configuredPaths.getSymlinkPathForDir(unconfiguredPaths.getGenDir()),
-                unconfiguredPaths.getScratchDir(),
-                    configuredPaths.getSymlinkPathForDir(unconfiguredPaths.getScratchDir()));
+                unconfiguredPaths.getGenDir(), configuredPaths.getGenDir(),
+                unconfiguredPaths.getScratchDir(), configuredPaths.getScratchDir());
         for (Map.Entry<Path, Path> entry : paths.entrySet()) {
           filesystem.deleteRecursivelyIfExists(entry.getKey());
           filesystem.createSymLink(
@@ -327,14 +327,12 @@ public class Build implements Closeable {
           || t instanceof InterruptedException
           || t instanceof ClosedByInterruptException) {
         try {
-          LOG.debug("Cancelling all running builds because of InterruptedException");
           buildFuture.cancel(true);
         } catch (CancellationException ex) {
           // Rethrow original InterruptedException instead.
           LOG.warn(ex, "Received CancellationException during processing of InterruptedException");
         }
         Threads.interruptCurrentThread();
-        throw new InterruptedException(e.getMessage());
       }
       throw e;
     }
@@ -390,37 +388,39 @@ public class Build implements Closeable {
   /**
    * * Waits for the given BuildRules to finish building (as tracked by the corresponding Futures).
    * Prints all failures to the event bus.
+   *
+   * @param rulesToBuild
+   * @param resultFutures
+   * @param eventBus
+   * @param console
+   * @param pathToBuildReport
+   * @return
    */
-  public ExitCode waitForBuildToFinishAndPrintFailuresToEventBus(
+  public int waitForBuildToFinishAndPrintFailuresToEventBus(
       ImmutableList<BuildRule> rulesToBuild,
       List<BuildEngineResult> resultFutures,
       BuckEventBus eventBus,
       Console console,
       Optional<Path> pathToBuildReport) {
-
-    ExitCode exitCode = ExitCode.BUILD_ERROR;
+    int exitCode;
 
     try {
       // Can throw BuildExecutionException
       BuildExecutionResult buildExecutionResult = waitForBuildToFinish(rulesToBuild, resultFutures);
 
-      int code =
+      exitCode =
           processBuildReportAndGenerateExitCode(
               buildExecutionResult, eventBus, console, pathToBuildReport);
-      // TODO(buck_team) move ExitCode further down or switch to exceptions
-      exitCode = ExitCode.map(code);
     } catch (CleanBuildShutdownException e) {
       LOG.warn(e, "Build shutdown cleanly.");
+      exitCode = 1;
     } catch (Exception e) {
       if (e instanceof BuildExecutionException) {
         pathToBuildReport.ifPresent(
             path -> writePartialBuildReport(eventBus, path, (BuildExecutionException) e));
-      } else if (e instanceof InterruptedException) {
-        // TODO(buck_team): we should rather propagate exception otherwise command status is
-        // recorded to event bus as completed, not interrupted
-        exitCode = ExitCode.SIGNAL_INTERRUPT;
       }
       reportExceptionToUser(eventBus, e);
+      exitCode = 1;
     }
 
     return exitCode;

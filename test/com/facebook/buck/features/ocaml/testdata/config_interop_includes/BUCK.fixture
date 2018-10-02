@@ -1,8 +1,0 @@
-ocaml_binary(
-    name = "test",
-    srcs = [
-        "test.ml",
-    ],
-    deps = [
-    ],
-)

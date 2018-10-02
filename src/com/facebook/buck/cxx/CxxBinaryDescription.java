@@ -16,26 +16,32 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.HasDepsQuery;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
+import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCache;
+import com.facebook.buck.rules.HasDepsQuery;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
@@ -73,6 +79,26 @@ public class CxxBinaryDescription
     this.cxxBinaryFlavored = cxxBinaryFlavored;
   }
 
+  /** @return a {@link HeaderSymlinkTree} for the headers of this C/C++ binary. */
+  public static HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform,
+      CxxBinaryDescriptionArg args) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    return CxxDescriptionEnhancer.createHeaderSymlinkTree(
+        buildTarget,
+        projectFilesystem,
+        resolver,
+        cxxPlatform,
+        CxxDescriptionEnhancer.parseHeaders(
+            buildTarget, resolver, ruleFinder, pathResolver, Optional.of(cxxPlatform), args),
+        HeaderVisibility.PRIVATE,
+        true);
+  }
+
   @Override
   public Class<CxxBinaryDescriptionArg> getConstructorArgType() {
     return CxxBinaryDescriptionArg.class;
@@ -80,17 +106,15 @@ public class CxxBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       CxxBinaryDescriptionArg args) {
     return cxxBinaryFactory.createBuildRule(
-        buildTarget,
-        context.getProjectFilesystem(),
-        context.getBuildRuleResolver(),
-        context.getCellPathResolver(),
-        args,
-        ImmutableSortedSet.of());
+        buildTarget, projectFilesystem, resolver, cellRoots, args, ImmutableSortedSet.of());
   }
 
   @Override
@@ -128,7 +152,7 @@ public class CxxBinaryDescription
       CellPathResolver cellRoots,
       CxxBinaryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
-      Class<U> metadataClass) {
+      final Class<U> metadataClass) {
     return cxxBinaryMetadataFactory.createMetadata(
         buildTarget, resolver, args.getDeps(), metadataClass);
   }
@@ -137,12 +161,7 @@ public class CxxBinaryDescription
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
     return cxxBinaryImplicitFlavors.addImplicitFlavorsForRuleTypes(
-        argDefaultFlavors, DescriptionCache.getBuildRuleType(this));
-  }
-
-  @Override
-  public boolean producesCacheableSubgraph() {
-    return true;
+        argDefaultFlavors, Description.getBuildRuleType(this));
   }
 
   private CxxPlatformsProvider getCxxPlatformsProvider() {

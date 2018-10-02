@@ -16,14 +16,17 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleCreationContext;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSet;
 import org.immutables.value.Value;
 
@@ -36,22 +39,15 @@ public class ShBinaryDescription implements Description<ShBinaryDescriptionArg> 
 
   @Override
   public ShBinary createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       ShBinaryDescriptionArg args) {
     return new ShBinary(
-        buildTarget,
-        context.getCellPathResolver(),
-        context.getProjectFilesystem(),
-        params,
-        args.getMain(),
-        args.getResources());
-  }
-
-  @Override
-  public boolean producesCacheableSubgraph() {
-    return true;
+        buildTarget, cellRoots, projectFilesystem, params, args.getMain(), args.getResources());
   }
 
   @BuckStyleImmutable

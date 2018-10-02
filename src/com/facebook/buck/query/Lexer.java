@@ -74,7 +74,7 @@ final class Lexer {
 
     private final String prettyName;
 
-    TokenKind(String prettyName) {
+    private TokenKind(String prettyName) {
       this.prettyName = prettyName;
     }
 

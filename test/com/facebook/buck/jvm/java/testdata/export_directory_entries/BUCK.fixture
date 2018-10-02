@@ -1,4 +1,0 @@
-java_library(
-    name = "empty_directory_entries",
-    resources = glob(["some_directory/**/*.txt"]),
-)

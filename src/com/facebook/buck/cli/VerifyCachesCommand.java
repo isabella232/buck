@@ -16,14 +16,14 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.resolver.impl.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -62,7 +62,7 @@ public class VerifyCachesCommand extends AbstractCommand {
   }
 
   private boolean verifyRuleKeyCache(
-      CellProvider cellProvider,
+      BuckEventBus eventBus,
       PrintStream stdOut,
       RuleKeyConfiguration ruleKeyConfiguration,
       FileHashCache fileHashCache,
@@ -71,7 +71,7 @@ public class VerifyCachesCommand extends AbstractCommand {
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeyConfiguration);
     BuildRuleResolver resolver =
         new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), cellProvider);
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), eventBus);
     contents.forEach(e -> resolver.addToIndex(e.getKey()));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
@@ -123,7 +123,7 @@ public class VerifyCachesCommand extends AbstractCommand {
             .map(
                 recycler ->
                     verifyRuleKeyCache(
-                        params.getCell().getCellProvider(),
+                        params.getBuckEventBus(),
                         params.getConsole().getStdOut(),
                         params.getRuleKeyConfiguration(),
                         params.getFileHashCache(),

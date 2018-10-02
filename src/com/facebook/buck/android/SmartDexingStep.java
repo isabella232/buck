@@ -17,10 +17,10 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -47,6 +47,7 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableMultimap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -56,13 +57,13 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -114,10 +115,10 @@ public class SmartDexingStep implements Step {
       AndroidPlatformTarget androidPlatformTarget,
       BuildContext buildContext,
       ProjectFilesystem filesystem,
-      Path primaryOutputPath,
-      Supplier<Set<Path>> primaryInputsToDex,
+      final Path primaryOutputPath,
+      final Supplier<Set<Path>> primaryInputsToDex,
       Optional<Path> secondaryOutputDir,
-      Optional<Supplier<Multimap<Path, Path>>> secondaryInputsToDex,
+      final Optional<Supplier<Multimap<Path, Path>>> secondaryInputsToDex,
       DexInputHashesProvider dexInputHashesProvider,
       Path successDir,
       EnumSet<Option> dxOptions,
@@ -132,7 +133,7 @@ public class SmartDexingStep implements Step {
     this.outputToInputsSupplier =
         MoreSuppliers.memoize(
             () -> {
-              Builder<Path, Path> map = ImmutableMultimap.builder();
+              final Builder<Path, Path> map = ImmutableMultimap.builder();
               map.putAll(primaryOutputPath, primaryInputsToDex.get());
               if (secondaryInputsToDex.isPresent()) {
                 map.putAll(secondaryInputsToDex.get().get());
@@ -149,22 +150,8 @@ public class SmartDexingStep implements Step {
     this.dexTool = dexTool;
   }
 
-  /**
-   * @return Optimal (in terms of both memory and performance) number of parallel threads to run
-   *     dexer. The implementation uses running machine hardware characteristics to determine this.
-   */
   public static int determineOptimalThreadCount() {
-    // Most processors these days have hyperthreading that multiplies the amount of logical
-    // processors reported by Java. So in case of 1 CPU, 2 physical cores with hyperthreading, the
-    // call to Runtime.getRuntime().availableProcessors() would return 1*2*2 = 4, assuming 2 hyper
-    // threads per core, which is common but in fact may be more than that.
-    // Using hyper threads does not help to dex faster, but consumes a lot of memory, so it makes
-    // sense to base heuristics on the number of physical cores.
-    // Unfortunately there is no good way to detect the number of physical cores in pure Java,
-    // so we just divide the total number of logical processors by two to cover the majority of
-    // cases.
-    // TODO(buck_team): Implement cross-platform hardware capabilities detection and use it here
-    return Math.max(Runtime.getRuntime().availableProcessors() / 2, 1);
+    return Runtime.getRuntime().availableProcessors();
   }
 
   @Override
@@ -203,12 +190,18 @@ public class SmartDexingStep implements Step {
             Step concatStep =
                 new ConcatStep(
                     filesystem, ImmutableList.copyOf(secondaryDexJars), secondaryBlobOutput);
-            Step xzStep =
-                new XzStep(
-                    filesystem,
-                    secondaryBlobOutput,
-                    secondaryCompressedBlobOutput,
-                    xzCompressionLevel.orElse(XzStep.DEFAULT_COMPRESSION_LEVEL));
+            Step xzStep;
+
+            if (xzCompressionLevel.isPresent()) {
+              xzStep =
+                  new XzStep(
+                      filesystem,
+                      secondaryBlobOutput,
+                      secondaryCompressedBlobOutput,
+                      xzCompressionLevel.get().intValue());
+            } else {
+              xzStep = new XzStep(filesystem, secondaryBlobOutput, secondaryCompressedBlobOutput);
+            }
             stepRunner.runStepForBuildTarget(context, concatStep, Optional.empty());
             stepRunner.runStepForBuildTarget(context, xzStep, Optional.empty());
           }
@@ -227,20 +220,19 @@ public class SmartDexingStep implements Step {
     DefaultStepRunner stepRunner = new DefaultStepRunner();
     // Invoke dx commands in parallel for maximum thread utilization.  In testing, dx revealed
     // itself to be CPU (and not I/O) bound making it a good candidate for parallelization.
-    Stream<ImmutableList<Step>> dxSteps = generateDxCommands(filesystem, outputToInputs);
+    ImmutableList<ImmutableList<Step>> dxSteps = generateDxCommands(filesystem, outputToInputs);
 
-    ImmutableList<Callable<Void>> callables =
-        dxSteps
-            .map(
-                steps ->
-                    (Callable<Void>)
-                        () -> {
-                          for (Step step : steps) {
-                            stepRunner.runStepForBuildTarget(context, step, Optional.empty());
-                          }
-                          return null;
-                        })
-            .collect(ImmutableList.toImmutableList());
+    List<Callable<Void>> callables =
+        Lists.transform(
+            dxSteps,
+            steps ->
+                (Callable<Void>)
+                    () -> {
+                      for (Step step : steps) {
+                        stepRunner.runStepForBuildTarget(context, step, Optional.empty());
+                      }
+                      return null;
+                    });
 
     try {
       MoreFutures.getAll(executorService, callables);
@@ -287,7 +279,7 @@ public class SmartDexingStep implements Step {
     Multimap<Path, Path> outputToInputs = outputToInputsSupplier.get();
     for (Path output : outputToInputs.keySet()) {
       b.append("-out ");
-      b.append(output);
+      b.append(output.toString());
       b.append("-in ");
       Joiner.on(':').appendTo(b, Iterables.transform(outputToInputs.get(output), Object::toString));
     }
@@ -299,37 +291,39 @@ public class SmartDexingStep implements Step {
    * Once the {@code .class} files have been split into separate zip files, each must be converted
    * to a {@code .dex} file.
    */
-  private Stream<ImmutableList<Step>> generateDxCommands(
+  private ImmutableList<ImmutableList<Step>> generateDxCommands(
       ProjectFilesystem filesystem, Multimap<Path, Path> outputToInputs) {
+    ImmutableList.Builder<DxPseudoRule> pseudoRules = ImmutableList.builder();
 
     ImmutableMap<Path, Sha1HashCode> dexInputHashes = dexInputHashesProvider.getDexInputHashes();
 
-    return outputToInputs
-        .asMap()
-        .entrySet()
-        .stream()
-        .map(
-            outputInputsPair ->
-                new DxPseudoRule(
-                    target,
-                    androidPlatformTarget,
-                    buildContext,
-                    filesystem,
-                    dexInputHashes,
-                    ImmutableSet.copyOf(outputInputsPair.getValue()),
-                    outputInputsPair.getKey(),
-                    successDir.resolve(outputInputsPair.getKey().getFileName()),
-                    dxOptions,
-                    xzCompressionLevel,
-                    dxMaxHeapSize,
-                    dexTool))
-        .filter(dxPseudoRule -> !dxPseudoRule.checkIsCached())
-        .map(
-            dxPseudoRule -> {
-              ImmutableList.Builder<Step> steps = ImmutableList.builder();
-              dxPseudoRule.buildInternal(steps);
-              return steps.build();
-            });
+    for (Path outputFile : outputToInputs.keySet()) {
+      pseudoRules.add(
+          new DxPseudoRule(
+              target,
+              androidPlatformTarget,
+              buildContext,
+              filesystem,
+              dexInputHashes,
+              ImmutableSet.copyOf(outputToInputs.get(outputFile)),
+              outputFile,
+              successDir.resolve(outputFile.getFileName()),
+              dxOptions,
+              xzCompressionLevel,
+              dxMaxHeapSize,
+              dexTool));
+    }
+
+    ImmutableList.Builder<ImmutableList<Step>> stepGroups = new ImmutableList.Builder<>();
+    for (DxPseudoRule pseudoRule : pseudoRules.build()) {
+      if (!pseudoRule.checkIsCached()) {
+        ImmutableList.Builder<Step> steps = ImmutableList.builder();
+        pseudoRule.buildInternal(steps);
+        stepGroups.add(steps.build());
+      }
+    }
+
+    return stepGroups.build();
   }
 
   /**

@@ -18,11 +18,11 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.RuleKeyCacheResult;
 import com.facebook.buck.artifact_cache.RuleKeyCacheResultEvent;
-import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.DistBuildClientCacheResult;
 import com.facebook.buck.distributed.DistBuildClientCacheResultEvent;
 import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
 import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.keys.RuleKeyType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -48,15 +48,13 @@ public class DistBuildClientEventListener implements BuckEventListener, Closeabl
       RuleKeyCacheResultEvent cacheResultEvent) {
     RuleKeyCacheResult ruleKeyCacheResult = cacheResultEvent.getRuleKeyCacheResult();
     // Stampede clients should get 100% default rule key hits, so the abnormal requests
-    // we care about logging are default rule key misses (and for fetches made after remote
-    // building of rule is complete).
-    if (!cacheResultEvent.isCacheHitExpected()
-        || ruleKeyCacheResult.cacheResult() != CacheResultType.MISS
+    // we care about logging are default rule key misses.
+    if (ruleKeyCacheResult.cacheResult() != CacheResultType.MISS
         || ruleKeyCacheResult.ruleKeyType() != RuleKeyType.DEFAULT) {
       return;
     }
 
-    String ruleKey = ruleKeyCacheResult.ruleKey();
+    String ruleKey = ruleKeyCacheResult.ruleKey().toString();
     DistBuildClientCacheResult.Builder cacheResultBuilder =
         DistBuildClientCacheResult.builder().setClientSideCacheResult(ruleKeyCacheResult);
 
@@ -111,7 +109,7 @@ public class DistBuildClientEventListener implements BuckEventListener, Closeabl
   }
 
   @Override
-  public void outputTrace(BuildId buildId) {}
+  public void outputTrace(BuildId buildId) throws InterruptedException {}
 
   @Override
   public void close() throws IOException {}

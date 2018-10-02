@@ -16,18 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.HasDefaultPlatform;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorDomain;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
@@ -37,35 +27,36 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.SharedLibraryInterfaceParams;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.linker.Linker.LinkType;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multimaps;
-import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -73,13 +64,6 @@ import java.util.SortedSet;
 import java.util.function.Predicate;
 
 public class CxxLibraryFactory {
-
-  private static final ImmutableSet<Flavor> FLAVORS_WITH_DEFAULT_PLATFORM =
-      ImmutableSet.<Flavor>builder()
-          .add(CxxCompilationDatabase.COMPILATION_DATABASE)
-          .add(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)
-          .addAll(CxxInferEnhancer.INFER_FLAVOR_DOMAIN.getFlavors())
-          .build();
 
   private final ToolchainProvider toolchainProvider;
   private final CxxBuckConfig cxxBuckConfig;
@@ -98,11 +82,11 @@ public class CxxLibraryFactory {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams metadataRuleParams,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      CxxLibraryDescriptionArg args,
+      final CxxLibraryDescriptionArg args,
       Optional<Linker.LinkableDepType> linkableDepType,
-      Optional<SourcePath> bundleLoader,
+      final Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
       ImmutableSortedSet<BuildTarget> extraDeps,
       CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction
@@ -209,11 +193,7 @@ public class CxxLibraryFactory {
               delegate);
         case SHARED_INTERFACE:
           return createSharedLibraryInterface(
-              untypedBuildTarget,
-              projectFilesystem,
-              resolver,
-              platform.get(),
-              cxxBuckConfig.isIndependentSharedLibraryInterfaces());
+              untypedBuildTarget, projectFilesystem, resolver, platform.get());
         case MACH_O_BUNDLE:
           return createSharedLibraryBuildRule(
               untypedBuildTarget,
@@ -275,20 +255,20 @@ public class CxxLibraryFactory {
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     return new CxxLibrary(
         buildTarget,
         projectFilesystem,
         metadataRuleParams,
-        resolver.getParallelizer(),
+        resolver,
         args.getPrivateCxxDeps(),
         args.getExportedCxxDeps(),
         hasObjects.negate(),
-        (input, ruleResolverInner) -> {
+        input -> {
           ImmutableList<Arg> delegateExportedLinkerFlags =
               delegate
-                  .map(
-                      d ->
-                          d.getAdditionalExportedLinkerFlags(buildTarget, ruleResolverInner, input))
+                  .map(d -> d.getAdditionalExportedLinkerFlags(buildTarget, resolver, input))
                   .orElse(ImmutableList.of());
 
           ImmutableList<StringWithMacros> flags =
@@ -298,22 +278,22 @@ public class CxxLibraryFactory {
               .map(
                   f ->
                       CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                          buildTarget, cellRoots, ruleResolverInner, input, f))
+                          buildTarget, cellRoots, resolver, input, f))
               .concat(RichStream.from(delegateExportedLinkerFlags))
               .toImmutableList();
         },
-        (cxxPlatform, ruleResolverInner, pathResolverInner, ruleFinderInner) -> {
+        cxxPlatform -> {
           return getSharedLibraryNativeLinkTargetInput(
               buildTarget,
               projectFilesystem,
-              ruleResolverInner,
-              pathResolverInner,
-              ruleFinderInner,
+              resolver,
+              pathResolver,
+              ruleFinder,
               cellRoots,
               cxxBuckConfig,
               cxxPlatform,
               args,
-              cxxDeps.get(ruleResolverInner, cxxPlatform),
+              cxxDeps.get(resolver, cxxPlatform),
               CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
                   args.getLinkerFlags(), args.getPlatformLinkerFlags(), cxxPlatform),
               CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
@@ -341,54 +321,6 @@ public class CxxLibraryFactory {
         args.isReexportAllHeaderDependencies()
             .orElse(cxxBuckConfig.getDefaultReexportAllHeaderDependencies()),
         delegate);
-  }
-
-  /**
-   * Calculates a platform flavor for a given target. If a target has no flavor, then calculate it
-   * using other flavors.
-   *
-   * <p>Note that this logic should be kept in sync with {@link #createBuildRule}.
-   */
-  private Flavor getPlatformFlavor(BuildTarget buildTarget, HasDefaultPlatform args) {
-    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
-    Optional<CxxPlatform> platform = cxxPlatforms.getValue(buildTarget);
-    if (buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      CxxPlatform cxxPlatform =
-          platform.orElse(
-              cxxPlatforms.getValue(args.getDefaultPlatform().orElse(defaultCxxFlavor)));
-      return cxxPlatform.getFlavor();
-    } else if (buildTarget
-        .getFlavors()
-        .contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
-      return platform.isPresent()
-          ? platform.get().getFlavor()
-          : args.getDefaultPlatform().orElse(defaultCxxFlavor);
-    } else if (CxxInferEnhancer.INFER_FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors())) {
-      return platform.orElse(cxxPlatforms.getValue(defaultCxxFlavor)).getFlavor();
-    } else {
-      throw new IllegalArgumentException(
-          String.format(
-              "Target %s contains unrecognized flavors: %s",
-              buildTarget.getFullyQualifiedName(), buildTarget.getFlavors()));
-    }
-  }
-
-  /**
-   * @return an {@link Iterable} with platform dependencies that need to be resolved at parse time.
-   */
-  public Iterable<BuildTarget> getPlatformParseTimeDeps(
-      BuildTarget buildTarget, HasDefaultPlatform args) {
-    if (Sets.intersection(buildTarget.getFlavors(), FLAVORS_WITH_DEFAULT_PLATFORM).isEmpty()) {
-      return CxxPlatforms.getParseTimeDeps(
-          getCxxPlatformsProvider().getCxxPlatforms().getValues(buildTarget));
-    } else {
-      return CxxPlatforms.getParseTimeDeps(
-          getCxxPlatformsProvider()
-              .getCxxPlatforms()
-              .getValue(getPlatformFlavor(buildTarget, args)));
-    }
   }
 
   private static ImmutableList<SourcePath> requireObjects(
@@ -456,7 +388,6 @@ public class CxxLibraryFactory {
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             buildTarget,
             projectFilesystem,
-            ruleFinder,
             ruleResolver,
             cxxPlatform,
             CxxDescriptionEnhancer.parseHeaders(
@@ -483,17 +414,23 @@ public class CxxLibraryFactory {
     }
 
     // Create rule to build the object files.
-    ImmutableMultimap<CxxSource.Type, Arg> compilerFlags =
-        ImmutableListMultimap.copyOf(
-            Multimaps.transformValues(
-                CxxFlags.getLanguageFlagsWithMacros(
-                    args.getCompilerFlags(),
-                    args.getPlatformCompilerFlags(),
-                    args.getLangCompilerFlags(),
-                    cxxPlatform),
-                f ->
-                    CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        buildTarget, cellRoots, ruleResolver, cxxPlatform, f)));
+    ImmutableListMultimap.Builder<CxxSource.Type, Arg> allCompilerFlagsBuilder =
+        ImmutableListMultimap.builder();
+    allCompilerFlagsBuilder.putAll(
+        Multimaps.transformValues(
+            CxxFlags.getLanguageFlagsWithMacros(
+                args.getCompilerFlags(),
+                args.getPlatformCompilerFlags(),
+                args.getLangCompilerFlags(),
+                cxxPlatform),
+            f ->
+                CxxDescriptionEnhancer.toStringWithMacrosArgs(
+                    buildTarget, cellRoots, ruleResolver, cxxPlatform, f)));
+    if (args.isModular()) {
+      allCompilerFlagsBuilder.putAll(
+          CxxFlags.toLanguageFlags(StringArg.from("-fmodule-name=" + args.getModuleName().get())));
+    }
+
     return CxxSourceRuleFactory.of(
             projectFilesystem,
             buildTarget,
@@ -513,7 +450,7 @@ public class CxxLibraryFactory {
                 transitivePreprocessorInputs,
                 privateHeaderSymlinkTrees.build(),
                 sandboxTree),
-            compilerFlags,
+            allCompilerFlagsBuilder.build(),
             args.getPrefixHeader(),
             args.getPrecompiledHeader(),
             pic,
@@ -702,7 +639,6 @@ public class CxxLibraryFactory {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
-        ruleFinder,
         resolver,
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
@@ -723,7 +659,6 @@ public class CxxLibraryFactory {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
-        ruleFinder,
         mode,
         CxxDescriptionEnhancer.parseExportedHeaders(
             buildTarget, resolver, ruleFinder, pathResolver, Optional.empty(), args),
@@ -744,7 +679,6 @@ public class CxxLibraryFactory {
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
-        ruleFinder,
         resolver,
         cxxPlatform,
         CxxDescriptionEnhancer.parseExportedPlatformHeaders(
@@ -879,113 +813,11 @@ public class CxxLibraryFactory {
         delegate);
   }
 
-  // Create a shared library interface from the shared library built by this description.
-  private BuildRule createDependentSharedLibraryInterface(
+  private static BuildRule createSharedLibraryInterface(
       BuildTarget baseTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleResolver resolver,
-      CxxPlatform cxxPlatform,
-      SharedLibraryInterfaceParams params) {
-
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-
-    // Otherwise, grab the rule's original shared library and use that.
-    CxxLink sharedLibrary =
-        (CxxLink)
-            resolver.requireRule(
-                baseTarget.withAppendedFlavors(
-                    cxxPlatform.getFlavor(), CxxLibraryDescription.Type.SHARED.getFlavor()));
-
-    return SharedLibraryInterfaceFactoryResolver.resolveFactory(params)
-        .createSharedInterfaceLibraryFromLibrary(
-            baseTarget.withAppendedFlavors(
-                CxxLibraryDescription.Type.SHARED_INTERFACE.getFlavor(), cxxPlatform.getFlavor()),
-            projectFilesystem,
-            resolver,
-            pathResolver,
-            ruleFinder,
-            cxxPlatform,
-            sharedLibrary.getSourcePathToOutput());
-  }
-
-  // Create a shared library interface directly from this rule's object files -- independent of the
-  // the shared library built by this description.
-  private BuildRule createIndependentSharedLibraryInterface(
-      BuildTarget baseTarget,
-      ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
-      CxxPlatform cxxPlatform,
-      SharedLibraryInterfaceParams params) {
-
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-
-    NativeLinkTarget linkTarget =
-        (NativeLinkTarget) resolver.requireRule(baseTarget.withoutFlavors(cxxPlatform.getFlavor()));
-
-    NativeLinkTargetMode linkTargetMode = linkTarget.getNativeLinkTargetMode(cxxPlatform);
-    Preconditions.checkArgument(linkTargetMode.getType().equals(LinkType.SHARED));
-
-    Linker linker = cxxPlatform.getLd().resolve(resolver);
-
-    // Build up the arguments to pass to the linker.
-    ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
-
-    // Pass any platform specific or extra linker flags.
-    argsBuilder.addAll(
-        SanitizedArg.from(
-            cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty()),
-            cxxPlatform.getLdflags()));
-
-    // Add flag to link a shared library.
-    argsBuilder.addAll(linker.getSharedLibFlag());
-
-    // Add flag to embed an SONAME.
-    String soname =
-        linkTarget
-            .getNativeLinkTargetMode(cxxPlatform)
-            .getLibraryName()
-            .orElse(CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(baseTarget, cxxPlatform));
-    argsBuilder.addAll(StringArg.from(linker.soname(soname)));
-
-    // Add the args for the root link target first.
-    NativeLinkableInput input =
-        linkTarget.getNativeLinkTargetInput(cxxPlatform, resolver, pathResolver, ruleFinder);
-    argsBuilder.addAll(input.getArgs());
-
-    // Since we're linking against a dummy libomnibus, ignore undefined symbols.  Put this at the
-    // end to override any user-provided settings.
-    argsBuilder.addAll(StringArg.from(linker.getIgnoreUndefinedSymbolsFlags()));
-
-    // Add all arguments needed to link in the C/C++ platform runtime.
-    argsBuilder.addAll(
-        StringArg.from(cxxPlatform.getRuntimeLdflags().get(Linker.LinkableDepType.SHARED)));
-
-    // Add in additional, user-configured flags.
-    argsBuilder.addAll(StringArg.from(params.getLdflags()));
-
-    ImmutableList<Arg> args = argsBuilder.build();
-
-    return SharedLibraryInterfaceFactoryResolver.resolveFactory(params)
-        .createSharedInterfaceLibraryFromLinkableInput(
-            baseTarget.withAppendedFlavors(
-                CxxLibraryDescription.Type.SHARED_INTERFACE.getFlavor(), cxxPlatform.getFlavor()),
-            projectFilesystem,
-            resolver,
-            pathResolver,
-            ruleFinder,
-            soname,
-            linker,
-            args);
-  }
-
-  private BuildRule createSharedLibraryInterface(
-      BuildTarget baseTarget,
-      ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
-      CxxPlatform cxxPlatform,
-      boolean isIndependentInterfaces) {
+      CxxPlatform cxxPlatform) {
 
     Optional<SharedLibraryInterfaceParams> params = cxxPlatform.getSharedLibraryInterfaceParams();
     if (!params.isPresent()) {
@@ -994,11 +826,23 @@ public class CxxLibraryFactory {
           baseTarget, cxxPlatform.getFlavor());
     }
 
-    return isIndependentInterfaces
-        ? createIndependentSharedLibraryInterface(
-            baseTarget, projectFilesystem, resolver, cxxPlatform, params.get())
-        : createDependentSharedLibraryInterface(
-            baseTarget, projectFilesystem, resolver, cxxPlatform, params.get());
+    CxxLink sharedLibrary =
+        (CxxLink)
+            resolver.requireRule(
+                baseTarget.withAppendedFlavors(
+                    cxxPlatform.getFlavor(), CxxLibraryDescription.Type.SHARED.getFlavor()));
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    return SharedLibraryInterfaceFactoryResolver.resolveFactory(params.get())
+        .createSharedInterfaceLibrary(
+            baseTarget.withAppendedFlavors(
+                CxxLibraryDescription.Type.SHARED_INTERFACE.getFlavor(), cxxPlatform.getFlavor()),
+            projectFilesystem,
+            resolver,
+            pathResolver,
+            ruleFinder,
+            sharedLibrary.getSourcePathToOutput());
   }
 
   private CxxPlatformsProvider getCxxPlatformsProvider() {

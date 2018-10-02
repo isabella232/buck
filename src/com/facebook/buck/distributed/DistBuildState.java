@@ -19,13 +19,6 @@ package com.facebook.buck.distributed;
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_TARGET_GRAPH_SERIALIZATION;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.DistBuildCellParams;
-import com.facebook.buck.core.cell.DistributedCellProviderFactory;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
@@ -34,8 +27,13 @@ import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.module.BuckModuleManager;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellProvider;
+import com.facebook.buck.rules.CellProviderFactory;
+import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.rules.DistBuildCellParams;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.util.ProcessExecutor;
@@ -59,13 +57,11 @@ import org.pf4j.PluginManager;
 
 /** Saves and restores the state of a build to/from a thrift data structure. */
 public class DistBuildState {
-  private static final Logger LOG = Logger.get(DistBuildState.class);
-
   private final BuildJobState remoteState;
   private final ImmutableBiMap<Integer, Cell> cells;
   private final Map<ProjectFilesystem, BuildJobStateFileHashes> fileHashes;
 
-  private DistBuildState(BuildJobState remoteState, ImmutableBiMap<Integer, Cell> cells) {
+  private DistBuildState(BuildJobState remoteState, final ImmutableBiMap<Integer, Cell> cells) {
     this.remoteState = remoteState;
     this.cells = cells;
     this.fileHashes =
@@ -113,14 +109,8 @@ public class DistBuildState {
       throws IOException, InterruptedException {
     Preconditions.checkArgument(topLevelTargets.size() > 0);
     BuildJobState jobState = new BuildJobState();
-
-    LOG.info("Setting file hashes..");
     jobState.setFileHashes(fileHashes.getFileHashes());
-    LOG.info("Finished setting file hashes.");
-
-    LOG.info("Setting cells..");
     jobState.setCells(distributedBuildCellIndexer.getState());
-    LOG.info("Finished setting cells.");
 
     clientStatsTracker.ifPresent(tracker -> tracker.startTimer(LOCAL_TARGET_GRAPH_SERIALIZATION));
     jobState.setTargetGraph(
@@ -141,7 +131,6 @@ public class DistBuildState {
       ImmutableMap<String, String> environment,
       ProcessExecutor processExecutor,
       ExecutableFinder executableFinder,
-      BuckModuleManager moduleManager,
       PluginManager pluginManager,
       ProjectFilesystemFactory projectFilesystemFactory)
       throws InterruptedException, IOException {
@@ -184,8 +173,7 @@ public class DistBuildState {
               environment,
               processExecutor,
               executableFinder,
-              pluginManager,
-              moduleManager);
+              pluginManager);
       cellParams.put(cellRoot, currentCellParams);
       cellIndex.put(remoteCellEntry.getKey(), cellRoot);
 
@@ -195,7 +183,7 @@ public class DistBuildState {
     }
 
     CellProvider cellProvider =
-        DistributedCellProviderFactory.create(
+        CellProviderFactory.createForDistributedBuild(
             Preconditions.checkNotNull(rootCellParams), cellParams.build());
 
     ImmutableBiMap<Integer, Cell> cells =
@@ -252,7 +240,7 @@ public class DistBuildState {
 
   public TargetGraphAndBuildTargets createTargetGraph(
       DistBuildTargetGraphCodec codec, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
-      throws InterruptedException {
+      throws IOException {
     return codec.createTargetGraph(
         remoteState.getTargetGraph(),
         key -> Preconditions.checkNotNull(cells.get(key)),

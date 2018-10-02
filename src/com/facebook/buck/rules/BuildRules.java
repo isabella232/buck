@@ -16,18 +16,16 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.HumanReadableException;
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class BuildRules {
 
@@ -55,7 +53,7 @@ public class BuildRules {
     return buildRules.build();
   }
 
-  public static Predicate<BuildRule> isBuildRuleWithTarget(BuildTarget target) {
+  public static Predicate<BuildRule> isBuildRuleWithTarget(final BuildTarget target) {
     return input -> input.getBuildTarget().equals(target);
   }
 
@@ -65,33 +63,28 @@ public class BuildRules {
    */
   public static ImmutableSortedSet<BuildRule> getExportedRules(
       Iterable<? extends BuildRule> rules) {
-    ImmutableSortedSet.Builder<BuildRule> exportedRules = ImmutableSortedSet.naturalOrder();
+    final ImmutableSortedSet.Builder<BuildRule> exportedRules = ImmutableSortedSet.naturalOrder();
     buildExportedRules(rules, exportedRules);
     return exportedRules.build();
   }
 
   public static ImmutableSet<BuildRule> getUnsortedExportedRules(
       Iterable<? extends BuildRule> rules) {
-    ImmutableSet.Builder<BuildRule> exportedRules = ImmutableSet.builder();
+    final ImmutableSet.Builder<BuildRule> exportedRules = ImmutableSet.builder();
     buildExportedRules(rules, exportedRules);
     return exportedRules.build();
   }
 
-  private static void buildExportedRules(
+  public static void buildExportedRules(
       Iterable<? extends BuildRule> rules, ImmutableCollection.Builder<BuildRule> exportedRules) {
     AbstractBreadthFirstTraversal<ExportDependencies> visitor =
         new AbstractBreadthFirstTraversal<ExportDependencies>(
             Iterables.filter(rules, ExportDependencies.class)) {
           @Override
           public Iterable<ExportDependencies> visit(ExportDependencies exporter) {
-            Set<BuildRule> exported = exporter.getExportedDeps();
-            Set<BuildRule> exportedProvided = exporter.getExportedProvidedDeps();
+            Iterable<BuildRule> exported = exporter.getExportedDeps();
             exportedRules.addAll(exported);
-            exportedRules.addAll(exportedProvided);
-            return Stream.concat(exported.stream(), exportedProvided.stream())
-                .filter(ExportDependencies.class::isInstance)
-                .map(ExportDependencies.class::cast)
-                .collect(Collectors.toSet());
+            return FluentIterable.from(exported).filter(ExportDependencies.class).toSet();
           }
         };
     visitor.start();
@@ -100,7 +93,7 @@ public class BuildRules {
   public static ImmutableSet<BuildTarget> getTransitiveRuntimeDeps(
       HasRuntimeDeps rule, BuildRuleResolver resolver) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    ImmutableSet.Builder<BuildTarget> runtimeDeps = ImmutableSet.builder();
+    final ImmutableSet.Builder<BuildTarget> runtimeDeps = ImmutableSet.builder();
     AbstractBreadthFirstTraversal<BuildTarget> visitor =
         new AbstractBreadthFirstTraversal<BuildTarget>(
             rule.getRuntimeDeps(ruleFinder).collect(ImmutableSet.toImmutableSet())) {

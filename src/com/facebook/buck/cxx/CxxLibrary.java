@@ -18,10 +18,6 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -31,32 +27,30 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableCacheKey;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.concurrent.Parallelizer;
-import com.facebook.buck.util.function.QuadFunction;
 import com.google.common.base.Preconditions;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
-import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -68,15 +62,12 @@ import java.util.stream.Stream;
 public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements AbstractCxxLibrary, HasRuntimeDeps, NativeTestable, NativeLinkTarget {
 
+  private final BuildRuleResolver ruleResolver;
   private final CxxDeps deps;
   private final CxxDeps exportedDeps;
   private final Predicate<CxxPlatform> headerOnly;
-  private final BiFunction<? super CxxPlatform, BuildRuleResolver, Iterable<? extends Arg>>
-      exportedLinkerFlags;
-  private final QuadFunction<
-          ? super CxxPlatform, BuildRuleResolver, SourcePathResolver, SourcePathRuleFinder,
-          NativeLinkableInput>
-      linkTargetInput;
+  private final Function<? super CxxPlatform, Iterable<? extends Arg>> exportedLinkerFlags;
+  private final Function<? super CxxPlatform, NativeLinkableInput> linkTargetInput;
   private final Optional<Pattern> supportedPlatformsRegex;
   private final ImmutableSet<FrameworkPath> frameworks;
   private final ImmutableSet<FrameworkPath> libraries;
@@ -94,25 +85,22 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
    */
   private final boolean propagateLinkables;
 
-  private final Cache<NativeLinkableCacheKey, NativeLinkableInput> nativeLinkableCache =
-      CacheBuilder.newBuilder().build();
+  private final LoadingCache<NativeLinkableCacheKey, NativeLinkableInput> nativeLinkableCache =
+      NativeLinkable.getNativeLinkableInputCache(this::getNativeLinkableInputUncached);
 
-  private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache;
+  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+      transitiveCxxPreprocessorInputCache;
 
   public CxxLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Parallelizer preprocessorInputCacheParallelizer,
+      BuildRuleResolver ruleResolver,
       CxxDeps deps,
       CxxDeps exportedDeps,
       Predicate<CxxPlatform> headerOnly,
-      BiFunction<? super CxxPlatform, BuildRuleResolver, Iterable<? extends Arg>>
-          exportedLinkerFlags,
-      QuadFunction<
-              ? super CxxPlatform, BuildRuleResolver, SourcePathResolver, SourcePathRuleFinder,
-              NativeLinkableInput>
-          linkTargetInput,
+      Function<? super CxxPlatform, Iterable<? extends Arg>> exportedLinkerFlags,
+      Function<? super CxxPlatform, NativeLinkableInput> linkTargetInput,
       Optional<Pattern> supportedPlatformsRegex,
       ImmutableSet<FrameworkPath> frameworks,
       ImmutableSet<FrameworkPath> libraries,
@@ -125,6 +113,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       boolean reexportAllHeaderDependencies,
       Optional<CxxLibraryDescriptionDelegate> delegate) {
     super(buildTarget, projectFilesystem, params);
+    this.ruleResolver = ruleResolver;
     this.deps = deps;
     this.exportedDeps = exportedDeps;
     this.headerOnly = headerOnly;
@@ -142,7 +131,8 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     this.reexportAllHeaderDependencies = reexportAllHeaderDependencies;
     this.delegate = delegate;
     this.transitiveCxxPreprocessorInputCache =
-        new TransitiveCxxPreprocessorInputCache(this, preprocessorInputCacheParallelizer);
+        CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(
+            this, ruleResolver.getParallelizer());
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
@@ -151,8 +141,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
@@ -166,7 +155,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   private CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform, HeaderVisibility headerVisibility) {
     // Handle via metadata query.
     return CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
             ruleResolver, getBuildTarget(), cxxPlatform, headerVisibility)
@@ -174,10 +163,9 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
     CxxPreprocessorInput publicHeaders =
-        getPublicCxxPreprocessorInputExcludingDelegate(cxxPlatform, ruleResolver);
+        getPublicCxxPreprocessorInputExcludingDelegate(cxxPlatform);
     Optional<CxxPreprocessorInput> pluginHeaders =
         delegate.flatMap(p -> p.getPreprocessorInput(getBuildTarget(), ruleResolver, cxxPlatform));
 
@@ -192,15 +180,14 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
    * Returns public headers excluding contribution from any {@link CxxLibraryDescriptionDelegate}.
    */
   public CxxPreprocessorInput getPublicCxxPreprocessorInputExcludingDelegate(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC, ruleResolver);
+      CxxPlatform cxxPlatform) {
+    return getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PUBLIC);
   }
 
   @Override
-  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
     CxxPreprocessorInput privateInput =
-        getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE, ruleResolver);
+        getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
     Optional<CxxPreprocessorInput> delegateInput =
         delegate.flatMap(
             p -> p.getPrivatePreprocessorInput(getBuildTarget(), ruleResolver, cxxPlatform));
@@ -214,12 +201,12 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, ruleResolver);
+      CxxPlatform cxxPlatform) {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkable> getNativeLinkableDeps() {
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
@@ -229,8 +216,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(CxxPlatform cxxPlatform) {
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
@@ -243,8 +229,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
-      BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
@@ -255,7 +240,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+      CxxPlatform cxxPlatform) {
     if (!propagateLinkables) {
       return ImmutableList.of();
     }
@@ -275,8 +260,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
         .toImmutableList();
   }
 
-  private NativeLinkableInput computeNativeLinkableInputUncached(
-      NativeLinkableCacheKey key, BuildRuleResolver ruleResolver) {
+  private NativeLinkableInput getNativeLinkableInputUncached(NativeLinkableCacheKey key) {
     CxxPlatform cxxPlatform = key.getCxxPlatform();
 
     if (!isPlatformSupported(cxxPlatform)) {
@@ -289,18 +273,18 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     // Build up the arguments used to link this library.  If we're linking the
     // whole archive, wrap the library argument in the necessary "ld" flags.
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
-    linkerArgsBuilder.addAll(
-        Preconditions.checkNotNull(exportedLinkerFlags.apply(cxxPlatform, ruleResolver)));
+    linkerArgsBuilder.addAll(Preconditions.checkNotNull(exportedLinkerFlags.apply(cxxPlatform)));
 
-    boolean delegateWantsArtifact =
+    final boolean delegateWantsArtifact =
         delegate
             .map(
                 d ->
                     d.getShouldProduceLibraryArtifact(
                         getBuildTarget(), ruleResolver, cxxPlatform, type, forceLinkWhole))
             .orElse(false);
-    boolean headersOnly = headerOnly.test(cxxPlatform);
-    boolean shouldProduceArtifact = (!headersOnly || delegateWantsArtifact) && propagateLinkables;
+    final boolean headersOnly = headerOnly.test(cxxPlatform);
+    final boolean shouldProduceArtifact =
+        (!headersOnly || delegateWantsArtifact) && propagateLinkables;
 
     Preconditions.checkState(
         shouldProduceArtifact || !delegateWantsArtifact,
@@ -325,7 +309,6 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
         Archive archive =
             (Archive)
                 requireBuildRule(
-                    ruleResolver,
                     cxxPlatform.getFlavor(),
                     type == Linker.LinkableDepType.STATIC
                         ? CxxDescriptionEnhancer.STATIC_FLAVOR
@@ -345,7 +328,6 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       } else {
         BuildRule rule =
             requireBuildRule(
-                ruleResolver,
                 cxxPlatform.getFlavor(),
                 cxxPlatform.getSharedLibraryInterfaceParams().isPresent()
                     ? CxxLibraryDescription.Type.SHARED_INTERFACE.getFlavor()
@@ -358,7 +340,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       }
     }
 
-    ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
+    final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
 
     return NativeLinkableInput.of(
         linkerArgs, Preconditions.checkNotNull(frameworks), Preconditions.checkNotNull(libraries));
@@ -369,31 +351,22 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
-    NativeLinkableCacheKey key =
-        NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
-    try {
-      return nativeLinkableCache.get(
-          key, () -> computeNativeLinkableInputUncached(key, ruleResolver));
-    } catch (ExecutionException e) {
-      throw new UncheckedExecutionException(e.getCause());
-    }
+      ImmutableSet<LanguageExtensions> languageExtensions) {
+    return nativeLinkableCache.getUnchecked(
+        NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform));
   }
 
-  /** Require a flavored version of this build rule */
-  public BuildRule requireBuildRule(BuildRuleResolver ruleResolver, Flavor... flavors) {
+  public BuildRule requireBuildRule(Flavor... flavors) {
     return ruleResolver.requireRule(getBuildTarget().withAppendedFlavors(flavors));
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return linkage;
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
+  public Iterable<AndroidPackageable> getRequiredPackageables() {
     return AndroidPackageableCollector.getPackageableRules(
         RichStream.from(
                 Iterables.concat(
@@ -412,8 +385,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
     if (headerOnly.test(cxxPlatform)) {
       return ImmutableMap.of();
     }
@@ -424,8 +396,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     String sharedLibrarySoname =
         CxxDescriptionEnhancer.getSharedLibrarySoname(soname, getBuildTarget(), cxxPlatform);
     BuildRule sharedLibraryBuildRule =
-        requireBuildRule(
-            ruleResolver, cxxPlatform.getFlavor(), CxxDescriptionEnhancer.SHARED_FLAVOR);
+        requireBuildRule(cxxPlatform.getFlavor(), CxxDescriptionEnhancer.SHARED_FLAVOR);
     libs.put(sharedLibrarySoname, sharedLibraryBuildRule.getSourcePathToOutput());
     return libs.build();
   }
@@ -442,23 +413,15 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(CxxPlatform cxxPlatform) {
     return Iterables.concat(
-        getNativeLinkableDepsForPlatform(cxxPlatform, ruleResolver),
-        getNativeLinkableExportedDepsForPlatform(cxxPlatform, ruleResolver));
+        getNativeLinkableDepsForPlatform(cxxPlatform),
+        getNativeLinkableExportedDepsForPlatform(cxxPlatform));
   }
 
   @Override
-  public NativeLinkableInput getNativeLinkTargetInput(
-      CxxPlatform cxxPlatform,
-      BuildRuleResolver ruleResolver,
-      SourcePathResolver pathResolver,
-      SourcePathRuleFinder ruleFinder) {
-    if (!isPlatformSupported(cxxPlatform)) {
-      return NativeLinkableInput.of();
-    }
-    return linkTargetInput.apply(cxxPlatform, ruleResolver, pathResolver, ruleFinder);
+  public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+    return linkTargetInput.apply(cxxPlatform);
   }
 
   @Override
@@ -473,16 +436,11 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     // `CxxLibrary` rules themselves are noop meta rules, they shouldn't add any unnecessary
     // overhead.
     return RichStream.from(getDeclaredDeps().stream())
-        // Make sure to use the rule resolver that's passed in rather than the field we're holding,
-        // since we need to access nodes already created by the previous build rule resolver in the
-        // incremental action graph scenario, and {@see #updateBuildRuleResolver} may already have
-        // been called.
-        .concat(exportedDeps.getForAllPlatforms(ruleFinder.getRuleResolver()).stream())
+        .concat(exportedDeps.getForAllPlatforms(ruleResolver).stream())
         .map(BuildRule::getBuildTarget);
   }
 
-  public Iterable<? extends Arg> getExportedLinkerFlags(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return exportedLinkerFlags.apply(cxxPlatform, ruleResolver);
+  public Iterable<? extends Arg> getExportedLinkerFlags(CxxPlatform cxxPlatform) {
+    return exportedLinkerFlags.apply(cxxPlatform);
   }
 }

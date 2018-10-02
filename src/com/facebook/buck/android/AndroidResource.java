@@ -19,30 +19,29 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.aapt.MiniAapt;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -136,7 +135,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      ImmutableSortedSet<BuildRule> deps,
+      final ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -188,7 +187,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
           } else {
             throw new RuntimeException(
                 "rDotJavaPackage for "
-                    + AndroidResource.this.getBuildTarget()
+                    + AndroidResource.this.getBuildTarget().toString()
                     + " was requested before it was made available.");
           }
         };
@@ -197,10 +196,10 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public AndroidResource(
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
+      final ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      ImmutableSortedSet<BuildRule> deps,
+      final ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -227,10 +226,10 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public AndroidResource(
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
+      final ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
-      ImmutableSortedSet<BuildRule> deps,
+      final ImmutableSortedSet<BuildRule> deps,
       @Nullable SourcePath res,
       ImmutableSortedMap<Path, SourcePath> resSrcs,
       @Nullable String rDotJavaPackageArgument,
@@ -282,7 +281,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
+      BuildContext context, final BuildableContext buildableContext) {
     buildableContext.recordArtifact(Preconditions.checkNotNull(pathToTextSymbolsFile));
     buildableContext.recordArtifact(Preconditions.checkNotNull(pathToRDotJavaPackageFile));
 
@@ -391,7 +390,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
+  public Iterable<AndroidPackageable> getRequiredPackageables() {
     return AndroidPackageableCollector.getPackageableRules(deps);
   }
 

@@ -122,7 +122,7 @@ public class OverwritingZipOutputStreamImpl implements CustomZipOutputStream.Imp
 
     // Ideally we'd just do this, but that introduces some nasty circular references. *sigh* Instead
     // we'll do this the tedious way by hand.
-    // MostFiles.deleteRecursively(scratchDir.toPath());
+    // MoreFiles.deleteRecursively(scratchDir.toPath());
 
     SimpleFileVisitor<Path> visitor =
         new SimpleFileVisitor<Path>() {

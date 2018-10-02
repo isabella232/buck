@@ -1,7 +1,0 @@
-java_library(
-    name = "example",
-    srcs = [
-        "Bar.java",
-        "Foo.java",
-    ],
-)

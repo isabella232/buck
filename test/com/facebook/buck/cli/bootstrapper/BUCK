@@ -1,8 +1,0 @@
-python_test(
-    name = "bootstrapper",
-    srcs = glob(["*.py"]),
-    deps = [
-        "//src/com/facebook/buck/cli/bootstrapper:bootstrapper",
-        "//test/com/facebook/buck/testutil/integration:integration-py",
-    ],
-)

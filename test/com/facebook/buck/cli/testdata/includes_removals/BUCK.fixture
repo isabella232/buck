@@ -1,3 +1,0 @@
-cxx_library(
-    name = "noop",
-)

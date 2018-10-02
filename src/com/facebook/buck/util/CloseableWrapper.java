@@ -16,46 +16,77 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.util.function.ThrowingConsumer;
-import java.util.function.Consumer;
-
 /**
  * Convenience wrapper class to attach closeable functionality to non-closeable class so it can be
  * used with try-with-resources to make sure resources are always released and proper exception
- * suppression is used. The closer may not throw an exception.
+ * suppression is used
  *
  * <p>Example:
  *
- * <pre>{@code
- * class Main {
- *  private static void finalizeMyClass(MyClass obj) {
- *    obj.shutdown();
- *  }
+ * <p>class Main {
  *
- *  public static void main() {
- *    try (CloseableWrapper<MyClass> myClassWrapper =
- *          CloseableWrapper.of(new MyClass(), Main::finalizeMyClass)) {
- *      myClassWrapper.get().doSomething();
- *    }
- *  }
- * }
+ * <p>private static void finalizeMyClass(MyClass obj) throws IOException {
  *
- * }</pre>
+ * <p>obj.shutdown();
+ *
+ * <p>}
+ *
+ * <p>public static void main() {
+ *
+ * <p>try (CloseableWrapper<MyClass, IOException> myClassWrapper =
+ *
+ * <p>CloseableWrapper.of(new MyClass(), Main::finalizeMyClass)) {
+ *
+ * <p>myClassWrapper.get().doSomething();
+ *
+ * <p>}
+ *
+ * <p>}
  */
-public class CloseableWrapper<T> extends AbstractCloseableWrapper<T, RuntimeException> {
-  private CloseableWrapper(T obj, ThrowingConsumer<T, RuntimeException> closer) {
-    super(obj, closer);
+public class CloseableWrapper<T, E extends Exception> implements AutoCloseable {
+
+  private final T obj;
+  private final ThrowingConsumer<T, E> closer;
+  private boolean closed = false;
+
+  private CloseableWrapper(T obj, ThrowingConsumer<T, E> closer) {
+    this.obj = obj;
+    this.closer = closer;
   }
 
   /**
    * Wrap an object with {@code AutoCloseable} interface and provide a function to replace a {@code
-   * close} method. The wrapper is idempotent, i.e. it will call closer function exactly once, even
+   * close} method The wrapper is idempotent, i.e. it will call closer function exactly once, even
    * if user calls {@code close} multiple times.
    *
    * @param obj Any class that does not implement AutoCloseable interface which is hard to extend
    * @param closer A function to call on close
    */
-  public static <T> CloseableWrapper<T> of(T obj, Consumer<T> closer) {
-    return new CloseableWrapper<>(obj, t -> closer.accept(t));
+  public static <T, E extends Exception> CloseableWrapper<T, E> of(
+      T obj, ThrowingConsumer<T, E> closer) {
+    return new CloseableWrapper<>(obj, closer);
+  }
+
+  /** @return Original wrapped object */
+  public T get() {
+    return obj;
+  }
+
+  @Override
+  public void close() throws E {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    closer.accept(obj);
+  }
+
+  /**
+   * The version of {@code Consumer<T>} that can throw an exception. It only exists because {@code
+   * AutoCloseable} interface defines its {@code close} function to throw {@code Exception}
+   */
+  @FunctionalInterface
+  public interface ThrowingConsumer<T, E extends Exception> {
+    void accept(T t) throws E;
   }
 }

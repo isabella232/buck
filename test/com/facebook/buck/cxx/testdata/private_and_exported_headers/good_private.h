@@ -1,1 +1,0 @@
-#define GOOD_PRIVATE_H

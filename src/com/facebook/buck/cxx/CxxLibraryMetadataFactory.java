@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.Multimaps;
 import java.util.Map;
@@ -42,7 +42,7 @@ public class CxxLibraryMetadataFactory {
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       CxxLibraryDescriptionArg args,
-      Class<U> metadataClass) {
+      final Class<U> metadataClass) {
 
     Map.Entry<Flavor, CxxLibraryDescription.MetadataType> type =
         CxxLibraryDescription.METADATA_TYPE
@@ -78,23 +78,11 @@ public class CxxLibraryMetadataFactory {
               getCxxPlatformsProvider()
                   .getCxxPlatforms()
                   .getFlavorAndValue(buildTarget)
-                  .orElseThrow(
-                      () ->
-                          new IllegalArgumentException(
-                              String.format(
-                                  "%s: cannot extract platform from target flavors (available platforms: %s)",
-                                  buildTarget,
-                                  getCxxPlatformsProvider().getCxxPlatforms().getFlavors())));
+                  .orElseThrow(IllegalArgumentException::new);
           Map.Entry<Flavor, HeaderVisibility> visibility =
               CxxLibraryDescription.HEADER_VISIBILITY
                   .getFlavorAndValue(buildTarget)
-                  .orElseThrow(
-                      () ->
-                          new IllegalArgumentException(
-                              String.format(
-                                  "%s: cannot extract visibility from target flavors (available options: %s)",
-                                  buildTarget,
-                                  CxxLibraryDescription.HEADER_VISIBILITY.getFlavors())));
+                  .orElseThrow(IllegalArgumentException::new);
           baseTarget = baseTarget.withoutFlavors(platform.getKey(), visibility.getKey());
 
           CxxPreprocessorInput.Builder cxxPreprocessorInputBuilder = CxxPreprocessorInput.builder();

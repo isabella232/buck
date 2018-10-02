@@ -58,7 +58,7 @@ class StandaloneTypeVariable extends StandaloneTypeMirror implements TypeVariabl
   @Override
   public TypeMirror getUpperBound() {
     if (upperBound == null) {
-      List<? extends TypeMirror> bounds = element.getBounds();
+      final List<? extends TypeMirror> bounds = element.getBounds();
 
       if (bounds.size() == 1) {
         upperBound = bounds.get(0);

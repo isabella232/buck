@@ -37,14 +37,13 @@ import javax.lang.model.element.Name;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementScanner8;
 import javax.lang.model.util.SimpleAnnotationValueVisitor8;
 import javax.lang.model.util.Types;
-import javax.tools.Diagnostic.Kind;
+import javax.tools.Diagnostic;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
@@ -246,7 +245,6 @@ class ClassVisitorDriverFromElement {
             innerClassesTable.addTypeReferences(annotations);
             visitParameter(
                 i,
-                fromMethodParameter,
                 fromMethodParameter.getSimpleName(),
                 accessFlagsUtils.getAccessFlags(fromMethodParameter) | Opcodes.ACC_SYNTHETIC,
                 annotations,
@@ -309,7 +307,6 @@ class ClassVisitorDriverFromElement {
         VariableElement parameter = parameters.get(i);
         visitParameter(
             i,
-            parameter,
             parameter.getSimpleName(),
             accessFlagsUtils.getAccessFlags(parameter),
             parameter.getAnnotationMirrors(),
@@ -320,7 +317,6 @@ class ClassVisitorDriverFromElement {
 
     private void visitParameter(
         int index,
-        VariableElement parameter,
         Name name,
         int access,
         List<? extends AnnotationMirror> annotationMirrors,
@@ -331,12 +327,7 @@ class ClassVisitorDriverFromElement {
       }
 
       for (AnnotationMirror annotationMirror : annotationMirrors) {
-        try {
-          if (MoreElements.isSourceRetention(annotationMirror)) {
-            continue;
-          }
-        } catch (CannotInferException e) {
-          reportMissingAnnotationType(parameter, annotationMirror);
+        if (MoreElements.isSourceRetention(annotationMirror)) {
           continue;
         }
         visitAnnotationValues(
@@ -346,24 +337,6 @@ class ClassVisitorDriverFromElement {
                 descriptorFactory.getDescriptor(annotationMirror.getAnnotationType()),
                 MoreElements.isRuntimeRetention(annotationMirror)));
       }
-    }
-
-    private void reportMissingAnnotationType(Element element, AnnotationMirror annotationMirror) {
-      DeclaredType annotationType = annotationMirror.getAnnotationType();
-      messager.printMessage(
-          Kind.ERROR,
-          String.format(
-              "Could not find the annotation %1$s.\n"
-                  + "This can happen for one of two reasons:\n"
-                  + "1. A dependency is missing in the BUCK file for the current target. "
-                  + "Try building the current rule without the #source-only-abi flavor, "
-                  + "fix any errors that are reported, and then build this flavor again.\n"
-                  + "2. The rule that owns %1$s is not marked with "
-                  + "required_for_source_only_abi = True. Add that parameter to the rule and try "
-                  + "again.",
-              annotationType),
-          element,
-          annotationMirror);
     }
 
     private void visitDefaultValue(ExecutableElement e, MethodVisitor methodVisitor) {
@@ -415,7 +388,11 @@ class ClassVisitorDriverFromElement {
         visitAnnotationValues(annotation, annotationVisitor);
         annotationVisitor.visitEnd();
       } catch (CannotInferException e) {
-        reportMissingAnnotationType(enclosingElement, annotation);
+        messager.printMessage(
+            Diagnostic.Kind.ERROR,
+            "Could not load the class file for this annotation. Consider adding required_for_source_only_abi = True to its build rule.",
+            enclosingElement,
+            annotation);
       }
     }
 

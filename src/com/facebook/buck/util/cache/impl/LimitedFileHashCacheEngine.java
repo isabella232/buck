@@ -18,14 +18,16 @@ package com.facebook.buck.util.cache.impl;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.util.FileSystemMap;
+import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.PathFragments;
 import com.facebook.buck.util.cache.FileHashCacheEngine;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
-import com.facebook.buck.util.cache.JarHashCodeAndFileType;
-import com.facebook.buck.util.filesystem.FileSystemMap;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
+import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -47,31 +50,36 @@ import javax.annotation.Nullable;
 // as there's no symlinks involved). And so this could, conceivably cache values for directory
 // entries.
 class LimitedFileHashCacheEngine implements FileHashCacheEngine {
-
-  // Use constants instead of enums to save memory on data object
-
-  static final byte FILE_TYPE_FILE = 0;
-  static final byte FILE_TYPE_SYMLINK = 1;
-  static final byte FILE_TYPE_DIRECTORY = 2;
+  private enum FileType {
+    FILE,
+    SYMLINK,
+    DIRECTORY,
+  }
 
   // TODO(cjhopman): Should we make these recycleable? We only ever need one per path, so we could
   // just hold on to them and reuse them. Might be nice if the FileSystemMap closes/notifies them
   // so that we can drop reference to data.
-  // (sergeyb): Please do not add any more fields to this data structure or at least make sure they
-  // are optimized for memory footprint
   private final class Data {
-    private final Path path;
+    private final PathFragment path;
+    private final FileType fileType;
 
-    // One of FILE_TYPE consts
-    private final byte fileType;
+    private final Supplier<ImmutableMap<Path, HashCode>> jarContentsHashes;
+    private volatile Supplier<HashCodeAndFileType> hashCodeAndFileType;
+    private volatile Supplier<Long> size;
 
-    private @Nullable ImmutableMap<Path, HashCode> jarContentsHashes = null;
-    private volatile @Nullable HashCodeAndFileType hashCodeAndFileType = null;
-    private volatile long size = -1;
-
-    private Data(Path path) {
-      this.fileType = loadType(path);
+    private Data(PathFragment path) {
+      this.fileType = loadType(PathFragments.fragmentToPath(path));
       this.path = path;
+      this.size = cachingIfCacheable(this::loadSize);
+      this.hashCodeAndFileType = cachingIfCacheable(this::loadHashCodeAndFileType);
+      this.jarContentsHashes = cachingIfCacheable(this::loadJarContentsHashes);
+    }
+
+    private <T> Supplier<T> cachingIfCacheable(Supplier<T> loader) {
+      if (isCacheableFileType()) {
+        return MoreSuppliers.memoize(loader);
+      }
+      return loader;
     }
 
     private ImmutableMap<Path, HashCode> loadJarContentsHashes() {
@@ -89,67 +97,47 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
     }
 
     private HashCodeAndFileType loadHashCodeAndFileType() {
+      Path asPath = PathFragments.fragmentToPath(path);
       switch (fileType) {
-        case FILE_TYPE_FILE:
-        case FILE_TYPE_SYMLINK:
-          HashCode loadedValue = fileHashLoader.load(path);
-          if (isArchive(path)) {
-            return JarHashCodeAndFileType.ofArchive(
+        case FILE:
+        case SYMLINK:
+          HashCode loadedValue = fileHashLoader.load(asPath);
+          if (isArchive(asPath)) {
+            return HashCodeAndFileType.ofArchive(
                 loadedValue, new DefaultJarContentHasher(filesystem, path));
           }
           return HashCodeAndFileType.ofFile(loadedValue);
-        case FILE_TYPE_DIRECTORY:
-          HashCodeAndFileType loadedDirValue = dirHashLoader.load(path);
-          Preconditions.checkState(loadedDirValue.getType() == HashCodeAndFileType.TYPE_DIRECTORY);
+        case DIRECTORY:
+          HashCodeAndFileType loadedDirValue = dirHashLoader.load(asPath);
+          Preconditions.checkState(loadedDirValue.getType() == HashCodeAndFileType.Type.DIRECTORY);
           return loadedDirValue;
       }
       throw new RuntimeException();
     }
 
     private long loadSize() {
-      return sizeLoader.load(path);
+      return sizeLoader.load(PathFragments.fragmentToPath(path));
     }
 
     public void set(HashCodeAndFileType value) {
       // TODO(cjhopman): should this verify filetype?
-      this.hashCodeAndFileType = value;
+      this.hashCodeAndFileType = cachingIfCacheable(() -> value);
     }
 
     public void setSize(long size) {
-      this.size = size;
-    }
-
-    public long getSize() {
-      if (!isCacheableFileType() || size == -1) {
-        size = loadSize();
-      }
-      return size;
+      this.size = cachingIfCacheable(() -> size);
     }
 
     private boolean isCacheableFileType() {
-      return fileType == FILE_TYPE_FILE;
+      return fileType == FileType.FILE;
     }
 
     HashCodeAndFileType getHashCodeAndFileType() {
-      if (hashCodeAndFileType == null) {
-        HashCodeAndFileType codeAndType = loadHashCodeAndFileType();
-        if (!isCacheableFileType()) {
-          return codeAndType;
-        }
-        hashCodeAndFileType = codeAndType;
-      }
-      return hashCodeAndFileType;
+      return hashCodeAndFileType.get();
     }
 
     ImmutableMap<Path, HashCode> getJarContentsHashes() {
-      if (jarContentsHashes == null) {
-        ImmutableMap<Path, HashCode> jarCaches = loadJarContentsHashes();
-        if (!isCacheableFileType()) {
-          return jarCaches;
-        }
-        jarContentsHashes = jarCaches;
-      }
-      return jarContentsHashes;
+      return jarContentsHashes.get();
     }
   }
 
@@ -168,18 +156,18 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
     this.fileHashLoader = fileHashLoader;
     this.dirHashLoader = dirHashLoader;
     this.sizeLoader = sizeLoader;
-    this.fileSystemMap = new FileSystemMap<>(Data::new, filesystem);
+    this.fileSystemMap = new FileSystemMap<>(Data::new);
   }
 
-  private byte loadType(Path path) {
+  private FileType loadType(Path path) {
     try {
       BasicFileAttributes attrs = filesystem.readAttributes(path, BasicFileAttributes.class);
       if (attrs.isDirectory()) {
-        return FILE_TYPE_DIRECTORY;
+        return FileType.DIRECTORY;
       } else if (attrs.isSymbolicLink()) {
-        return FILE_TYPE_SYMLINK;
+        return FileType.SYMLINK;
       } else if (attrs.isRegularFile()) {
-        return FILE_TYPE_FILE;
+        return FileType.FILE;
       }
       throw new RuntimeException("Unrecognized file type at " + path);
     } catch (IOException e) {
@@ -231,7 +219,7 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
 
   @Override
   public long getSize(Path relativePath) throws IOException {
-    return fileSystemMap.get(relativePath).getSize();
+    return fileSystemMap.get(relativePath).size.get();
   }
 
   @Override
@@ -251,7 +239,7 @@ class LimitedFileHashCacheEngine implements FileHashCacheEngine {
   @Nullable
   public Long getSizeIfPresent(Path path) {
     return Optional.ofNullable(fileSystemMap.getIfPresent(path))
-        .map(data -> data.getSize())
+        .map(data -> data.size.get())
         .orElse(null);
   }
 

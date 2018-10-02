@@ -115,9 +115,7 @@ class BuckModuleAdapterPluginGenerator {
       try {
         writer.close();
       } catch (IOException e) {
-        processingEnv
-            .getMessager()
-            .printMessage(Kind.WARNING, "Exception during close: " + ThrowablesUtils.toString(e));
+        processingEnv.getMessager().printMessage(Kind.WARNING, "Exception during close: " + e);
       }
     }
   }

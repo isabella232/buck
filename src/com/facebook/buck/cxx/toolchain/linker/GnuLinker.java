@@ -16,23 +16,23 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.toolchain.tool.DelegatingTool;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DelegatingTool;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -104,7 +104,6 @@ public class GnuLinker extends DelegatingTool implements Linker {
    * `EXTERN` commands.
    *
    * @param target the name given to the {@link BuildRule} which creates the linker script.
-   * @param symbolFiles
    * @return the list of arguments which pass the linker script containing the undefined symbols to
    *     link.
    */
@@ -115,7 +114,7 @@ public class GnuLinker extends DelegatingTool implements Linker {
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
-      ImmutableList<? extends SourcePath> symbolFiles) {
+      Iterable<? extends SourcePath> symbolFiles) {
     UndefinedSymbolsLinkerScript rule =
         ruleResolver.addToIndex(
             new UndefinedSymbolsLinkerScript(
@@ -186,7 +185,7 @@ public class GnuLinker extends DelegatingTool implements Linker {
     @Override
     public ImmutableList<Step> getBuildSteps(
         BuildContext context, BuildableContext buildableContext) {
-      Path linkerScript = getLinkerScript();
+      final Path linkerScript = getLinkerScript();
       buildableContext.recordArtifact(linkerScript);
       return ImmutableList.of(
           MkdirStep.of(

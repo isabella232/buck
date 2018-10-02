@@ -1,1 +1,0 @@
-int some_dependency = 1;

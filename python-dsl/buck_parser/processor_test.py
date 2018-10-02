@@ -10,8 +10,8 @@ import StringIO
 from pywatchman import WatchmanError
 from typing import Sequence
 
-from .buck import BuildFileFailError, BuildFileProcessor, BuildInclude, \
-    IncludeContext, Diagnostic, add_rule, process_with_diagnostics
+from .buck import BuildFileProcessor, BuildInclude, IncludeContext, Diagnostic, add_rule, \
+    process_with_diagnostics
 
 
 def foo_rule(name, srcs=None, visibility=None, options=None, some_optional=None, build_env=None):
@@ -522,34 +522,6 @@ class BuckTest(unittest.TestCase):
                      exception=None)],
                 diagnostics)
 
-    def test_watchman_glob_returns_basestring_instead_of_unicode(self):
-        class FakeWatchmanClient:
-            def query(self, *args):
-                return {'files': [u'Foo.java']}
-
-            def close(self):
-                pass
-
-        self.watchman_client = FakeWatchmanClient()
-
-        build_file = ProjectFile(
-            self.project_root,
-            path='BUCK',
-            contents=(
-                'foo_rule(',
-                '  name="foo",'
-                '  srcs=glob(["*.java"]),',
-                ')'
-            ))
-        java_file = ProjectFile(self.project_root, path='Foo.java', contents=())
-        self.write_files(build_file, java_file)
-        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
-        with build_file_processor.with_builtins(__builtin__.__dict__):
-            rules = build_file_processor.process(
-                build_file.root, build_file.prefix, build_file.path, [])
-        self.assertEqual(['Foo.java'], rules[0]['srcs'])
-        self.assertIsInstance(rules[0]['srcs'][0], str)
-
     def test_read_config(self):
         """
         Verify that the builtin `read_config()` function works.
@@ -571,35 +543,6 @@ class BuckTest(unittest.TestCase):
         self.assertEquals(
             get_config_from_results(result),
             {'hello': {'world': 'foo', 'bar': None, 'goo': None}})
-
-    def test_can_read_main_repository_name(self):
-        """
-        Verify that the builtin native `repository_name()` function works.
-        """
-
-        build_file = ProjectFile(
-            self.project_root,
-            path='BUCK',
-            contents=(
-                'assert native.repository_name() == "@"',
-            ))
-        self.write_file(build_file)
-        build_file_processor = self.create_build_file_processor()
-        build_file_processor.process(build_file.root, build_file.prefix, build_file.path,
-                                     [])
-
-    def test_can_read_custom_repository_name(self):
-        build_file = ProjectFile(
-            self.project_root,
-            path='BUCK',
-            contents=(
-                'assert native.repository_name() == "@foo"',
-            ))
-        self.write_file(build_file)
-        self.cell_name = 'foo'
-        build_file_processor = self.create_build_file_processor()
-        build_file_processor.process(build_file.root, build_file.prefix, build_file.path,
-                                     [])
 
     def test_struct_is_available(self):
         extension_file = ProjectFile(
@@ -750,64 +693,6 @@ class BuckTest(unittest.TestCase):
             rules = build_file_processor.process(
                 build_file.root, build_file.prefix, build_file.path, diagnostics)
             self.assertEqual(rules[0].get('name'), 'pkg')
-
-    def test_native_package_name_in_extension_returns_build_file_package(self):
-        package_dir = os.path.join(self.project_root, 'pkg')
-        os.makedirs(package_dir)
-        extension_file = ProjectFile(
-            self.project_root,
-            path='ext.bzl',
-            contents=(
-                'def foo():',
-                '  return native.package_name()',
-            ))
-        self.write_file(extension_file)
-        build_file = ProjectFile(
-            self.project_root,
-            path='pkg/BUCK',
-            contents=(
-                'load("//:ext.bzl", "foo")',
-                'foo_rule(',
-                '  name=foo(),',
-                ')'
-            ))
-        self.write_file(build_file)
-        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
-        diagnostics = []
-        with build_file_processor.with_builtins(__builtin__.__dict__):
-            rules = build_file_processor.process(
-                build_file.root, build_file.prefix, build_file.path, diagnostics)
-            self.assertEqual(rules[0].get('name'), 'pkg')
-
-    def test_native_package_name_in_extension_returns_build_file_package(self):
-        package_dir = os.path.join(self.project_root, 'pkg')
-        os.makedirs(package_dir)
-        extension_file = ProjectFile(
-            self.project_root,
-            path='ext.bzl',
-            contents=(
-                'foo = native.package_name()',
-            ))
-        self.write_file(extension_file)
-        build_file = ProjectFile(
-            self.project_root,
-            path='pkg/BUCK',
-            contents=(
-                'load("//:ext.bzl", "foo")',
-                'foo_rule(',
-                '  name=foo,',
-                ')'
-            ))
-        self.write_file(build_file)
-        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
-        diagnostics = []
-        with build_file_processor.with_builtins(__builtin__.__dict__):
-            with self.assertRaisesRegexp(
-                    AssertionError,
-                    "Cannot use `package_name\(\)` at the top-level of an included file."):
-                build_file_processor.process(
-                    build_file.root, build_file.prefix, build_file.path, diagnostics)
-
 
     def test_add_build_file_dep(self):
         """
@@ -1336,7 +1221,7 @@ class BuckTest(unittest.TestCase):
         processor = self.create_build_file_processor()
 
         with processor.with_builtins(__builtin__.__dict__):
-            with self.assertRaisesRegexp(BuildFileFailError, "expected error"):
+            with self.assertRaisesRegexp(AssertionError, "expected error"):
                 processor.process(self.project_root, None, 'BUCK_fail', [])
 
     def test_fail_function_includes_attribute_information(self):
@@ -1352,7 +1237,7 @@ class BuckTest(unittest.TestCase):
         processor = self.create_build_file_processor()
 
         with processor.with_builtins(__builtin__.__dict__):
-            with self.assertRaisesRegexp(BuildFileFailError, "attribute foo: error"):
+            with self.assertRaisesRegexp(AssertionError, "attribute foo: error"):
                 processor.process(self.project_root, None, 'BUCK_fail', [])
 
     def test_values_from_namespaced_includes_accessible_only_via_namespace(self):

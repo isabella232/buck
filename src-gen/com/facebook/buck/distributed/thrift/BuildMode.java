@@ -15,8 +15,7 @@ public enum BuildMode implements org.apache.thrift.TEnum {
   UNKNOWN(0),
   REMOTE_BUILD(1),
   DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR(2),
-  DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR(3),
-  LOCAL_BUILD_WITH_REMOTE_EXECUTION(4);
+  DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR(3);
 
   private final int value;
 
@@ -45,8 +44,6 @@ public enum BuildMode implements org.apache.thrift.TEnum {
         return DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR;
       case 3:
         return DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR;
-      case 4:
-        return LOCAL_BUILD_WITH_REMOTE_EXECUTION;
       default:
         return null;
     }

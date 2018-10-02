@@ -30,7 +30,7 @@ import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SlbBuckConfig;
-import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.zip.CustomZipEntry;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
@@ -86,21 +86,15 @@ public class DefaultDefectReporter implements DefectReporter {
   private void addFilesToArchive(CustomZipOutputStream out, ImmutableSet<Path> paths)
       throws IOException {
     for (Path logFile : paths) {
-      Path destPath = logFile;
-      if (destPath.isAbsolute()) {
-        // If it's an absolute path, make it relative instead
-        destPath = destPath.subpath(0, logFile.getNameCount());
-        Preconditions.checkArgument(!destPath.isAbsolute(), "Should be a relative path", destPath);
-      }
-      if (destPath.getFileName().toString().startsWith(".")) {
-        // If the file is hidden(UNIX terms) save it as normal file.
-        destPath =
-            Optional.ofNullable(destPath.getParent())
-                .orElse(Paths.get(""))
-                .resolve(destPath.getFileName().toString().replaceAll("^\\.*", ""));
-      }
+      Preconditions.checkArgument(!logFile.isAbsolute(), "Should be a relative Path.", logFile);
 
-      out.putNextEntry(new CustomZipEntry(destPath));
+      // If the file is hidden(UNIX terms) save it as normal file.
+      if (logFile.getFileName().toString().startsWith(".")) {
+        out.putNextEntry(
+            new CustomZipEntry(Paths.get(logFile.getFileName().toString().substring(1))));
+      } else {
+        out.putNextEntry(new CustomZipEntry(logFile));
+      }
 
       try (InputStream input = filesystem.newFileInputStream(logFile)) {
         ByteStreams.copy(input, out);
@@ -170,7 +164,9 @@ public class DefaultDefectReporter implements DefectReporter {
   }
 
   private DefectSubmitResult uploadReport(
-      DefectReport defectReport, DefectSubmitResult.Builder defectSubmitResult, ClientSideSlb slb)
+      final DefectReport defectReport,
+      DefectSubmitResult.Builder defectSubmitResult,
+      ClientSideSlb slb)
       throws IOException {
     long timeout = doctorConfig.getReportTimeoutMs();
     OkHttpClient httpClient =

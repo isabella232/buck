@@ -1,5 +1,0 @@
-[second_section]
-some_property = some_secondary_value
-
-[repositories]
-    secondary = .

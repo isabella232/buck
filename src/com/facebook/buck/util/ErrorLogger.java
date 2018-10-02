@@ -16,7 +16,6 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.util.exceptions.BuckExecutionException;
@@ -67,7 +66,7 @@ public class ErrorLogger {
   }
 
   /** Prints the stacktrace as formatted by an ErrorLogger. */
-  public static String getUserFriendlyMessage(Throwable e) {
+  public static String getUserFriendlyMessage(Exception e) {
     StringBuilder builder = new StringBuilder();
     new ErrorLogger(
             new LogImpl() {

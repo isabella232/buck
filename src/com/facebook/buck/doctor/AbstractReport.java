@@ -16,7 +16,6 @@
 
 package com.facebook.buck.doctor;
 
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.SourceControlInfo;
@@ -29,6 +28,7 @@ import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.versioncontrol.FullVersionControlStats;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.google.common.annotations.VisibleForTesting;
@@ -43,8 +43,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -134,8 +132,7 @@ public abstract class AbstractReport {
     Optional<FileChangesIgnoredReport> fileChangesIgnoredReport = getFileChangesIgnoredReport();
 
     UserLocalConfiguration userLocalConfiguration =
-        UserLocalConfiguration.of(
-            isNoBuckCheckPresent(), getLocalConfigs(), getConfigOverrides(selectedBuilds));
+        UserLocalConfiguration.of(isNoBuckCheckPresent(), getLocalConfigs());
 
     ImmutableSet<Path> includedPaths =
         FluentIterable.from(selectedBuilds)
@@ -190,67 +187,15 @@ public abstract class AbstractReport {
     String getIssueCategory();
   }
 
-  private ImmutableMap<String, String> getConfigOverrides(ImmutableSet<BuildLogEntry> entries) {
-    if (entries.size() != 1) {
-      return ImmutableMap.of();
-    }
-    BuildLogEntry entry = entries.asList().get(0);
-    if (!entry.getCommandArgs().isPresent()) {
-      return ImmutableMap.of();
-    }
-    List<String> args = entry.getCommandArgs().get();
-    ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-    for (int i = 0; i < args.size(); i++) {
-      if (args.get(i).equals("--config") || args.get(i).equals("-c")) {
-        i++;
-        if (i >= args.size()) {
-          break;
-        }
-        String[] pieces = args.get(i).split("=", 2);
-        builder.put(pieces[0], pieces.length == 2 ? pieces[1] : "");
-      }
-    }
-    return builder.build();
-  }
-
   private ImmutableMap<Path, String> getLocalConfigs() {
     Path rootPath = filesystem.getRootPath();
-    // Grab all local configs that have values set
-    ImmutableList<Path> overrideFiles;
-    try {
-      overrideFiles =
-          Configs.getDefaultConfigurationFiles(rootPath)
-              .stream()
-              .filter(f -> !f.equals(Configs.getMainConfigurationFile(rootPath)))
-              .filter(
-                  config -> {
-                    try {
-                      return Configs.parseConfigFile(rootPath.resolve(config))
-                              .values()
-                              .stream()
-                              .mapToLong(Map::size)
-                              .sum()
-                          != 0;
-                    } catch (IOException e) {
-                      return true;
-                    }
-                  })
-              .map(p -> p.startsWith(rootPath) ? rootPath.relativize(p) : p)
-              .collect(ImmutableList.toImmutableList());
-    } catch (IOException e) {
-      LOG.warn("Failed to read override configuration files: %s", e.getMessage());
-      overrideFiles = ImmutableList.of();
-    }
-
     ImmutableSet<Path> knownUserLocalConfigs =
-        ImmutableSet.<Path>builder()
-            .addAll(overrideFiles)
-            .add(
-                LogConfigPaths.LOCAL_PATH,
-                Paths.get(".watchman.local"),
-                Paths.get(".buckjavaargs.local"),
-                Paths.get(".bucklogging.local.properties"))
-            .build();
+        ImmutableSet.of(
+            Paths.get(Configs.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME),
+            LogConfigPaths.LOCAL_PATH,
+            Paths.get(".watchman.local"),
+            Paths.get(".buckjavaargs.local"),
+            Paths.get(".bucklogging.local.properties"));
 
     ImmutableMap.Builder<Path, String> localConfigs = ImmutableMap.builder();
     for (Path localConfig : knownUserLocalConfigs) {

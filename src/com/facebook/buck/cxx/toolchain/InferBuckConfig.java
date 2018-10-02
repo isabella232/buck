@@ -17,11 +17,11 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
-import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
+import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.RuleKeyAppendable;
+import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreSuppliers;
@@ -36,14 +36,13 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-/** Infer support for Cxx */
-public class InferBuckConfig implements AddsToRuleKey {
+public class InferBuckConfig implements RuleKeyAppendable {
 
   private BuckConfig delegate;
 
-  @AddToRuleKey private Supplier<? extends Tool> clangCompiler;
-  @AddToRuleKey private Supplier<? extends Tool> clangPlugin;
-  @AddToRuleKey private Supplier<VersionedTool> inferVersion;
+  private Supplier<? extends Tool> clangCompiler;
+  private Supplier<? extends Tool> clangPlugin;
+  private Supplier<VersionedTool> inferVersion;
 
   private static final String INFER_SECTION_PREFIX = "infer";
 
@@ -55,7 +54,7 @@ public class InferBuckConfig implements AddsToRuleKey {
     return config.getValue(INFER_SECTION_PREFIX, name);
   }
 
-  public InferBuckConfig(BuckConfig delegate) {
+  public InferBuckConfig(final BuckConfig delegate) {
     this.delegate = delegate;
     this.clangCompiler =
         MoreSuppliers.memoize(
@@ -102,7 +101,7 @@ public class InferBuckConfig implements AddsToRuleKey {
               }
               String versionString = versionOutput.orElse("").trim();
               Preconditions.checkState(!Strings.isNullOrEmpty(versionString));
-              return VersionedTool.of(delegate.getPathSourcePath(topLevel), "infer", versionString);
+              return VersionedTool.of(topLevel, "infer", versionString);
             });
   }
 
@@ -118,5 +117,12 @@ public class InferBuckConfig implements AddsToRuleKey {
 
   public Path getInferTopLevel() {
     return Paths.get(InferBuckConfig.this.getInferBin().toString(), "infer");
+  }
+
+  @Override
+  public void appendToRuleKey(RuleKeyObjectSink sink) {
+    sink.setReflectively("infer-version", inferVersion.get())
+        .setReflectively("clang-compiler", clangCompiler.get())
+        .setReflectively("clang-plugin", clangPlugin.get());
   }
 }

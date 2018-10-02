@@ -87,7 +87,9 @@ public class MoreIterables {
   public static <T> Set<T> dedupKeepLast(Iterable<T> toDedup) {
     Set<T> dedupedSet = new LinkedHashSet<>();
     for (T t : toDedup) {
-      dedupedSet.remove(t);
+      if (dedupedSet.contains(t)) {
+        dedupedSet.remove(t);
+      }
       dedupedSet.add(t);
     }
 

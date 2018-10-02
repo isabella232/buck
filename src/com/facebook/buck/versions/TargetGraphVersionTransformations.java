@@ -16,7 +16,7 @@
 
 package com.facebook.buck.versions;
 
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
@@ -64,12 +64,6 @@ class TargetGraphVersionTransformations {
     return Iterables.concat(
         node.getDeclaredDeps(),
         node.getExtraDeps(),
-        // technically target graph only deps may not have to be versioned, but since they can
-        // include things like platform-specific dependencies, which may actually end up being used
-        // at build time, we have to include them here as well.
-        // TODO(buck-team): consider adding a separate field to target node to avoid potential
-        // confusion.
-        node.getTargetGraphOnlyDeps(),
         getVersionedDeps(typeCoercerFactory, node).keySet());
   }
 }

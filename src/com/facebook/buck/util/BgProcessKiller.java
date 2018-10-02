@@ -81,11 +81,10 @@ public class BgProcessKiller {
     armed = false;
   }
 
-  /** Sends SIGINT to all background processes */
-  public static synchronized void interruptBgProcesses() {
+  public static synchronized void killBgProcesses() {
     if (initialized) {
       armed = true;
-      Libc.INSTANCE.kill(0 /* my process group */, Libc.Constants.SIGINT);
+      Libc.INSTANCE.kill(0 /* my process group */, Libc.Constants.SIGHUP);
     }
   }
 

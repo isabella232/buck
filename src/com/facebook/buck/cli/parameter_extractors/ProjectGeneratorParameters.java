@@ -32,7 +32,5 @@ public interface ProjectGeneratorParameters extends CommandRunnerParameters {
 
   boolean isProcessAnnotations();
 
-  boolean isUpdateOnly();
-
   Verbosity getVerbosity();
 }

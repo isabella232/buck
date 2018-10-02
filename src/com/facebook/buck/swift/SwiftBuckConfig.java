@@ -27,7 +27,6 @@ public class SwiftBuckConfig {
   public static final String VERSION_NAME = "version";
   public static final String COMPILE_FORCE_CACHE = "compile_force_cache";
   public static final String USE_FILELIST = "use_filelist";
-  public static final String USE_MODULEWRAP = "use_modulewrap";
   public static final String PROJECT_WMO = "project_wmo";
   public static final String PROJECT_EMBED_RUNTIME = "project_embed_runtime";
   public static final String PROJECT_ADD_AST_PATHS = "project_add_ast_paths";
@@ -57,10 +56,6 @@ public class SwiftBuckConfig {
 
   public boolean getUseFileList() {
     return delegate.getBooleanValue(SECTION_NAME, USE_FILELIST, false);
-  }
-
-  public boolean getUseModulewrap() {
-    return delegate.getBooleanValue(SECTION_NAME, USE_MODULEWRAP, false);
   }
 
   /**

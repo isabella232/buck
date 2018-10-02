@@ -1,3 +1,0 @@
-delimiters "$", "$"
-
-hello(name) ::= "Hello, $name$!"

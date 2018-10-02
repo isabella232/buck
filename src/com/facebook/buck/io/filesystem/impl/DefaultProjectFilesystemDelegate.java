@@ -16,6 +16,7 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemDelegate;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableMap;
@@ -46,8 +47,13 @@ public final class DefaultProjectFilesystemDelegate implements ProjectFilesystem
   }
 
   @Override
+  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
+    return;
+  }
+
+  @Override
   public Sha1HashCode computeSha1(Path pathRelativeToProjectRootOrJustAbsolute) throws IOException {
-    Path fileToHash = getPathForRelativePath(pathRelativeToProjectRootOrJustAbsolute);
+    final Path fileToHash = getPathForRelativePath(pathRelativeToProjectRootOrJustAbsolute);
 
     // Normally, we would just use `Files.hash(fileToHash.toFile(), Hashing.sha1())`, but if
     // fileToHash is backed by Jimfs, its toFile() method throws an UnsupportedOperationException.

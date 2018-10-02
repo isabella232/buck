@@ -1,4 +1,0 @@
-export_file(
-    name = "foo.plist",
-    visibility = ["PUBLIC"],
-)

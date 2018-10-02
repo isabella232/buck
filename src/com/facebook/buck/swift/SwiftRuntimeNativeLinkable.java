@@ -16,17 +16,15 @@
 
 package com.facebook.buck.swift;
 
-import static com.facebook.buck.core.model.UnflavoredBuildTarget.BUILD_TARGET_PREFIX;
+import static com.facebook.buck.model.UnflavoredBuildTarget.BUILD_TARGET_PREFIX;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
@@ -43,8 +41,8 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
   private static final String SWIFT_RUNTIME = "_swift_runtime";
 
   private static final BuildTarget PSEUDO_BUILD_TARGET =
-      ImmutableBuildTarget.of(
-          ImmutableUnflavoredBuildTarget.of(
+      BuildTarget.of(
+          UnflavoredBuildTarget.of(
               Paths.get(SWIFT_RUNTIME),
               Optional.empty(),
               BUILD_TARGET_PREFIX + SWIFT_RUNTIME,
@@ -61,13 +59,12 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
     return ImmutableSet.of();
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
-      BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
     return ImmutableSet.of();
   }
 
@@ -76,8 +73,7 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver) {
+      ImmutableSet<LanguageExtensions> languageExtensions) {
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
@@ -88,13 +84,12 @@ public final class SwiftRuntimeNativeLinkable implements NativeLinkable {
   }
 
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.ANY;
   }
 
   @Override
-  public ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
     return ImmutableMap.of();
   }
 

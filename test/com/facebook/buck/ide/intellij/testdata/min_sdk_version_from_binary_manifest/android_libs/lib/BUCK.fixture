@@ -1,4 +1,0 @@
-android_library(
-    name = "lib",
-    manifest = "AndroidManifest.xml",
-)

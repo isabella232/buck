@@ -1,5 +1,0 @@
-apple_test(
-    name = "Test",
-    headers = ["Header.h"],
-    info_plist = "Test.plist",
-)

@@ -16,11 +16,13 @@
 
 package com.facebook.buck.cxx.toolchain.nativelink;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.SourcePath;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -38,8 +40,8 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return getNativeLinkableDeps(ruleResolver);
+      CxxPlatform cxxPlatform) {
+    return getNativeLinkableDeps();
   }
 
   /**
@@ -48,21 +50,21 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
-    return getNativeLinkableExportedDeps(ruleResolver);
+      CxxPlatform cxxPlatform) {
+    return getNativeLinkableExportedDeps();
   }
 
   /**
    * @return All native linkable dependencies that might be required by this linkable on any
    *     platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver);
+  Iterable<? extends NativeLinkable> getNativeLinkableDeps();
 
   /**
    * @return All native linkable exported dependencies that might be required by this linkable on
    *     any platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver);
+  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps();
 
   enum LanguageExtensions {
     HS_PROFILE
@@ -76,31 +78,38 @@ public interface NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
-      BuildRuleResolver ruleResolver);
+      ImmutableSet<LanguageExtensions> languageExtensions);
 
   /**
    * Return input that *dependents* should put on their link line when linking against this
    * linkable.
    */
   default NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type, BuildRuleResolver ruleResolver) {
-    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of(), ruleResolver);
+      CxxPlatform cxxPlatform, Linker.LinkableDepType type) {
+    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of());
   }
 
-  Linkage getPreferredLinkage(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+  Linkage getPreferredLinkage(CxxPlatform cxxPlatform);
 
   /**
    * @return a map of shared library SONAME to shared library path for the given {@link
    *     CxxPlatform}.
    */
-  ImmutableMap<String, SourcePath> getSharedLibraries(
-      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver);
+  ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform);
 
   /** @return whether this {@link NativeLinkable} supports omnibus linking. */
-  @SuppressWarnings("unused")
-  default boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+  default boolean supportsOmnibusLinking(@SuppressWarnings("unused") CxxPlatform cxxPlatform) {
     return true;
+  }
+
+  /**
+   * @param loader the method to load missing element to cache
+   * @return a LoadingCache for native linkable
+   */
+  public static LoadingCache<NativeLinkableCacheKey, NativeLinkableInput>
+      getNativeLinkableInputCache(
+          com.google.common.base.Function<NativeLinkableCacheKey, NativeLinkableInput> loader) {
+    return CacheBuilder.newBuilder().build(CacheLoader.from(loader));
   }
 
   enum Linkage {

@@ -1,5 +1,0 @@
-[alias]
-    example = //java/com/example:example
-
-[tools]
-    javac = @JAVAC@

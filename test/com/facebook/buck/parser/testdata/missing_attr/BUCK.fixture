@@ -1,4 +1,0 @@
-genrule(
-    name = "gr",
-    # Should have out but doesn't
-)

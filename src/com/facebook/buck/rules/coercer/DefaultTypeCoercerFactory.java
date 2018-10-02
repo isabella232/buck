@@ -16,18 +16,16 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.macros.CcFlagsMacro;
 import com.facebook.buck.rules.macros.CcMacro;
-import com.facebook.buck.rules.macros.ClasspathAbiMacro;
 import com.facebook.buck.rules.macros.ClasspathMacro;
 import com.facebook.buck.rules.macros.CppFlagsMacro;
 import com.facebook.buck.rules.macros.CxxFlagsMacro;
@@ -53,6 +51,7 @@ import com.facebook.buck.rules.macros.QueryTargetsMacro;
 import com.facebook.buck.rules.macros.WorkerMacro;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.Types;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
@@ -101,7 +100,8 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
               CellPathResolver cellRoots,
               ProjectFilesystem filesystem,
               Path pathRelativeToProjectRoot,
-              Object object) {
+              Object object)
+              throws CoerceFailedException {
             // This is only actually used directly by ConstructorArgMarshaller, for parsing the
             // groups list. It's also queried (but not actually used) when Descriptions declare
             // deps fields.
@@ -166,7 +166,6 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
           StringWithMacrosTypeCoercer.from(
               ImmutableMap.<String, Class<? extends Macro>>builder()
                   .put("classpath", ClasspathMacro.class)
-                  .put("classpath_abi", ClasspathAbiMacro.class)
                   .put("exe", ExecutableMacro.class)
                   .put("location", LocationMacro.class)
                   .put("maven_coords", MavenCoordinatesMacro.class)
@@ -194,8 +193,6 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
               ImmutableList.of(
                   new BuildTargetMacroTypeCoercer<>(
                       buildTargetTypeCoercer, ClasspathMacro.class, ClasspathMacro::of),
-                  new BuildTargetMacroTypeCoercer<>(
-                      buildTargetTypeCoercer, ClasspathAbiMacro.class, ClasspathAbiMacro::of),
                   new BuildTargetMacroTypeCoercer<>(
                       buildTargetTypeCoercer, ExecutableMacro.class, ExecutableMacro::of),
                   new LocationMacroTypeCoercer(buildTargetTypeCoercer),

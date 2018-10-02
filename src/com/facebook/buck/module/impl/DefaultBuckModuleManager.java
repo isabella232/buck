@@ -20,12 +20,10 @@ import com.facebook.buck.module.BuckModuleManager;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import java.lang.reflect.Field;
 import org.pf4j.PluginClassLoader;
-import org.pf4j.PluginDependency;
 import org.pf4j.PluginDescriptor;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginWrapper;
@@ -43,7 +41,7 @@ public class DefaultBuckModuleManager implements BuckModuleManager {
           .build(
               new CacheLoader<String, String>() {
                 @Override
-                public String load(String pluginId) {
+                public String load(String pluginId) throws Exception {
                   Hasher hasher = Hashing.murmur3_128().newHasher();
                   PluginWrapper pluginWrapper = pluginManager.getPlugin(pluginId);
                   pluginWrapper
@@ -79,33 +77,7 @@ public class DefaultBuckModuleManager implements BuckModuleManager {
 
   @Override
   public String getModuleHash(Class<?> cls) {
-    return getModuleHash(getPluginIdByClass(cls));
-  }
-
-  @Override
-  public String getModuleHash(String moduleId) {
-    return moduleHashCache.getUnchecked(moduleId);
-  }
-
-  @Override
-  public ImmutableSortedSet<String> getModuleIds() {
-    ImmutableSortedSet.Builder<String> moduleIds = ImmutableSortedSet.naturalOrder();
-    for (PluginWrapper pluginWrapper : pluginManager.getPlugins()) {
-      moduleIds.add(pluginWrapper.getPluginId());
-    }
-    return moduleIds.build();
-  }
-
-  @Override
-  public ImmutableSortedSet<String> getModuleDependencies(String moduleId) {
-    ImmutableSortedSet.Builder<String> dependencies = ImmutableSortedSet.naturalOrder();
-
-    for (PluginDependency dependency :
-        pluginManager.getPlugin(moduleId).getDescriptor().getDependencies()) {
-      dependencies.add(dependency.getPluginId());
-    }
-
-    return dependencies.build();
+    return moduleHashCache.getUnchecked(getPluginIdByClass(cls));
   }
 
   private String getPluginIdByClass(Class<?> cls) {

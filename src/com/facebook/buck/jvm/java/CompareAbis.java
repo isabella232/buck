@@ -16,20 +16,20 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -42,8 +42,8 @@ import javax.annotation.Nullable;
 
 public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey, CalculateAbi, InitializableFromDisk<Object> {
-  @AddToRuleKey private final SourcePath correctAbi;
-  @AddToRuleKey private final SourcePath experimentalAbi;
+  @AddToRuleKey private final SourcePath classAbi;
+  @AddToRuleKey private final SourcePath sourceAbi;
   @AddToRuleKey private final JavaBuckConfig.SourceAbiVerificationMode verificationMode;
 
   private final Path outputPath;
@@ -55,12 +55,12 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver resolver,
-      SourcePath correctAbi,
-      SourcePath experimentalAbi,
+      SourcePath classAbi,
+      SourcePath sourceAbi,
       JavaBuckConfig.SourceAbiVerificationMode verificationMode) {
     super(buildTarget, projectFilesystem, params);
-    this.correctAbi = correctAbi;
-    this.experimentalAbi = experimentalAbi;
+    this.classAbi = classAbi;
+    this.sourceAbi = sourceAbi;
     this.verificationMode = verificationMode;
 
     this.outputPath =
@@ -77,16 +77,14 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
     ProjectFilesystem filesystem = getProjectFilesystem();
     SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
 
-    Path classAbiPath = sourcePathResolver.getAbsolutePath(correctAbi);
-    Path sourceAbiPath = sourcePathResolver.getAbsolutePath(experimentalAbi);
+    Path classAbiPath = sourcePathResolver.getAbsolutePath(classAbi);
+    Path sourceAbiPath = sourcePathResolver.getAbsolutePath(sourceAbi);
     buildableContext.recordArtifact(outputPath);
     return ImmutableList.of(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), outputPath.getParent())),
         DiffAbisStep.of(classAbiPath, sourceAbiPath, verificationMode),
-        // We use the "safe" ABI as our output to prevent ABI generation problems from potentially
-        // cascading and resulting in confusing diff results in dependent rules
         CopyStep.forFile(filesystem, classAbiPath, outputPath));
   }
 

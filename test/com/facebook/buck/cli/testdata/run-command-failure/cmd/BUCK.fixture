@@ -1,4 +1,0 @@
-sh_binary(
-    name = "command",
-    main = "command.sh",
-)

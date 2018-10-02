@@ -19,12 +19,12 @@ package com.facebook.buck.swift;
 import static com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage.STATIC;
 import static com.facebook.buck.swift.SwiftLibraryDescription.SWIFT_COMPANION_FLAVOR;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourceWithFlags;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -56,9 +56,9 @@ public class SwiftDescriptions {
   }
 
   public static void populateSwiftLibraryDescriptionArg(
-      SourcePathResolver sourcePathResolver,
+      final SourcePathResolver sourcePathResolver,
       SwiftLibraryDescriptionArg.Builder output,
-      CxxLibraryDescription.CommonArg args,
+      final CxxLibraryDescription.CommonArg args,
       BuildTarget buildTarget) {
 
     output.setName(args.getName());
@@ -66,9 +66,11 @@ public class SwiftDescriptions {
     if (args instanceof SwiftCommonArg) {
       output.setCompilerFlags(((SwiftCommonArg) args).getSwiftCompilerFlags());
       output.setVersion(((SwiftCommonArg) args).getSwiftVersion());
+      output.setMinDeploymentVersion(((SwiftCommonArg) args).getMinDeploymentVersion());
     } else {
       output.setCompilerFlags(args.getCompilerFlags());
     }
+
     output.setFrameworks(args.getFrameworks());
     output.setLibraries(args.getLibraries());
     output.setDeps(args.getDeps());

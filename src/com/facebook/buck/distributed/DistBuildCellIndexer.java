@@ -17,12 +17,12 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.DefaultCellPathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.util.config.Config;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -32,10 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Keeps track of {@link Cell}s encountered while serializing the distributed build state. This
- * class is thread safe.
- */
+/** Keeps track of {@link Cell}s encountered while serializing the distributed build state. */
 public class DistBuildCellIndexer {
 
   public static final Integer ROOT_CELL_INDEX = 0;
@@ -72,18 +69,15 @@ public class DistBuildCellIndexer {
     return rootCell;
   }
 
-  /** @return ProjectFilesystems indexed by cell */
-  public synchronized Map<Integer, ProjectFilesystem> getLocalFilesystemsByCellIndex() {
+  public Map<Integer, ProjectFilesystem> getLocalFilesystemsByCellIndex() {
     return localFilesystemsByCellIndex;
   }
 
-  /** @return Cells by index */
-  public synchronized Map<Integer, BuildJobStateCell> getState() {
+  public Map<Integer, BuildJobStateCell> getState() {
     return state;
   }
 
-  /** @return Cell index for given path */
-  public synchronized Integer getCellIndex(Path input) {
+  public Integer getCellIndex(Path input) {
     // Non-cell Paths are just stored in the root cell data marked as absolute paths.
     Integer i = rootCell.getKnownRoots().contains(input) ? index.get(input) : ROOT_CELL_INDEX;
     if (i == null) {

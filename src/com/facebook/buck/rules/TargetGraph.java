@@ -16,12 +16,11 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -65,7 +64,7 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
   protected TargetNode<?, ?> getInternal(BuildTarget target) {
     TargetNode<?, ?> node = targetsToNodes.get(target);
     if (node == null) {
-      node = targetsToNodes.get(ImmutableBuildTarget.of(target.getUnflavoredBuildTarget()));
+      node = targetsToNodes.get(BuildTarget.of(target.getUnflavoredBuildTarget()));
       if (node == null) {
         return null;
       }
@@ -84,17 +83,6 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
       throw new NoSuchNodeException(target);
     }
     return node;
-  }
-
-  /**
-   * Returns the target node for the exact given target, if it exists in the graph.
-   *
-   * <p>If given a flavored target, and the target graph doesn't contain that flavored target, this
-   * method will always return null, unlike {@code getOptional}, which may return the node for a
-   * differently flavored target ({@see VersionedTargetGraph#getInternal}).
-   */
-  public Optional<TargetNode<?, ?>> getExactOptional(BuildTarget target) {
-    return Optional.ofNullable(targetsToNodes.get(target));
   }
 
   public Iterable<TargetNode<?, ?>> getAll(Iterable<BuildTarget> targets) {
@@ -134,8 +122,8 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
    * @return A subgraph of the current graph.
    */
   public <T> TargetGraph getSubgraph(Iterable<? extends TargetNode<? extends T, ?>> roots) {
-    MutableDirectedGraph<TargetNode<?, ?>> subgraph = new MutableDirectedGraph<>();
-    Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
+    final MutableDirectedGraph<TargetNode<?, ?>> subgraph = new MutableDirectedGraph<>();
+    final Map<BuildTarget, TargetNode<?, ?>> index = new HashMap<>();
 
     new AbstractBreadthFirstTraversal<TargetNode<?, ?>>(roots) {
       @Override
@@ -144,7 +132,7 @@ public class TargetGraph extends DirectedAcyclicGraph<TargetNode<?, ?>> {
         MoreMaps.putCheckEquals(index, node.getBuildTarget(), node);
         if (node.getBuildTarget().isFlavored()) {
           BuildTarget unflavoredBuildTarget =
-              ImmutableBuildTarget.of(node.getBuildTarget().getUnflavoredBuildTarget());
+              BuildTarget.of(node.getBuildTarget().getUnflavoredBuildTarget());
           MoreMaps.putCheckEquals(
               index, unflavoredBuildTarget, targetsToNodes.get(unflavoredBuildTarget));
         }

@@ -16,27 +16,24 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import java.util.function.Function;
 import javax.annotation.Nullable;
 
 public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   private final JavaBuckConfig javaBuckConfig;
-  private final Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier;
+  private final ExtraClasspathProvider extraClasspathProvider;
 
   public JavaConfiguredCompilerFactory(JavaBuckConfig javaBuckConfig) {
-    this(javaBuckConfig, (toolchainProvider) -> ExtraClasspathProvider.EMPTY);
+    this(javaBuckConfig, ExtraClasspathProvider.EMPTY);
   }
 
   public JavaConfiguredCompilerFactory(
-      JavaBuckConfig javaBuckConfig,
-      Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier) {
+      JavaBuckConfig javaBuckConfig, ExtraClasspathProvider extraClasspathProvider) {
     this.javaBuckConfig = javaBuckConfig;
-    this.extraClasspathProviderSupplier = extraClasspathProviderSupplier;
+    this.extraClasspathProvider = extraClasspathProvider;
   }
 
   @Override
@@ -71,8 +68,7 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
       ProjectFilesystem projectFilesystem,
       @Nullable JvmLibraryArg arg,
       JavacOptions javacOptions,
-      BuildRuleResolver buildRuleResolver,
-      ToolchainProvider toolchainProvider) {
+      BuildRuleResolver buildRuleResolver) {
 
     return new JavacToJarStepFactory(
         sourcePathResolver,
@@ -80,7 +76,7 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
         projectFilesystem,
         getJavac(buildRuleResolver, arg),
         javacOptions,
-        extraClasspathProviderSupplier.apply(toolchainProvider));
+        extraClasspathProvider);
   }
 
   private Javac getJavac(BuildRuleResolver resolver, @Nullable JvmLibraryArg arg) {

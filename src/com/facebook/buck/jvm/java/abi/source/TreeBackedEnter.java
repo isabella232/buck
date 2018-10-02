@@ -191,8 +191,8 @@ class TreeBackedEnter {
     public Void visitType(TypeElement e, Void v) {
       TreeBackedTypeElement newClass = elements.enterElement(e, this::newTreeBackedType);
       try (ElementContext c = new ElementContext(newClass)) {
-        scan(reallyGetEnclosedElements(e, getCurrentPath()), v);
-        scan(e.getTypeParameters(), v);
+        super.scan(reallyGetEnclosedElements(e, getCurrentPath()), v);
+        super.scan(e.getTypeParameters(), v);
         return null;
       }
     }
@@ -254,7 +254,7 @@ class TreeBackedEnter {
 
       try (ElementContext c = new ElementContext(method)) {
         super.visitExecutable(e, v);
-        scan(e.getTypeParameters(), v);
+        super.scan(e.getTypeParameters(), v);
         return null;
       }
     }

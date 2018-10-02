@@ -17,7 +17,6 @@
 package com.facebook.buck.jvm.java.abi;
 
 import com.facebook.buck.jvm.java.abi.source.api.CannotInferException;
-import com.facebook.buck.jvm.java.lang.model.AnnotationValueScanner8;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Comparator;

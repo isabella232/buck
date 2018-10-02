@@ -16,22 +16,22 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.NonHashableSourcePathContainer;
+import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Result;
@@ -58,16 +58,18 @@ import javax.annotation.Nullable;
 /** javac implemented in a separate binary. */
 public class ExternalJavac implements Javac {
   @AddToRuleKey private final Supplier<Tool> javac;
-  private final Either<PathSourcePath, BuildTargetSourcePath> actualPath;
+  private final Either<Path, BuildTargetSourcePath> actualPath;
   private final String shortName;
 
-  public ExternalJavac(final Either<PathSourcePath, SourcePath> pathToJavac) {
+  public ExternalJavac(final Either<Path, SourcePath> pathToJavac) {
+    // TODO(cjhopman): This is weird. It shouldn't be taking in a Path, it should get that as a
+    // PathSourcePath instead.
     if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
       BuildTargetSourcePath buildTargetPath = (BuildTargetSourcePath) pathToJavac.getRight();
       this.shortName = buildTargetPath.getTarget().toString();
       this.actualPath = Either.ofRight(buildTargetPath);
       this.javac =
-          MoreSuppliers.memoize(
+          MoreSuppliers.<Tool>memoize(
               () ->
                   new Tool() {
                     @AddToRuleKey
@@ -87,8 +89,13 @@ public class ExternalJavac implements Javac {
                     }
                   });
     } else {
-      PathSourcePath actualPath =
-          pathToJavac.transform(path -> path, path -> (PathSourcePath) path);
+      Path actualPath =
+          pathToJavac.transform(
+              path -> path,
+              path ->
+                  ((PathSourcePath) path)
+                      .getFilesystem()
+                      .resolve(((PathSourcePath) path).getRelativePath()));
       this.actualPath = Either.ofLeft(actualPath);
       this.shortName = actualPath.toString();
       this.javac =
@@ -106,7 +113,7 @@ public class ExternalJavac implements Javac {
                 }
                 Optional<String> stderr = result.getStderr();
                 String output = stderr.orElse("").trim();
-                String version;
+                final String version;
                 if (Strings.isNullOrEmpty(output)) {
                   version = actualPath.toString();
                 } else {
@@ -118,7 +125,7 @@ public class ExternalJavac implements Javac {
   }
 
   @VisibleForTesting
-  Either<PathSourcePath, BuildTargetSourcePath> getActualPath() {
+  Either<Path, BuildTargetSourcePath> getActualPath() {
     return actualPath;
   }
 
@@ -132,7 +139,7 @@ public class ExternalJavac implements Javac {
     return javac.get().getEnvironment(resolver);
   }
 
-  public static Javac createJavac(Either<PathSourcePath, SourcePath> pathToJavac) {
+  public static Javac createJavac(Either<Path, SourcePath> pathToJavac) {
     return new ExternalJavac(pathToJavac);
   }
 
@@ -171,7 +178,6 @@ public class ExternalJavac implements Javac {
       Path pathToSrcsList,
       Path workingDirectory,
       boolean trackClassUsage,
-      boolean trackJavacPhaseEvents,
       @Nullable JarParameters abiJarParaameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
@@ -182,13 +188,13 @@ public class ExternalJavac implements Javac {
 
     return new Invocation() {
       @Override
-      public int buildSourceOnlyAbiJar() {
+      public int buildSourceOnlyAbiJar() throws InterruptedException {
         throw new UnsupportedOperationException(
             "Cannot build source-only ABI jar with external javac.");
       }
 
       @Override
-      public int buildSourceAbiJar() {
+      public int buildSourceAbiJar() throws InterruptedException {
         throw new UnsupportedOperationException("Cannot build source ABI jar with external javac.");
       }
 

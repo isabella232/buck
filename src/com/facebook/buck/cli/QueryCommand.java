@@ -16,27 +16,24 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.Dot;
 import com.facebook.buck.graph.Dot.Builder;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.PatternsMatcher;
-import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
@@ -163,19 +160,15 @@ public class QueryCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Query", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildStateFactory()
-                .create(
-                    params.getTypeCoercerFactory(),
-                    params.getParser().getPermState(),
-                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                    params.getBuckEventBus(),
-                    new ParserPythonInterpreterProvider(
-                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    params.getKnownBuildRuleTypesProvider(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+            new PerBuildState(
+                params.getParser(),
+                params.getBuckEventBus(),
+                params.getExecutableFinder(),
+                pool.getListeningExecutorService(),
+                params.getCell(),
+                params.getKnownBuildRuleTypesProvider(),
+                getEnableParserProfiling(),
+                PerBuildState.SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(params, parserState, executor, getEnableParserProfiling());
@@ -313,7 +306,8 @@ public class QueryCommand extends AbstractCommand {
         Dot.builder(env.getTargetGraph(), "result_graph")
             .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
             .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
-            .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
+            .setNodeToTypeName(
+                targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
             .setBfsSorted(shouldGenerateBFSOutput());
     if (shouldOutputAttributes()) {
       PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes.get());
@@ -430,7 +424,7 @@ public class QueryCommand extends AbstractCommand {
         @Override
         public Iterable<TargetNode<?, ?>> visit(TargetNode<?, ?> node) {
           if (!shouldContainNode.test(node)) {
-            return ImmutableSet.of();
+            return ImmutableSet.<TargetNode<?, ?>>of();
           }
 
           int nodeRank = Preconditions.checkNotNull(ranks.get(node));
@@ -518,9 +512,9 @@ public class QueryCommand extends AbstractCommand {
       BuckQueryEnvironment env,
       PatternsMatcher patternsMatcher,
       TargetNode<?, ?> node) {
-    SortedMap<String, Object> targetNodeAttributes =
-        params.getParser().getTargetNodeRawAttributes(env.getParserState(), params.getCell(), node);
-    if (targetNodeAttributes == null) {
+    SortedMap<String, Object> sortedTargetRule =
+        params.getParser().getRawTargetNode(env.getParserState(), params.getCell(), node);
+    if (sortedTargetRule == null) {
       params
           .getConsole()
           .printErrorText(
@@ -529,10 +523,10 @@ public class QueryCommand extends AbstractCommand {
     }
     SortedMap<String, Object> attributes = new TreeMap<>();
     if (patternsMatcher.hasPatterns()) {
-      for (String key : targetNodeAttributes.keySet()) {
+      for (String key : sortedTargetRule.keySet()) {
         String snakeCaseKey = CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, key);
         if (patternsMatcher.matches(snakeCaseKey)) {
-          attributes.put(snakeCaseKey, targetNodeAttributes.get(key));
+          attributes.put(snakeCaseKey, sortedTargetRule.get(key));
         }
       }
     }

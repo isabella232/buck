@@ -16,10 +16,10 @@
 
 package com.facebook.buck.artifact_cache;
 
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
+import com.facebook.buck.rules.RuleKey;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Objects;
@@ -49,20 +49,6 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
     sqlite
   }
 
-  /**
-   * For {@link Operation} STORE there are different store types, storing the actual artifact or the
-   * manifest of it. For the cases of FETCH use NOT_APPLICABLE.
-   */
-  public enum StoreType {
-    ARTIFACT,
-    MANIFEST,
-    NOT_APPLICABLE;
-
-    public static StoreType fromArtifactInfo(ArtifactInfo info) {
-      return info.isManifest() ? StoreType.MANIFEST : StoreType.ARTIFACT;
-    }
-  }
-
   @JsonIgnore private final CacheMode cacheMode;
 
   @JsonProperty("operation")
@@ -74,28 +60,24 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
 
   @JsonIgnore private final ImmutableSet<RuleKey> ruleKeys;
 
-  @JsonIgnore private final StoreType storeType;
-
   protected ArtifactCacheEvent(
       EventKey eventKey,
       CacheMode cacheMode,
       Operation operation,
       Optional<String> target,
       ImmutableSet<RuleKey> ruleKeys,
-      ArtifactCacheEvent.InvocationType invocationType,
-      StoreType storeType) {
+      ArtifactCacheEvent.InvocationType invocationType) {
     super(eventKey);
     this.cacheMode = cacheMode;
     this.operation = operation;
     this.target = target;
     this.ruleKeys = ruleKeys;
     this.invocationType = invocationType;
-    this.storeType = storeType;
   }
 
   @Override
   protected String getValueString() {
-    return getEventName() + getEventKey();
+    return getEventName() + getEventKey().toString();
   }
 
   @Override
@@ -119,21 +101,16 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
     return invocationType;
   }
 
-  public StoreType getStoreType() {
-    return storeType;
-  }
-
   @Override
   public abstract String getEventName();
 
-  public static final Optional<String> getTarget(ImmutableMap<String, String> metadata) {
+  public static final Optional<String> getTarget(final ImmutableMap<String, String> metadata) {
     return metadata.containsKey(TARGET_KEY)
         ? Optional.of(metadata.get(TARGET_KEY))
         : Optional.empty();
   }
 
   public abstract static class Started extends ArtifactCacheEvent {
-
     protected Started(
         EventKey eventKey,
         CacheMode cacheMode,
@@ -141,25 +118,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
         Optional<String> target,
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType) {
-      super(
-          eventKey,
-          cacheMode,
-          operation,
-          target,
-          ruleKeys,
-          invocationType,
-          StoreType.NOT_APPLICABLE);
-    }
-
-    protected Started(
-        EventKey eventKey,
-        CacheMode cacheMode,
-        Operation operation,
-        Optional<String> target,
-        ImmutableSet<RuleKey> ruleKeys,
-        ArtifactCacheEvent.InvocationType invocationType,
-        StoreType storeType) {
-      super(eventKey, cacheMode, operation, target, ruleKeys, invocationType, storeType);
+      super(eventKey, cacheMode, operation, target, ruleKeys, invocationType);
     }
   }
 
@@ -175,37 +134,11 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType,
         Optional<CacheResult> cacheResult) {
-      super(
-          eventKey,
-          cacheMode,
-          operation,
-          target,
-          ruleKeys,
-          invocationType,
-          StoreType.NOT_APPLICABLE);
+      super(eventKey, cacheMode, operation, target, ruleKeys, invocationType);
       Preconditions.checkArgument(
           (!operation.equals(Operation.FETCH) || cacheResult.isPresent()),
           "For FETCH operations, cacheResult must be non-null. "
               + "For non-FETCH operations, cacheResult may be null.");
-      this.cacheResult = cacheResult;
-    }
-
-    protected Finished(
-        EventKey eventKey,
-        CacheMode cacheMode,
-        Operation operation,
-        Optional<String> target,
-        ImmutableSet<RuleKey> ruleKeys,
-        ArtifactCacheEvent.InvocationType invocationType,
-        Optional<CacheResult> cacheResult,
-        StoreType storeType) {
-      super(eventKey, cacheMode, operation, target, ruleKeys, invocationType, storeType);
-      Preconditions.checkArgument(
-          (!operation.equals(Operation.FETCH) || cacheResult.isPresent()),
-          String.format(
-              "For FETCH operations, cacheResult must be non-null. For non-FETCH "
-                  + "operations, cacheResult may be null. The violating operation was %s for %s.",
-              operation.name(), storeType.name()));
       this.cacheResult = cacheResult;
     }
 

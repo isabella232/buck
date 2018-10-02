@@ -16,13 +16,13 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.base.Preconditions;
@@ -139,22 +139,6 @@ class MaterializerDummyFileHashCache implements ProjectFileHashCache {
           e,
           "Preload materialization timed out after [%d] seconds.",
           DEFAULT_PRELOAD_FILE_MATERIALIZATION_TIMEOUT_SECONDS);
-
-      printMissingFiles();
-    }
-  }
-
-  private void printMissingFiles() {
-    for (BuildJobStateFileHashEntry fileEntry :
-        fileMaterializationFuturesByFileHashEntry.keySet()) {
-      ListenableFuture<?> materializationFuture =
-          Preconditions.checkNotNull(fileMaterializationFuturesByFileHashEntry.get(fileEntry));
-      if (!materializationFuture.isDone()) {
-        LOG.warn(
-            String.format(
-                "Materialization missing for: [%s] [sha1: %s]",
-                fileEntry.getPath().getPath(), fileEntry.getSha1()));
-      }
     }
   }
 

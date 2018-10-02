@@ -1,9 +1,0 @@
-java_test(
-    name = "simple",
-    srcs = [
-        "SimpleTest.java",
-    ],
-    deps = [
-        "buck//third-party/java/junit:junit",
-    ],
-)

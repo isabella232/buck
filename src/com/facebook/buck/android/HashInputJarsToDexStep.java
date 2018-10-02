@@ -77,7 +77,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
+  public StepExecutionResult execute(final ExecutionContext context)
       throws IOException, InterruptedException {
     ImmutableList.Builder<Path> allInputs = ImmutableList.builder();
     allInputs.addAll(primaryInputsToDex.get());
@@ -85,15 +85,15 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
       allInputs.addAll(secondaryOutputToInputs.get().get().values());
     }
 
-    Map<String, HashCode> classNamesToHashes = classNamesToHashesSupplier.get();
+    final Map<String, HashCode> classNamesToHashes = classNamesToHashesSupplier.get();
 
     for (Path path : allInputs.build()) {
-      Hasher hasher = Hashing.sha1().newHasher();
+      final Hasher hasher = Hashing.sha1().newHasher();
       new DefaultClasspathTraverser()
           .traverse(
               new ClasspathTraversal(Collections.singleton(path), filesystem) {
                 @Override
-                public void visit(FileLike fileLike) {
+                public void visit(FileLike fileLike) throws IOException {
                   if (FileLikes.isClassFile(fileLike)) {
                     String className = FileLikes.getFileNameWithoutClassSuffix(fileLike);
 

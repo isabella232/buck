@@ -1,3 +1,0 @@
-[cxx]
-ld = ld.py
-linker_platform = gnu

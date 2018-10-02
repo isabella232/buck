@@ -195,16 +195,10 @@ class TreeBackedElements extends ElementsExtendedImpl {
   }
 
   public ArtificialTypeElement getOrCreateTypeElement(
-      ArtificialQualifiedNameable enclosingElement, Name simpleName) throws CompilerErrorException {
+      ArtificialQualifiedNameable enclosingElement, Name simpleName) {
     Name fullyQualifiedName = getFullyQualifiedName(enclosingElement, simpleName);
     ArtificialTypeElement result = (ArtificialTypeElement) getTypeElement(fullyQualifiedName);
     if (result == null) {
-      if (enclosingElement instanceof TreeBackedTypeElement) {
-        throw new CompilerErrorException(
-            String.format(
-                "cannot find symbol generating source-only ABI\nBuild the #source-abi flavor of this rule to see if the symbol is truly missing or if the rule just needs a source_only_abi_dep.",
-                fullyQualifiedName));
-      }
       result = new InferredTypeElement(simpleName, fullyQualifiedName, enclosingElement);
       knownTypes.put(fullyQualifiedName, result);
     }
@@ -237,11 +231,7 @@ class TreeBackedElements extends ElementsExtendedImpl {
   @Override
   public Map<? extends ExecutableElement, ? extends AnnotationValue> getElementValuesWithDefaults(
       AnnotationMirror a) {
-    return getElementValuesWithDefaultsStatic(a);
-  }
 
-  static Map<? extends ExecutableElement, ? extends AnnotationValue>
-      getElementValuesWithDefaultsStatic(AnnotationMirror a) {
     Map<ExecutableElement, AnnotationValue> result = new HashMap<>();
 
     result.putAll(a.getElementValues());
@@ -279,7 +269,7 @@ class TreeBackedElements extends ElementsExtendedImpl {
         nameBuilder.append("$");
       } else {
         // package
-        nameBuilder.append(enclosingElement);
+        nameBuilder.append(enclosingElement.toString());
         nameBuilder.append(".");
       }
       nameBuilder.append(type.getSimpleName());

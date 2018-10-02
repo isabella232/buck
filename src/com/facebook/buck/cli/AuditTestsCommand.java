@@ -18,11 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.SpeculativeParsing;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
@@ -56,7 +52,7 @@ public class AuditTestsCommand extends AbstractCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    ImmutableSet<String> fullyQualifiedBuildTargets =
+    final ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
     if (fullyQualifiedBuildTargets.isEmpty()) {
@@ -77,19 +73,15 @@ public class AuditTestsCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildStateFactory()
-                .create(
-                    params.getTypeCoercerFactory(),
-                    params.getParser().getPermState(),
-                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                    params.getBuckEventBus(),
-                    new ParserPythonInterpreterProvider(
-                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    params.getKnownBuildRuleTypesProvider(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+            new PerBuildState(
+                params.getParser(),
+                params.getBuckEventBus(),
+                params.getExecutableFinder(),
+                pool.getListeningExecutorService(),
+                params.getCell(),
+                params.getKnownBuildRuleTypesProvider(),
+                getEnableParserProfiling(),
+                PerBuildState.SpeculativeParsing.ENABLED)) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params, parserState, pool.getListeningExecutorService(), getEnableParserProfiling());

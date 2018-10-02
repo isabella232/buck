@@ -16,18 +16,20 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasDeclaredDeps;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.rules.BuildRuleCreationContext;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
 import org.immutables.value.Value;
 
@@ -42,24 +44,23 @@ public class CxxPrecompiledHeaderDescription
 
   @Override
   public CxxPrecompiledHeaderTemplate createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver ruleResolver,
+      CellPathResolver cellRoots,
       CxxPrecompiledHeaderDescriptionArg args) {
-    BuildRuleResolver ruleResolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     return new CxxPrecompiledHeaderTemplate(
         buildTarget,
-        context.getProjectFilesystem(),
+        projectFilesystem,
         ruleResolver.getAllRules(args.getDeps()),
-        args.getSrc(),
-        pathResolver.getAbsolutePath(args.getSrc()));
-  }
-
-  @Override
-  public boolean producesCacheableSubgraph() {
-    return true;
+        ruleResolver,
+        pathResolver,
+        ruleFinder,
+        args.getSrc());
   }
 
   @BuckStyleImmutable

@@ -1,8 +1,0 @@
-# example/BUCK
-
-java_library(
-  name = "java-lib",
-  srcs = [
-  ],
-)
-

@@ -17,28 +17,27 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
-import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.test.event.TestRunEvent;
-import com.facebook.buck.core.test.event.TestStatusMessageEvent;
-import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
-import com.facebook.buck.distributed.build_client.DistBuildSuperConsoleEvent;
-import com.facebook.buck.distributed.build_client.StampedeConsoleEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
-import com.facebook.buck.event.FlushConsoleEvent;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
+import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.TestRunEvent;
+import com.facebook.buck.rules.TestStatusMessageEvent;
+import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -46,7 +45,6 @@ import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
@@ -102,6 +100,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private final Locale locale;
   private final Function<Long, String> formatTimeFunction;
+  private final Optional<WebServer> webServer;
   private final ConcurrentMap<Long, Optional<? extends TestSummaryEvent>>
       threadsToRunningTestSummaryEvent;
   private final ConcurrentMap<Long, Optional<? extends TestStatusMessageEvent>>
@@ -155,10 +154,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @GuardedBy("distBuildSlaveTrackerLock")
   private final Map<BuildSlaveRunId, BuildSlaveStatus> distBuildSlaveTracker;
 
-  private volatile StampedeLocalBuildStatusEvent stampedeLocalBuildStatus =
-      new StampedeLocalBuildStatusEvent("init");
-  private volatile Optional<DistBuildSuperConsoleEvent> stampedeSuperConsoleEvent =
-      Optional.empty();
+  @GuardedBy("distBuildStatusLock")
+  private String stampedeLocalBuildStatus = "init";
+
   private Optional<String> stampedeIdLogLine = Optional.empty();
 
   private final Set<String> actionGraphCacheMessage = new HashSet<>();
@@ -174,6 +172,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
+      Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath,
       TimeZone timeZone,
@@ -184,6 +183,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         clock,
         summaryVerbosity,
         executionEnvironment,
+        webServer,
         locale,
         testLogPath,
         timeZone,
@@ -201,6 +201,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
+      Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath,
       TimeZone timeZone,
@@ -219,6 +220,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         config.shouldShowSlowRulesInConsole());
     this.locale = locale;
     this.formatTimeFunction = this::formatElapsedTime;
+    this.webServer = webServer;
     this.threadsToRunningTestSummaryEvent =
         new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
     this.threadsToRunningTestStatusMessageEvent =
@@ -259,18 +261,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.distBuildSlaveTracker = new LinkedHashMap<>();
 
     int outputMaxColumns = 80;
-    if (config.getThreadLineOutputMaxColumns().isPresent()) {
-      outputMaxColumns = config.getThreadLineOutputMaxColumns().get();
-    } else {
-      Optional<String> columnsStr = executionEnvironment.getenv("BUCK_TERM_COLUMNS");
-      if (columnsStr.isPresent()) {
-        try {
-          outputMaxColumns = Integer.parseInt(columnsStr.get());
-        } catch (NumberFormatException e) {
-          LOG.debug(
-              "the environment variable BUCK_TERM_COLUMNS did not contain a valid value: %s",
-              columnsStr.get());
-        }
+    Optional<String> columnsStr = executionEnvironment.getenv("BUCK_TERM_COLUMNS");
+    if (columnsStr.isPresent()) {
+      try {
+        outputMaxColumns = Integer.parseInt(columnsStr.get());
+      } catch (NumberFormatException e) {
+        LOG.debug(
+            "the environment variable BUCK_TERM_COLUMNS did not contain a valid value: %s",
+            columnsStr.get());
       }
     }
     this.outputMaxColumns = outputMaxColumns;
@@ -449,16 +447,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       maxThreadLines = threadLineLimitOnError;
     }
 
-    String localBuildLinePrefix = "Building";
+    if (stampedeIdLogLine.isPresent()) {
+      lines.add(stampedeIdLogLine.get());
+    }
 
-    if (stampedeSuperConsoleEvent.isPresent()) {
-      localBuildLinePrefix = stampedeLocalBuildStatus.getLocalBuildLinePrefix();
-
-      stampedeIdLogLine.ifPresent(lines::add);
-      stampedeSuperConsoleEvent
-          .get()
-          .getMessage()
-          .ifPresent(msg -> lines.add(ansi.asInformationText(msg)));
+    if (distBuildStarted != null) {
       long distBuildMs =
           logEventPair(
               "Distributed Build",
@@ -478,11 +471,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               new DistBuildSlaveStateRenderer(
                   ansi, currentTimeMillis, ImmutableList.copyOf(distBuildSlaveTracker.values()));
         }
+        renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
 
-        renderLines(renderer, lines, maxThreadLines, true);
+        // We don't want to print anything else while dist-build is going on.
+        return lines.build();
       }
     }
 
+    // TODO(shivanker): Add a similar source file upload line for distributed build.
     if (networkStatsKeeper.getRemoteDownloadedArtifactsCount() > 0 || !this.hideEmptyDownload) {
       lines.add(getNetworkStatsLine(buildFinished));
     }
@@ -503,16 +499,18 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
     long totalBuildMs =
         logEventPair(
-            localBuildLinePrefix,
+            "Building",
             getOptionalBuildLineSuffix(),
             currentTimeMillis,
             offsetMs, // parseTime,
             this.buildStarted,
             this.buildFinished,
-            getApproximateLocalBuildProgress(),
+            getApproximateBuildProgress(),
             Optional.empty(),
             lines);
 
+    // If the Daemon is running and serving web traffic, print the URL to the Chrome Trace.
+    getBuildTraceURLLine(lines);
     getTotalTimeLine(lines);
     showTopSlowBuildRules(lines);
 
@@ -570,23 +568,24 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     return lines.build();
   }
 
+  @SuppressWarnings("unused")
+  private void getBuildTraceURLLine(ImmutableList.Builder<String> lines) {
+    if (buildFinished != null && webServer.isPresent()) {
+      Optional<Integer> port = webServer.get().getPort();
+      if (port.isPresent()) {
+        LOG.debug(
+            "Build logs: http://localhost:%s/trace/%s", port.get(), buildFinished.getBuildId());
+      }
+    }
+  }
+
   private void getTotalTimeLine(ImmutableList.Builder<String> lines) {
     if (projectGenerationStarted == null) {
       // project generation never started
       // we only output total time if build started and finished
       if (buildStarted != null && buildFinished != null) {
         long durationMs = buildFinished.getTimestamp() - buildStarted.getTimestamp();
-        String finalLine = "  Total time: " + formatElapsedTime(durationMs);
-        if (distBuildStarted != null) {
-          // Stampede build. We need to print final status to reduce confusion from remote errors.
-          finalLine += ". ";
-          if (buildFinished.getExitCode() == ExitCode.SUCCESS) {
-            finalLine += ansi.asGreenText("Build successful.");
-          } else {
-            finalLine += ansi.asErrorText("Build failed.");
-          }
-        }
-        lines.add(finalLine);
+        lines.add("  Total time: " + formatElapsedTime(durationMs));
       }
     } else {
       // project generation started, it may or may not contain a build
@@ -600,16 +599,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   private Optional<String> getOptionalDistBuildLineSuffix() {
+    String parseLine;
     List<String> columns = new ArrayList<>();
 
     synchronized (distBuildStatusLock) {
       if (!distBuildStatus.isPresent()) {
         columns.add("remote status: init");
       } else {
-        distBuildStatus
-            .get()
-            .getStatus()
-            .ifPresent(status -> columns.add("remote status: " + status.toLowerCase()));
+        columns.add("remote status: " + distBuildStatus.get().getStatus().toLowerCase());
 
         int totalUploadErrorsCount = 0;
         ImmutableList.Builder<CacheRateStatsKeeper.CacheRateStatsUpdateEvent> slaveCacheStats =
@@ -651,14 +648,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       }
     }
 
-    String localStatus = String.format("local status: %s", stampedeLocalBuildStatus.getStatus());
-    String remoteStatusAndSummary = Joiner.on(", ").join(columns);
-    if (remoteStatusAndSummary.length() == 0) {
-      return Optional.of(localStatus);
-    }
-
-    String parseLine;
-    parseLine = remoteStatusAndSummary + "; " + localStatus;
+    String localStatus = String.format("local status: %s", stampedeLocalBuildStatus);
+    parseLine = localStatus + "; " + Joiner.on(", ").join(columns);
     return Strings.isNullOrEmpty(parseLine) ? Optional.empty() : Optional.of(parseLine);
   }
 
@@ -678,17 +669,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     return logEventLinesBuilder.build();
   }
 
-  /**
-   * Render lines using the provided {@param renderer}.
-   *
-   * @return the number of lines created.
-   */
-  public int renderLines(
+  public void renderLines(
       MultiStateRenderer renderer,
       ImmutableList.Builder<String> lines,
       int maxLines,
       boolean alwaysSortByTime) {
-    int numLinesRendered = 0;
     int threadCount = renderer.getExecutorCount();
     int fullLines = threadCount;
     boolean useCompressedLine = false;
@@ -705,7 +690,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       long threadId = threadIds.get(i);
       lineBuilder.delete(0, lineBuilder.length());
       lines.add(renderer.renderStatusLine(threadId, lineBuilder));
-      numLinesRendered++;
     }
     if (useCompressedLine) {
       lineBuilder.delete(0, lineBuilder.length());
@@ -722,10 +706,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lineBuilder.append(renderer.renderShortStatus(threadId));
       }
       lines.add(lineBuilder.toString());
-      numLinesRendered++;
     }
-
-    return numLinesRendered;
   }
 
   private Optional<String> renderTestSuffix() {
@@ -747,6 +728,24 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     } else {
       return Optional.empty();
     }
+  }
+
+  @Override
+  @Subscribe
+  public void buildRuleStarted(BuildRuleEvent.Started started) {
+    super.buildRuleStarted(started);
+  }
+
+  @Override
+  @Subscribe
+  public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
+    super.buildRuleSuspended(suspended);
+  }
+
+  @Override
+  @Subscribe
+  public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
+    super.buildRuleResumed(resumed);
   }
 
   @Subscribe
@@ -794,17 +793,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void onStampedeLocalBuildStatusEvent(StampedeLocalBuildStatusEvent event) {
-    this.stampedeLocalBuildStatus = event;
+    synchronized (distBuildStatusLock) {
+      this.stampedeLocalBuildStatus = event.getStatus();
+    }
   }
 
   @Subscribe
   public void onDistBuildCreatedEvent(DistBuildCreatedEvent event) {
     stampedeIdLogLine = Optional.of(event.getConsoleLogLine());
-  }
-
-  @Subscribe
-  public void onDistBuildSuperConsoleEvent(DistBuildSuperConsoleEvent event) {
-    stampedeSuperConsoleEvent = Optional.of(event);
   }
 
   /** When a new cache event is about to start. */
@@ -942,18 +938,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     logEvents.add(event);
   }
 
-  @Subscribe
-  public void logStampedeConsoleEvent(StampedeConsoleEvent event) {
-    if (stampedeSuperConsoleEvent.isPresent()) {
-      logEvent(event.getConsoleEvent());
-    }
-  }
-
-  @Subscribe
-  public void forceRender(@SuppressWarnings("unused") FlushConsoleEvent event) {
-    render();
-  }
-
   @Override
   public void printSevereWarningDirectly(String line) {
     logEvents.add(ConsoleEvent.severe(line));
@@ -1069,10 +1053,5 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     super.close();
     stopRenderScheduler();
     render(); // Ensure final frame is rendered.
-  }
-
-  @Override
-  public boolean displaysEstimatedProgress() {
-    return true;
   }
 }

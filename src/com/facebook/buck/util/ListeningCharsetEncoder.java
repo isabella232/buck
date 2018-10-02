@@ -32,7 +32,7 @@ public final class ListeningCharsetEncoder {
     void onEncoderError(CoderResult result);
   }
 
-  public ListeningCharsetEncoder(EncoderListener listener, CharsetEncoder charsetEncoder) {
+  public ListeningCharsetEncoder(final EncoderListener listener, CharsetEncoder charsetEncoder) {
     this.encoder =
         new NuCharsetEncoder(
             new NuCharsetEncoderHandler() {

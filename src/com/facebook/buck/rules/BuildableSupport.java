@@ -16,20 +16,17 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.rules.modern.HasCustomInputsLogic;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.rules.keys.AbstractRuleKeyBuilder;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.keys.RuleKeyScopedHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
-import com.facebook.buck.util.Memoizer;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Scope;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.SortedSet;
 import java.util.function.Supplier;
@@ -70,33 +67,12 @@ public final class BuildableSupport {
    * Creates a supplier to easily implement (and cache) BuildRule.getBuildDeps() via
    * BuildableSupport.deriveDeps().
    */
-  public static DepsSupplier buildDepsSupplier(BuildRule rule, SourcePathRuleFinder ruleFinder) {
-    return new DepsSupplier(rule, ruleFinder);
-  }
-
-  /** A build deps supplier that allows updating of the captured rule finder. */
-  public static class DepsSupplier implements Supplier<SortedSet<BuildRule>> {
-    private final Memoizer<SortedSet<BuildRule>> memoizer = new Memoizer<>();
-    private final BuildRule rule;
-
-    private SourcePathRuleFinder ruleFinder;
-
-    DepsSupplier(BuildRule rule, SourcePathRuleFinder ruleFinder) {
-      this.rule = rule;
-      this.ruleFinder = ruleFinder;
-    }
-
-    @Override
-    public SortedSet<BuildRule> get() {
-      return memoizer.get(
-          () ->
-              deriveDeps(rule, ruleFinder)
-                  .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
-    }
-
-    public void updateRuleFinder(SourcePathRuleFinder ruleFinder) {
-      this.ruleFinder = ruleFinder;
-    }
+  public static Supplier<SortedSet<BuildRule>> buildDepsSupplier(
+      BuildRule rule, SourcePathRuleFinder ruleFinder) {
+    return MoreSuppliers.memoize(
+        () ->
+            deriveDeps(rule, ruleFinder)
+                .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
   }
 
   private static class DepsBuilder extends AbstractRuleKeyBuilder<Stream<BuildRule>> {
@@ -134,7 +110,7 @@ public final class BuildableSupport {
     }
 
     @Override
-    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) {
+    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) throws IOException {
       return this;
     }
 
@@ -160,7 +136,8 @@ public final class BuildableSupport {
     }
 
     @Override
-    protected AbstractRuleKeyBuilder<Stream<BuildRule>> setSourcePath(SourcePath sourcePath) {
+    protected AbstractRuleKeyBuilder<Stream<BuildRule>> setSourcePath(SourcePath sourcePath)
+        throws IOException {
       ruleFinder.getRule(sourcePath).ifPresent(streamBuilder);
       return this;
     }
@@ -211,7 +188,7 @@ public final class BuildableSupport {
     }
 
     @Override
-    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) {
+    public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) throws IOException {
       return this;
     }
 
@@ -228,16 +205,13 @@ public final class BuildableSupport {
     @Override
     protected AbstractRuleKeyBuilder<Stream<SourcePath>> setAddsToRuleKey(
         AddsToRuleKey appendable) {
-      if (appendable instanceof HasCustomInputsLogic) {
-        ((HasCustomInputsLogic) appendable).computeInputs(streamBuilder::add);
-      } else {
-        AlterRuleKeys.amendKey(this, appendable);
-      }
+      AlterRuleKeys.amendKey(this, appendable);
       return this;
     }
 
     @Override
-    protected AbstractRuleKeyBuilder<Stream<SourcePath>> setSourcePath(SourcePath sourcePath) {
+    protected AbstractRuleKeyBuilder<Stream<SourcePath>> setSourcePath(SourcePath sourcePath)
+        throws IOException {
       streamBuilder.add(sourcePath);
       return this;
     }

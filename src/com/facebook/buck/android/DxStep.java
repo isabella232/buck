@@ -23,9 +23,9 @@ import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.DiagnosticsHandler;
 import com.android.tools.r8.OutputMode;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
@@ -39,7 +39,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -251,10 +250,7 @@ public class DxStep extends ShellStep {
           if (Files.isRegularFile(toDex)) {
             inputs.add(toDex);
           } else {
-            try (DirectoryStream<Path> directories =
-                Files.newDirectoryStream(toDex, path -> path.toFile().isFile())) {
-              directories.forEach(inputs::add);
-            }
+            Files.newDirectoryStream(toDex, path -> path.toFile().isFile()).forEach(inputs::add);
           }
         }
 

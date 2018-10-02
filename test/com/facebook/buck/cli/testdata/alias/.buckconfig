@@ -1,3 +1,0 @@
-[alias]
-  foo = //:foo_example
-  bar = //:bar_example

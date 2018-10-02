@@ -28,13 +28,6 @@ import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.apple.toolchain.AppleSdkPaths;
 import com.facebook.buck.apple.toolchain.AppleToolchain;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.UserFlavor;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
-import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.BsdArchiver;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
@@ -54,9 +47,15 @@ import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.UserFlavor;
+import com.facebook.buck.rules.ConstantToolProvider;
+import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.VersionedTool;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.impl.SwiftPlatformFactory;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
@@ -121,7 +120,7 @@ public class AppleCxxPlatforms {
       swiftToolChain = Optional.empty();
     }
 
-    XcodeToolFinder xcodeToolFinder = new XcodeToolFinder(appleConfig);
+    XcodeToolFinder xcodeToolFinder = new XcodeToolFinder();
     XcodeBuildVersionCache xcodeBuildVersionCache = new XcodeBuildVersionCache();
     sdkPaths
         .get()
@@ -153,7 +152,7 @@ public class AppleCxxPlatforms {
       AppleSdk targetSdk,
       String minVersion,
       String targetArchitecture,
-      AppleSdkPaths sdkPaths,
+      final AppleSdkPaths sdkPaths,
       BuckConfig buckConfig,
       XcodeToolFinder xcodeToolFinder,
       XcodeBuildVersionCache xcodeBuildVersionCache,
@@ -251,85 +250,55 @@ public class AppleCxxPlatforms {
 
     Tool clangPath =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("clang", toolSearchPaths, xcodeToolFinder)),
-            "apple-clang",
-            version);
+            getToolPath("clang", toolSearchPaths, xcodeToolFinder), "apple-clang", version);
 
     Tool clangXxPath =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("clang++", toolSearchPaths, xcodeToolFinder)),
-            "apple-clang++",
-            version);
+            getToolPath("clang++", toolSearchPaths, xcodeToolFinder), "apple-clang++", version);
 
     Tool ar =
-        VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("ar", toolSearchPaths, xcodeToolFinder)),
-            "apple-ar",
-            version);
+        VersionedTool.of(getToolPath("ar", toolSearchPaths, xcodeToolFinder), "apple-ar", version);
 
     Tool ranlib =
         VersionedTool.builder()
-            .setPath(
-                PathSourcePath.of(
-                    filesystem, getToolPath("ranlib", toolSearchPaths, xcodeToolFinder)))
+            .setPath(getToolPath("ranlib", toolSearchPaths, xcodeToolFinder))
             .setName("apple-ranlib")
             .setVersion(version)
             .build();
 
     Tool strip =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("strip", toolSearchPaths, xcodeToolFinder)),
-            "apple-strip",
-            version);
+            getToolPath("strip", toolSearchPaths, xcodeToolFinder), "apple-strip", version);
 
     Tool nm =
-        VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("nm", toolSearchPaths, xcodeToolFinder)),
-            "apple-nm",
-            version);
+        VersionedTool.of(getToolPath("nm", toolSearchPaths, xcodeToolFinder), "apple-nm", version);
 
     Tool actool =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("actool", toolSearchPaths, xcodeToolFinder)),
-            "apple-actool",
-            version);
+            getToolPath("actool", toolSearchPaths, xcodeToolFinder), "apple-actool", version);
 
     Tool ibtool =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("ibtool", toolSearchPaths, xcodeToolFinder)),
-            "apple-ibtool",
-            version);
+            getToolPath("ibtool", toolSearchPaths, xcodeToolFinder), "apple-ibtool", version);
 
     Tool momc =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("momc", toolSearchPaths, xcodeToolFinder)),
-            "apple-momc",
-            version);
+            getToolPath("momc", toolSearchPaths, xcodeToolFinder), "apple-momc", version);
 
     Tool xctest =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("xctest", toolSearchPaths, xcodeToolFinder)),
-            "apple-xctest",
-            version);
+            getToolPath("xctest", toolSearchPaths, xcodeToolFinder), "apple-xctest", version);
 
     Tool dsymutil =
         VersionedTool.of(
-            PathSourcePath.of(
-                filesystem, getToolPath("dsymutil", toolSearchPaths, xcodeToolFinder)),
-            "apple-dsymutil",
-            version);
+            getToolPath("dsymutil", toolSearchPaths, xcodeToolFinder), "apple-dsymutil", version);
 
     Tool lipo =
         VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("lipo", toolSearchPaths, xcodeToolFinder)),
-            "apple-lipo",
-            version);
+            getToolPath("lipo", toolSearchPaths, xcodeToolFinder), "apple-lipo", version);
 
     Tool lldb =
-        VersionedTool.of(
-            PathSourcePath.of(filesystem, getToolPath("lldb", toolSearchPaths, xcodeToolFinder)),
-            "lldb",
-            version);
+        VersionedTool.of(getToolPath("lldb", toolSearchPaths, xcodeToolFinder), "lldb", version);
 
     Optional<Path> stubBinaryPath =
         targetSdk
@@ -429,7 +398,7 @@ public class AppleCxxPlatforms {
     whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getSdkPath().toString()) + "\\/.*");
     whitelistBuilder.add(
         "^"
-            + Pattern.quote(sdkPaths.getPlatformPath() + "/Developer/Library/Frameworks")
+            + Pattern.quote(sdkPaths.getPlatformPath().toString() + "/Developer/Library/Frameworks")
             + "\\/.*");
     for (Path toolchainPath : sdkPaths.getToolchainPaths()) {
       LOG.debug("Apple toolchain path: %s", toolchainPath);
@@ -494,8 +463,7 @@ public class AppleCxxPlatforms {
             version,
             swiftSdkPathsBuilder.build(),
             swiftOverrideSearchPathBuilder.addAll(toolSearchPaths).build(),
-            xcodeToolFinder,
-            filesystem);
+            xcodeToolFinder);
 
     platformBuilder
         .setCxxPlatform(cxxPlatform)
@@ -508,16 +476,14 @@ public class AppleCxxPlatforms {
         .setIbtool(ibtool)
         .setMomc(momc)
         .setCopySceneKitAssets(
-            getOptionalTool(
-                "copySceneKitAssets", toolSearchPaths, xcodeToolFinder, version, filesystem))
+            getOptionalTool("copySceneKitAssets", toolSearchPaths, xcodeToolFinder, version))
         .setXctest(xctest)
         .setDsymutil(dsymutil)
         .setLipo(lipo)
         .setStubBinary(stubBinaryPath)
         .setLldb(lldb)
         .setCodesignAllocate(
-            getOptionalTool(
-                "codesign_allocate", toolSearchPaths, xcodeToolFinder, version, filesystem))
+            getOptionalTool("codesign_allocate", toolSearchPaths, xcodeToolFinder, version))
         .setCodesignProvider(appleConfig.getCodesignProvider());
 
     return platformBuilder.build();
@@ -529,8 +495,7 @@ public class AppleCxxPlatforms {
       String version,
       AppleSdkPaths sdkPaths,
       ImmutableList<Path> toolSearchPaths,
-      XcodeToolFinder xcodeToolFinder,
-      ProjectFilesystem filesystem) {
+      XcodeToolFinder xcodeToolFinder) {
     ImmutableList<String> swiftParams =
         ImmutableList.of(
             "-frontend",
@@ -551,16 +516,14 @@ public class AppleCxxPlatforms {
     }
 
     Optional<Tool> swiftc =
-        getOptionalToolWithParams(
-            "swiftc", toolSearchPaths, xcodeToolFinder, version, swiftParams, filesystem);
+        getOptionalToolWithParams("swiftc", toolSearchPaths, xcodeToolFinder, version, swiftParams);
     Optional<Tool> swiftStdLibTool =
         getOptionalToolWithParams(
             "swift-stdlib-tool",
             toolSearchPaths,
             xcodeToolFinder,
             version,
-            swiftStdlibToolParamsBuilder.build(),
-            filesystem);
+            swiftStdlibToolParamsBuilder.build());
 
     if (swiftc.isPresent()) {
       return Optional.of(
@@ -575,25 +538,23 @@ public class AppleCxxPlatforms {
       String tool,
       ImmutableList<Path> toolSearchPaths,
       XcodeToolFinder xcodeToolFinder,
-      String version,
-      ProjectFilesystem filesystem) {
+      String version) {
     return getOptionalToolWithParams(
-        tool, toolSearchPaths, xcodeToolFinder, version, ImmutableList.of(), filesystem);
+        tool, toolSearchPaths, xcodeToolFinder, version, ImmutableList.of());
   }
 
   private static Optional<Tool> getOptionalToolWithParams(
-      String tool,
+      final String tool,
       ImmutableList<Path> toolSearchPaths,
       XcodeToolFinder xcodeToolFinder,
-      String version,
-      ImmutableList<String> params,
-      ProjectFilesystem filesystem) {
+      final String version,
+      final ImmutableList<String> params) {
     return xcodeToolFinder
         .getToolPath(toolSearchPaths, tool)
         .map(
             input ->
                 VersionedTool.builder()
-                    .setPath(PathSourcePath.of(filesystem, input))
+                    .setPath(input)
                     .setName(tool)
                     .setVersion(version)
                     .setExtraArgs(params)

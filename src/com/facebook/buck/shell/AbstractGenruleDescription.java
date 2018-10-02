@@ -19,22 +19,21 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.description.arg.HasTests;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasTests;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
-import com.facebook.buck.rules.macros.ClasspathAbiMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -80,7 +79,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
   protected abstract BuildRule createBuildRule(
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
+      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       T args,
@@ -90,7 +89,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
   protected BuildRule createBuildRule(
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
+      final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       T args,
@@ -117,8 +116,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
         toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
         toolchainProvider.getByNameIfPresent(
-            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
-        false);
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
   }
 
   /**
@@ -134,7 +132,6 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
     return Optional.of(
         ImmutableList.of(
             new ClasspathMacroExpander(),
-            new ClasspathAbiMacroExpander(),
             new ExecutableMacroExpander(),
             new WorkerMacroExpander(),
             new LocationMacroExpander(),
@@ -147,17 +144,20 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context, BuildTarget buildTarget, BuildRuleParams params, T args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+      final TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      final BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
+      final T args) {
     Optional<ImmutableList<AbstractMacroExpander<? extends Macro, ?>>> maybeExpanders =
-        getMacroHandler(
-            buildTarget, context.getProjectFilesystem(), resolver, context.getTargetGraph(), args);
+        getMacroHandler(buildTarget, projectFilesystem, resolver, targetGraph, args);
     if (maybeExpanders.isPresent()) {
       ImmutableList<AbstractMacroExpander<? extends Macro, ?>> expanders = maybeExpanders.get();
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       StringWithMacrosConverter converter =
-          StringWithMacrosConverter.of(
-              buildTarget, context.getCellPathResolver(), resolver, expanders);
+          StringWithMacrosConverter.of(buildTarget, cellRoots, resolver, expanders);
       Function<StringWithMacros, Arg> toArg =
           str -> {
             Arg arg = converter.convert(str);
@@ -168,12 +168,12 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
             }
             return arg;
           };
-      Optional<Arg> cmd = args.getCmd().map(toArg);
-      Optional<Arg> bash = args.getBash().map(toArg);
-      Optional<Arg> cmdExe = args.getCmdExe().map(toArg);
+      final Optional<Arg> cmd = args.getCmd().map(toArg);
+      final Optional<Arg> bash = args.getBash().map(toArg);
+      final Optional<Arg> cmdExe = args.getCmdExe().map(toArg);
       return createBuildRule(
           buildTarget,
-          context.getProjectFilesystem(),
+          projectFilesystem,
           params.withExtraDeps(
               Stream.concat(
                       ruleFinder.filterBuildRuleInputs(args.getSrcs()).stream(),
@@ -182,7 +182,9 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
                           .flatMap(
                               input ->
                                   BuildableSupport.getDepsCollection(input, ruleFinder).stream()))
-                  .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder()))),
+                  .collect(
+                      ImmutableSortedSet.toImmutableSortedSet(
+                          Comparator.<BuildRule>naturalOrder()))),
           resolver,
           args,
           cmd,
@@ -191,7 +193,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
     }
     return createBuildRule(
         buildTarget,
-        context.getProjectFilesystem(),
+        projectFilesystem,
         params,
         resolver,
         args,

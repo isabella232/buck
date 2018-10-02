@@ -17,14 +17,14 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.Cell;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.NamedTemporaryFile;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import java.io.ByteArrayOutputStream;
@@ -55,7 +55,8 @@ class BuildPrehook implements AutoCloseable {
       Cell cell,
       BuckEventBus eventBus,
       BuckConfig buckConfig,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment)
+      throws IOException {
     this.processExecutor = processExecutor;
     this.cell = cell;
     this.eventBus = eventBus;
@@ -64,7 +65,7 @@ class BuildPrehook implements AutoCloseable {
   }
 
   /** Start the build prehook script. */
-  public synchronized void startPrehookScript() throws IOException {
+  public synchronized void startPrehookScript() throws IOException, InterruptedException {
     Optional<String> pathToPrehookScript = buckConfig.getPathToBuildPrehookScript();
     if (!pathToPrehookScript.isPresent()) {
       return;
@@ -155,7 +156,7 @@ class BuildPrehook implements AutoCloseable {
 
   /** Kill the build prehook script. */
   @Override
-  public synchronized void close() throws IOException {
+  public synchronized void close() throws InterruptedException, IOException {
     if (process == null) {
       return;
     }

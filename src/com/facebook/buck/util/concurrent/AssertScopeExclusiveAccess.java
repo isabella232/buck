@@ -36,7 +36,7 @@ public class AssertScopeExclusiveAccess {
   }
 
   public Scope scope() {
-    boolean firstOneInScope = inScope.compareAndSet(false, true);
+    final boolean firstOneInScope = inScope.compareAndSet(false, true);
     if (firstOneInScope && LOG.isVerboseEnabled()) {
       inScopeStack = Optional.of(new Throwable());
     }

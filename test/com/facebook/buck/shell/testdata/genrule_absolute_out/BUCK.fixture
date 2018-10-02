@@ -1,5 +1,0 @@
-genrule(
-    name = "genrule",
-    out = "/tmp/file",
-    cmd = "echo something > $OUT",
-)

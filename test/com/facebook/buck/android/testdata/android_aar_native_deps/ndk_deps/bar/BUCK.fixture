@@ -1,9 +1,0 @@
-ndk_library(
-    name = "bar",
-    flags = [
-        "NDK_APPLICATION_MK=$(env PWD)/bar/Application.mk",
-    ],
-    visibility = [
-        "PUBLIC",
-    ],
-)

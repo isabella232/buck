@@ -16,14 +16,13 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.EventListener;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.trace.uploader.launcher.UploaderLauncher;
 import com.facebook.buck.util.trace.uploader.types.CompressionType;
 import com.google.common.base.Preconditions;
@@ -57,7 +56,6 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
   private final DistBuildService distBuildService;
   private final MinionHealthTracker minionHealthTracker;
   private final Optional<URI> traceUploadUri;
-  private final MinionCountProvider minionCountProvider;
 
   /** Constructor. */
   public CoordinatorModeRunner(
@@ -70,8 +68,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
       Optional<URI> traceUploadUri,
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       DistBuildService distBuildService,
-      MinionHealthTracker minionHealthTracker,
-      MinionCountProvider minionCountProvider) {
+      MinionHealthTracker minionHealthTracker) {
     this.stampedeId = stampedeId;
     this.clientBuildId = clientBuildId;
     this.traceUploadUri = traceUploadUri;
@@ -83,7 +80,6 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
     this.eventListener = eventListener;
     this.coordinatorBuildRuleEventsPublisher = coordinatorBuildRuleEventsPublisher;
     this.distBuildService = distBuildService;
-    this.minionCountProvider = minionCountProvider;
   }
 
   public CoordinatorModeRunner(
@@ -95,8 +91,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
       DistBuildService distBuildService,
       Optional<BuildId> clientBuildId,
       Optional<URI> traceUploadUri,
-      MinionHealthTracker minionHealthTracker,
-      MinionCountProvider minionCountProvider) {
+      MinionHealthTracker minionHealthTracker) {
     this(
         OptionalInt.empty(),
         queue,
@@ -107,8 +102,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
         traceUploadUri,
         coordinatorBuildRuleEventsPublisher,
         distBuildService,
-        minionHealthTracker,
-        minionCountProvider);
+        minionHealthTracker);
   }
 
   @Override
@@ -117,7 +111,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
   }
 
   @Override
-  public ExitCode runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
+  public int runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
     try (AsyncCoordinatorRun run = new AsyncCoordinatorRun(heartbeatService, queue)) {
       return run.getExitCode();
     }
@@ -125,7 +119,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
 
   /** Reports back to the servers that the coordinator is healthy and alive. */
   public static HeartbeatCallback createHeartbeatCallback(
-      StampedeId stampedeId, DistBuildService service) {
+      final StampedeId stampedeId, final DistBuildService service) {
     return new HeartbeatCallback() {
       @Override
       public void runHeartbeat() throws IOException {
@@ -174,8 +168,7 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
                   eventListener,
                   coordinatorBuildRuleEventsPublisher,
                   minionHealthTracker,
-                  distBuildService,
-                  minionCountProvider));
+                  distBuildService));
       this.server.start();
       this.closer.register(
           service.addCallback("ReportCoordinatorAlive", createHeartbeatCallback()));
@@ -185,8 +178,8 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
           service.addCallback("BuildStatusCheck", () -> server.checkBuildStatusIsNotTerminated()));
     }
 
-    public ExitCode getExitCode() {
-      return ExitCode.map(server.waitUntilBuildCompletesAndReturnExitCode());
+    public int getExitCode() {
+      return server.waitUntilBuildCompletesAndReturnExitCode();
     }
 
     public int getPort() {
@@ -197,33 +190,33 @@ public class CoordinatorModeRunner extends AbstractDistBuildModeRunner {
     public void close() throws IOException {
       closer.close();
 
-      // TODO(shivanker): This should be async, but blocking the process from shutting down.
       dumpAndUploadChromeTrace();
     }
 
     private void dumpAndUploadChromeTrace() {
-      Path traceFilePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
-      if (!this.server.exportChromeTraceIfSuccess(traceFilePath)) {
-        // Do nothing if no file was exported.
-        return;
+      try {
+        Path traceFilePath = logDirectoryPath.resolve(BuckConstant.DIST_BUILD_TRACE_FILE_NAME);
+        this.server.traceSnapshot().dumpToChromeTrace(traceFilePath);
+
+        if (!clientBuildId.isPresent()) {
+          LOG.warn("Not uploading distbuild chrome trace because original build uuid is unset");
+          return;
+        }
+
+        if (!traceUploadUri.isPresent()) {
+          LOG.info("Not uploading distbuild chrome trace because traceUploadUri is unset");
+          return;
+        }
+
+        BuildId buildId = clientBuildId.get();
+        URI uploadUri = traceUploadUri.get();
+
+        Path uploadLogFile = logDirectoryPath.resolve("upload-dist-build-build-trace.log");
+        UploaderLauncher.uploadInBackground(
+            buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile, CompressionType.GZIP);
+      } catch (Exception e) {
+        LOG.warn("Failed to write or upload distbuild chrome trace", e);
       }
-
-      if (!clientBuildId.isPresent()) {
-        LOG.warn("Not uploading distbuild chrome trace because original build uuid is unset");
-        return;
-      }
-
-      if (!traceUploadUri.isPresent()) {
-        LOG.info("Not uploading distbuild chrome trace because traceUploadUri is unset");
-        return;
-      }
-
-      BuildId buildId = clientBuildId.get();
-      URI uploadUri = traceUploadUri.get();
-
-      Path uploadLogFile = logDirectoryPath.resolve("upload-dist-build-build-trace.log");
-      UploaderLauncher.uploadInBackground(
-          buildId, traceFilePath, "dist_build", uploadUri, uploadLogFile, CompressionType.GZIP);
     }
   }
 }

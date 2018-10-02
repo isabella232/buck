@@ -16,14 +16,6 @@
 
 package com.facebook.buck.swift;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.PreprocessorFlags;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -32,17 +24,26 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -57,7 +58,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Streams;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -76,11 +76,12 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @AddToRuleKey(stringify = true)
   private final Path outputPath;
 
-  private final Path objectFilePath;
+  @AddToRuleKey private final boolean importUnderlyingModule;
+
   private final Path modulePath;
-  private final Path moduleObjectPath;
   private final ImmutableList<Path> objectPaths;
   private final Optional<Path> swiftFileListPath;
+  private final Optional<String> minDeploymentVersion;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final Optional<String> version;
@@ -115,24 +116,23 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       Optional<Boolean> enableObjcInterop,
       Optional<SourcePath> bridgingHeader,
       Preprocessor preprocessor,
-      PreprocessorFlags cxxDeps) {
+      PreprocessorFlags cxxDeps,
+      boolean importUnderlyingModule,
+      Optional<String> minDeploymentVersion) {
     super(buildTarget, projectFilesystem, params);
     this.cxxPlatform = cxxPlatform;
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
     this.swiftCompiler = swiftCompiler;
     this.outputPath = outputPath;
+    this.importUnderlyingModule = importUnderlyingModule;
+    this.minDeploymentVersion = minDeploymentVersion;
     this.headerPath = outputPath.resolve(SwiftDescriptions.toSwiftHeaderName(moduleName) + ".h");
 
     String escapedModuleName = CxxDescriptionEnhancer.normalizeModuleName(moduleName);
     this.moduleName = escapedModuleName;
-    this.objectFilePath = outputPath.resolve(escapedModuleName + ".o");
     this.modulePath = outputPath.resolve(escapedModuleName + ".swiftmodule");
-    this.moduleObjectPath = outputPath.resolve(escapedModuleName + ".swiftmodule.o");
-    this.objectPaths =
-        swiftBuckConfig.getUseModulewrap()
-            ? ImmutableList.of(objectFilePath, moduleObjectPath)
-            : ImmutableList.of(objectFilePath);
+    this.objectPaths = ImmutableList.of(outputPath.resolve(escapedModuleName + ".o"));
     this.swiftFileListPath =
         swiftBuckConfig.getUseFileList()
             ? Optional.of(
@@ -169,18 +169,31 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private SwiftCompileStep makeCompileStep(SourcePathResolver resolver) {
     ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
-    compilerCommand.addAll(swiftCompiler.getCommandPrefix(resolver));
+
+    for (String flag : swiftCompiler.getCommandPrefix(resolver)) {
+      if (!minDeploymentVersion.isPresent() || !flag.contains("-apple-")) {
+        compilerCommand.add(flag);
+      } else {
+        String arch = flag.split("-")[0];
+        compilerCommand.add(arch + "-apple-ios" + minDeploymentVersion.get() + ".0");
+      }
+    }
+
 
     if (bridgingHeader.isPresent()) {
       compilerCommand.add(
           "-import-objc-header", resolver.getRelativePath(bridgingHeader.get()).toString());
     }
+    if (importUnderlyingModule) {
+      compilerCommand.add("-import-underlying-module");
+    }
 
-    Function<FrameworkPath, Path> frameworkPathToSearchPath =
+    final Function<FrameworkPath, Path> frameworkPathToSearchPath =
         CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
 
     compilerCommand.addAll(
-        Streams.concat(frameworks.stream(), cxxDeps.getFrameworkPaths().stream())
+        frameworks
+            .stream()
             .filter(x -> !x.isSDKROOTFrameworkPath())
             .map(frameworkPathToSearchPath)
             .flatMap(searchPath -> ImmutableSet.of("-F", searchPath.toString()).stream())
@@ -214,9 +227,12 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "-emit-module-path",
         modulePath.toString(),
         "-emit-objc-header-path",
-        headerPath.toString(),
-        "-o",
-        objectFilePath.toString());
+        headerPath.toString());
+    objectPaths.forEach(
+        x -> {
+          compilerCommand.add("-o");
+          compilerCommand.add(x.toString());
+        });
 
     // Do not use swiftBuckConfig's version by definition
     version.ifPresent(
@@ -240,32 +256,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         projectFilesystem.getRootPath(), ImmutableMap.of(), compilerCommand.build());
   }
 
-  private SwiftCompileStep makeModulewrapStep(SourcePathResolver resolver) {
-    ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
-    ImmutableList<String> commandPrefix = swiftCompiler.getCommandPrefix(resolver);
-
-    // The swift compiler path will be the first element of the command prefix
-    compilerCommand.add(commandPrefix.get(0));
-
-    String target = "";
-    for (int i = 0; i < commandPrefix.size() - 1; ++i) {
-      if (commandPrefix.get(i).equals("-target")) {
-        target = commandPrefix.get(i + 1);
-        break;
-      }
-    }
-
-    compilerCommand.add("-modulewrap", modulePath.toString(), "-o", moduleObjectPath.toString());
-
-    if (!target.isEmpty()) {
-      compilerCommand.add("-target", target);
-    }
-
-    ProjectFilesystem projectFilesystem = getProjectFilesystem();
-    return new SwiftCompileStep(
-        projectFilesystem.getRootPath(), ImmutableMap.of(), compilerCommand.build());
-  }
-
   @Override
   public boolean isCacheable() {
     // .swiftmodule artifacts are not cacheable because they can contain machine-specific
@@ -277,6 +267,14 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     // populated the cache and the machine which is building have placed the source
     // repository at different paths (usually the case with CI and developer machines).
     return !bridgingHeader.isPresent() || swiftBuckConfig.getCompileForceCache();
+  }
+
+  private BashStep makeRunscriptStep() {
+    return new BashStep(
+        getBuildTarget(),
+        getProjectFilesystem().getRootPath(),
+        "ios/script/transform_buck_swift_header.py",
+        headerPath.toString());
   }
 
   @Override
@@ -291,12 +289,9 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                 context.getBuildCellRootPath(), getProjectFilesystem(), outputPath)));
     swiftFileListPath.map(
         path -> steps.add(makeFileListStep(context.getSourcePathResolver(), path)));
-    steps.add(makeCompileStep(context.getSourcePathResolver()));
-
-    if (swiftBuckConfig.getUseModulewrap()) {
-      steps.add(makeModulewrapStep(context.getSourcePathResolver()));
-    }
-
+    steps.add(
+        makeCompileStep(context.getSourcePathResolver()),
+        makeRunscriptStep());
     return steps.build();
   }
 
@@ -308,11 +303,12 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     return new Step() {
       @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
         if (Files.notExists(swiftFileListPath.getParent())) {
           Files.createDirectories(swiftFileListPath.getParent());
         }
-        MostFiles.writeLinesToFile(relativePaths, swiftFileListPath);
+        MoreFiles.writeLinesToFile(relativePaths, swiftFileListPath);
         return StepExecutionResults.SUCCESS;
       }
 
@@ -373,14 +369,10 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   public ImmutableList<Arg> getAstLinkArgs() {
-    if (!swiftBuckConfig.getUseModulewrap()) {
-      return ImmutableList.<Arg>builder()
-          .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
-          .add(SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), modulePath)))
-          .build();
-    } else {
-      return ImmutableList.<Arg>builder().build();
-    }
+    return ImmutableList.<Arg>builder()
+        .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
+        .add(SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), modulePath)))
+        .build();
   }
 
   ImmutableList<Arg> getFileListLinkArg() {

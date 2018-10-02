@@ -16,11 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.description.arg.HasDepsQuery;
-import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasProvidedDepsQuery;
 import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -46,7 +46,6 @@ public abstract class JavaLibraryDeps {
             .setDepTargets(args.getDeps())
             .setExportedDepTargets(args.getExportedDeps())
             .setProvidedDepTargets(args.getProvidedDeps())
-            .setExportedProvidedDepTargets(args.getExportedProvidedDeps())
             .setSourceOnlyAbiDepTargets(args.getSourceOnlyAbiDeps());
 
     if (args instanceof HasDepsQuery) {
@@ -71,9 +70,6 @@ public abstract class JavaLibraryDeps {
   abstract ImmutableSortedSet<BuildTarget> getExportedDepTargets();
 
   @Value.NaturalOrder
-  abstract ImmutableSortedSet<BuildTarget> getExportedProvidedDepTargets();
-
-  @Value.NaturalOrder
   abstract ImmutableSortedSet<BuildTarget> getSourceOnlyAbiDepTargets();
 
   abstract Optional<Query> getDepsQuery();
@@ -94,18 +90,12 @@ public abstract class JavaLibraryDeps {
     return resolve(
         Iterables.concat(
             getProvidedDepTargets(),
-            getExportedProvidedDepTargets(),
             getProvidedDepsQuery().map(Query::getResolvedQuery).orElse(ImmutableSortedSet.of())));
   }
 
   @Value.Lazy
   public ImmutableSortedSet<BuildRule> getExportedDeps() {
     return resolve(getExportedDepTargets());
-  }
-
-  @Value.Lazy
-  public ImmutableSortedSet<BuildRule> getExportedProvidedDeps() {
-    return resolve(getExportedProvidedDepTargets());
   }
 
   @Value.Lazy

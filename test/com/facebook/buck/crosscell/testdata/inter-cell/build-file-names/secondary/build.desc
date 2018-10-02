@@ -1,6 +1,0 @@
-
-export_file(
-  name = 'exported',
-  src = 'hello-world.txt',
-  visibility = ['PUBLIC'],
-)

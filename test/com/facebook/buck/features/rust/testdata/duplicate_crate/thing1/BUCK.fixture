@@ -1,5 +1,0 @@
-rust_library(
-    name = "thing",
-    srcs = ["thing.rs"],
-    visibility = ["PUBLIC"],
-)

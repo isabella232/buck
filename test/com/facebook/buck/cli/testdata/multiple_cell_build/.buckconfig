@@ -1,4 +1,0 @@
-[repositories]
-  main = .
-  cxx = ./cxx
-  java = ./java

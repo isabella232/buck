@@ -20,39 +20,37 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.resources.ResourcesConfig;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.core.build.engine.BuildEngine;
-import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
-import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
-import com.facebook.buck.core.build.engine.impl.MetadataChecker;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.actiongraph.ActionGraphAndResolver;
-import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
-import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
-import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.rules.ActionGraphAndResolver;
+import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildEngine;
+import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.ExternalTestRunnerRule;
+import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
+import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.MetadataChecker;
+import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
+import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
-import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
-import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -68,10 +66,10 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
-import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -341,7 +339,7 @@ public class TestCommand extends BuildCommand {
   }
 
   private ExitCode runTestsExternal(
-      CommandRunnerParams params,
+      final CommandRunnerParams params,
       Build build,
       Iterable<String> command,
       Iterable<TestRule> testRules,
@@ -423,7 +421,7 @@ public class TestCommand extends BuildCommand {
     ForwardingProcessListener processListener =
         new ForwardingProcessListener(
             params.getConsole().getStdOut(), params.getConsole().getStdErr());
-    ImmutableSet<String> testTargets =
+    final ImmutableSet<String> testTargets =
         StreamSupport.stream(testRules.spliterator(), /* parallel */ false)
             .map(BuildRule::getBuildTarget)
             .map(Object::toString)
@@ -456,10 +454,15 @@ public class TestCommand extends BuildCommand {
 
     try (CommandThreadManager pool =
             new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool> poolSupplier =
+        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
             getForkJoinPoolSupplier(params.getBuckConfig())) {
+      // Post the build started event, setting it to the Parser recorded start time if appropriate.
       BuildEvent.Started started = BuildEvent.started(getArguments());
-      params.getBuckEventBus().post(started);
+      if (params.getParser().getParseStartTime().isPresent()) {
+        params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
+      } else {
+        params.getBuckEventBus().post(started);
+      }
 
       // The first step is to parse all of the build files. This will populate the parser and find
       // all of the test rules.
@@ -551,7 +554,6 @@ public class TestCommand extends BuildCommand {
               .getActionGraph(
                   params.getBuckEventBus(),
                   targetGraphAndBuildTargets.getTargetGraph(),
-                  params.getCell().getCellProvider(),
                   params.getBuckConfig(),
                   params.getRuleKeyConfiguration(),
                   poolSupplier);
@@ -582,14 +584,6 @@ public class TestCommand extends BuildCommand {
         try (CachingBuildEngine cachingBuildEngine =
                 new CachingBuildEngine(
                     localCachingBuildEngineDelegate,
-                    ModernBuildRuleBuilderFactory.getBuildStrategy(
-                        params.getBuckConfig().getView(ModernBuildRuleConfig.class),
-                        actionGraphAndResolver.getResolver(),
-                        params.getCell(),
-                        params.getBuckConfig().getCellPathResolver(),
-                        localCachingBuildEngineDelegate.getFileHashCache(),
-                        params.getBuckEventBus(),
-                        params.getConsole()),
                     pool.getWeightedListeningExecutorService(),
                     new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
@@ -625,7 +619,7 @@ public class TestCommand extends BuildCommand {
                     isKeepGoing())) {
 
           // Build all of the test rules.
-          ExitCode exitCode =
+          int exitCodeInt =
               build.executeAndPrintFailuresToEventBus(
                   RichStream.from(testRules)
                       .map(TestRule::getBuildTarget)
@@ -633,6 +627,7 @@ public class TestCommand extends BuildCommand {
                   params.getBuckEventBus(),
                   params.getConsole(),
                   getPathToBuildReport(params.getBuckConfig()));
+          ExitCode exitCode = ExitCode.map(exitCodeInt);
           params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
           if (exitCode != ExitCode.SUCCESS) {
             return exitCode;
@@ -806,10 +801,5 @@ public class TestCommand extends BuildCommand {
     public String getMetaVariable(ResourceBundle rb) {
       return getDefaultMetaVariable();
     }
-  }
-
-  @Override
-  public boolean performsBuild() {
-    return true;
   }
 }

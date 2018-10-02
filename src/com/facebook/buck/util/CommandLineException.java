@@ -16,8 +16,6 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import javax.annotation.Nullable;
 
 /**

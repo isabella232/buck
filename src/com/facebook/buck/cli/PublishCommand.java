@@ -21,14 +21,14 @@ import static com.facebook.buck.jvm.core.JavaLibrary.SRC_JAR;
 import static com.facebook.buck.jvm.java.Javadoc.DOC_JAR;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.maven.Publisher;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -57,8 +57,6 @@ public class PublishCommand extends BuildCommand {
   public static final String INCLUDE_DOCS_SHORT_ARG = "-w";
   public static final String TO_MAVEN_CENTRAL_LONG_ARG = "--to-maven-central";
   public static final String DRY_RUN_LONG_ARG = "--dry-run";
-
-  private static final String PUBLISH_GEN_PATH = "publish";
 
   @Option(
     name = REMOTE_REPO_LONG_ARG,
@@ -112,16 +110,6 @@ public class PublishCommand extends BuildCommand {
       throws IOException, InterruptedException {
 
     // Input validation
-    if (remoteRepo != null && toMavenCentral) {
-      throw new CommandLineException(
-          "please specify only a single remote repository to publish to.\n"
-              + "Use "
-              + REMOTE_REPO_LONG_ARG
-              + " <URL> or "
-              + TO_MAVEN_CENTRAL_LONG_ARG
-              + " but not both.");
-    }
-
     if (remoteRepo == null && !toMavenCentral) {
       throw new CommandLineException(
           "please specify a remote repository to publish to.\n"
@@ -132,28 +120,17 @@ public class PublishCommand extends BuildCommand {
     }
 
     // Build the specified target(s).
-
-    assertArguments(params);
-
-    BuildRunResult buildRunResult;
-    try (CommandThreadManager pool =
-        new CommandThreadManager("Publish", getConcurrencyLimit(params.getBuckConfig()))) {
-      buildRunResult = super.run(params, pool, ImmutableSet.of());
-    }
-
-    ExitCode exitCode = buildRunResult.getExitCode();
+    ExitCode exitCode = super.runWithoutHelp(params);
     if (exitCode != ExitCode.SUCCESS) {
       return exitCode;
     }
 
     // Publish starting with the given targets.
-    return publishTargets(buildRunResult.getBuildTargets(), params)
-        ? ExitCode.SUCCESS
-        : ExitCode.RUN_ERROR;
+    return publishTargets(getBuildTargets(), params) ? ExitCode.SUCCESS : ExitCode.RUN_ERROR;
   }
 
   private boolean publishTargets(
-      ImmutableSet<BuildTarget> buildTargets, CommandRunnerParams params) {
+      ImmutableList<BuildTarget> buildTargets, CommandRunnerParams params) {
     ImmutableSet.Builder<MavenPublishable> publishables = ImmutableSet.builder();
     boolean success = true;
     for (BuildTarget buildTarget : buildTargets) {
@@ -184,13 +161,10 @@ public class PublishCommand extends BuildCommand {
       publishables.add(publishable);
     }
 
-    // Assume validation passed.
-    URL repoUrl = toMavenCentral ? Publisher.MAVEN_CENTRAL : Preconditions.checkNotNull(remoteRepo);
-
     Publisher publisher =
         new Publisher(
-            params.getCell().getFilesystem().getBuckPaths().getTmpDir().resolve(PUBLISH_GEN_PATH),
-            repoUrl,
+            params.getCell().getFilesystem(),
+            Optional.ofNullable(remoteRepo),
             Optional.ofNullable(username),
             Optional.ofNullable(password),
             dryRun);
@@ -226,7 +200,7 @@ public class PublishCommand extends BuildCommand {
   }
 
   private static String artifactToString(Artifact artifact) {
-    return artifact + " < " + artifact.getFile();
+    return artifact.toString() + " < " + artifact.getFile();
   }
 
   @Override

@@ -16,26 +16,27 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.json.ObjectMappers;
-import com.google.common.collect.ImmutableMap;
+import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.kohsuke.args4j.Argument;
-import org.kohsuke.args4j.Option;
 
 public class AuditCellCommand extends AbstractCommand {
 
-  @Option(name = "--json", usage = "Output in JSON format")
-  private boolean generateJsonOutput;
-
-  public boolean shouldGenerateJsonOutput() {
-    return generateJsonOutput;
+  private Stream<String> getCells(BuckConfig buckConfig) {
+    return buckConfig
+        .getCellPathResolver()
+        .getCellPaths()
+        .entrySet()
+        .stream()
+        .map((entry) -> String.format("%s: %s", entry.getKey(), entry.getValue()));
   }
 
   @Argument private List<String> arguments = new ArrayList<>();
@@ -47,39 +48,25 @@ public class AuditCellCommand extends AbstractCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    ImmutableMap<String, Path> cellMap;
+    Stream<String> cellList;
     if (getArguments().isEmpty()) {
-      cellMap = params.getBuckConfig().getCellPathResolver().getCellPaths();
+      cellList = getCells(params.getBuckConfig());
     } else {
       CellPathResolver cellPathResolver = params.getBuckConfig().getCellPathResolver();
-      ImmutableMap.Builder<String, Path> outputBuilder = ImmutableMap.builder();
+      Stream.Builder<String> outputBuilder = Stream.builder();
       for (String arg : getArguments()) {
-        Path cellPath = cellPathResolver.getCellPathOrThrow(Optional.of(arg));
-        outputBuilder.put(arg, cellPath);
+        Optional<Path> cellPath = cellPathResolver.getCellPath(Optional.of(arg));
+        if (cellPath.isPresent()) {
+          outputBuilder.add(String.format("%s: %s", arg, cellPath.get()));
+        } else {
+          throw new HumanReadableException("Requested cell name cannot be resolved: %s", arg);
+        }
       }
-      cellMap = outputBuilder.build();
+      cellList = outputBuilder.build();
     }
 
-    if (shouldGenerateJsonOutput()) {
-      printJsonOutput(params, cellMap);
-    } else {
-      printOutput(params, cellMap);
-    }
+    cellList.forEachOrdered(params.getConsole().getStdOut()::println);
     return ExitCode.SUCCESS;
-  }
-
-  private void printOutput(CommandRunnerParams params, ImmutableMap<String, Path> cellMap) {
-    for (Map.Entry<String, Path> entry : cellMap.entrySet()) {
-      params
-          .getConsole()
-          .getStdOut()
-          .println(String.format("%s: %s", entry.getKey(), entry.getValue()));
-    }
-  }
-
-  private void printJsonOutput(CommandRunnerParams params, ImmutableMap<String, Path> cellMap)
-      throws IOException {
-    ObjectMappers.WRITER.writeValue(params.getConsole().getStdOut(), cellMap);
   }
 
   @Override

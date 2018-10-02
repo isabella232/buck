@@ -36,28 +36,28 @@ public class JavaNoOpFileObject extends JarFileObject {
   }
 
   @Override
-  public InputStream openInputStream() {
+  public InputStream openInputStream() throws IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public OutputStream openOutputStream() {
+  public OutputStream openOutputStream() throws IOException {
     return new OutputStream() {
       @Override
-      public void write(int b) {}
+      public void write(int b) throws IOException {}
 
       @Override
-      public void close() {}
+      public void close() throws IOException {}
     };
   }
 
   @Override
-  public Reader openReader(boolean ignoreEncodingErrors) {
+  public Reader openReader(boolean ignoreEncodingErrors) throws IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public CharSequence getCharContent(boolean ignoreEncodingErrors) {
+  public CharSequence getCharContent(boolean ignoreEncodingErrors) throws IOException {
     throw new UnsupportedOperationException();
   }
 

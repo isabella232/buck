@@ -16,21 +16,21 @@
 
 package com.facebook.buck.js;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.UserFlavor;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.UserFlavor;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
@@ -90,8 +90,8 @@ public class JsUtil {
       BuildTarget buildTarget,
       SourcePathResolver sourcePathResolver,
       ProjectFilesystem projectFilesystem) {
-    Tool tool = worker.getTool();
-    WorkerJobParams params =
+    final Tool tool = worker.getTool();
+    final WorkerJobParams params =
         WorkerJobParams.of(
             jobArgs,
             WorkerProcessParams.of(
@@ -102,7 +102,7 @@ public class JsUtil {
                 worker.isPersistent()
                     ? Optional.of(
                         WorkerProcessIdentity.of(
-                            buildTarget.getCellPath().toString() + buildTarget,
+                            buildTarget.getCellPath().toString() + buildTarget.toString(),
                             worker.getInstanceKey()))
                     : Optional.empty()));
     return new WorkerShellStep(

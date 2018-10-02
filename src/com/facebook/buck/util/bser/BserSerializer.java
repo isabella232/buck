@@ -58,7 +58,7 @@ public class BserSerializer {
 
     public final int size;
 
-    BserIntegralEncodedSize(int size) {
+    private BserIntegralEncodedSize(int size) {
       this.size = size;
     }
   }

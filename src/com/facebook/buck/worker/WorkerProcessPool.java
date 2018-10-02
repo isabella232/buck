@@ -27,7 +27,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -38,7 +37,7 @@ public abstract class WorkerProcessPool implements Closeable {
   private final BlockingQueue<WorkerProcess> availableWorkers;
 
   @GuardedBy("createdWorkers")
-  private final List<AtomicReference<WorkerProcess>> createdWorkers;
+  private final List<WorkerProcess> createdWorkers;
 
   private final HashCode poolHash;
 
@@ -77,33 +76,20 @@ public abstract class WorkerProcessPool implements Closeable {
   }
 
   private @Nullable WorkerProcess createNewWorkerIfPossible() throws IOException {
-    AtomicReference<WorkerProcess> ref = new AtomicReference<>();
     synchronized (createdWorkers) {
       if (createdWorkers.size() == capacity) {
         return null;
       }
-      createdWorkers.add(ref);
+      WorkerProcess process = Preconditions.checkNotNull(startWorkerProcess());
+      createdWorkers.add(process);
+      return process;
     }
-
-    WorkerProcess process;
-    try {
-      process = Preconditions.checkNotNull(startWorkerProcess());
-    } catch (Throwable t) {
-      synchronized (createdWorkers) {
-        // AtomicReference#equals compares by instance reference, not by the referenced value.
-        // i.e. new AtomicReference(null) != new AtomicReference(null)
-        createdWorkers.remove(ref);
-      }
-      throw t;
-    }
-    ref.set(process);
-    return process;
   }
 
   public void returnWorkerProcess(WorkerProcess workerProcess) {
     synchronized (createdWorkers) {
       Preconditions.checkArgument(
-          findRefForWorkerProcess(workerProcess) != null,
+          createdWorkers.contains(workerProcess),
           "Trying to return a foreign WorkerProcess to the pool");
     }
     // Note: put() can throw, offer doesn't.
@@ -111,22 +97,11 @@ public abstract class WorkerProcessPool implements Closeable {
     Preconditions.checkState(added, "Should have had enough room for existing worker");
   }
 
-  @Nullable
-  @GuardedBy("createdWorkers")
-  private AtomicReference<WorkerProcess> findRefForWorkerProcess(WorkerProcess workerProcess) {
-    for (AtomicReference<WorkerProcess> ref : createdWorkers) {
-      if (ref.get() == workerProcess) {
-        return ref;
-      }
-    }
-    return null;
-  }
-
   // Same as returnWorkerProcess, except this assumes the worker is borked and should be terminated
   // with prejudice.
   public void destroyWorkerProcess(WorkerProcess workerProcess) {
     synchronized (createdWorkers) {
-      boolean removed = createdWorkers.remove(findRefForWorkerProcess(workerProcess));
+      boolean removed = createdWorkers.remove(workerProcess);
       Preconditions.checkArgument(removed, "Trying to return a foreign WorkerProcess to the pool");
     }
     workerProcess.close();
@@ -136,8 +111,7 @@ public abstract class WorkerProcessPool implements Closeable {
   public void close() {
     ImmutableSet<WorkerProcess> processesToClose;
     synchronized (createdWorkers) {
-      processesToClose =
-          createdWorkers.stream().map(AtomicReference::get).collect(ImmutableSet.toImmutableSet());
+      processesToClose = ImmutableSet.copyOf(createdWorkers);
       Preconditions.checkState(
           availableWorkers.size() == createdWorkers.size(),
           "WorkerProcessPool was still running when shutdown was called.");
@@ -145,9 +119,6 @@ public abstract class WorkerProcessPool implements Closeable {
 
     Exception ex = null;
     for (WorkerProcess process : processesToClose) {
-      Preconditions.checkState(
-          process != null,
-          "WorkerProcessPool: a worker was still starting up when shutdown was called.");
       try {
         process.close();
       } catch (Exception t) {
@@ -166,7 +137,7 @@ public abstract class WorkerProcessPool implements Closeable {
 
   protected abstract WorkerProcess startWorkerProcess() throws IOException;
 
-  HashCode getPoolHash() {
+  public HashCode getPoolHash() {
     return poolHash;
   }
 }

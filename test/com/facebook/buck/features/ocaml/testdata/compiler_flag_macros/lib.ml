@@ -1,1 +1,0 @@
-let func () = Printf.printf "%d!\n%!" [%test];

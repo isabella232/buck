@@ -80,19 +80,14 @@ class ProguardTranslatorFactory {
   }
 
   public Function<String, String> createDeobfuscationFunction() {
-    return createFunction(false, false);
+    return createFunction(false);
   }
 
   public Function<String, String> createObfuscationFunction() {
-    return createFunction(true, false);
+    return createFunction(true);
   }
 
-  public Function<String, String> createNullableObfuscationFunction() {
-    return createFunction(true, true);
-  }
-
-  private Function<String, String> createFunction(
-      final boolean isForObfuscation, final boolean isNullable) {
+  private Function<String, String> createFunction(boolean isForObfuscation) {
     if (!rawMap.isPresent()) {
       return Functions.identity();
     }
@@ -104,11 +99,11 @@ class ProguardTranslatorFactory {
       builder.put(
           isForObfuscation ? original : obfuscated, isForObfuscation ? obfuscated : original);
     }
-    Map<String, String> map = builder.build();
+    final Map<String, String> map = builder.build();
 
     return input -> {
       String mapped = map.get(input);
-      if (isNullable || mapped != null) {
+      if (mapped != null) {
         return mapped;
       } else {
         return input;

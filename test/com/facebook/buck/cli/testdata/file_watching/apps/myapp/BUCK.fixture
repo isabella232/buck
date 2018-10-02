@@ -1,6 +1,0 @@
-java_binary(
-    name = "app",
-    deps = [
-        "//java/com/example/activity:activity",
-    ],
-)

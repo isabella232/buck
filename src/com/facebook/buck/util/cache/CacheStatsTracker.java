@@ -56,38 +56,38 @@ public interface CacheStatsTracker {
   void recordInvalidation(long num);
 
   /** Class that keeps record and timings of a single cache request */
-  interface CacheRequest {
+  public interface CacheRequest {
 
     /**
      * Records that a cache hit has occurred and updates the corresponding CacheStatsTracker, and
      * records the time it took for the cache retrieval
      */
-    void recordHit();
+    public void recordHit();
 
     /**
      * Records that a cache miss has occurred and updates the corresponding CacheStatsTracker, and
      * starts recording the load time starting at this instant. If no load event occurs, the current
      * time will be recorded as the time it took for a cache miss
      */
-    void recordMiss();
+    public void recordMiss();
 
     /**
      * Records that a cache miss due to mismatch has occurred and updates the corresponding
      * CacheStatsTracker, and starts recording the load time starting at this instant. If no load
      * event occurs, the current time will be recorded as the time it took for a cache miss
      */
-    void recordMissMatch();
+    public void recordMissMatch();
 
     /**
      * Records that a cache load was successful and updates the corresponding CacheStatsTracker, and
      * records the time it took to load the object and updates the total time spent on a cache miss
      */
-    void recordLoadSuccess();
+    public void recordLoadSuccess();
 
     /**
      * Records that a cache load has failed and updates the corresponding CacheStatsTracker, and
      * records the time spent on a cache miss
      */
-    void recordLoadFail();
+    public void recordLoadFail();
   }
 }

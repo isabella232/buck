@@ -1,8 +1,0 @@
-{
-  "java-lib" : {
-    "buck.base_path" : "example",
-    "buck.type" : "java_library",
-    "name" : "java-lib",
-    "srcs" : [ ]
-  }
-}

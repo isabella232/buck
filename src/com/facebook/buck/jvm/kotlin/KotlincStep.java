@@ -17,8 +17,8 @@ package com.facebook.buck.jvm.kotlin;
 
 import static com.google.common.collect.Iterables.transform;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -35,12 +35,9 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 public class KotlincStep implements Step {
-
-  private static final String CLASSPATH_FLAG = "-classpath";
+  private static final String CLASSPATH_FLAG = "-cp";
   private static final String DESTINATION_FLAG = "-d";
   private static final String INCLUDE_RUNTIME_FLAG = "-include-runtime";
-  private static final String EXCLUDE_REFLECT = "-no-reflect";
-  private static final String VERBOSE = "-verbose";
 
   private final Kotlinc kotlinc;
   private final ImmutableSortedSet<Path> combinedClassPathEntries;
@@ -50,7 +47,6 @@ public class KotlincStep implements Step {
   private final ProjectFilesystem filesystem;
   private final Path pathToSrcsList;
   private final BuildTarget invokingRule;
-  private final Optional<Path> workingDirectory;
 
   KotlincStep(
       BuildTarget invokingRule,
@@ -60,8 +56,7 @@ public class KotlincStep implements Step {
       ImmutableSortedSet<Path> combinedClassPathEntries,
       Kotlinc kotlinc,
       ImmutableList<String> extraArguments,
-      ProjectFilesystem filesystem,
-      Optional<Path> workingDirectory) {
+      ProjectFilesystem filesystem) {
     this.invokingRule = invokingRule;
     this.outputDirectory = outputDirectory;
     this.sourceFilePaths = sourceFilePaths;
@@ -70,7 +65,6 @@ public class KotlincStep implements Step {
     this.combinedClassPathEntries = combinedClassPathEntries;
     this.extraArguments = extraArguments;
     this.filesystem = filesystem;
-    this.workingDirectory = workingDirectory;
   }
 
   @Override
@@ -96,7 +90,7 @@ public class KotlincStep implements Step {
               getOptions(context, combinedClassPathEntries),
               sourceFilePaths,
               pathToSrcsList,
-              workingDirectory,
+              Optional.empty(),
               filesystem);
 
       String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
@@ -140,11 +134,9 @@ public class KotlincStep implements Step {
       Path outputDirectory,
       ImmutableSortedSet<Path> buildClasspathEntries) {
 
-    ImmutableList.Builder<String> builder = ImmutableList.builder();
+    final ImmutableList.Builder<String> builder = ImmutableList.builder();
 
-    if (outputDirectory != null) {
-      builder.add(DESTINATION_FLAG, filesystem.resolve(outputDirectory).toString());
-    }
+    builder.add(INCLUDE_RUNTIME_FLAG);
 
     if (!buildClasspathEntries.isEmpty()) {
       builder.add(
@@ -156,9 +148,7 @@ public class KotlincStep implements Step {
                       path -> filesystem.resolve(path).toAbsolutePath().toString())));
     }
 
-    builder.add(INCLUDE_RUNTIME_FLAG);
-    builder.add(EXCLUDE_REFLECT);
-    builder.add(VERBOSE);
+    builder.add(DESTINATION_FLAG, filesystem.resolve(outputDirectory).toString());
 
     if (!extraArguments.isEmpty()) {
       builder.addAll(extraArguments);

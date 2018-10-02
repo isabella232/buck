@@ -1,5 +1,0 @@
-java_library(
-    name = "library",
-    manifest_file = "manifest.mf",
-    resources = ["foo.txt"],
-)

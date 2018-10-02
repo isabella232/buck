@@ -17,8 +17,6 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.SamplingCounter;
@@ -28,6 +26,8 @@ import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
@@ -186,7 +186,7 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
   }
 
   @Override
-  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
+  public ListenableFuture<Void> store(final ArtifactInfo info, final BorrowablePath output) {
 
     return Futures.transformAsync(
         attemptTwoLevelStore(info, output),
@@ -219,7 +219,8 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
     return delegate;
   }
 
-  private ListenableFuture<Boolean> attemptTwoLevelStore(ArtifactInfo info, BorrowablePath output) {
+  private ListenableFuture<Boolean> attemptTwoLevelStore(
+      final ArtifactInfo info, final BorrowablePath output) {
 
     return Futures.transformAsync(
         Futures.immediateFuture(null),

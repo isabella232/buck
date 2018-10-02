@@ -342,7 +342,11 @@ class SignatureFactory {
       }
     }
 
-    return throwsATypeVar(type);
+    if (throwsATypeVar(type)) {
+      return true;
+    }
+
+    return false;
   }
 
   private static boolean throwsATypeVar(ExecutableType type) {

@@ -1,8 +1,0 @@
-android_resource(
-    name = "android_res3",
-    package = "com.test",
-    project_res = "res",
-    visibility = [
-        "PUBLIC",
-    ],
-)

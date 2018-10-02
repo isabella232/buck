@@ -69,7 +69,7 @@ public class WeightedListeningExecutorService extends AbstractListeningExecutorS
   }
 
   private <T> ListenableFuture<T> submitWithSemaphore(
-      Callable<T> callable, ResourceAmounts amounts) {
+      final Callable<T> callable, final ResourceAmounts amounts) {
     ListenableFuture<T> future =
         Futures.transformAsync(
             semaphore.acquire(amounts),
@@ -87,7 +87,7 @@ public class WeightedListeningExecutorService extends AbstractListeningExecutorS
     return future;
   }
 
-  public ListenableFuture<?> submit(Runnable task, ResourceAmounts amounts) {
+  public ListenableFuture<?> submit(final Runnable task, ResourceAmounts amounts) {
     return submit(task, null, amounts);
   }
 
@@ -98,7 +98,7 @@ public class WeightedListeningExecutorService extends AbstractListeningExecutorS
   }
 
   public <T> ListenableFuture<T> submit(
-      Runnable task, @Nullable T result, ResourceAmounts amounts) {
+      final Runnable task, @Nullable final T result, ResourceAmounts amounts) {
     return submitWithSemaphore(
         () -> {
           task.run();

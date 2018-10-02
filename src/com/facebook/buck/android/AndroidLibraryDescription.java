@@ -16,15 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.HasDepsQuery;
-import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.rules.type.BuildRuleType;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -34,12 +25,22 @@ import com.facebook.buck.jvm.java.JavaSourceJar;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
+import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasProvidedDepsQuery;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
@@ -62,11 +63,15 @@ public class AndroidLibraryDescription
     SCALA,
   }
 
+  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
   private final AndroidLibraryCompilerFactory compilerFactory;
 
   public AndroidLibraryDescription(
-      JavaBuckConfig javaBuckConfig, AndroidLibraryCompilerFactory compilerFactory) {
+      ToolchainProvider toolchainProvider,
+      JavaBuckConfig javaBuckConfig,
+      AndroidLibraryCompilerFactory compilerFactory) {
+    this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
     this.compilerFactory = compilerFactory;
   }
@@ -78,11 +83,13 @@ public class AndroidLibraryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      TargetGraph targetGraph,
       BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       AndroidLibraryDescriptionArg args) {
-    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     if (buildTarget.getFlavors().contains(JavaLibrary.SRC_JAR)) {
       return new JavaSourceJar(
           buildTarget, projectFilesystem, params, args.getSrcs(), args.getMavenCoords());
@@ -94,7 +101,6 @@ public class AndroidLibraryDescription
           "union_package should be specified if skip_non_union_r_dot_java is set");
     }
 
-    ToolchainProvider toolchainProvider = context.getToolchainProvider();
     boolean hasDummyRDotJavaFlavor = buildTarget.getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
@@ -103,16 +109,14 @@ public class AndroidLibraryDescription
                 .getJavacOptions(),
             buildTarget,
             projectFilesystem,
-            context.getBuildRuleResolver(),
+            resolver,
             args);
     AndroidLibrary.Builder androidLibraryBuilder =
         AndroidLibrary.builder(
             buildTarget,
             projectFilesystem,
-            toolchainProvider,
             params,
-            context.getBuildRuleResolver(),
-            context.getCellPathResolver(),
+            resolver,
             javaBuckConfig,
             javacOptions,
             args,

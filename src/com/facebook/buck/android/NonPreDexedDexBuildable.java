@@ -20,23 +20,22 @@ import static com.facebook.buck.android.AndroidBinaryBuildable.SMART_DEX_SECONDA
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -48,6 +47,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -365,7 +365,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
       steps.add(
           new AbstractExecutionStep("symlinking for preprocessing") {
             @Override
-            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+            public StepExecutionResult execute(ExecutionContext context)
+                throws IOException, InterruptedException {
               for (Pair<Path, Path> entry : pathToTarget) {
                 Path symlinkPath = getProjectFilesystem().resolve(entry.getFirst());
                 Path symlinkTarget = getProjectFilesystem().resolve(entry.getSecond());
@@ -481,7 +482,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
     steps.add(
         new AbstractExecutionStep("writing_secondary_dex_listing") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) throws IOException {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             getProjectFilesystem().mkdirs(getSecondaryDexListing().getParent());
             getProjectFilesystem()
                 .writeLinesToPath(
@@ -516,13 +518,14 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   }
 
   Supplier<ImmutableMap<String, HashCode>> addAccumulateClassNamesStep(
-      ImmutableSet<Path> classPathEntriesToDex, ImmutableList.Builder<Step> steps) {
-    ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
+      final ImmutableSet<Path> classPathEntriesToDex, ImmutableList.Builder<Step> steps) {
+    final ImmutableMap.Builder<String, HashCode> builder = ImmutableMap.builder();
 
     steps.add(
         new AbstractExecutionStep("collect_all_class_names") {
           @Override
-          public StepExecutionResult execute(ExecutionContext context) {
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
             Map<String, Path> classesToSources = new HashMap<>();
             for (Path path : classPathEntriesToDex) {
               Optional<ImmutableSortedMap<String, HashCode>> hashes =
@@ -576,7 +579,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
     // Transform our input classpath to a set of output locations for each input classpath.
     // TODO(devjasta): the output path we choose is the result of a slicing function against
     // input classpath. This is fragile and should be replaced with knowledge of the BuildTarget.
-    ImmutableMap<Path, Path> inputOutputEntries =
+    final ImmutableMap<Path, Path> inputOutputEntries =
         classpathEntriesToDex
             .stream()
             .collect(
@@ -645,13 +648,13 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
       ImmutableMultimap<APKModule, Path> additionalDexStoreToJarPathMap,
       BuildContext buildContext) {
     SourcePathResolver resolver = buildContext.getSourcePathResolver();
-    Supplier<Set<Path>> primaryInputsToDex;
-    Optional<Path> secondaryDexDir;
-    Optional<Supplier<Multimap<Path, Path>>> secondaryOutputToInputs;
+    final Supplier<Set<Path>> primaryInputsToDex;
+    final Optional<Path> secondaryDexDir;
+    final Optional<Supplier<Multimap<Path, Path>>> secondaryOutputToInputs;
     Path secondaryDexParentDir = getSecondaryDexRoot().resolve("__secondary_dex__/");
     Path additionalDexParentDir = getSecondaryDexRoot().resolve("__additional_dex__/");
     Path additionalDexAssetsDir = additionalDexParentDir.resolve("assets");
-    Optional<ImmutableSet<Path>> additionalDexDirs;
+    final Optional<ImmutableSet<Path>> additionalDexDirs;
 
     if (shouldSplitDex) {
       Optional<Path> proguardFullConfigFile = Optional.empty();
@@ -688,7 +691,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
       // important because SmartDexingCommand will try to dx every entry in this directory.  It
       // does this because it's impossible to know what outputs split-zip will generate until it
       // runs.
-      Path secondaryZipDir = getBinPath("__secondary_zip__");
+      final Path secondaryZipDir = getBinPath("__secondary_zip__");
 
       steps.addAll(
           MakeCleanDirectoryStep.of(
@@ -697,7 +700,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
 
       // Intermediate directory holding the directories holding _ONLY_ the additional split-zip
       // jar files that are intended for that dex store.
-      Path additionalDexStoresZipDir = getBinPath("__dex_stores_zip__");
+      final Path additionalDexStoresZipDir = getBinPath("__dex_stores_zip__");
 
       steps.addAll(
           MakeCleanDirectoryStep.of(

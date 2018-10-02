@@ -49,7 +49,7 @@ class StandaloneIntersectionType extends StandaloneTypeMirror implements Interse
 
     for (TypeMirror bound : bounds) {
       builder.append("&");
-      builder.append(bound);
+      builder.append(bound.toString());
     }
 
     return builder.toString();

@@ -36,9 +36,9 @@ import javax.tools.Diagnostic.Kind;
  * <p>For example, given the following configuration:
  *
  * <pre>
- *   package com.facebook.buck.some.module;
- *
- *  {@literal @}BuckModule
+ *  {@literal @}BuckModule(
+ *     name = "com.facebook.buck.some.module"
+ *   )
  *   public class SomeModule {}
  * </pre>
  *
@@ -102,10 +102,7 @@ public class BuckModuleAnnotationProcessor extends AbstractProcessor {
     try {
       buckModuleAdapterPluginGenerator.write();
     } catch (IOException e) {
-      processingEnv
-          .getMessager()
-          .printMessage(
-              Kind.ERROR, "Could not generate Buck module: " + ThrowablesUtils.toString(e));
+      processingEnv.getMessager().printMessage(Kind.ERROR, "Could not generate Buck module: " + e);
       return false;
     }
 

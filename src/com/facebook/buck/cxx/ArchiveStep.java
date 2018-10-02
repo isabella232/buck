@@ -91,7 +91,7 @@ class ArchiveStep implements Step {
       if (filesystem.isDirectory(input)) {
         // We make sure to sort the files we find under the directories so that we get
         // deterministic output.
-        Set<String> dirFiles = new TreeSet<>();
+        final Set<String> dirFiles = new TreeSet<>();
         filesystem.walkFileTree(
             filesystem.resolve(input),
             new SimpleFileVisitor<Path>() {
@@ -111,7 +111,7 @@ class ArchiveStep implements Step {
   }
 
   private ProcessExecutor.Result runArchiver(
-      ExecutionContext context, ImmutableList<String> command)
+      ExecutionContext context, final ImmutableList<String> command)
       throws IOException, InterruptedException {
     Map<String, String> env = new HashMap<>(context.getEnvironment());
     env.putAll(environment);

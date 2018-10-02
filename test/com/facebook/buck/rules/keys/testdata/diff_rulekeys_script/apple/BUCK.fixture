@@ -1,5 +1,0 @@
-cxx_binary(
-    name = "cxx_bin",
-    srcs = ["a.cpp"],
-    preprocessor_flags = ["-I$SDKROOT/usr/include/libxml2"],
-)

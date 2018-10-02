@@ -20,7 +20,6 @@ import com.facebook.buck.command.BuildExecutor;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.ExitCode;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.Closeable;
 import java.io.IOException;
@@ -62,17 +61,17 @@ public class RemoteBuildModeRunner extends AbstractDistBuildModeRunner {
   }
 
   @Override
-  public ExitCode runAndReturnExitCode(HeartbeatService heartbeatService)
+  public int runAndReturnExitCode(HeartbeatService heartbeatService)
       throws IOException, InterruptedException {
     try (Closeable healthCheck =
         heartbeatService.addCallback(
             "RemoteBuilderIsAlive",
             CoordinatorModeRunner.createHeartbeatCallback(stampedeId, distBuildService))) {
-      ExitCode buildExitCode =
+      int buildExitCode =
           localBuildExecutor
               .get()
               .buildLocallyAndReturnExitCode(topLevelTargetsToBuild, Optional.empty());
-      setter.setFinalBuildStatus(buildExitCode.getCode());
+      setter.setFinalBuildStatus(buildExitCode);
       return buildExitCode;
     } catch (ExecutionException e) {
       String msg = String.format("Failed to get the BuildExecutor.");

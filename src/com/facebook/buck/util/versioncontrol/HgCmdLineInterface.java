@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 
 public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
@@ -53,6 +55,9 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
   private static final String HG_CMD_TEMPLATE = "{hg}";
   private static final String REVISION_ID_TEMPLATE = "{revision}";
+
+  private static final ImmutableList<String> ROOT_COMMAND =
+      ImmutableList.of(HG_CMD_TEMPLATE, "root");
 
 
   private static final ImmutableList<String> CURRENT_REVISION_ID_COMMAND =
@@ -75,6 +80,8 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private final Path projectRoot;
   private final String hgCmd;
   private final ImmutableMap<String, String> environment;
+
+  @Nullable private Optional<Path> hgRoot;
 
   public HgCmdLineInterface(
       ProcessExecutorFactory processExecutorFactory,
@@ -180,6 +187,18 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
         Long.valueOf(baseRevisionWords[1]));
   }
 
+  @Nullable
+  public Path getHgRoot() throws InterruptedException {
+    if (hgRoot == null) {
+      try {
+        hgRoot = Optional.of(Paths.get(executeCommand(ROOT_COMMAND)));
+      } catch (VersionControlCommandFailedException e) {
+        hgRoot = Optional.empty();
+      }
+    }
+    return hgRoot.orElse(null);
+  }
+
   private String executeCommand(Iterable<String> command)
       throws VersionControlCommandFailedException, InterruptedException {
     return executeCommand(command, true);
@@ -239,7 +258,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   private static Iterable<String> replaceTemplateValue(
-      Iterable<String> values, String template, String replacement) {
+      Iterable<String> values, final String template, final String replacement) {
     return StreamSupport.stream(values.spliterator(), false)
         .map(text -> text.contains(template) ? text.replace(template, replacement) : text)
         .collect(ImmutableList.toImmutableList());

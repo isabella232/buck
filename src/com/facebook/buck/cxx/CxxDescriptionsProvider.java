@@ -64,6 +64,7 @@ public class CxxDescriptionsProvider implements DescriptionProvider {
 
     CxxLibraryDescription cxxLibraryDescription =
         new CxxLibraryDescription(
+            toolchainProvider,
             cxxLibraryImplicitFlavors,
             cxxLibraryFlavored,
             cxxLibraryFactory,

@@ -18,11 +18,11 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.DirectoryCleanerArgs;
 import com.google.common.annotations.VisibleForTesting;
@@ -274,7 +274,7 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   Path getPathForRuleKey(RuleKey ruleKey, Optional<String> extension) {
-    return getParentDirForRuleKey(ruleKey).resolve(ruleKey + extension.orElse(""));
+    return getParentDirForRuleKey(ruleKey).resolve(ruleKey.toString() + extension.orElse(""));
   }
 
   @VisibleForTesting
@@ -333,8 +333,8 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   List<Path> getAllFilesInCache() {
-    List<Path> allFiles = new ArrayList<>();
-    Path tempFolderPath = getPathToTempFolder();
+    final List<Path> allFiles = new ArrayList<>();
+    final Path tempFolderPath = getPathToTempFolder();
     try {
       Files.walkFileTree(
           filesystem.resolve(cacheDir),
@@ -382,7 +382,7 @@ public class DirArtifactCache implements ArtifactCache {
   DirectoryCleaner.PathSelector getDirectoryCleanerPathSelector() {
     return new DirectoryCleaner.PathSelector() {
       @Override
-      public Iterable<Path> getCandidatesToDelete(Path rootPath) {
+      public Iterable<Path> getCandidatesToDelete(Path rootPath) throws IOException {
         return getAllFilesInCache();
       }
 

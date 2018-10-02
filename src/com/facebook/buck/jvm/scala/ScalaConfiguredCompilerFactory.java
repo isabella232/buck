@@ -16,9 +16,6 @@
 
 package com.facebook.buck.jvm.scala;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
@@ -28,32 +25,33 @@ import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.Optionals;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
-import java.util.function.Function;
 import javax.annotation.Nullable;
 
 public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   private final ScalaBuckConfig scalaBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
-  private final Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier;
+  private final ExtraClasspathProvider extraClasspathProvider;
   private @Nullable Tool scalac;
 
   public ScalaConfiguredCompilerFactory(ScalaBuckConfig config, JavaBuckConfig javaBuckConfig) {
-    this(config, javaBuckConfig, (toolchainProvider) -> ExtraClasspathProvider.EMPTY);
+    this(config, javaBuckConfig, ExtraClasspathProvider.EMPTY);
   }
 
   public ScalaConfiguredCompilerFactory(
       ScalaBuckConfig config,
       JavaBuckConfig javaBuckConfig,
-      Function<ToolchainProvider, ExtraClasspathProvider> extraClasspathProviderSupplier) {
+      ExtraClasspathProvider extraClasspathProvider) {
     this.scalaBuckConfig = config;
     this.javaBuckConfig = javaBuckConfig;
-    this.extraClasspathProviderSupplier = extraClasspathProviderSupplier;
+    this.extraClasspathProvider = extraClasspathProvider;
   }
 
   private Tool getScalac(BuildRuleResolver resolver) {
@@ -70,8 +68,7 @@ public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
       ProjectFilesystem projectFilesystem,
       @Nullable JvmLibraryArg arg,
       JavacOptions javacOptions,
-      BuildRuleResolver buildRuleResolver,
-      ToolchainProvider toolchainProvider) {
+      BuildRuleResolver buildRuleResolver) {
 
     return new ScalacToJarStepFactory(
         sourcePathResolver,
@@ -84,7 +81,7 @@ public class ScalaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
         buildRuleResolver.getAllRules(scalaBuckConfig.getCompilerPlugins()),
         getJavac(buildRuleResolver, arg),
         javacOptions,
-        extraClasspathProviderSupplier.apply(toolchainProvider));
+        extraClasspathProvider);
   }
 
   @Override

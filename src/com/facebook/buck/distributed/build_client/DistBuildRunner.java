@@ -15,8 +15,6 @@
  */
 package com.facebook.buck.distributed.build_client;
 
-import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
-import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
@@ -24,6 +22,8 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -31,8 +31,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,7 +53,6 @@ public class DistBuildRunner {
   private final RemoteBuildRuleSynchronizer remoteBuildSynchronizer;
   private final ImmutableSet<CountDownLatch> buildPhaseLatches;
   private final boolean waitGracefullyForDistributedBuildThreadToFinish;
-  private final long distributedBuildThreadKillTimeoutSeconds;
 
   private final AtomicInteger distributedBuildExitCode;
   private final AtomicBoolean distributedBuildTerminated;
@@ -73,8 +70,7 @@ public class DistBuildRunner {
       BuildEvent.DistBuildStarted started,
       RemoteBuildRuleSynchronizer remoteBuildSynchronizer,
       ImmutableSet<CountDownLatch> buildPhaseLatches,
-      boolean waitGracefullyForDistributedBuildThreadToFinish,
-      long distributedBuildThreadKillTimeoutSeconds) {
+      boolean waitGracefullyForDistributedBuildThreadToFinish) {
     this.distBuildControllerInvoker = distBuildControllerInvoker;
     this.executor = executor;
     this.eventBus = eventBus;
@@ -86,7 +82,6 @@ public class DistBuildRunner {
     distributedBuildTerminated = new AtomicBoolean(false);
     this.waitGracefullyForDistributedBuildThreadToFinish =
         waitGracefullyForDistributedBuildThreadToFinish;
-    this.distributedBuildThreadKillTimeoutSeconds = distributedBuildThreadKillTimeoutSeconds;
 
     this.distributedBuildExitCode =
         new AtomicInteger(
@@ -134,11 +129,11 @@ public class DistBuildRunner {
       }
 
       // Local build should not be blocked, even if one of the distributed stages failed.
-      remoteBuildSynchronizer.signalCompletionOfRemoteBuild(
-          distributedBuildExitCode.get() == ExitCode.SUCCESSFUL.getCode());
-      // We probably already have sent the DistBuildFinishedEvent but in case it slipped through the
-      // exceptions, send it again.
-      eventBus.post(BuildEvent.distBuildFinished(Preconditions.checkNotNull(started), exitCode));
+      remoteBuildSynchronizer.signalCompletionOfRemoteBuild();
+      BuildEvent.DistBuildFinished finished =
+          BuildEvent.distBuildFinished(
+              Preconditions.checkNotNull(started), com.facebook.buck.util.ExitCode.map(exitCode));
+      eventBus.post(finished);
 
       // Whichever build phase is executing should now move to the final stage.
       buildPhaseLatches.forEach(latch -> latch.countDown());
@@ -157,7 +152,7 @@ public class DistBuildRunner {
 
     String statusString =
         localBuildSucceeded
-            ? "finished"
+            ? "succeeded"
             : String.format("failed [exitCode=%d]", localBuildExitCode);
     eventBus.post(new StampedeLocalBuildStatusEvent(statusString));
 
@@ -178,7 +173,7 @@ public class DistBuildRunner {
     if (waitGracefullyForDistributedBuildThreadToFinish) {
       waitUntilFinished();
     } else {
-      waitUntilFinishedOrKillOnTimeout();
+      runDistributedBuildFuture.cancel(true);
     }
   }
 
@@ -188,19 +183,6 @@ public class DistBuildRunner {
       Preconditions.checkNotNull(runDistributedBuildFuture).get();
     } catch (ExecutionException e) {
       LOG.error(e, "Exception thrown whilst waiting for distributed build thread to finish");
-    }
-  }
-
-  private synchronized void waitUntilFinishedOrKillOnTimeout() throws InterruptedException {
-    try {
-      Preconditions.checkNotNull(runDistributedBuildFuture)
-          .get(distributedBuildThreadKillTimeoutSeconds, TimeUnit.SECONDS);
-    } catch (ExecutionException | TimeoutException e) {
-      LOG.warn(
-          e,
-          "Distributed build failed to finish within timeout after getting killed. "
-              + "Abandoning now.");
-      runDistributedBuildFuture.cancel(true);
     }
   }
 

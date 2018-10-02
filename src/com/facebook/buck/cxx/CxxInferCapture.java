@@ -16,23 +16,22 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.shell.DefaultShellStep;
@@ -42,6 +41,7 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -80,7 +80,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
       SourcePath input,
       AbstractCxxSource.Type inputType,
       Optional<PreInclude> preInclude,
-      String outputName,
+      Path output,
       PreprocessorDelegate preprocessorDelegate,
       InferBuckConfig inferConfig) {
     super(buildTarget, projectFilesystem);
@@ -90,8 +90,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
     this.input = input;
     this.inputType = inputType;
     this.preInclude = preInclude;
-    this.output =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/" + outputName);
+    this.output = output;
     this.preprocessorDelegate = preprocessorDelegate;
     this.inferConfig = inferConfig;
     this.resultsDir =
@@ -103,9 +102,8 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
     return buildDeps;
   }
 
-  private CxxToolFlags getSearchPathFlags(SourcePathResolver pathResolver) {
-    return preprocessorDelegate.getFlagsWithSearchPaths(
-        /* no pch */ Optional.empty(), pathResolver);
+  private CxxToolFlags getSearchPathFlags() {
+    return preprocessorDelegate.getFlagsWithSearchPaths(/* no pch */ Optional.empty());
   }
 
   private ImmutableList<String> getFrontendCommand() {
@@ -124,9 +122,11 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    preprocessorDelegate
-        .checkConflictingHeaders()
-        .ifPresent(result -> result.throwHumanReadableExceptionWithContext(getBuildTarget()));
+    try {
+      CxxHeaders.checkConflictingHeaders(preprocessorDelegate.getCxxIncludePaths().getIPaths());
+    } catch (CxxHeaders.ConflictingHeadersException e) {
+      throw e.getHumanReadableExceptionForBuildTarget(getBuildTarget());
+    }
 
     ImmutableList<String> frontendCommand = getFrontendCommand();
 
@@ -187,7 +187,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
           Depfiles.parseAndVerifyDependencies(
               context.getEventBus(),
               getProjectFilesystem(),
-              preprocessorDelegate.getHeaderPathNormalizer(context.getSourcePathResolver()),
+              preprocessorDelegate.getHeaderPathNormalizer(),
               preprocessorDelegate.getHeaderVerification(),
               getDepFilePath(),
               context.getSourcePathResolver().getRelativePath(input),
@@ -200,9 +200,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
     ImmutableList.Builder<SourcePath> inputs = ImmutableList.builder();
 
     // include all inputs coming from the preprocessor tool.
-    inputs.addAll(
-        preprocessorDelegate.getInputsAfterBuildingLocally(
-            dependencies, context.getSourcePathResolver()));
+    inputs.addAll(preprocessorDelegate.getInputsAfterBuildingLocally(dependencies));
 
     // Add the input.
     inputs.add(input);
@@ -217,7 +215,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
   }
 
   private Path getDepFilePath() {
-    return output.getFileSystem().getPath(output + ".dep");
+    return output.getFileSystem().getPath(output.toString() + ".dep");
   }
 
   private class WriteArgFileStep implements Step {
@@ -266,8 +264,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
           .addAll(getPreIncludeArgs())
           .addAll(
               Arg.stringify(
-                  CxxToolFlags.concat(
-                          preprocessorFlags, getSearchPathFlags(pathResolver), compilerFlags)
+                  CxxToolFlags.concat(preprocessorFlags, getSearchPathFlags(), compilerFlags)
                       .getAllFlags(),
                   pathResolver))
           .add("-x", inputType.getLanguage())

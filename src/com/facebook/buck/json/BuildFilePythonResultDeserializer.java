@@ -48,7 +48,7 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
 
   @Override
   public BuildFilePythonResult deserialize(JsonParser jp, DeserializationContext ctxt)
-      throws IOException {
+      throws IOException, JsonParseException {
     if (jp.getCurrentToken() != JsonToken.START_OBJECT) {
       throw new JsonParseException(jp, "Missing expected START_OBJECT");
     }
@@ -78,7 +78,7 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
   }
 
   private static ImmutableList<Map<String, Object>> deserializeObjectList(JsonParser jp)
-      throws IOException {
+      throws IOException, JsonParseException {
     JsonToken token = jp.nextToken();
     if (token != JsonToken.START_ARRAY) {
       throw new JsonParseException(jp, "Missing expected START_ARRAY, got: " + token);
@@ -93,7 +93,8 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
     return result.build();
   }
 
-  private static Map<String, Object> deserializeObject(JsonParser jp) throws IOException {
+  private static Map<String, Object> deserializeObject(JsonParser jp)
+      throws IOException, JsonParseException {
     ImmutableMapWithNullValues.Builder<String, Object> builder =
         ImmutableMapWithNullValues.Builder.insertionOrder();
     String fieldName;
@@ -106,7 +107,8 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
     return builder.build();
   }
 
-  private static List<Object> deserializeList(JsonParser jp) throws IOException {
+  private static List<Object> deserializeList(JsonParser jp)
+      throws IOException, JsonParseException {
     ImmutableList.Builder<Object> builder = ImmutableList.builder();
     JsonToken token;
     while ((token = jp.nextToken()) != JsonToken.END_ARRAY) {
@@ -119,7 +121,8 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
   }
 
   @Nullable
-  private static Object deserializeRecursive(JsonParser jp, JsonToken token) throws IOException {
+  private static Object deserializeRecursive(JsonParser jp, JsonToken token)
+      throws IOException, JsonParseException {
     switch (token) {
       case START_OBJECT:
         return deserializeObject(jp);
@@ -139,7 +142,7 @@ final class BuildFilePythonResultDeserializer extends StdDeserializer<BuildFileP
         return STRING_INTERNER.intern(jp.getText());
         // $CASES-OMITTED$
       default:
-        throw new JsonParseException(jp, "Unexpected token: " + token);
+        throw new JsonParseException(jp, "Unexpected token: " + token.toString());
     }
   }
 }

@@ -78,7 +78,7 @@ public abstract class ActionGraphEvent extends AbstractBuckEvent
     }
   }
 
-  public static class Cache extends ActionGraphEvent implements BuckEvent {
+  public static class Cache extends ActionGraphEvent implements BroadcastEvent {
     private final String eventName;
 
     public Cache(String eventName) {

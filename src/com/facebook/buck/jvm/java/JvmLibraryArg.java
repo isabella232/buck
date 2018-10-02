@@ -15,21 +15,20 @@
  */
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.description.arg.CommonDescriptionArg;
-import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig.SourceAbiVerificationMode;
-import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -43,7 +42,7 @@ public interface JvmLibraryArg extends CommonDescriptionArg, MaybeRequiredForSou
 
   Optional<String> getJavaVersion();
 
-  Optional<SourcePath> getJavac();
+  Optional<Path> getJavac();
 
   Optional<SourcePath> getJavacJar();
 
@@ -72,8 +71,6 @@ public interface JvmLibraryArg extends CommonDescriptionArg, MaybeRequiredForSou
 
   Optional<SourceAbiVerificationMode> getSourceAbiVerificationMode();
 
-  Optional<UnusedDependenciesAction> getOnUnusedDependencies();
-
   @Value.Derived
   @Nullable
   default JavacSpec getJavacSpec() {
@@ -85,7 +82,7 @@ public interface JvmLibraryArg extends CommonDescriptionArg, MaybeRequiredForSou
         .setCompiler(getCompiler())
         .setJavacPath(
             getJavac().isPresent()
-                ? Optional.of(Either.ofLeft((PathSourcePath) getJavac().get()))
+                ? Optional.of(Either.ofLeft(getJavac().get()))
                 : Optional.empty())
         .setJavacJarPath(getJavacJar())
         .setCompilerClassName(getCompilerClassName())

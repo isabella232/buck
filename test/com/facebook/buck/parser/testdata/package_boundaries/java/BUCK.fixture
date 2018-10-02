@@ -1,4 +1,0 @@
-java_library(
-    name = "foo",
-    srcs = ["dir/Foo.java"],
-)

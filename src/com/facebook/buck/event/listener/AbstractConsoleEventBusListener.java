@@ -17,11 +17,6 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.core.build.engine.BuildRuleStatus;
-import com.facebook.buck.core.build.event.BuildEvent;
-import com.facebook.buck.core.build.event.BuildRuleEvent;
-import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
@@ -38,8 +33,13 @@ import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
+import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
+import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRuleEvent;
+import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -221,14 +221,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     return publicAnnouncements;
   }
 
-  public boolean displaysEstimatedProgress() {
-    return false;
-  }
-
   public void setProgressEstimator(ProgressEstimator estimator) {
-    if (displaysEstimatedProgress()) {
-      progressEstimator = Optional.of(estimator);
-    }
+    progressEstimator = Optional.of(estimator);
   }
 
   protected String formatElapsedTime(long elapsedTimeMs) {
@@ -246,20 +240,15 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     return Optional.of(Math.floor(100 * buildRatio) / 100.0);
   }
 
-  /** Local build progress. */
-  protected Optional<Double> getApproximateLocalBuildProgress() {
-    if (progressEstimator.isPresent()) {
-      return progressEstimator.get().getApproximateBuildProgress();
-    } else {
-      return Optional.empty();
-    }
-  }
-
   protected Optional<Double> getApproximateBuildProgress() {
     if (distBuildStarted != null && distBuildFinished == null) {
       return getApproximateDistBuildProgress();
     } else {
-      return getApproximateLocalBuildProgress();
+      if (progressEstimator.isPresent()) {
+        return progressEstimator.get().getApproximateBuildProgress();
+      } else {
+        return Optional.empty();
+      }
     }
   }
 
@@ -520,14 +509,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void commandStartedEvent(CommandEvent.Started startedEvent) {
-    try {
-      LOG.warn("Command.Started event received at %d", System.currentTimeMillis());
-      progressEstimator.ifPresent(
-          estimator ->
-              estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
-    } finally {
-      LOG.warn("Command.Started event done processing at %d", System.currentTimeMillis());
-    }
+    progressEstimator.ifPresent(
+        estimator ->
+            estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
   }
 
   public static void aggregateStartedEvent(
@@ -721,14 +705,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     buildRuleThreadTracker.didResumeBuildRule(resumed);
   }
 
-  @SuppressWarnings("unused")
-  @Subscribe
-  private void resetLocalBuildStats(BuildEvent.Reset reset) {
-    buildRuleThreadTracker.reset();
-    progressEstimator.ifPresent(ProgressEstimator::resetBuildData);
-    numRulesCompleted.set(0);
-  }
-
   @Subscribe
   public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
     progressEstimator.ifPresent(ProgressEstimator::didSuspendRule);
@@ -761,9 +737,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void distBuildFinished(BuildEvent.DistBuildFinished finished) {
-    if (distBuildFinished == null) {
-      distBuildFinished = finished;
-    }
+    distBuildFinished = finished;
   }
 
   @Subscribe

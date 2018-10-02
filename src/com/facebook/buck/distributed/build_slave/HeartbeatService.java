@@ -65,7 +65,7 @@ public class HeartbeatService implements Closeable {
 
     return new Closeable() {
       @Override
-      public void close() {
+      public void close() throws IOException {
         if (!future.cancel(true)) {
           String msg =
               String.format(

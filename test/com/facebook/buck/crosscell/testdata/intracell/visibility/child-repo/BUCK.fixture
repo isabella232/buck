@@ -1,5 +1,0 @@
-genrule(
-    name = "child-target",
-    out = "baz.txt",
-    cmd = "echo \"$(location @parent//:top)\" > $OUT",
-)

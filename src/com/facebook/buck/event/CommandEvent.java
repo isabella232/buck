@@ -114,7 +114,7 @@ public abstract class CommandEvent extends AbstractBuckEvent implements WorkAdva
     }
   }
 
-  public static class Interrupted extends CommandEvent implements BuckEvent {
+  public static class Interrupted extends CommandEvent implements BroadcastEvent {
     private final ExitCode exitCode;
 
     private Interrupted(Started started, ExitCode exitCode) {

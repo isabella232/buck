@@ -1,6 +1,0 @@
-java_library(
-    name = "test",
-    src = [
-        "non-existing-file",
-    ],
-)

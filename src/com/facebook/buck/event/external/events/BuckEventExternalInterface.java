@@ -33,10 +33,6 @@ public interface BuckEventExternalInterface {
   String BUILD_STARTED = "BuildStarted";
   // Sent when a build has finished
   String BUILD_FINISHED = "BuildFinished";
-  // Sent when a build is reset for some reason (e.g. DistBuild switching to synchronized phase)
-  String BUILD_RESET = "BuildReset";
-  // Sent when a distributed build has been created
-  String DIST_BUILD_CREATED = "DistBuildCreated";
   // Sent when a distributed build has started
   String DIST_BUILD_STARTED = "DistBuildStarted";
   // Sent when a distributed build has finished

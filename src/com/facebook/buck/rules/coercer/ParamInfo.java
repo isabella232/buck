@@ -16,10 +16,10 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.arg.Hint;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.Hint;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Types;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
@@ -117,7 +117,10 @@ public class ParamInfo implements Comparable<ParamInfo> {
 
               // Unfortunately @Value.Default isn't retained at runtime, so we use abstract-ness
               // as a proxy for whether something has a default value.
-              return !Modifier.isAbstract(getter.getModifiers());
+              if (!Modifier.isAbstract(getter.getModifiers())) {
+                return true;
+              }
+              return false;
             });
 
     StringBuilder builder = new StringBuilder();
@@ -158,16 +161,6 @@ public class ParamInfo implements Comparable<ParamInfo> {
       return hint.isDep();
     }
     return Hint.DEFAULT_IS_DEP;
-  }
-
-  /** @see Hint#isTargetGraphOnlyDep() */
-  public boolean isTargetGraphOnlyDep() {
-    Hint hint = getHint();
-    if (hint != null && hint.isTargetGraphOnlyDep()) {
-      Preconditions.checkState(hint.isDep(), "Conditional deps are only applicable for deps.");
-      return true;
-    }
-    return Hint.DEFAULT_IS_TARGET_GRAPH_ONLY_DEP;
   }
 
   public boolean isInput() {
@@ -229,7 +222,7 @@ public class ParamInfo implements Comparable<ParamInfo> {
     }
   }
 
-  public boolean hasElementTypes(Class<?>... types) {
+  public boolean hasElementTypes(final Class<?>... types) {
     return typeCoercer.hasElementClass(types);
   }
 

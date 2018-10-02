@@ -16,19 +16,18 @@
 
 package com.facebook.buck.artifact_cache;
 
-import com.facebook.buck.artifact_cache.ArtifactCacheEvent.StoreType;
-import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.NoHealthyServersException;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import java.io.IOException;
-import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 
 public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
@@ -161,7 +160,14 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
     private void reportFetchFailure(RuleKey ruleKey, IOException e, String msg) {
       if (isNoHealthyServersException(e)) {
         errorReporter.reportFailureToEventBus(
-            "NoHealthyServers", String.format("Failed to fetch %s over %s\n", ruleKey, name));
+            "NoHealthyServers",
+            String.format(
+                "\n"
+                    + "Failed to fetch %s over %s:\n"
+                    + "Buck encountered a critical network failure.\n"
+                    + "Please check your network connection and retry."
+                    + "\n",
+                ruleKey, name));
       } else {
         String key = String.format("store:%s", e.getClass().getSimpleName());
         errorReporter.reportFailure(e, key, msg);
@@ -170,11 +176,9 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
 
     @Override
     public StoreEvents storeScheduled(ArtifactInfo info, long artifactSizeBytes) {
-      HttpArtifactCacheEvent.Scheduled scheduled =
+      final HttpArtifactCacheEvent.Scheduled scheduled =
           HttpArtifactCacheEvent.newStoreScheduledEvent(
-              ArtifactCacheEvent.getTarget(info.getMetadata()),
-              info.getRuleKeys(),
-              StoreType.fromArtifactInfo(info));
+              ArtifactCacheEvent.getTarget(info.getMetadata()), info.getRuleKeys());
       dispatcher.post(scheduled);
 
       HttpArtifactCacheEvent.Started startedEvent =
@@ -198,7 +202,7 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
                   .setArtifactContentHash(result.getArtifactContentHash())
                   .setRequestSizeBytes(result.getRequestSizeBytes())
                   .setWasStoreSuccessful(result.getWasStoreSuccessful())
-                  .setStoreType(StoreType.fromArtifactInfo(info));
+                  .setWasStoreForManifest(info.isManifest());
               dispatcher.post(finishedEventBuilder.build());
             }
 
@@ -223,35 +227,29 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
   }
 
   private static class ErrorReporter {
-
     private final EventDispatcher dispatcher;
     private final String errorTextTemplate;
-    // If we encounter more errors than this limit print the message.
-    private final int errorTextLimit;
-    private final Map<String, Integer> seenErrors = Maps.newConcurrentMap();
+    private final Set<String> seenErrors = Sets.newConcurrentHashSet();
     private final String name;
 
     public ErrorReporter(NetworkCacheArgs args) {
       dispatcher = args.getBuckEventBus();
       errorTextTemplate = args.getErrorTextTemplate();
-      errorTextLimit = args.getErrorTextLimit();
       name = args.getCacheName();
     }
 
     private void reportFailure(String errorKey, String message) {
-      LOG.debug(message);
+      LOG.warn(message);
       reportFailureToEventBus(errorKey, message);
     }
 
     private void reportFailure(Exception exception, String errorKey, String message) {
-      LOG.debug(exception, message);
+      LOG.warn(exception, message);
       reportFailureToEventBus(errorKey, message);
     }
 
     private void reportFailureToEventBus(String errorKey, String message) {
-      int timesSeenThisError = seenErrors.getOrDefault(errorKey, 0) + 1;
-      if (timesSeenThisError > errorTextLimit) {
-        timesSeenThisError = 0;
+      if (seenErrors.add(errorKey)) {
         dispatcher.post(
             ConsoleEvent.warning(
                 errorTextTemplate
@@ -260,7 +258,6 @@ public abstract class AbstractNetworkCache extends AbstractAsynchronousCache {
                     .replaceAll("\\\\n", Matcher.quoteReplacement("\n"))
                     .replaceAll("\\{error_message}", Matcher.quoteReplacement(message))));
       }
-      seenErrors.put(errorKey, timesSeenThisError);
     }
   }
 

@@ -18,6 +18,7 @@ package com.facebook.buck.httpserver;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
+import java.io.IOException;
 import java.net.URL;
 import javax.annotation.Nullable;
 import org.eclipse.jetty.server.Request;
@@ -32,7 +33,7 @@ class IndexHandlerDelegate implements TemplateHandlerDelegate {
 
   @Nullable
   @Override
-  public ImmutableMap<String, Object> getDataForRequest(Request baseRequest) {
+  public ImmutableMap<String, Object> getDataForRequest(Request baseRequest) throws IOException {
     return ImmutableMap.of();
   }
 

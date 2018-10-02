@@ -79,7 +79,7 @@ public abstract class Unarchiver {
   public ImmutableList<Path> extractArchive(
       ProjectFilesystemFactory projectFilesystemFactory,
       Path archiveFile,
-      Path destination,
+      final Path destination,
       ExistingFileMode existingFileMode)
       throws InterruptedException, IOException {
     return extractArchive(
@@ -104,7 +104,7 @@ public abstract class Unarchiver {
   public ImmutableList<Path> extractArchive(
       ProjectFilesystemFactory projectFilesystemFactory,
       Path archiveFile,
-      Path destination,
+      final Path destination,
       Optional<Path> stripPrefix,
       ExistingFileMode existingFileMode)
       throws InterruptedException, IOException {

@@ -1,6 +1,0 @@
-apple_library(
-    name = "library",
-    srcs = ["lib.c"],
-    compiler_flags = ["-g"],
-    visibility = ["PUBLIC"],
-)

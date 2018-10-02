@@ -36,7 +36,9 @@ public class DeterministicManifest extends Manifest {
   private static final int MAX_LINE_LENGTH = 72;
   private static final int NEW_LINE_LENGTH = NEW_LINE.length();
 
-  public DeterministicManifest() {}
+  public DeterministicManifest() {
+    super();
+  }
 
   public DeterministicManifest(InputStream is) throws IOException {
     super(is);

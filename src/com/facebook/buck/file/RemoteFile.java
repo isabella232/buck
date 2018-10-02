@@ -16,18 +16,18 @@
 
 package com.facebook.buck.file;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -120,19 +120,10 @@ public class RemoteFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    // EXPLODED_ZIP remote files can include many files; hashing the exploded files to compute
-    // an input-based rule key can take a very long time. But we have an ace up our sleeve:
-    // we already have a hash that represents the content in those exploded files!
-    // Just pass that hash along so that RuleKeyBuilder can use it.
-    return ExplicitBuildTargetSourcePath.builder()
-        .setTarget(getBuildTarget())
-        .setResolvedPath(output)
-        .setPrecomputedHash(Optional.of(sha1.getHashCode()))
-        .build();
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
   }
 
-  /** Defines how the remote file should be treated when downloaded. */
-  public enum Type {
+  enum Type {
     DATA,
     EXECUTABLE,
     EXPLODED_ZIP,
