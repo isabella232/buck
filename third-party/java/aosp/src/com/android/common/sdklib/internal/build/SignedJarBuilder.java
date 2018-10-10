@@ -184,7 +184,7 @@ public class SignedJarBuilder {
         String name = entry.getName();
 
         // do not take directories or anything inside a potential META-INF folder.
-        if (entry.isDirectory() || name.startsWith("META-INF/")) {
+        if (entry.isDirectory()) {
           continue;
         }
 

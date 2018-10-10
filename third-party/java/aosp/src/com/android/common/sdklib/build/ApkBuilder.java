@@ -666,7 +666,6 @@ public final class ApkBuilder implements IArchiveBuilder {
     return !folderName.equalsIgnoreCase("CVS") &&
         !folderName.equalsIgnoreCase(".svn") &&
         !folderName.equalsIgnoreCase("SCCS") &&
-        !folderName.equalsIgnoreCase("META-INF") &&
         !folderName.startsWith("_");
   }
 
@@ -707,9 +706,24 @@ public final class ApkBuilder implements IArchiveBuilder {
         !"class".equalsIgnoreCase(extension) &&         // Java class files
         !"scc".equalsIgnoreCase(extension) &&           // VisualSourceSafe
         !"swp".equalsIgnoreCase(extension) &&           // vi swap file
+        !"mf".equalsIgnoreCase(extension) &&           // vi swap file
+        !"rsa".equalsIgnoreCase(extension) &&           // vi swap file
+        !"sf".equalsIgnoreCase(extension) &&           // vi swap file
         !"thumbs.db".equalsIgnoreCase(fileName) &&      // image index file
         !"picasa.ini".equalsIgnoreCase(fileName) &&     // image index file
         !"package.html".equalsIgnoreCase(fileName) &&   // Javadoc
-        !"overview.html".equalsIgnoreCase(fileName);    // Javadoc
+        !"notice".equalsIgnoreCase(fileName) &&      // image index file
+        !"notice.txt".equalsIgnoreCase(fileName) &&      // image index file
+        !"license".equalsIgnoreCase(fileName) &&      // image index file
+        !"license.txt".equalsIgnoreCase(fileName) &&      // image index file
+        !"dependencies".equalsIgnoreCase(fileName) &&      // image index file
+        !"dependencies.txt".equalsIgnoreCase(fileName) &&      // image index file
+        !"pom.xml".equalsIgnoreCase(fileName) &&      // image index file
+        !"pom.properties".equalsIgnoreCase(fileName) &&      // image index file
+        !"rxjava.properties".equalsIgnoreCase(fileName) &&      // image index file
+        !"overview.html".equalsIgnoreCase(fileName) &&
+        !fileName.startsWith("org.xmlpull") ||
+        fileName.startsWith("com.fasterxml.jackson") ||
+        fileName.startsWith("kotlin.reflect.jvm");
   }
 }
