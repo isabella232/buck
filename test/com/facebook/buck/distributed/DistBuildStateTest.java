@@ -34,6 +34,9 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
@@ -44,33 +47,23 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.module.BuckModuleManager;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.TargetSpecResolver;
+import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -241,26 +234,10 @@ public class DistBuildStateTest {
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
     BuckConfig buckConfig = cell.getBuckConfig();
-    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
     setUp();
-    TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
-    ConstructorArgMarshaller constructorArgMarshaller =
-        new ConstructorArgMarshaller(typeCoercerFactory);
-    KnownRuleTypesProvider knownRuleTypesProvider =
-        TestKnownRuleTypesProvider.create(pluginManager);
-    Parser parser =
-        new DefaultParser(
-            new PerBuildStateFactory(
-                typeCoercerFactory,
-                constructorArgMarshaller,
-                knownRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
-            parserConfig,
-            typeCoercerFactory,
-            new TargetSpecResolver());
+    Parser parser = TestParserFactory.create(buckConfig);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            BuckEventBusForTests.newInstance(),
             cell,
             /* enableProfiling */ false,
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
@@ -419,8 +396,6 @@ public class DistBuildStateTest {
   }
 
   public static DistBuildTargetGraphCodec createDefaultCodec(Cell cell, Optional<Parser> parser) {
-    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
-
     Function<? super TargetNode<?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
       nodeToRawNode =
@@ -429,7 +404,6 @@ public class DistBuildStateTest {
               return parser
                   .get()
                   .getTargetNodeRawAttributes(
-                      eventBus,
                       cell.getCell(input.getBuildTarget()),
                       /* enableProfiling */ false,
                       MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
@@ -451,7 +425,6 @@ public class DistBuildStateTest {
             knownRuleTypesProvider,
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
-            new VisibilityPatternFactory(),
             TestRuleKeyConfigurationFactory.create());
 
     return new DistBuildTargetGraphCodec(

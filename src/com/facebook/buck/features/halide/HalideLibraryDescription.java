@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.halide;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -182,7 +182,8 @@ public class HalideLibraryDescription
             ImmutableList.of(),
             platformLinkerFlags,
             Optional.empty(),
-            rawHeaders);
+            rawHeaders,
+            Optional.empty());
 
     buildTarget = CxxStrip.restoreStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
     buildTarget =

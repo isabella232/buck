@@ -67,11 +67,13 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -162,16 +164,12 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       boolean enableProfiling) {
     return from(
         params.getCell(),
-        OwnersReport.builder(params.getCell(), params.getParser(), params.getBuckEventBus()),
+        OwnersReport.builder(params.getCell(), params.getParser(), parserState),
         params.getParser(),
         parserState,
         executor,
         new TargetPatternEvaluator(
-            params.getCell(),
-            params.getBuckConfig(),
-            params.getParser(),
-            params.getBuckEventBus(),
-            enableProfiling),
+            params.getCell(), params.getBuckConfig(), params.getParser(), enableProfiling),
         params.getBuckEventBus(),
         params.getTypeCoercerFactory());
   }
@@ -230,12 +228,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   private QueryTarget getOrCreateQueryBuildTarget(BuildTarget buildTarget) {
-    if (buildTargetToQueryTarget.containsKey(buildTarget)) {
-      return buildTargetToQueryTarget.get(buildTarget);
-    }
-    QueryBuildTarget queryBuildTarget = QueryBuildTarget.of(buildTarget);
-    buildTargetToQueryTarget.put(buildTarget, queryBuildTarget);
-    return queryBuildTarget;
+    return buildTargetToQueryTarget.computeIfAbsent(buildTarget, QueryBuildTarget::of);
   }
 
   public ImmutableSet<QueryTarget> getTargetsFromTargetNodes(Iterable<TargetNode<?>> targetNodes) {
@@ -254,9 +247,10 @@ public class BuckQueryEnvironment implements QueryEnvironment {
     return builder.build();
   }
 
-  public ImmutableSet<TargetNode<?>> getNodesFromQueryTargets(Iterable<QueryTarget> input)
+  public ImmutableSet<TargetNode<?>> getNodesFromQueryTargets(Collection<QueryTarget> input)
       throws QueryException {
-    ImmutableSet.Builder<TargetNode<?>> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> builder =
+        ImmutableSet.builderWithExpectedSize(input.size());
     for (QueryTarget target : input) {
       builder.add(getNode(target));
     }
@@ -286,9 +280,18 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   @Override
   public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
     TargetNode<?> node = getNode(target);
+    Preconditions.checkState(target instanceof QueryBuildTarget);
+    BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();
+    Cell cell = rootCell.getCell(buildTarget);
     return node.getInputs()
         .stream()
-        .map(path -> PathSourcePath.of(node.getFilesystem(), path))
+        .map(
+            path ->
+                PathSourcePath.of(
+                    cell.getFilesystem(),
+                    MorePaths.relativize(
+                        rootCell.getFilesystem().getRootPath(),
+                        cell.getFilesystem().resolve(path))))
         .map(QueryFileTarget::of)
         .collect(ImmutableSet.toImmutableSet());
   }
@@ -341,7 +344,9 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       Futures.allAsList(depsFuture).get();
     } catch (ExecutionException e) {
       if (e.getCause() != null) {
-        throw new QueryException(e.getCause(), "Failed parsing: " + e.getLocalizedMessage());
+        throw new QueryException(
+            e.getCause(),
+            "Failed parsing: " + MoreExceptions.getHumanReadableOrLocalizedMessage(e.getCause()));
       }
       propagateCauseIfInstanceOf(e, ExecutionException.class);
       propagateCauseIfInstanceOf(e, UncheckedExecutionException.class);
@@ -435,16 +440,13 @@ public class BuckQueryEnvironment implements QueryEnvironment {
         depWork,
         Exception.class,
         exceptionInput -> {
-          if (exceptionInput instanceof BuildTargetException
-              || exceptionInput instanceof BuildFileParseException) {
+          if (exceptionInput instanceof BuildFileParseException) {
             if (exceptionInput instanceof BuildTargetException) {
               throw ParserMessages.createReadableExceptionWithWhenSuffix(
                   buildTarget, parseDep, (BuildTargetException) exceptionInput);
-            } else if (exceptionInput instanceof BuildFileParseException) {
+            } else {
               throw ParserMessages.createReadableExceptionWithWhenSuffix(
                   buildTarget, parseDep, (BuildFileParseException) exceptionInput);
-            } else {
-              Preconditions.checkState(false, "Unknown exception type");
             }
           }
           throw exceptionInput;
@@ -467,7 +469,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       Preconditions.checkState(target instanceof QueryBuildTarget);
       BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();
       Cell cell = rootCell.getCell(buildTarget);
-      BuildFileTree buildFileTree = Preconditions.checkNotNull(buildFileTrees.get(cell));
+      BuildFileTree buildFileTree = Objects.requireNonNull(buildFileTrees.get(cell));
       Optional<Path> path = buildFileTree.getBasePathOfAncestorTarget(buildTarget.getBasePath());
       Preconditions.checkState(path.isPresent());
 
@@ -483,7 +485,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files) {
-    OwnersReport report = ownersReportBuilder.build(buildFileTrees, executor, files);
+    OwnersReport report = ownersReportBuilder.build(buildFileTrees, files);
     report
         .getInputsWithNoOwners()
         .forEach(path -> eventBus.post(ConsoleEvent.warning("No owner was found for %s", path)));

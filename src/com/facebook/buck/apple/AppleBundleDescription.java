@@ -21,7 +21,7 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -47,6 +47,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -66,6 +67,7 @@ public class AppleBundleDescription
       ImmutableSet.of(CxxDescriptionEnhancer.STATIC_FLAVOR, CxxDescriptionEnhancer.SHARED_FLAVOR);
 
   public static final Flavor WATCH_OS_FLAVOR = InternalFlavor.of("watchos-armv7k");
+  public static final Flavor WATCH_OS_64_32_FLAVOR = InternalFlavor.of("watchos-arm64_32");
   public static final Flavor WATCH_SIMULATOR_FLAVOR = InternalFlavor.of("watchsimulator-i386");
 
   private static final Flavor WATCH = InternalFlavor.of("watch");
@@ -75,18 +77,21 @@ public class AppleBundleDescription
   private final AppleBinaryDescription appleBinaryDescription;
   private final AppleLibraryDescription appleLibraryDescription;
   private final AppleConfig appleConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
 
   public AppleBundleDescription(
       ToolchainProvider toolchainProvider,
       XCodeDescriptions xcodeDescriptions,
       AppleBinaryDescription appleBinaryDescription,
       AppleLibraryDescription appleLibraryDescription,
-      AppleConfig appleConfig) {
+      AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig) {
     this.toolchainProvider = toolchainProvider;
     this.xcodeDescriptions = xcodeDescriptions;
     this.appleBinaryDescription = appleBinaryDescription;
     this.appleLibraryDescription = appleLibraryDescription;
     this.appleConfig = appleConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
   }
 
   @Override
@@ -179,7 +184,8 @@ public class AppleBundleDescription
         args.getCodesignFlags(),
         args.getCodesignIdentity(),
         args.getIbtoolModuleFlag(),
-        appleConfig.getCodesignTimeout());
+        appleConfig.getCodesignTimeout(),
+        swiftBuckConfig.getCopyStdlibToFrameworks());
   }
 
   /**
@@ -212,14 +218,14 @@ public class AppleBundleDescription
     }
 
     String platformName = cxxPlatform.getFlavor().getName();
-    Flavor actualWatchFlavor;
+    Flavor[] actualWatchFlavors;
     if (ApplePlatform.isSimulator(platformName)) {
-      actualWatchFlavor = WATCH_SIMULATOR_FLAVOR;
+      actualWatchFlavors = new Flavor[] {WATCH_SIMULATOR_FLAVOR};
     } else if (platformName.startsWith(ApplePlatform.IPHONEOS.getName())
         || platformName.startsWith(ApplePlatform.WATCHOS.getName())) {
-      actualWatchFlavor = WATCH_OS_FLAVOR;
+      actualWatchFlavors = new Flavor[] {WATCH_OS_FLAVOR, WATCH_OS_64_32_FLAVOR};
     } else {
-      actualWatchFlavor = InternalFlavor.of(platformName);
+      actualWatchFlavors = new Flavor[] {InternalFlavor.of(platformName)};
     }
 
     ImmutableSortedSet<BuildTarget> binaryTargets = constructorArg.getBinaryTargets();
@@ -242,7 +248,7 @@ public class AppleBundleDescription
           targetsWithoutPlatformFlavors
               .filter(Flavors.containsFlavor(WATCH)::test)
               .transform(
-                  input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavor));
+                  input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavors));
 
       targetsWithoutPlatformFlavors =
           targetsWithoutPlatformFlavors.filter(Flavors.containsFlavor(WATCH).negate()::test);

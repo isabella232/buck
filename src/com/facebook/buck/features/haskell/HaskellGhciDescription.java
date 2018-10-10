@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -36,6 +36,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.PrebuiltCxxLibrary;
@@ -48,7 +49,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -224,7 +224,6 @@ public class HaskellGhciDescription
                 cxxPlatform,
                 NativeLinkables.getLinkStyle(link, Linker.LinkableDepType.STATIC_PIC),
                 true,
-                ImmutableSet.of(),
                 graphBuilder));
         LOG.verbose(
             "%s: linking C/C++ library %s whole into omnibus",

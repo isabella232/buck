@@ -37,13 +37,13 @@ import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
 import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -79,6 +79,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -106,7 +107,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private static final Path TESTRUNNER_CLASSES =
       Paths.get(
           System.getProperty(
-              "buck.testrunner_classes", new File("build/testrunner/classes").getAbsolutePath()));
+              "buck.testrunner_classes", new File("ant-out/testrunner/classes").getAbsolutePath()));
 
   private final JavaLibrary compiledTestsLibrary;
 
@@ -208,8 +209,8 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return contacts;
   }
 
-  /** @param context That may be useful in producing the bootclasspath entries. */
-  protected ImmutableSet<Path> getBootClasspathEntries(ExecutionContext context) {
+  /** */
+  protected ImmutableSet<Path> getBootClasspathEntries() {
     return ImmutableSet.of();
   }
 
@@ -429,7 +430,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 .getPathForRelativePath(getPathToTestOutputDirectory().resolve(path));
         if (!isUsingTestSelectors && !Files.isRegularFile(testResultFile)) {
           String message;
-          for (JUnitStep junit : Preconditions.checkNotNull(junits)) {
+          for (JUnitStep junit : Objects.requireNonNull(junits)) {
             if (junit.hasTimedOut()) {
               message = "test timed out before generating results file";
             } else {
@@ -634,7 +635,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             // It's possible that the user added some tool as a dependency, so make sure we promote
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.
-            compiledTestsLibrary.getBuildDeps().stream())
+            getBuildDeps().stream())
         .map(BuildRule::getBuildTarget);
   }
 
@@ -703,7 +704,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                                                 .getAbsolutePath(e.getLeft())
                                             : e.getRight())
                                 .collect(ImmutableSet.toImmutableSet()))
-                        .addAll(getBootClasspathEntries(context))
+                        .addAll(getBootClasspathEntries())
                         .build();
                 getProjectFilesystem()
                     .writeLinesToPath(

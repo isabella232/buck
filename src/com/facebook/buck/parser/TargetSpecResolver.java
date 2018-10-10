@@ -23,6 +23,10 @@ import com.facebook.buck.core.model.HasBuildTarget;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.io.filesystem.PathMatcher;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.RecursiveFileMatcher;
+import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
@@ -40,6 +44,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -59,6 +64,7 @@ public class TargetSpecResolver {
   public <T extends HasBuildTarget> ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
       BuckEventBus eventBus,
       Cell rootCell,
+      Watchman watchman,
       Iterable<? extends TargetNodeSpec> specs,
       FlavorEnhancer<T> flavorEnhancer,
       TargetNodeProviderForSpecResolver<T> targetNodeProvider,
@@ -70,7 +76,7 @@ public class TargetSpecResolver {
     ImmutableList<TargetNodeSpec> orderedSpecs = ImmutableList.copyOf(specs);
 
     Multimap<Path, Integer> perBuildFileSpecs =
-        groupSpecsByBuildFile(eventBus, rootCell, orderedSpecs);
+        groupSpecsByBuildFile(eventBus, rootCell, watchman, orderedSpecs);
 
     // Kick off parse futures for each build file.
     ArrayList<ListenableFuture<Map.Entry<Integer, ImmutableSet<BuildTarget>>>> targetFutures =
@@ -106,7 +112,10 @@ public class TargetSpecResolver {
   // Resolve all the build files from all the target specs.  We store these into a multi-map which
   // maps the path to the build file to the index of it's spec file in the ordered spec list.
   private Multimap<Path, Integer> groupSpecsByBuildFile(
-      BuckEventBus eventBus, Cell rootCell, ImmutableList<TargetNodeSpec> orderedSpecs)
+      BuckEventBus eventBus,
+      Cell rootCell,
+      Watchman watchman,
+      ImmutableList<TargetNodeSpec> orderedSpecs)
       throws IOException, InterruptedException {
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
     ParserConfig.BuildFileSearchMethod buildFileSearchMethod =
@@ -121,7 +130,19 @@ public class TargetSpecResolver {
           SimplePerfEvent.scope(
               eventBus, PerfEventId.of("FindBuildFiles"), "targetNodeSpec", spec)) {
         // Iterate over the build files the given target node spec returns.
-        buildFiles = spec.getBuildFileSpec().findBuildFiles(cell, buildFileSearchMethod);
+        ProjectFilesystem filesystem = cell.getFilesystem();
+        ImmutableSet.Builder<PathMatcher> parsingIgnores =
+            ImmutableSet.builderWithExpectedSize(filesystem.getBlacklistedPaths().size() + 1);
+        parsingIgnores.addAll(filesystem.getBlacklistedPaths());
+        parsingIgnores.add(RecursiveFileMatcher.of(filesystem.getBuckPaths().getBuckOut()));
+
+        buildFiles =
+            spec.getBuildFileSpec()
+                .findBuildFiles(
+                    cell.getBuildFileName(),
+                    filesystem.asView().withView(Paths.get(""), parsingIgnores.build()),
+                    watchman,
+                    buildFileSearchMethod);
       }
       for (Path buildFile : buildFiles) {
         perBuildFileSpecs.put(buildFile, index);
@@ -146,7 +167,7 @@ public class TargetSpecResolver {
               targetNodeProvider.getTargetNodeJob(buildTargetSpec.getBuildTarget()),
               node -> {
                 ImmutableSet<BuildTarget> buildTargets =
-                    applySpecFilter(spec, ImmutableSet.of(node), flavorEnhancer, targetNodeFilter);
+                    applySpecFilter(spec, ImmutableList.of(node), flavorEnhancer, targetNodeFilter);
                 Preconditions.checkState(
                     buildTargets.size() == 1,
                     "BuildTargetSpec %s filter discarded target %s, but was not supposed to.",
@@ -199,7 +220,7 @@ public class TargetSpecResolver {
 
   private <T extends HasBuildTarget> ImmutableSet<BuildTarget> applySpecFilter(
       TargetNodeSpec spec,
-      ImmutableSet<T> targetNodes,
+      ImmutableList<T> targetNodes,
       FlavorEnhancer<T> flavorEnhancer,
       TargetNodeFilterForSpecResolver<T> targetNodeFilter) {
     ImmutableSet.Builder<BuildTarget> targets = ImmutableSet.builder();
@@ -224,7 +245,7 @@ public class TargetSpecResolver {
   public interface TargetNodeProviderForSpecResolver<T extends HasBuildTarget> {
     ListenableFuture<T> getTargetNodeJob(BuildTarget target) throws BuildTargetException;
 
-    ListenableFuture<ImmutableSet<T>> getAllTargetNodesJob(Cell cell, Path buildFile)
+    ListenableFuture<ImmutableList<T>> getAllTargetNodesJob(Cell cell, Path buildFile)
         throws BuildTargetException;
   }
 

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasContacts;
@@ -45,7 +45,8 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
@@ -308,11 +309,13 @@ public class GoTestDescription
                 .withExtraDeps(ImmutableSortedSet.of(generatedTestMain)),
             graphBuilder,
             goBuckConfig,
+            args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
             ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
             createResourcesSymlinkTree ? args.getResources() : ImmutableSortedSet.of(),
             args.getCompilerFlags(),
             args.getAssemblerFlags(),
             args.getLinkerFlags(),
+            args.getExternalLinkerFlags(),
             platform);
     graphBuilder.addToIndex(testMain);
     return testMain;
@@ -415,7 +418,7 @@ public class GoTestDescription
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
               ImmutableList.of(),
-              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles));
+              Arrays.asList(ListType.GoFiles, ListType.TestGoFiles));
     } else {
       testLibrary =
           GoDescriptors.createGoCompileRule(
@@ -436,7 +439,7 @@ public class GoTestDescription
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
               ImmutableList.of(),
-              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles, FileType.XTestGoFiles));
+              Arrays.asList(ListType.GoFiles, ListType.TestGoFiles, ListType.XTestGoFiles));
     }
 
     return testLibrary;
@@ -482,11 +485,15 @@ public class GoTestDescription
 
     Optional<GoTestCoverStep.Mode> getCoverageMode();
 
+    Optional<Linker.LinkableDepType> getLinkStyle();
+
     ImmutableList<String> getCompilerFlags();
 
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
+
+    ImmutableList<String> getExternalLinkerFlags();
 
     @Value.Default
     default boolean getRunTestSeparately() {

@@ -406,6 +406,18 @@ docsearch({
 {/if}
 {/template}
 
+/**
+ * @param? rendered_text  Optionally, specify the rendered text for the
+ *                        link. If not specified, the rendered text is 
+ *                        "Key Concepts".
+ */
+{template .key_concepts_link}
+  {if $rendered_text}
+    <a href="{ROOT}about/overview.html">{$rendered_text}</a>
+  {else}
+    <a href="{ROOT}about/overview.html">Key Concepts</a>
+  {/if}
+{/template}
 
 /**
  * @param name
@@ -617,6 +629,27 @@ docsearch({
 {/call}
 {/template}
 
+/**
+ * @param name            Specify the name of the function to link to.
+ * @param? rendered_text  Optionally, specify the rendered text for the
+ *                        link. If not specified, the rendered text is 
+ *                        the name of the function.
+ *
+ *   Examples
+ *   
+ *   {call buck.function_link}{param name: 'allow_unsafe_import' /}{/call} 
+ *
+ *   {call buck.function_link}{param name: 'allow_unsafe_import' /}{param rendered_text: 'a bad function' /}{/call} 
+ *
+ */
+{template .function_link}
+  {if $rendered_text}
+    <a href="{ROOT}function/{$name}.html">{$rendered_text}</a>
+  {else}
+    <a href="{ROOT}function/{$name}.html"><code>{$name}()</code></a>
+  {/if}
+{/template}
+
 /***/
 {template .fn_add_build_file_dep}
 <a href="{ROOT}function/add_build_file_dep.html"><code>add_build_file_dep()</code></a>
@@ -666,9 +699,10 @@ docsearch({
 /**
  * @param page
  * @param name
+ * @param? navid
  */
 {template .concept_link}
-<a href="{ROOT}concept/{$page}.html">{$name}</a>
+<a href="{ROOT}concept/{$page}.html{if isNonnull($navid)}#{$navid}{/if}">{$name}</a>
 {/template}
 
 /**
@@ -710,12 +744,17 @@ docsearch({
 
 /***/
 {template .macros}
-<a href="{ROOT}extending/macros.html"><code>macros</code></a>
+<a href="{ROOT}extending/macros.html">macros</a>
 {/template}
 
 /***/
 {template .setup_build_intellij_plugin}
 <a href="{ROOT}setup/intellij_plugin_build.html">Building the Buck Intellij Plugin</a>
+{/template}
+
+/***/
+{template .buckd}
+<a href="{ROOT}concept/buckd.html"><code>buckd</code></a>
 {/template}
 
 /**
@@ -726,13 +765,13 @@ docsearch({
 {template .cmd_link}
   {if not $section}
     {if $rendered_text}
-      <a href="{ROOT}command/{$name}.html"><code>{$rendered_text}</code></a>
+      <a href="{ROOT}command/{$name}.html">{$rendered_text|noAutoescape}</a>
     {else}
       <a href="{ROOT}command/{$name}.html"><code>buck {$name}</code></a>
     {/if}
   {else}
     {if $rendered_text}
-      <a href="{ROOT}command/{$name}.html#{$section}"><code>{$rendered_text}</code></a>
+      <a href="{ROOT}command/{$name}.html#{$section}">{$rendered_text|noAutoescape}</a>
     {else}
       <a href="{ROOT}command/{$name}.html#{$section}"><code>{$section}</code></a>
     {/if}
@@ -747,11 +786,6 @@ docsearch({
 /***/
 {template .cmd_clean}
 {call .cmd_link}{param name : 'clean' /}{/call}
-{/template}
-
-/***/
-{template .cmd_buckd}
-<a href="{ROOT}command/buckd.html"><code>buckd</code></a>
 {/template}
 
 /***/
@@ -785,6 +819,11 @@ docsearch({
 {/template}
 
 /***/
+{template .cmd_targets}
+{call .cmd_link}{param name: 'targets' /}{/call}
+{/template}
+
+/***/
 {template .cmd_test}
 {call .cmd_link}{param name: 'test' /}{/call}
 {/template}
@@ -800,8 +839,8 @@ docsearch({
 {/template}
 
 /***/
-{template .concept_buckconfig}
-<a href="{ROOT}concept/buckconfig.html"><code>.buckconfig</code></a>
+{template .buckconfig_link}
+<a href="{ROOT}files-and-dirs/buckconfig.html"><code>.buckconfig</code></a>
 {/template}
 
 /***/

@@ -33,8 +33,8 @@ import com.facebook.buck.artifact_cache.thrift.FetchResultType;
 import com.facebook.buck.artifact_cache.thrift.PayloadInfo;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.HttpResponse;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
@@ -80,6 +80,8 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   private final BuildId buildId;
   private final int multiFetchLimit;
   private final int concurrencyLevel;
+  private final String producerId;
+  private final String producerHostname;
 
   public ThriftArtifactCache(
       NetworkCacheArgs args,
@@ -87,13 +89,17 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       boolean distributedBuildModeEnabled,
       BuildId buildId,
       int multiFetchLimit,
-      int concurrencyLevel) {
+      int concurrencyLevel,
+      String producerId,
+      String producerHostname) {
     super(args);
     this.buildId = buildId;
     this.multiFetchLimit = multiFetchLimit;
     this.concurrencyLevel = concurrencyLevel;
     this.hybridThriftEndpoint = hybridThriftEndpoint;
     this.distributedBuildModeEnabled = distributedBuildModeEnabled;
+    this.producerId = producerId;
+    this.producerHostname = producerHostname;
   }
 
   @Override
@@ -649,7 +655,14 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
 
     BuckCacheStoreRequest storeRequest = new BuckCacheStoreRequest();
     ArtifactMetadata artifactMetadata =
-        infoToMetadata(info, artifact, getRepository(), scheduleType, distributedBuildModeEnabled);
+        infoToMetadata(
+            info,
+            artifact,
+            getRepository(),
+            scheduleType,
+            distributedBuildModeEnabled,
+            producerId,
+            producerHostname);
     storeRequest.setMetadata(artifactMetadata);
     PayloadInfo payloadInfo = new PayloadInfo();
     long artifactSizeBytes = artifact.size();
@@ -721,7 +734,9 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       ByteSource file,
       String repository,
       String scheduleType,
-      boolean distributedBuildModeEnabled)
+      boolean distributedBuildModeEnabled,
+      String producerId,
+      String producerHostname)
       throws IOException {
     ArtifactMetadata metadata = new ArtifactMetadata();
     if (info.getBuildTarget().isPresent()) {
@@ -744,6 +759,9 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     metadata.setRepository(repository);
     metadata.setScheduleType(scheduleType);
     metadata.setDistributedBuildModeEnabled(distributedBuildModeEnabled);
+    metadata.setProducerId(producerId);
+    metadata.setProducerHostname(producerHostname);
+    metadata.setBuildTimeMs(info.getBuildTimeMs());
 
     return metadata;
   }

@@ -73,7 +73,7 @@ import com.facebook.buck.core.build.engine.type.MetadataStorage;
 import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
@@ -98,6 +98,7 @@ import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.schedule.OverrideScheduleRule;
@@ -119,7 +120,6 @@ import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
@@ -198,7 +198,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.SortedSet;
 import java.util.concurrent.Exchanger;
 import java.util.concurrent.ExecutionException;
@@ -432,7 +434,8 @@ public class CachingBuildEngineTest {
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       buckEventBus.post(
           CommandEvent.finished(
-              CommandEvent.started("build", ImmutableList.of(), false, 23L), ExitCode.SUCCESS));
+              CommandEvent.started("build", ImmutableList.of(), OptionalLong.empty(), 23L),
+              ExitCode.SUCCESS));
       verifyAll();
 
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
@@ -601,7 +604,7 @@ public class CachingBuildEngineTest {
             .getEventBus()
             .post(
                 CommandEvent.finished(
-                    CommandEvent.started("build", ImmutableList.of(), false, 23L),
+                    CommandEvent.started("build", ImmutableList.of(), OptionalLong.empty(), 23L),
                     ExitCode.SUCCESS));
 
         BuildResult result = buildResult.get();
@@ -691,7 +694,7 @@ public class CachingBuildEngineTest {
             .getEventBus()
             .post(
                 CommandEvent.finished(
-                    CommandEvent.started("build", ImmutableList.of(), false, 23L),
+                    CommandEvent.started("build", ImmutableList.of(), OptionalLong.empty(), 23L),
                     ExitCode.SUCCESS));
 
         BuildResult result = buildResult.get();
@@ -1398,19 +1401,19 @@ public class CachingBuildEngineTest {
         assertTrue(service.shutdownNow().isEmpty());
         assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep1.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep1.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.FAIL));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep2.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep2.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.CANCELED));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep3.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep3.getBuildTarget()))
                 .getStatus(),
             Matchers.oneOf(BuildRuleStatus.SUCCESS, BuildRuleStatus.CANCELED));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep4.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep4.getBuildTarget()))
                 .getStatus(),
             Matchers.oneOf(BuildRuleStatus.SUCCESS, BuildRuleStatus.CANCELED));
       }
@@ -1480,19 +1483,19 @@ public class CachingBuildEngineTest {
                 .get();
         assertThat(result.getStatus(), equalTo(BuildRuleStatus.CANCELED));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep1.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep1.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.FAIL));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep2.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep2.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.CANCELED));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep3.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep3.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.SUCCESS));
         assertThat(
-            Preconditions.checkNotNull(cachingBuildEngine.getBuildRuleResult(dep4.getBuildTarget()))
+            Objects.requireNonNull(cachingBuildEngine.getBuildRuleResult(dep4.getBuildTarget()))
                 .getStatus(),
             equalTo(BuildRuleStatus.SUCCESS));
       }
@@ -2200,7 +2203,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
       filesystem.mkdirs(input.getParent());
       filesystem.writeContentsToPath("contents", input);
 
@@ -2373,7 +2376,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
 
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -2540,7 +2543,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
 
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -2627,7 +2630,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
 
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -2752,7 +2755,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
       filesystem.mkdirs(input.getParent());
       filesystem.writeContentsToPath("contents", input);
 
@@ -2865,7 +2868,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
       filesystem.mkdirs(input.getParent());
       filesystem.writeContentsToPath("contents", input);
 
@@ -2988,7 +2991,7 @@ public class CachingBuildEngineTest {
               .setOut("input")
               .build(graphBuilder, filesystem);
       Path input =
-          pathResolver.getRelativePath(Preconditions.checkNotNull(genrule.getSourcePathToOutput()));
+          pathResolver.getRelativePath(Objects.requireNonNull(genrule.getSourcePathToOutput()));
       filesystem.mkdirs(input.getParent());
       filesystem.writeContentsToPath("contents", input);
 
@@ -4086,7 +4089,7 @@ public class CachingBuildEngineTest {
 
     @Test(timeout = 10000)
     public void testBuildLocallyWithImmediateRemoteSynchronization() throws Exception {
-      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+      RemoteBuildRuleSynchronizer synchronizer = createRemoteBuildRuleSynchronizer();
       synchronizer.switchToAlwaysWaitingMode();
 
       // Signal completion of the build rule before the caching build engine requests it.
@@ -4112,11 +4115,13 @@ public class CachingBuildEngineTest {
       assertTrue(
           RemoteBuildRuleSynchronizerTestUtil.buildCompletionWaitingFutureCreatedForTarget(
               synchronizer, BUILD_TARGET.getFullyQualifiedName()));
+
+      synchronizer.close();
     }
 
     @Test(timeout = 10000)
     public void testBuildLocallyWithDelayedRemoteSynchronization() throws Exception {
-      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+      RemoteBuildRuleSynchronizer synchronizer = createRemoteBuildRuleSynchronizer();
       synchronizer.switchToAlwaysWaitingMode();
 
       // Signal the completion of the build rule asynchronously.
@@ -4154,12 +4159,14 @@ public class CachingBuildEngineTest {
       assertTrue(
           RemoteBuildRuleSynchronizerTestUtil.buildCompletionWaitingFutureCreatedForTarget(
               synchronizer, BUILD_TARGET.getFullyQualifiedName()));
+
+      synchronizer.close();
     }
 
     @Test(timeout = 10000)
     public void testBuildLocallyWhenRemoteBuildNotStartedAndAlwaysWaitSetToFalse()
         throws Exception {
-      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+      RemoteBuildRuleSynchronizer synchronizer = createRemoteBuildRuleSynchronizer();
 
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, doBuild(synchronizer).getSuccess());
       assertTrue(buildRule.isInitializedFromDisk());
@@ -4179,11 +4186,13 @@ public class CachingBuildEngineTest {
       assertFalse(
           RemoteBuildRuleSynchronizerTestUtil.buildCompletionWaitingFutureCreatedForTarget(
               synchronizer, BUILD_TARGET.getFullyQualifiedName()));
+
+      synchronizer.close();
     }
 
     @Test(timeout = 10000)
     public void testBuildLocallyWhenRemoteBuildStartedAndAlwaysWaitSetToFalse() throws Exception {
-      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+      RemoteBuildRuleSynchronizer synchronizer = createRemoteBuildRuleSynchronizer();
 
       // Signal that the build has started, which should ensure build waits.
       synchronizer.signalStartedRemoteBuildingOfBuildRule(BUILD_TARGET.getFullyQualifiedName());
@@ -4223,6 +4232,8 @@ public class CachingBuildEngineTest {
       assertTrue(
           RemoteBuildRuleSynchronizerTestUtil.buildCompletionWaitingFutureCreatedForTarget(
               synchronizer, BUILD_TARGET.getFullyQualifiedName()));
+
+      synchronizer.close();
     }
 
     private BuildEngineBuildContext createBuildContext(BuildId buildId) {
@@ -4232,6 +4243,12 @@ public class CachingBuildEngineTest {
           .setBuildId(buildId)
           .setArtifactCache(artifactCache)
           .build();
+    }
+
+    private RemoteBuildRuleSynchronizer createRemoteBuildRuleSynchronizer() {
+      // Allow only up to 2 very quick backoffs.
+      return new RemoteBuildRuleSynchronizer(
+          new DefaultClock(), Executors.newSingleThreadScheduledExecutor(), 6, 10);
     }
 
     private void writeDepfileInput(String content) throws IOException {
@@ -4388,7 +4405,7 @@ public class CachingBuildEngineTest {
   private static BuildRuleSuccessType getSuccess(BuildResult result) {
     switch (result.getStatus()) {
       case FAIL:
-        Throwables.throwIfUnchecked(Preconditions.checkNotNull(result.getFailure()));
+        Throwables.throwIfUnchecked(Objects.requireNonNull(result.getFailure()));
         throw new RuntimeException(result.getFailure());
       case CANCELED:
         throw new RuntimeException("result is canceled");

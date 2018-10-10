@@ -29,6 +29,8 @@ import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -55,6 +57,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
@@ -68,6 +71,8 @@ import java.util.stream.Stream;
  */
 public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements AbstractCxxLibrary, HasRuntimeDeps, NativeTestable, NativeLinkTarget {
+
+  private static final Logger LOG = Logger.get(CxxLibrary.class);
 
   private final CxxDeps deps;
   private final CxxDeps exportedDeps;
@@ -92,6 +97,8 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSortedSet<BuildTarget> tests;
   private final boolean canBeAsset;
   private final boolean reexportAllHeaderDependencies;
+  private final boolean supportsOmnibusLinking;
+
   private final Optional<CxxLibraryDescriptionDelegate> delegate;
 
   /**
@@ -135,6 +142,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       boolean canBeAsset,
       boolean propagateLinkables,
       boolean reexportAllHeaderDependencies,
+      boolean supportsOmnibusLinking,
       Optional<CxxLibraryDescriptionDelegate> delegate) {
     super(buildTarget, projectFilesystem, params);
     this.deps = deps;
@@ -153,6 +161,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     this.canBeAsset = canBeAsset;
     this.propagateLinkables = propagateLinkables;
     this.reexportAllHeaderDependencies = reexportAllHeaderDependencies;
+    this.supportsOmnibusLinking = supportsOmnibusLinking;
     this.delegate = delegate;
     this.transitiveCxxPreprocessorInputCache =
         new TransitiveCxxPreprocessorInputCache(this, preprocessorInputCacheParallelizer);
@@ -293,6 +302,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     CxxPlatform cxxPlatform = key.getCxxPlatform();
 
     if (!isPlatformSupported(cxxPlatform)) {
+      LOG.verbose("Skipping library %s on platform %s", this, cxxPlatform.getFlavor());
       return NativeLinkableInput.of();
     }
 
@@ -303,14 +313,11 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     // whole archive, wrap the library argument in the necessary "ld" flags.
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
     linkerArgsBuilder.addAll(
-        Preconditions.checkNotNull(exportedLinkerFlags.apply(cxxPlatform, graphBuilder)));
+        Objects.requireNonNull(exportedLinkerFlags.apply(cxxPlatform, graphBuilder)));
 
     boolean delegateWantsArtifact =
         delegate
-            .map(
-                d ->
-                    d.getShouldProduceLibraryArtifact(
-                        getBuildTarget(), graphBuilder, cxxPlatform, type, forceLinkWhole))
+            .map(d -> d.getShouldProduceLibraryArtifact(getBuildTarget(), graphBuilder))
             .orElse(false);
     boolean headersOnly = headerOnly.test(cxxPlatform);
     boolean shouldProduceArtifact = (!headersOnly || delegateWantsArtifact) && propagateLinkables;
@@ -344,8 +351,10 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
                         ? CxxDescriptionEnhancer.STATIC_FLAVOR
                         : CxxDescriptionEnhancer.STATIC_PIC_FLAVOR);
         if (linkWhole || forceLinkWhole) {
+          SourcePathResolver pathResolver =
+              DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
           Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
-          linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg()));
+          linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg(), pathResolver));
         } else {
           Arg libraryArg = archive.toArg();
           if (libraryArg instanceof SourcePathArg) {
@@ -367,18 +376,18 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
             rule instanceof CxxLink
                 ? ((CxxLink) rule).getSourcePathToOutputForLinking()
                 : rule.getSourcePathToOutput();
-        linkerArgsBuilder.add(SourcePathArg.of(Preconditions.checkNotNull(sourcePathForLinking)));
+        linkerArgsBuilder.add(SourcePathArg.of(Objects.requireNonNull(sourcePathForLinking)));
       }
     }
 
     // Add the postExportedLinkerFlags.
     linkerArgsBuilder.addAll(
-        Preconditions.checkNotNull(postExportedLinkerFlags.apply(cxxPlatform, graphBuilder)));
+        Objects.requireNonNull(postExportedLinkerFlags.apply(cxxPlatform, graphBuilder)));
 
     ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
 
     return NativeLinkableInput.of(
-        linkerArgs, Preconditions.checkNotNull(frameworks), Preconditions.checkNotNull(libraries));
+        linkerArgs, Objects.requireNonNull(frameworks), Objects.requireNonNull(libraries));
   }
 
   @Override
@@ -386,7 +395,6 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
       ActionGraphBuilder graphBuilder) {
     NativeLinkableCacheKey key =
         NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
@@ -411,12 +419,11 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
+    // Both iterables we are concatting are ImmutableSets, so the returned iterator does not support
+    // remove
     return AndroidPackageableCollector.getPackageableRules(
-        RichStream.from(
-                Iterables.concat(
-                    deps.getForAllPlatforms(ruleResolver),
-                    exportedDeps.getForAllPlatforms(ruleResolver)))
-            .toImmutableList());
+        Iterables.concat(
+            deps.getForAllPlatforms(ruleResolver), exportedDeps.getForAllPlatforms(ruleResolver)));
   }
 
   @Override
@@ -435,6 +442,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       return ImmutableMap.of();
     }
     if (!isPlatformSupported(cxxPlatform)) {
+      LOG.verbose("Skipping library %s on platform %s", this, cxxPlatform.getFlavor());
       return ImmutableMap.of();
     }
     ImmutableMap.Builder<String, SourcePath> libs = ImmutableMap.builder();
@@ -473,6 +481,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder) {
     if (!isPlatformSupported(cxxPlatform)) {
+      LOG.verbose("Skipping library %s on platform %s", this, cxxPlatform.getFlavor());
       return NativeLinkableInput.of();
     }
     return linkTargetInput.apply(cxxPlatform, graphBuilder, pathResolver, ruleFinder);
@@ -481,6 +490,11 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   @Override
   public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    return supportsOmnibusLinking;
   }
 
   @Override

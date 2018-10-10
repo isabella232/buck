@@ -17,9 +17,8 @@
 package com.facebook.buck.core.cell;
 
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;

@@ -17,15 +17,11 @@
 package com.facebook.buck.parser.api;
 
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.skylark.io.GlobSpec;
+import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
-import com.google.common.collect.ImmutableSortedSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.immutables.value.Value;
 
 /** Describes the content of a build file, which includes defined targets and their metadata. */
@@ -38,7 +34,7 @@ abstract class AbstractBuildFileManifest {
 
   /** @return a set of extension files read during parsing. */
   @Value.Parameter
-  public abstract ImmutableSortedSet<String> getIncludes();
+  public abstract ImmutableList<String> getIncludes();
 
   /**
    * @return a map from configuration section to configuration key to the value returned during
@@ -51,23 +47,24 @@ abstract class AbstractBuildFileManifest {
   @Value.Parameter
   public abstract Optional<ImmutableMap<String, Optional<String>>> getEnv();
 
-  /** @return A mapping from a {@link GlobSpec} to the corresponding set of expanded paths. */
+  /** @return A list of the glob operations performed with their results. */
   @Value.Parameter
-  public abstract ImmutableMap<GlobSpec, Set<String>> getGlobManifest();
+  public abstract ImmutableList<GlobSpecWithResult> getGlobManifest();
 
   /**
    * Converts targets and their metadata into a single set of raw nodes.
    *
    * <p>This is for a temporary solution until all clients switch to using build file manifest.
    */
-  public ImmutableSet<Map<String, Object>> toRawNodes() {
-    Builder<Map<String, Object>> builder =
-        ImmutableSet.<Map<String, Object>>builder()
-            .addAll(getTargets())
-            .add(ImmutableMap.of("__includes", getIncludes()))
-            .add(ImmutableMap.of("__configs", getConfigs()));
+  public ImmutableMap<String, Map<String, Object>> toRawNodes() {
+    ImmutableMap.Builder<String, Map<String, Object>> builder = ImmutableMap.builder();
+    getTargets().forEach(target -> builder.put((String) target.get("name"), target));
+
+    builder.put(MetaRules.INCLUDES_NAME, ImmutableMap.of(MetaRules.INCLUDES, getIncludes()));
+    builder.put(MetaRules.CONFIGS_NAME, ImmutableMap.of(MetaRules.CONFIGS, getConfigs()));
+
     if (getEnv().isPresent()) {
-      builder.add(ImmutableMap.of("__env", getEnv()));
+      builder.put(MetaRules.ENV_NAME, ImmutableMap.of(MetaRules.ENV, getEnv().get()));
     }
     return builder.build();
   }

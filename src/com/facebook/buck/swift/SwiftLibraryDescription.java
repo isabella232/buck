@@ -16,7 +16,7 @@
 
 package com.facebook.buck.swift;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -440,7 +440,6 @@ public class SwiftLibraryDescription
     args.getSrcs().forEach(src -> srcsDepsBuilder.add(src));
     BuildRuleParams paramsWithSrcDeps = params.copyAppendingExtraDeps(srcsDepsBuilder.build());
 
-    BuildTarget buildTargetCopy = buildTarget;
     return new SwiftCompile(
         cxxPlatform,
         swiftBuckConfig,
@@ -457,7 +456,7 @@ public class SwiftLibraryDescription
             .map(
                 f ->
                     CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        buildTargetCopy, cellRoots, graphBuilder, cxxPlatform, f))
+                        buildTarget, cellRoots, graphBuilder, cxxPlatform, f))
             .toImmutableList(),
         args.getEnableObjcInterop(),
         args.getBridgingHeader(),

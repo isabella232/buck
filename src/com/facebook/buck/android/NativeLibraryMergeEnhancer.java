@@ -20,7 +20,8 @@ import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -93,6 +94,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -248,7 +250,7 @@ class NativeLibraryMergeEnhancer {
             .append(linkable)
             .append(" has inconsistent application module mappings: ");
         for (NativeLinkable innerConstituent : linkable.constituents.getLinkables()) {
-          APKModule innerConstituentModule = linkableToModuleMap.get(constituent);
+          APKModule innerConstituentModule = linkableToModuleMap.get(innerConstituent);
           sb.append(innerConstituent).append(" -> ").append(innerConstituentModule).append(", ");
         }
         throw new RuntimeException(
@@ -258,7 +260,7 @@ class NativeLibraryMergeEnhancer {
                 + sb);
       }
     }
-    return Preconditions.checkNotNull(module);
+    return Objects.requireNonNull(module);
   }
 
   private static Map<NativeLinkable, MergedNativeLibraryConstituents> makeConstituentMap(
@@ -294,9 +296,9 @@ class NativeLibraryMergeEnhancer {
 
       for (NativeLinkable linkable : constituents.getLinkables()) {
         if (linkableMembership.containsKey(linkable)) {
-          throw new RuntimeException(
+          throw new HumanReadableException(
               String.format(
-                  "When processing %s, attempted to merge %s into both %s and %s",
+                  "Error: When processing %s, attempted to merge %s into both %s and %s",
                   buildTarget, linkable, linkableMembership.get(linkable), constituents));
         }
         linkableMembership.put(linkable, constituents);
@@ -311,7 +313,7 @@ class NativeLibraryMergeEnhancer {
         StringBuilder sb = new StringBuilder();
         sb.append(
             String.format(
-                "When processing %s, merged lib '%s' contains both asset and non-asset libraries.\n",
+                "Error: When processing %s, merged lib '%s' contains both asset and non-asset libraries.\n",
                 buildTarget, constituents));
         for (NativeLinkable linkable : constituents.getLinkables()) {
           sb.append(
@@ -319,7 +321,7 @@ class NativeLibraryMergeEnhancer {
                   "  %s -> %s\n",
                   linkable, linkableAssetSet.contains(linkable) ? "asset" : "not asset"));
         }
-        throw new RuntimeException(sb.toString());
+        throw new HumanReadableException(sb.toString());
       }
     }
 
@@ -378,7 +380,7 @@ class NativeLibraryMergeEnhancer {
                 constituentLinkable.getNativeLinkableExportedDeps(ruleResolver))) {
           // If that dep is in a different merged lib, add a dependency.
           MergedNativeLibraryConstituents mergedDep =
-              Preconditions.checkNotNull(linkableMembership.get(dep));
+              Objects.requireNonNull(linkableMembership.get(dep));
           if (mergedDep != constituents) {
             graph.addEdge(constituents, mergedDep);
           }
@@ -416,8 +418,8 @@ class NativeLibraryMergeEnhancer {
       }
       cycleString.append(item);
       cycleString.append(" ]");
-      throw new RuntimeException(
-          "Dependency cycle detected when merging native libs for "
+      throw new HumanReadableException(
+          "Error: Dependency cycle detected when merging native libs for "
               + buildTarget
               + ": "
               + cycleString);
@@ -788,7 +790,7 @@ class NativeLibraryMergeEnhancer {
         for (NativeLinkable dep : depType.apply(linkable)) {
           // Don't try to depend on ourselves.
           if (!constituents.getLinkables().contains(dep)) {
-            builder.add(Preconditions.checkNotNull(mergedDepMap.get(dep)));
+            builder.add(Objects.requireNonNull(mergedDepMap.get(dep)));
           }
         }
       }
@@ -801,7 +803,6 @@ class NativeLibraryMergeEnhancer {
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
-        ImmutableSet<LanguageExtensions> languageExtensions,
         ActionGraphBuilder graphBuilder) {
 
       // This path gets taken for a force-static library.
@@ -835,7 +836,7 @@ class NativeLibraryMergeEnhancer {
               ((CxxLibrary) linkable).getExportedLinkerFlags(cxxPlatform, graphBuilder));
         } else if (linkable instanceof PrebuiltCxxLibrary) {
           argsBuilder.addAll(
-              StringArg.from(((PrebuiltCxxLibrary) linkable).getExportedLinkerFlags(cxxPlatform)));
+              ((PrebuiltCxxLibrary) linkable).getExportedLinkerArgs(cxxPlatform, graphBuilder));
         }
       }
 
@@ -880,7 +881,8 @@ class NativeLibraryMergeEnhancer {
                   cxxPlatform, Linker.LinkableDepType.STATIC_PIC, graphBuilder);
           builder.add(
               staticPic.withArgs(
-                  FluentIterable.from(staticPic.getArgs()).transformAndConcat(linker::linkWhole)));
+                  FluentIterable.from(staticPic.getArgs())
+                      .transformAndConcat(arg -> linker.linkWhole(arg, pathResolver))));
         }
       }
       return NativeLinkableInput.concat(builder.build());

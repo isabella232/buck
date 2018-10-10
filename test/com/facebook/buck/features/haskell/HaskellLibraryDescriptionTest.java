@@ -44,13 +44,13 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -103,9 +103,9 @@ public class HaskellLibraryDescriptionTest {
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ImmutableList<Path> outputs =
         ImmutableList.of(
-                Preconditions.checkNotNull(staticLib.getSourcePathToOutput()),
-                Preconditions.checkNotNull(staticPicLib.getSourcePathToOutput()),
-                Preconditions.checkNotNull(sharedLib.getSourcePathToOutput()))
+                Objects.requireNonNull(staticLib.getSourcePathToOutput()),
+                Objects.requireNonNull(staticPicLib.getSourcePathToOutput()),
+                Objects.requireNonNull(sharedLib.getSourcePathToOutput()))
             .stream()
             .map(pathResolver::getRelativePath)
             .collect(ImmutableList.toImmutableList());
@@ -130,7 +130,7 @@ public class HaskellLibraryDescriptionTest {
     // Lookup the link whole flags.
     Linker linker = CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(graphBuilder);
     ImmutableList<String> linkWholeFlags =
-        FluentIterable.from(linker.linkWhole(StringArg.of("sentinel")))
+        FluentIterable.from(linker.linkWhole(StringArg.of("sentinel"), pathResolver))
             .transformAndConcat((input) -> Arg.stringifyList(input, pathResolver))
             .filter(Predicates.not("sentinel"::equals))
             .toList();
@@ -141,7 +141,7 @@ public class HaskellLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder);
     assertThat(
         Arg.stringify(staticInput.getArgs(), pathResolver),
-        hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()])));
+        hasItems(linkWholeFlags.toArray(new String[0])));
 
     // Test static-pic dep type.
     NativeLinkableInput staticPicInput =
@@ -149,7 +149,7 @@ public class HaskellLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, graphBuilder);
     assertThat(
         Arg.stringify(staticPicInput.getArgs(), pathResolver),
-        hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()])));
+        hasItems(linkWholeFlags.toArray(new String[0])));
 
     // Test shared dep type.
     NativeLinkableInput sharedInput =
@@ -157,7 +157,7 @@ public class HaskellLibraryDescriptionTest {
             CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder);
     assertThat(
         Arg.stringify(sharedInput.getArgs(), pathResolver),
-        not(hasItems(linkWholeFlags.toArray(new String[linkWholeFlags.size()]))));
+        not(hasItems(linkWholeFlags.toArray(new String[0]))));
   }
 
   @Test

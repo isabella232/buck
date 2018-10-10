@@ -25,7 +25,7 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -60,6 +60,7 @@ import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -198,7 +199,9 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       }
     }
 
-    if (nativeLibraryMergeMap.isPresent() && !nativeLibraryMergeMap.get().isEmpty()) {
+    if (nativeLibraryMergeMap.isPresent()
+        && !nativeLibraryMergeMap.get().isEmpty()
+        && !nativePlatforms.isEmpty()) {
       NativeLibraryMergeEnhancementResult enhancement =
           NativeLibraryMergeEnhancer.enhance(
               cellPathResolver,
@@ -360,8 +363,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
         .distinct()
         .forEach(
             targetCpuType -> {
-              NdkCxxPlatform platform =
-                  Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
+              NdkCxxPlatform platform = Objects.requireNonNull(nativePlatforms.get(targetCpuType));
               NdkCxxRuntime cxxRuntime = platform.getCxxRuntime();
               if (cxxRuntime.equals(NdkCxxRuntime.SYSTEM)
                   || (platform.getCxxRuntimeType() == NdkCxxRuntimeType.STATIC)) {
@@ -423,7 +425,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       TargetCpuType targetCpuType = entry.getKey().getTargetCpuType();
       APKModule apkModule = entry.getKey().getApkModule();
 
-      NdkCxxPlatform platform = Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
+      NdkCxxPlatform platform = Objects.requireNonNull(nativePlatforms.get(targetCpuType));
 
       // To be safe, default to using the app rule target as the base for the strip rule.
       // This will be used for stripping the C++ runtime.  We could use something more easily

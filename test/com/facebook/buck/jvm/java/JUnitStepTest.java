@@ -23,10 +23,10 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.runner.FileClassPathRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
@@ -59,7 +59,7 @@ public class JUnitStepTest {
     String modulePathArg = String.format("-Dcom.facebook.buck.moduleBasePath=%s", modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
@@ -106,7 +106,7 @@ public class JUnitStepTest {
             vmArg2,
             "-verbose",
             "-classpath",
-            MorePaths.pathWithPlatformSeparators("build/classes/junit"),
+            MorePaths.pathWithPlatformSeparators("ant-out/classes/junit"),
             FileClassPathRunner.class.getName(),
             "com.facebook.buck.testrunner.JUnitMain",
             "--output",
@@ -124,7 +124,7 @@ public class JUnitStepTest {
     Path modulePath = Paths.get("module/submodule");
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
@@ -172,7 +172,7 @@ public class JUnitStepTest {
     String modulePathArg = String.format("-Dcom.facebook.buck.moduleBasePath=%s", modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
 
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
@@ -218,7 +218,7 @@ public class JUnitStepTest {
             vmArg2,
             "-verbose",
             "-classpath",
-            MorePaths.pathWithPlatformSeparators("build/classes/junit"),
+            MorePaths.pathWithPlatformSeparators("ant-out/classes/junit"),
             FileClassPathRunner.class.getName(),
             "com.facebook.buck.testrunner.JUnitMain",
             "--output",

@@ -20,8 +20,12 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.rules.modern.builders.FileTreeBuilder.ProtocolTreeBuilder;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
+import com.facebook.buck.remoteexecution.Protocol;
+import com.facebook.buck.remoteexecution.Protocol.Digest;
+import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder.ProtocolTreeBuilder;
+import com.facebook.buck.remoteexecution.util.LocalContentAddressedStorage;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.Console;
@@ -47,19 +51,25 @@ class InProcessIsolatedExecution implements IsolatedExecution {
   private final BuckEventBus eventBus;
   private final Console console;
   private final LocalContentAddressedStorage storage;
+  private final Protocol protocol;
 
   InProcessIsolatedExecution(BuckEventBus eventBus, Console console) throws IOException {
     this.eventBus = eventBus;
     this.console = console;
     this.workDir = new NamedTemporaryDirectory("__work__");
+    this.protocol = new GrpcProtocol();
     this.storage =
-        new LocalContentAddressedStorage(
-            workDir.getPath().resolve("__cache__"), new ThriftProtocol());
+        new LocalContentAddressedStorage(workDir.getPath().resolve("__cache__"), protocol);
   }
 
   @Override
   public void close() throws IOException {
     workDir.close();
+  }
+
+  @Override
+  public Protocol getProtocol() {
+    return protocol;
   }
 
   @Override
@@ -81,7 +91,6 @@ class InProcessIsolatedExecution implements IsolatedExecution {
 
     try (Closeable ignored = () -> MostFiles.deleteRecursively(buildDir)) {
       HashMap<Digest, ThrowingSupplier<InputStream, IOException>> requiredData = new HashMap<>();
-      ThriftProtocol protocol = new ThriftProtocol();
       Digest rootDigest =
           inputsBuilder.buildTree(new ProtocolTreeBuilder(requiredData::put, dir -> {}, protocol));
 

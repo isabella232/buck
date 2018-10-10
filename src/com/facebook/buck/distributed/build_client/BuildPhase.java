@@ -28,6 +28,7 @@ import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.ClientStatsTracker;
@@ -56,7 +57,6 @@ import com.facebook.buck.distributed.thrift.RuleKeyCalculatedEvent;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -78,6 +78,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -214,6 +215,7 @@ public class BuildPhase {
         DEFAULT_WAIT_FOR_ALL_BUILD_EVENTS_TIMEOUT_MILLIS);
   }
 
+  @SuppressWarnings("CheckReturnValue") // submit result is not used
   private void runLocalCoordinatorAsync(
       ListeningExecutorService executorService,
       StampedeId stampedeId,
@@ -325,7 +327,7 @@ public class BuildPhase {
                       buildGraphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                           ruleKeyCalculator,
                       buildExecutorArgs.getBuckEventBus(), topLevelTargets),
-              Preconditions.checkNotNull(buildExecutorArgs.getExecutors().get(ExecutorPool.CPU)));
+              Objects.requireNonNull(buildExecutorArgs.getExecutors().get(ExecutorPool.CPU)));
     }
 
     if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {

@@ -18,20 +18,16 @@ package com.facebook.buck.core.rules.configsetting;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
 import com.facebook.buck.core.rules.config.ConfigurationRuleResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.immutables.value.Value;
 
 /**
  * A description for {@code config_setting}.
- *
- * <p>This description provides both {@link ConfigurationRule} and {@link BuildRule}, but creating a
- * {@link BuildRule} is not implemented and only provided to avoid dealing with places where parser
- * expects build rules.
  *
  * <p>This rule should be used to create conditions for {@code select} statements.
  *
@@ -62,7 +58,7 @@ public class ConfigSettingDescription implements ConfigurationRuleDescription<Co
       Cell cell,
       BuildTarget buildTarget,
       ConfigSettingArg arg) {
-    return new ConfigSettingRule(cell.getBuckConfig(), buildTarget, arg.getValues());
+    return new ConfigSettingRule(buildTarget, arg.getValues(), arg.getConstraintValues());
   }
 
   @BuckStyleImmutable
@@ -71,5 +67,7 @@ public class ConfigSettingDescription implements ConfigurationRuleDescription<Co
     String getName();
 
     ImmutableMap<String, String> getValues();
+
+    ImmutableList<BuildTarget> getConstraintValues();
   }
 }

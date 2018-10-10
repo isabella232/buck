@@ -26,6 +26,7 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -33,9 +34,11 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.TargetSpecResolver.FlavorEnhancer;
+import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -44,6 +47,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
@@ -100,14 +104,11 @@ public class TargetSpecResolverTest {
             typeCoercerFactory,
             constructorArgMarshaller,
             knownRuleTypesProvider,
-            parserPythonInterpreterProvider);
+            parserPythonInterpreterProvider,
+            WatchmanFactory.NULL_WATCHMAN,
+            eventBus);
     targetNodeTargetSpecResolver = new TargetSpecResolver();
-    parser =
-        new DefaultParser(
-            perBuildStateFactory,
-            cell.getBuckConfig().getView(ParserConfig.class),
-            typeCoercerFactory,
-            targetNodeTargetSpecResolver);
+    parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory);
     flavorEnhancer = (target, targetNode, targetType) -> target;
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(1));
   }
@@ -188,22 +189,50 @@ public class TargetSpecResolverTest {
     assertThat(targets, equalTo(ImmutableList.of(ImmutableSet.of(foo), ImmutableSet.of(bar))));
   }
 
+  @Test
+  public void resolveTargetSpecsIgnoresBuckout() throws Exception {
+    Path buckout = filesystem.getBuckPaths().getBuckOut();
+    Path buckFile = cellRoot.resolve(buckout.resolve("BUCK"));
+    Files.createDirectories(buckFile.getParent());
+    Files.write(buckFile, "genrule(name='foo', out='foo', cmd='foo')".getBytes(UTF_8));
+
+    ImmutableList<ImmutableSet<BuildTarget>> targets =
+        resolve(
+            ImmutableList.of(
+                TargetNodePredicateSpec.of(
+                    BuildFileSpec.fromRecursivePath(buckout, cell.getRoot()))));
+    assertThat(targets, equalTo(ImmutableList.of(ImmutableSet.of())));
+  }
+
   private ImmutableList<ImmutableSet<BuildTarget>> resolve(Iterable<? extends TargetNodeSpec> specs)
       throws IOException, InterruptedException {
     PerBuildState state =
         perBuildStateFactory.create(
             parser.getPermState(),
-            eventBus,
             executorService,
             cell,
+            ImmutableList.of(),
             false,
             SpeculativeParsing.DISABLED);
     return targetNodeTargetSpecResolver.resolveTargetSpecs(
         eventBus,
         cell,
+        WatchmanFactory.NULL_WATCHMAN,
         specs,
         flavorEnhancer,
-        state.getTargetNodeProviderForSpecResolver(),
+        new TargetNodeProviderForSpecResolver<TargetNode<?>>() {
+          @Override
+          public ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target)
+              throws BuildTargetException {
+            return state.getTargetNodeJob(target);
+          }
+
+          @Override
+          public ListenableFuture<ImmutableList<TargetNode<?>>> getAllTargetNodesJob(
+              Cell cell, Path buildFile) throws BuildTargetException {
+            return state.getAllTargetNodesJob(cell, buildFile);
+          }
+        },
         (spec, nodes) -> spec.filter(nodes));
   }
 }

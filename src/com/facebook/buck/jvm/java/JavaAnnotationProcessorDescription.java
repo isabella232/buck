@@ -24,9 +24,6 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.versions.VersionPropagator;
@@ -83,14 +80,8 @@ public class JavaAnnotationProcessorDescription
     propsBuilder.setSupportsAbiGenerationFromSource(args.isSupportsAbiGenerationFromSource());
     JavacPluginProperties properties = propsBuilder.build();
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getActionGraphBuilder()));
     return new JavaAnnotationProcessor(
-        buildTarget,
-        context.getProjectFilesystem(),
-        params.copyAppendingExtraDeps(properties.getClasspathDeps()),
-        pathResolver,
-        properties);
+        buildTarget, context.getProjectFilesystem(), params, properties);
   }
 
   @BuckStyleImmutable
@@ -98,10 +89,7 @@ public class JavaAnnotationProcessorDescription
   interface AbstractJavaAnnotationProcessorDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps {
 
-    @Value.Default
-    default Optional<String> getProcessorClass() {
-      return Optional.empty();
-    }
+    Optional<String> getProcessorClass();
 
     ImmutableSet<String> getProcessorClasses();
 

@@ -17,12 +17,12 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.DefaultClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.FileLike;
 import com.facebook.buck.jvm.java.classes.FileLikes;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -99,7 +100,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
 
                     if (classNamesToHashes.containsKey(className)) {
                       HashCode classHash =
-                          Preconditions.checkNotNull(classNamesToHashes.get(className));
+                          Objects.requireNonNull(classNamesToHashes.get(className));
                       hasher.putBytes(classHash.asBytes());
                     } else {
                       LOG.warn("%s hashes not found", className);

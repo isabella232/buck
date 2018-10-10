@@ -23,13 +23,10 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
@@ -37,7 +34,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -181,20 +177,6 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
     JavacOptions buildTimeOptions =
         javacOptions.withBootclasspathFromContext(extraClasspathProvider);
     return buildTimeOptions.getBootclasspath();
-  }
-
-  @Override
-  public Tool getCompiler() {
-    return javac;
-  }
-
-  @Override
-  public Iterable<BuildRule> getExtraDeps(SourcePathRuleFinder ruleFinder) {
-    // If any dep of an annotation processor changes, we need to recompile, so we add those as
-    // extra deps
-    return Iterables.concat(
-        super.getExtraDeps(ruleFinder),
-        ruleFinder.filterBuildRuleInputs(javacOptions.getAnnotationProcessingParams().getInputs()));
   }
 
   @Override

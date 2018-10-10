@@ -21,7 +21,7 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
@@ -62,6 +62,7 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
@@ -109,6 +110,7 @@ public class AppleBinaryDescription
   private final XCodeDescriptions xcodeDescriptions;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
   private final CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors;
   private final CxxBinaryFactory cxxBinaryFactory;
   private final CxxBinaryMetadataFactory cxxBinaryMetadataFactory;
@@ -119,6 +121,7 @@ public class AppleBinaryDescription
       XCodeDescriptions xcodeDescriptions,
       SwiftLibraryDescription swiftDelegate,
       AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig,
       CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors,
       CxxBinaryFactory cxxBinaryFactory,
       CxxBinaryMetadataFactory cxxBinaryMetadataFactory,
@@ -128,6 +131,7 @@ public class AppleBinaryDescription
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
     this.appleConfig = appleConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
     this.cxxBinaryImplicitFlavors = cxxBinaryImplicitFlavors;
     this.cxxBinaryFactory = cxxBinaryFactory;
     this.cxxBinaryMetadataFactory = cxxBinaryMetadataFactory;
@@ -388,7 +392,8 @@ public class AppleBinaryDescription
         ImmutableList.of(),
         Optional.empty(),
         Optional.empty(),
-        appleConfig.getCodesignTimeout());
+        appleConfig.getCodesignTimeout(),
+        swiftBuckConfig.getCopyStdlibToFrameworks());
   }
 
   private BuildRule createBinary(
@@ -408,7 +413,7 @@ public class AppleBinaryDescription
     Optional<MultiarchFileInfo> fatBinaryInfo =
         MultiarchFileInfos.create(appleCxxPlatformsFlavorDomain, buildTarget);
     if (fatBinaryInfo.isPresent()) {
-      if (shouldUseStubBinary(buildTarget)) {
+      if (shouldUseStubBinary(buildTarget, args)) {
         BuildTarget thinTarget = Iterables.getFirst(fatBinaryInfo.get().getThinTargets(), null);
         return requireThinBinary(
             context,
@@ -489,7 +494,7 @@ public class AppleBinaryDescription
 
           Optional<Path> stubBinaryPath =
               getStubBinaryPath(buildTarget, appleCxxPlatformsFlavorDomain, args);
-          if (shouldUseStubBinary(buildTarget) && stubBinaryPath.isPresent()) {
+          if (shouldUseStubBinary(buildTarget, args) && stubBinaryPath.isPresent()) {
             try {
               return new WriteFile(
                   buildTarget,
@@ -540,9 +545,15 @@ public class AppleBinaryDescription
         });
   }
 
-  private boolean shouldUseStubBinary(BuildTarget buildTarget) {
+  private boolean shouldUseStubBinary(BuildTarget buildTarget, AppleBinaryDescriptionArg args) {
+    // If the target has sources, it's not a watch app, it might be a watch extension instead.
+    // In this case, we don't need to add a watch kit stub.
+    if (!args.getSrcs().isEmpty()) {
+      return false;
+    }
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     return (flavors.contains(AppleBundleDescription.WATCH_OS_FLAVOR)
+        || flavors.contains(AppleBundleDescription.WATCH_OS_64_32_FLAVOR)
         || flavors.contains(AppleBundleDescription.WATCH_SIMULATOR_FLAVOR)
         || flavors.contains(LEGACY_WATCH_FLAVOR));
   }

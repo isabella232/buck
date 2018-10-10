@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -59,6 +59,7 @@ import com.google.common.collect.Maps;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import org.immutables.value.Value;
 
@@ -72,10 +73,14 @@ public class JavaTestDescription
 
   private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
+  private final Supplier<JavaOptions> javaOptionsForTests;
+  private final JavacFactory javacFactory;
 
   public JavaTestDescription(ToolchainProvider toolchainProvider, JavaBuckConfig javaBuckConfig) {
     this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
+    this.javaOptionsForTests = JavaOptionsProvider.getDefaultJavaOptionsForTests(toolchainProvider);
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -111,7 +116,6 @@ public class JavaTestDescription
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
-            projectFilesystem,
             graphBuilder,
             args);
 
@@ -136,8 +140,7 @@ public class JavaTestDescription
                 params,
                 graphBuilder,
                 cellRoots,
-                new JavaConfiguredCompilerFactory(
-                    javaBuckConfig, JavacFactory.getDefault(toolchainProvider)),
+                new JavaConfiguredCompilerFactory(javaBuckConfig, javacFactory),
                 javaBuckConfig,
                 args)
             .setJavacOptions(javacOptions)
@@ -160,16 +163,13 @@ public class JavaTestDescription
     return new JavaTest(
         buildTarget,
         projectFilesystem,
-        params.withDeclaredDeps(ImmutableSortedSet.of(testsLibrary)).withoutExtraDeps(),
+        params.copyAppendingExtraDeps(ImmutableSortedSet.of(testsLibrary)),
         testsLibrary,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         args.getLabels(),
         args.getContacts(),
         args.getTestType().orElse(TestType.JUNIT),
-        toolchainProvider
-            .getByName(JavaOptionsProvider.DEFAULT_NAME, JavaOptionsProvider.class)
-            .getJavaOptionsForTests()
-            .getJavaRuntimeLauncher(),
+        javaOptionsForTests.get().getJavaRuntimeLauncher(graphBuilder),
         args.getVmArgs(),
         cxxLibraryEnhancement.nativeLibsEnvironment,
         args.getTestRuleTimeoutMs()
@@ -196,6 +196,8 @@ public class JavaTestDescription
       targetGraphOnlyDepsBuilder.addAll(
           CxxPlatforms.getParseTimeDeps(getCxxPlatform(constructorArg)));
     }
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
+    javaOptionsForTests.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
   }
 
   public interface CoreArg extends HasContacts, HasTestTimeout, JavaLibraryDescription.CoreArg {
@@ -307,6 +309,9 @@ public class JavaTestDescription
         SourcePathRuleFinder ruleFinder,
         BuildRuleParams buildRuleParams,
         CxxPlatform cxxPlatform) {
+      // TODO(cjhopman): The behavior of this doesn't really make sense. This should use a
+      // packageable interface and some sort of proper logic for finding native libraries. Currently
+      // this includes native libraries contained within the second-order dependency set only.
       return CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
           buildTarget,
           projectFilesystem,
@@ -314,7 +319,13 @@ public class JavaTestDescription
           ruleFinder,
           cxxPlatform,
           buildRuleParams.getBuildDeps(),
-          r -> r instanceof JavaLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
+          r ->
+              r instanceof JavaLibrary
+                  ? Optional.of(
+                      buildRuleParams.getBuildDeps().contains(r)
+                          ? ((JavaLibrary) r).getDepsForTransitiveClasspathEntries()
+                          : ImmutableList.of())
+                  : Optional.empty());
     }
   }
 }

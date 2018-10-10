@@ -38,12 +38,12 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.util.graph.TopologicalSort;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.features.halide.HalideBuckConfig;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Optionals;
@@ -644,7 +644,7 @@ public class WorkspaceAndProjectGenerator {
                   xcodeDescriptions,
                   projectGraph,
                   Optional.of(dependenciesCache),
-                  Preconditions.checkNotNull(projectGraph.get(extraTarget))),
+                  Objects.requireNonNull(projectGraph.get(extraTarget))),
               Optional::of));
     }
 

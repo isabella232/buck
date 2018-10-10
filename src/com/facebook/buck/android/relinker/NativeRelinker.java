@@ -18,7 +18,7 @@ package com.facebook.buck.android.relinker;
 import com.facebook.buck.android.AndroidLinkableMetadata;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -49,6 +49,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -258,7 +259,7 @@ public class NativeRelinker {
         ruleFinder,
         ImmutableSortedSet.copyOf(Lists.transform(relinkerDeps, getSymbolsNeeded::apply)),
         cpuType,
-        Preconditions.checkNotNull(nativePlatforms.get(cpuType)).getObjdump(),
+        Objects.requireNonNull(nativePlatforms.get(cpuType)).getObjdump(),
         cxxBuckConfig,
         source,
         linker,

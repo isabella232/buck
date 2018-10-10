@@ -31,6 +31,19 @@ Note: Buck is currently tested with (and therefore supports) version 1.10 of Go.
 {/template}
 
 /***/
+{template .link_style_arg}
+{call buck.arg}
+  {param name : 'link_style' /}
+  {param default: 'static_pic' /}
+  {param desc}
+  Determines whether to build and link this rule's dependencies statically or dynamically. Can be
+  one of the following values: <code>static</code>, <code>static_pic</code> or <code>shared</code>.
+  This argument is relevant only if the cgo extension is enabled. Otherwise, Buck ignores this argument.
+  {/param}
+{/call}
+{/template}
+
+/***/
 {template .cgo_compiler_flags_arg}
 {call buck.arg}
   {param name : 'cgo_compiler_flags_arg' /}
@@ -84,6 +97,19 @@ Note: Buck is currently tested with (and therefore supports) version 1.10 of Go.
   {param default: '[]' /}
   {param desc}
   Extra linker flags passed to go link
+  {/param}
+{/call}
+{/template}
+
+/***/
+{template .external_linker_flags_arg}
+{call buck.arg}
+  {param name: 'external_linker_flags' /}
+  {param default: '[]' /}
+  {param desc}
+  Extra external linker flags passed to go link via <code>-extld</code> argument.
+  If argument is non-empty or <code>cgo_library</code> is used, the link mode 
+  will switch to <code>external</code>.
   {/param}
 {/call}
 {/template}

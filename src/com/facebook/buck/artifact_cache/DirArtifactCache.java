@@ -20,10 +20,10 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.DirectoryCleanerArgs;
 import com.google.common.annotations.VisibleForTesting;
@@ -106,12 +106,13 @@ public class DirArtifactCache implements ArtifactCache {
     CacheResult result;
     try {
       // First, build up the metadata from the metadata file.
-      ImmutableMap.Builder<String, String> metadata = ImmutableMap.builder();
+      ImmutableMap.Builder<String, String> metadata;
       try (DataInputStream in =
           new DataInputStream(
               filesystem.newFileInputStream(
                   getPathForRuleKey(ruleKey, Optional.of(".metadata"))))) {
         int sz = in.readInt();
+        metadata = ImmutableMap.builderWithExpectedSize(sz);
         for (int i = 0; i < sz; i++) {
           String key = in.readUTF();
           int valSize = in.readInt();

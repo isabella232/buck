@@ -35,13 +35,13 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.CleanBuildShutdownException;
@@ -72,7 +72,6 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 import org.immutables.value.Value;
 
 public class Build implements Closeable {
@@ -165,18 +164,25 @@ public class Build implements Closeable {
     buildEngine.terminateBuildWithFailure(failure);
   }
 
+  /** Setup all the symlinks necessary for a build */
+  private synchronized void setupBuildSymlinks() throws IOException {
+    // Symlinks should only be created once, across all invocations of build, otherwise
+    // there will be file system conflicts.
+    if (symlinksCreated) {
+      return;
+    }
+    // Setup symlinks required when configuring the output path.
+    createConfiguredBuckOutSymlinks();
+    createProjectRootSymlink();
+    symlinksCreated = true;
+  }
+
   /**
    * When the user overrides the configured buck-out directory via the `.buckconfig` and also sets
    * the `project.buck_out_compat_link` setting to `true`, we symlink the original output path
    * (`buck-out/`) to this newly configured location for backwards compatibility.
    */
-  private synchronized void createConfiguredBuckOutSymlinks() throws IOException {
-    // Symlinks should only be created once, across all invocations of Build, otherwise
-    // there will be file system conflicts.
-    if (symlinksCreated) {
-      return;
-    }
-
+  private void createConfiguredBuckOutSymlinks() throws IOException {
     for (Cell cell : rootCell.getAllCells()) {
       BuckConfig buckConfig = cell.getBuckConfig();
       ProjectFilesystem filesystem = cell.getFilesystem();
@@ -201,8 +207,15 @@ public class Build implements Closeable {
         }
       }
     }
+  }
 
-    symlinksCreated = true;
+  private void createProjectRootSymlink() throws IOException {
+    for (Cell cell : rootCell.getAllCells()) {
+      ProjectFilesystem filesystem = cell.getFilesystem();
+      BuckPaths buckPaths = filesystem.getBuckPaths();
+
+      filesystem.createSymLink(buckPaths.getProjectRootDir(), filesystem.getRootPath(), true);
+    }
   }
 
   /**
@@ -215,8 +228,7 @@ public class Build implements Closeable {
     // It is important to use this logic to determine the set of rules to build rather than
     // build.getActionGraph().getNodesWithNoIncomingEdges() because, due to graph enhancement,
     // there could be disconnected subgraphs in the DependencyGraph that we do not want to build.
-    ImmutableSet<BuildTarget> targetsToBuild =
-        StreamSupport.stream(targetish.spliterator(), false).collect(ImmutableSet.toImmutableSet());
+    ImmutableSet<BuildTarget> targetsToBuild = ImmutableSet.copyOf(targetish);
 
     ImmutableList<BuildRule> rulesToBuild =
         ImmutableList.copyOf(
@@ -295,16 +307,13 @@ public class Build implements Closeable {
    */
   public List<BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
       throws IOException {
-    // Setup symlinks required when configuring the output path.
-    createConfiguredBuckOutSymlinks();
 
-    List<BuildEngineResult> resultFutures =
-        rulesToBuild
-            .stream()
-            .map(rule -> buildEngine.build(buildContext, executionContext, rule))
-            .collect(ImmutableList.toImmutableList());
+    setupBuildSymlinks();
 
-    return resultFutures;
+    return rulesToBuild
+        .stream()
+        .map(rule -> buildEngine.build(buildContext, executionContext, rule))
+        .collect(ImmutableList.toImmutableList());
   }
 
   private BuildExecutionResult waitForBuildToFinish(

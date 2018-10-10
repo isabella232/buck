@@ -30,12 +30,12 @@
 
 package com.facebook.buck.query;
 
-import com.google.common.base.Preconditions;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -146,7 +146,7 @@ final class Lexer {
 
     @Override
     public String toString() {
-      return kind == TokenKind.WORD ? Preconditions.checkNotNull(word) : kind.getPrettyName();
+      return kind == TokenKind.WORD ? Objects.requireNonNull(word) : kind.getPrettyName();
     }
   }
 
@@ -161,13 +161,13 @@ final class Lexer {
   }
 
   // Input buffer and position
-  @Nullable private char[] buffer;
+  private final char[] buffer;
   private int pos;
 
   private final List<Token> tokens = new ArrayList<>();
 
   private Lexer(char[] buffer) {
-    this.buffer = buffer;
+    this.buffer = Objects.requireNonNull(buffer);
     this.pos = 0;
   }
 
@@ -185,7 +185,6 @@ final class Lexer {
    */
   private Token quotedWord(char quot) throws QueryException {
     int oldPos = pos - 1;
-    Preconditions.checkNotNull(buffer);
     while (pos < buffer.length) {
       char c = buffer[pos++];
       switch (c) {
@@ -209,7 +208,6 @@ final class Lexer {
   // words must include UNIX filenames, labels and target label patterns, and simple regexps
   // (e.g. cc_.*). Keep consistent with TargetLiteral.toString()!
   private String scanWord() {
-    Preconditions.checkNotNull(buffer);
     int oldPos = pos - 1;
     while (pos < buffer.length) {
       switch (buffer[pos]) {
@@ -309,7 +307,6 @@ final class Lexer {
 
   /** Performs tokenization of the character buffer of file contents provided to the constructor. */
   private void tokenize() throws QueryException {
-    Preconditions.checkNotNull(buffer);
     while (pos < buffer.length) {
       char c = buffer[pos];
       pos++;
@@ -372,8 +369,6 @@ final class Lexer {
     } // while
 
     addToken(new Token(TokenKind.EOF));
-
-    this.buffer = null; // release buffer now that we have our tokens
   }
 
   private String bufferSlice(int start, int end) {

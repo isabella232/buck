@@ -31,12 +31,12 @@ import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.InputRuleResolver;
 import com.google.common.collect.ImmutableList;
@@ -80,6 +80,12 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
+  public void sortedSet() {
+    apply(new WithSortedSet());
+  }
+
+  @Override
+  @Test
   public void addsToRuleKey() {
     WithAddsToRuleKey value = new WithAddsToRuleKey();
     expect(inputRuleResolver.resolve(FakeSourcePath.of(rootFilesystem, "appendable.path")))
@@ -105,6 +111,14 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
   public void nonHashableSourcePathContainer() throws Exception {
     WithNonHashableSourcePathContainer value = new WithNonHashableSourcePathContainer();
     expect(inputRuleResolver.resolve(value.container.getSourcePath())).andReturn(Optional.empty());
+    apply(value);
+  }
+
+  @Override
+  @Test
+  public void map() throws Exception {
+    WithMap value = new WithMap();
+    expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty()).times(2);
     apply(value);
   }
 

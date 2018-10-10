@@ -20,14 +20,17 @@ import static com.facebook.buck.jvm.java.JavaLibraryClasspathProvider.getClasspa
 
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
@@ -45,6 +48,7 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -57,28 +61,29 @@ import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 public class AndroidInstrumentationApkDescription
-    implements DescriptionWithTargetGraph<AndroidInstrumentationApkDescriptionArg> {
+    implements DescriptionWithTargetGraph<AndroidInstrumentationApkDescriptionArg>,
+        ImplicitDepsInferringDescription<AndroidInstrumentationApkDescriptionArg> {
 
   private final JavaBuckConfig javaBuckConfig;
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
-  private final ApkConfig apkConfig;
   private final ToolchainProvider toolchainProvider;
+
+  private final JavacFactory javacFactory;
 
   public AndroidInstrumentationApkDescription(
       JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig,
-      ApkConfig apkConfig,
       ToolchainProvider toolchainProvider) {
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
-    this.apkConfig = apkConfig;
     this.toolchainProvider = toolchainProvider;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -112,7 +117,10 @@ public class AndroidInstrumentationApkDescription
     // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
     // apk under test.
     AndroidPackageableCollection.ResourceDetails resourceDetails =
-        apkUnderTest.getAndroidPackageableCollection().getResourceDetails();
+        apkUnderTest
+            .getAndroidPackageableCollection()
+            .getResourceDetails()
+            .get(APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME, true));
     ImmutableSet<BuildTarget> resourcesToExclude =
         ImmutableSet.copyOf(
             Iterables.concat(
@@ -190,7 +198,7 @@ public class AndroidInstrumentationApkDescription
             /* noVersionTransitionsResources */ false,
             /* noAutoAddOverlayResources */ false,
             javaBuckConfig,
-            JavacFactory.getDefault(toolchainProvider),
+            javacFactory,
             toolchainProvider
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
@@ -211,8 +219,7 @@ public class AndroidInstrumentationApkDescription
             dxExecutorService,
             apkUnderTest.getManifestEntries(),
             cxxBuckConfig,
-            new APKModuleGraph(
-                Optional.empty(), Optional.empty(), context.getTargetGraph(), buildTarget),
+            new APKModuleGraph(context.getTargetGraph(), buildTarget),
             dxConfig,
             args.getDexTool(),
             /* postFilterResourcesCommands */ Optional.empty(),
@@ -236,8 +243,17 @@ public class AndroidInstrumentationApkDescription
         filesInfo.getDexFilesInfo(),
         filesInfo.getNativeFilesInfo(),
         filesInfo.getResourceFilesInfo(),
-        filesInfo.getExopackageInfo(),
-        apkConfig.getCompressionLevel());
+        filesInfo.getExopackageInfo());
+  }
+
+  @Override
+  public void findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      AndroidInstrumentationApkDescriptionArg constructorArg,
+      Builder<BuildTarget> extraDepsBuilder,
+      Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
   }
 
   @BuckStyleImmutable

@@ -18,11 +18,11 @@ package com.facebook.buck.distributed;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
@@ -203,6 +203,14 @@ public class DistBuildConfig {
   private static final String CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS =
       "cache_synchronization_safety_margin_millis";
   private static final int DEFAULT_CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS = 5000;
+
+  private static final String CACHE_SYNCHRONIZATION_FIRST_BACKOFF_MILLIS =
+      "cache_synchronization_first_backoff_millis";
+  private static final long DEFAULT_CACHE_SYNCHRONIZATION_FIRST_BACKOFF_MILLIS = 1000;
+
+  private static final String CACHE_SYNCHRONIZATION_MAX_TOTAL_BACKOFF_MILLIS =
+      "cache_synchronization_max_total_backoff_millis";
+  private static final long DEFAULT_CACHE_SYNCHRONIZATION_MAX_TOTAL_BACKOFF_MILLIS = 10000;
 
   private static final String BUILD_SELECTED_TARGETS_LOCALLY = "build_selected_targets_locally";
   private static final boolean DEFAULT_BUILD_SELECTED_TARGETS_LOCALLY = true;
@@ -539,6 +547,18 @@ public class DistBuildConfig {
     return buckConfig
         .getInteger(STAMPEDE_SECTION, CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS)
         .orElse(DEFAULT_CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS);
+  }
+
+  public long getCacheSynchronizationFirstBackoffMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, CACHE_SYNCHRONIZATION_FIRST_BACKOFF_MILLIS)
+        .orElse(DEFAULT_CACHE_SYNCHRONIZATION_FIRST_BACKOFF_MILLIS);
+  }
+
+  public long getCacheSynchronizationMaxTotalBackoffMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, CACHE_SYNCHRONIZATION_MAX_TOTAL_BACKOFF_MILLIS)
+        .orElse(DEFAULT_CACHE_SYNCHRONIZATION_MAX_TOTAL_BACKOFF_MILLIS);
   }
 
   public boolean shouldBuildSelectedTargetsLocally() {

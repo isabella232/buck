@@ -18,7 +18,7 @@ package com.facebook.buck.features.python;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -64,7 +64,6 @@ import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -75,6 +74,7 @@ import com.google.common.collect.Maps;
 import com.google.common.io.Resources;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -151,7 +151,7 @@ public class PythonTestDescription
       ImmutableSet<String> testModules) {
 
     // Modify the build rule params to change the target, type, and remove all deps.
-    buildTarget.checkUnflavored();
+    buildTarget.assertUnflavored();
     BuildTarget newBuildTarget = buildTarget.withAppendedFlavors(InternalFlavor.of("test_module"));
 
     String contents = getTestModulesListContents(testModules);
@@ -215,7 +215,7 @@ public class PythonTestDescription
         graphBuilder.computeIfAbsent(
             baseTarget.withFlavors(InternalFlavor.of("python-test-main")),
             target -> new PythonTestMainRule(target, filesystem));
-    return Preconditions.checkNotNull(testMainRule.getSourcePathToOutput());
+    return Objects.requireNonNull(testMainRule.getSourcePathToOutput());
   }
 
   @Override
@@ -351,7 +351,7 @@ public class PythonTestDescription
             args.getPreloadDeps());
 
     // Build the PEX using a python binary rule with the minimum dependencies.
-    buildTarget.checkUnflavored();
+    buildTarget.assertUnflavored();
     PythonBinary binary =
         binaryDescription.createPackageRule(
             buildTarget.withAppendedFlavors(BINARY_FLAVOR),

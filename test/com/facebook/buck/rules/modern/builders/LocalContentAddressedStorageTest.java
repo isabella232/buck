@@ -18,9 +18,13 @@ package com.facebook.buck.rules.modern.builders;
 
 import static org.junit.Assert.*;
 
-import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
-import com.facebook.buck.rules.modern.builders.FileTreeBuilder.ProtocolTreeBuilder;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
+import com.facebook.buck.remoteexecution.Protocol;
+import com.facebook.buck.remoteexecution.Protocol.Digest;
+import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder.InputFile;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder.ProtocolTreeBuilder;
+import com.facebook.buck.remoteexecution.util.LocalContentAddressedStorage;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.base.Charsets;
@@ -43,7 +47,7 @@ public class LocalContentAddressedStorageTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private LocalContentAddressedStorage storage;
   private Path storageDir;
-  private final Protocol protocol = new ThriftProtocol();
+  private final Protocol protocol = new GrpcProtocol();
   private HashFunction hasher = Hashing.sipHash24();
 
   @Before

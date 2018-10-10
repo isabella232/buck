@@ -22,6 +22,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.config.impl.PluginBasedKnownConfigurationDescriptionsFactory;
 import com.facebook.buck.core.rules.knowntypes.DefaultKnownRuleTypesFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
@@ -31,9 +32,9 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.watchman.WatchmanDiagnosticEvent;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
+import com.facebook.buck.parser.api.MetaRules;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TestConsole;
@@ -59,7 +60,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -156,7 +156,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessAndPrintsToStderr(
             buckEventBus)) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"));
     }
     assertThat(consoleEvents.get(1).getMessage(), Matchers.containsString("| Don't Panic!"));
   }
@@ -189,7 +189,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithWarning(
             buckEventBus, "This is a warning", "parser")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"));
     }
     assertThat(
         consoleEvents,
@@ -223,7 +223,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithWarning(
             buckEventBus, "This is a watchman warning", "watchman")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"));
     }
     assertThat(
         watchmanDiagnosticEvents,
@@ -253,7 +253,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithError(
             buckEventBus, "This is an error", "parser")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"));
     }
     assertThat(
         consoleEvents,
@@ -298,7 +298,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "java_test(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"));
     }
   }
 
@@ -337,7 +337,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "java_test(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"));
     }
   }
 
@@ -394,7 +394,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "some_helper_method(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"));
     }
   }
 
@@ -446,7 +446,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "lets_divide_by_zero()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"));
     }
   }
 
@@ -481,7 +481,7 @@ public class PythonDslProjectBuildFileParserTest {
               params ->
                   fakeProcessWithJsonOutput(
                       0,
-                      ImmutableList.of("__includes", "__configs", "__env"),
+                      ImmutableList.of(MetaRules.INCLUDES, MetaRules.CONFIGS, MetaRules.ENV),
                       Optional.empty(),
                       Optional.empty()),
               new TestConsole()),
@@ -581,7 +581,8 @@ public class PythonDslProjectBuildFileParserTest {
             new DefaultTypeCoercerFactory(),
             ImmutableMap.of(),
             buckEventBus,
-            processExecutor);
+            processExecutor,
+            Optional.empty());
       }
     }
   }

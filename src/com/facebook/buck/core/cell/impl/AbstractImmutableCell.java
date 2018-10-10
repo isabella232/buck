@@ -17,8 +17,9 @@
 package com.facebook.buck.core.cell.impl;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.toolchain.ComparableToolchain;
@@ -26,7 +27,6 @@ import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -55,7 +55,11 @@ abstract class AbstractImmutableCell implements Cell {
 
   @Override
   @Value.Auxiliary
-  public abstract Watchman getWatchman();
+  public abstract ProjectFilesystem getFilesystem();
+
+  @Override
+  @Value.Auxiliary
+  public abstract BuckConfig getBuckConfig();
 
   @Override
   @Value.Auxiliary

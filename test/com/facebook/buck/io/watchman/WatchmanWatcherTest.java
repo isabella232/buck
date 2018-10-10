@@ -425,10 +425,10 @@ public class WatchmanWatcherTest {
                         ImmutableList.of(
                             "anyof",
                             ImmutableList.of("type", "d"),
-                            ImmutableList.of("match", "foo" + File.separator + "*", "wholename"),
+                            ImmutableList.of("match", "foo" + File.separator + "**", "wholename"),
                             ImmutableList.of(
                                 "match",
-                                "bar" + File.separator + "baz" + File.separator + "*",
+                                "bar" + File.separator + "baz" + File.separator + "**",
                                 "wholename"))),
                 "empty_on_fresh_instance", true,
                 "fields", ImmutableList.of("name", "exists", "new"))),
@@ -442,8 +442,8 @@ public class WatchmanWatcherTest {
         WatchmanWatcher.createQuery(
             ProjectWatch.of(watchRoot, Optional.empty()),
             ImmutableSet.of(
-                new PathOrGlobMatcher(Paths.get("/path/to/repo/foo").toAbsolutePath()),
-                new PathOrGlobMatcher(Paths.get("/path/to/repo/bar/baz").toAbsolutePath())),
+                new PathOrGlobMatcher(Paths.get("foo")),
+                new PathOrGlobMatcher(Paths.get("bar/baz"))),
             ImmutableSet.of(Capability.DIRNAME));
     assertEquals(
         WatchmanQuery.of(

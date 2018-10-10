@@ -37,6 +37,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -46,19 +47,18 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,6 +68,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.junit.Test;
 
@@ -93,8 +94,8 @@ public class CxxLinkableEnhancerTest {
         NativeLinkableInput staticInput,
         NativeLinkableInput sharedInput) {
       super(buildTarget, projectFilesystem, params);
-      this.staticInput = Preconditions.checkNotNull(staticInput);
-      this.sharedInput = Preconditions.checkNotNull(sharedInput);
+      this.staticInput = Objects.requireNonNull(staticInput);
+      this.sharedInput = Objects.requireNonNull(sharedInput);
     }
 
     @Override
@@ -110,9 +111,8 @@ public class CxxLinkableEnhancerTest {
     @Override
     public NativeLinkableInput getNativeLinkableInput(
         CxxPlatform cxxPlatform,
-        Linker.LinkableDepType type,
+        LinkableDepType type,
         boolean forceLinkWhole,
-        ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions,
         ActionGraphBuilder graphBuilder) {
       return type == Linker.LinkableDepType.STATIC ? staticInput : sharedInput;
     }

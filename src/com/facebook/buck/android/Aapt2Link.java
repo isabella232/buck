@@ -27,6 +27,7 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -61,10 +62,13 @@ public class Aapt2Link extends AbstractBuildRule {
   @AddToRuleKey private final ImmutableList<Aapt2Compile> compileRules;
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
+  @AddToRuleKey private final int packageIdOffset;
   @AddToRuleKey private final ImmutableList<SourcePath> dependencyResourceApks;
 
   private final AndroidPlatformTarget androidPlatformTarget;
   private final Supplier<ImmutableSortedSet<BuildRule>> buildDepsSupplier;
+
+  private static final int BASE_PACKAGE_ID = 0x7f;
 
   Aapt2Link(
       BuildTarget buildTarget,
@@ -74,6 +78,7 @@ public class Aapt2Link extends AbstractBuildRule {
       ImmutableList<HasAndroidResourceDeps> resourceRules,
       SourcePath manifest,
       ManifestEntries manifestEntries,
+      int packageIdOffset,
       ImmutableList<SourcePath> dependencyResourceApks,
       boolean includesVectorDrawables,
       boolean noAutoVersion,
@@ -86,6 +91,7 @@ public class Aapt2Link extends AbstractBuildRule {
     this.compileRules = compileRules;
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
+    this.packageIdOffset = packageIdOffset;
     this.dependencyResourceApks = dependencyResourceApks;
     this.includesVectorDrawables = includesVectorDrawables;
     this.noAutoVersion = noAutoVersion;
@@ -164,6 +170,7 @@ public class Aapt2Link extends AbstractBuildRule {
 
     steps.add(
         new Aapt2LinkStep(
+            context.getSourcePathResolver(),
             getProjectFilesystem().resolve(linkTreePath),
             symlinkPaths.build(),
             dependencyResourceApks
@@ -228,12 +235,15 @@ public class Aapt2Link extends AbstractBuildRule {
   class Aapt2LinkStep extends ShellStep {
     private final List<Path> compiledResourcePaths;
     private final List<Path> compiledResourceApkPaths;
+    private final SourcePathResolver pathResolver;
 
     Aapt2LinkStep(
+        SourcePathResolver pathResolver,
         Path workingDirectory,
         List<Path> compiledResourcePaths,
         List<Path> compiledResourceApkPaths) {
       super(workingDirectory);
+      this.pathResolver = pathResolver;
       this.compiledResourcePaths = compiledResourcePaths;
       this.compiledResourceApkPaths = compiledResourceApkPaths;
     }
@@ -246,8 +256,9 @@ public class Aapt2Link extends AbstractBuildRule {
     @Override
     protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
+      builder.addAll(
+          androidPlatformTarget.getAapt2Executable().get().getCommandPrefix(pathResolver));
 
-      builder.add(androidPlatformTarget.getAapt2Executable().toString());
       builder.add("link");
       if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
         builder.add("-v");
@@ -271,6 +282,10 @@ public class Aapt2Link extends AbstractBuildRule {
 
       if (useProtoFormat) {
         builder.add("--proto-format");
+      }
+
+      if (packageIdOffset != 0) {
+        builder.add("--package-id", String.format("0x%x", BASE_PACKAGE_ID + packageIdOffset));
       }
 
       ProjectFilesystem pf = getProjectFilesystem();

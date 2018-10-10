@@ -69,11 +69,11 @@ import com.facebook.buck.core.rules.schedule.OverrideScheduleRule;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ThrowableConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
@@ -114,6 +114,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -360,7 +361,7 @@ class CachingBuildRuleBuilder {
             buildResult,
             Throwable.class,
             throwable -> {
-              Preconditions.checkNotNull(throwable);
+              Objects.requireNonNull(throwable);
               buildRuleBuilderDelegate.setFirstFailure(throwable);
               Throwables.throwIfInstanceOf(throwable, Exception.class);
               throw new RuntimeException(throwable);
@@ -732,7 +733,11 @@ class CachingBuildRuleBuilder {
   private void uploadToCache(BuildRuleSuccessType success) {
     try {
       // Push to cache.
-      uploadCompleteFuture = buildCacheArtifactUploader.uploadToCache(success);
+      long buildTimeMs =
+          buildTimestampsMillis == null
+              ? -1
+              : buildTimestampsMillis.getSecond() - buildTimestampsMillis.getFirst();
+      uploadCompleteFuture = buildCacheArtifactUploader.uploadToCache(success, buildTimeMs);
     } catch (Throwable t) {
       eventBus.post(ThrowableConsoleEvent.create(t, "Error uploading to cache for %s.", rule));
     }
@@ -916,8 +921,7 @@ class CachingBuildRuleBuilder {
             () -> {
               if (SupportsPipelining.isSupported(rule)) {
                 addToPipelinesRunner(
-                    (SupportsPipelining<?>) rule,
-                    Preconditions.checkNotNull(rulekeyCacheResult.get()));
+                    (SupportsPipelining<?>) rule, Objects.requireNonNull(rulekeyCacheResult.get()));
               }
 
               return Futures.transformAsync(
@@ -990,7 +994,7 @@ class CachingBuildRuleBuilder {
             buildResultFuture,
             () ->
                 buildLocally(
-                    Preconditions.checkNotNull(rulekeyCacheResult.get()),
+                    Objects.requireNonNull(rulekeyCacheResult.get()),
                     service
                         // This needs to adjust the default amounts even in the non-resource-aware
                         // scheduling case so that RuleScheduleInfo works correctly.
@@ -1023,15 +1027,13 @@ class CachingBuildRuleBuilder {
           }
 
           // Once remote build has finished, download artifact from cache using default key
-          return Futures.transformAsync(
-              remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule),
-              (Void v) ->
-                  Futures.transform(
-                      performRuleKeyCacheCheck(/* cacheHitExpected */ true),
-                      cacheResult -> {
-                        rulekeyCacheResult.set(cacheResult);
-                        return getBuildResultForRuleKeyCacheResult(cacheResult);
-                      }));
+          return Futures.transform(
+              remoteBuildRuleCompletionWaiter.waitForBuildRuleToAppearInCache(
+                  rule, () -> performRuleKeyCacheCheck(/* cacheHitExpected */ true)),
+              cacheResult -> {
+                rulekeyCacheResult.set(cacheResult);
+                return getBuildResultForRuleKeyCacheResult(cacheResult);
+              });
         });
   }
 
@@ -1102,7 +1104,7 @@ class CachingBuildRuleBuilder {
 
   private void recordFailureAndCleanUp(Throwable failure) {
     // Make this failure visible for other rules, so that they can stop early.
-    buildRuleBuilderDelegate.setFirstFailure(Preconditions.checkNotNull(failure));
+    buildRuleBuilderDelegate.setFirstFailure(Objects.requireNonNull(failure));
 
     // If we failed, cleanup the state of this rule.
     // TODO(mbolin): Delete all files produced by the rule, as they are not guaranteed
@@ -1224,7 +1226,7 @@ class CachingBuildRuleBuilder {
             executor.submit(
                 () -> {
                   if (!buildRuleBuilderDelegate.shouldKeepGoing()) {
-                    Preconditions.checkNotNull(buildRuleBuilderDelegate.getFirstFailure());
+                    Objects.requireNonNull(buildRuleBuilderDelegate.getFirstFailure());
                     return Optional.of(canceled(buildRuleBuilderDelegate.getFirstFailure()));
                   }
                   try (Scope ignored = buildRuleScope()) {
@@ -1245,7 +1247,7 @@ class CachingBuildRuleBuilder {
             return Futures.immediateFuture(result);
           }
           if (!buildRuleBuilderDelegate.shouldKeepGoing()) {
-            Preconditions.checkNotNull(buildRuleBuilderDelegate.getFirstFailure());
+            Objects.requireNonNull(buildRuleBuilderDelegate.getFirstFailure());
             return Futures.immediateFuture(
                 Optional.of(canceled(buildRuleBuilderDelegate.getFirstFailure())));
           }
@@ -1279,7 +1281,7 @@ class CachingBuildRuleBuilder {
     public void runWithExecutor(BuildExecutor buildExecutor) {
       try {
         if (!buildRuleBuilderDelegate.shouldKeepGoing()) {
-          Preconditions.checkNotNull(buildRuleBuilderDelegate.getFirstFailure());
+          Objects.requireNonNull(buildRuleBuilderDelegate.getFirstFailure());
           future.set(Optional.of(canceled(buildRuleBuilderDelegate.getFirstFailure())));
           return;
         }

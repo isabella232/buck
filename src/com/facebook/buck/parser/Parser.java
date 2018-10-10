@@ -21,12 +21,10 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
@@ -37,27 +35,20 @@ import javax.annotation.Nullable;
 /**
  * High-level build file parsing machinery. Primarily responsible for producing a {@link
  * TargetGraph} based on a set of targets. Caches build rules to minimise the number of calls to
- * python and processes filesystem WatchEvents to invalidate the cache as files change.
+ * build file interpreter and processes filesystem events to invalidate the cache as files change.
  */
 public interface Parser {
 
   DaemonicParserState getPermState();
 
-  ImmutableSet<TargetNode<?>> getAllTargetNodes(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      Path buildFile)
-      throws BuildFileParseException;
+  PerBuildStateFactory getPerBuildStateFactory();
 
   TargetNode<?> getTargetNode(
-      BuckEventBus eventBus,
-      Cell cell,
-      boolean enableProfiling,
-      ListeningExecutorService executor,
-      BuildTarget target)
+      Cell cell, boolean enableProfiling, ListeningExecutorService executor, BuildTarget target)
       throws BuildFileParseException;
+
+  ImmutableList<TargetNode<?>> getAllTargetNodes(
+      PerBuildState perBuildState, Cell cell, Path buildFile) throws BuildFileParseException;
 
   TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
       throws BuildFileParseException;
@@ -76,7 +67,6 @@ public interface Parser {
   @Nullable
   @Deprecated
   SortedMap<String, Object> getTargetNodeRawAttributes(
-      BuckEventBus eventBus,
       Cell cell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -84,7 +74,6 @@ public interface Parser {
       throws BuildFileParseException;
 
   TargetGraph buildTargetGraph(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -92,12 +81,10 @@ public interface Parser {
       throws IOException, InterruptedException, BuildFileParseException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
   TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -105,12 +92,10 @@ public interface Parser {
       throws BuildFileParseException, IOException, InterruptedException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
   TargetGraphAndBuildTargets buildTargetGraphForTargetNodeSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -119,7 +104,6 @@ public interface Parser {
       throws BuildFileParseException, IOException, InterruptedException;
 
   ImmutableList<ImmutableSet<BuildTarget>> resolveTargetSpecs(
-      BuckEventBus eventBus,
       Cell rootCell,
       boolean enableProfiling,
       ListeningExecutorService executor,
@@ -127,6 +111,4 @@ public interface Parser {
       SpeculativeParsing speculativeParsing,
       ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
       throws BuildFileParseException, InterruptedException, IOException;
-
-  void register(EventBus eventBus);
 }

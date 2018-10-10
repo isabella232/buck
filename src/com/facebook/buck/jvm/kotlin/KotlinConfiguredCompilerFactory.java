@@ -19,14 +19,16 @@ package com.facebook.buck.jvm.kotlin;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.jvm.java.ConfiguredCompiler;
+import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
-import com.google.common.base.Preconditions;
+import com.facebook.buck.jvm.kotlin.KotlinLibraryDescription.AnnotationProcessingTool;
+import com.facebook.buck.jvm.kotlin.KotlinLibraryDescription.CoreArg;
+import java.util.Objects;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -52,16 +54,17 @@ public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   @Override
-  public ConfiguredCompiler configure(
+  public CompileToJarStepFactory configure(
       @Nullable JvmLibraryArg args,
       JavacOptions javacOptions,
       BuildRuleResolver buildRuleResolver,
       ToolchainProvider toolchainProvider) {
+    CoreArg kotlinArgs = Objects.requireNonNull((CoreArg) args);
     return new KotlincToJarStepFactory(
         kotlinBuckConfig.getKotlinc(),
         kotlinBuckConfig.getKotlinHomeLibraries(),
-        Preconditions.checkNotNull((KotlinLibraryDescription.CoreArg) args)
-            .getExtraKotlincArguments(),
+        kotlinArgs.getExtraKotlincArguments(),
+        kotlinArgs.getAnnotationProcessingTool().orElse(AnnotationProcessingTool.KAPT),
         extraClasspathProviderSupplier.apply(toolchainProvider),
         getJavac(buildRuleResolver, args),
         javacOptions);

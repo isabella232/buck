@@ -37,22 +37,15 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSetMultimap;
-import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Maps;
-import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -61,20 +54,13 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /** Structured representation of data read from a {@code .buckconfig} file. */
 public class BuckConfig {
-
-  private static final String ALIAS_SECTION_HEADER = "alias";
   private static final String TEST_SECTION_HEADER = "test";
 
   private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
-
-  /**
-   * This pattern is designed so that a fully-qualified build target cannot be a valid alias name
-   * and vice-versa.
-   */
-  private static final Pattern ALIAS_PATTERN = Pattern.compile("[a-zA-Z_-][a-zA-Z0-9_-]*");
 
   private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART;
 
@@ -82,17 +68,18 @@ public class BuckConfig {
 
   private final Config config;
 
-  private final Supplier<ImmutableSetMultimap<String, BuildTarget>> aliasToBuildTargetMap;
-
   private final ProjectFilesystem projectFilesystem;
 
   private final Platform platform;
 
   private final ImmutableMap<String, String> environment;
 
-  private final ConfigViewCache<BuckConfig> viewCache = new ConfigViewCache<>(this);
+  private final ConfigViewCache<BuckConfig> viewCache =
+      new ConfigViewCache<>(this, BuckConfig.class);
 
   private final Function<String, BuildTarget> buildTargetParser;
+
+  private final int hashCode;
 
   static {
     ImmutableMap.Builder<String, ImmutableSet<String>> ignoreFieldsForDaemonRestartBuilder =
@@ -111,9 +98,13 @@ public class BuckConfig {
             "chrome_trace_generation",
             "compress_traces",
             "max_traces",
-            "public_announcements"));
+            "public_announcements",
+            "log_build_id_to_console_enabled",
+            "build_details_template"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of("ide_prompt"));
-    ignoreFieldsForDaemonRestartBuilder.put("ui", ImmutableSet.of("superconsole"));
+    ignoreFieldsForDaemonRestartBuilder.put(
+        "ui",
+        ImmutableSet.of("superconsole", "thread_line_limit", "thread_line_output_max_columns"));
     ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
     IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
   }
@@ -133,9 +124,7 @@ public class BuckConfig {
     this.environment = environment;
     this.buildTargetParser = buildTargetParser;
 
-    this.aliasToBuildTargetMap =
-        Suppliers.memoize(
-            () -> createAliasToBuildTargetMap(getEntriesForSection(ALIAS_SECTION_HEADER)));
+    this.hashCode = Objects.hashCode(config);
   }
 
   /** Returns a clone of the current config with a the argument CellPathResolver. */
@@ -152,34 +141,6 @@ public class BuckConfig {
    */
   public <T extends ConfigView<BuckConfig>> T getView(Class<T> cls) {
     return viewCache.getView(cls);
-  }
-
-  /**
-   * @return whether {@code aliasName} conforms to the pattern for a valid alias name. This does not
-   *     indicate whether it is an alias that maps to a build target in a BuckConfig.
-   */
-  private static boolean isValidAliasName(String aliasName) {
-    return ALIAS_PATTERN.matcher(aliasName).matches();
-  }
-
-  public static void validateAliasName(String aliasName) throws HumanReadableException {
-    validateAgainstAlias(aliasName, "Alias");
-  }
-
-  public static void validateLabelName(String aliasName) throws HumanReadableException {
-    validateAgainstAlias(aliasName, "Label");
-  }
-
-  private static void validateAgainstAlias(String aliasName, String fieldName) {
-    if (isValidAliasName(aliasName)) {
-      return;
-    }
-
-    if (aliasName.isEmpty()) {
-      throw new HumanReadableException("%s cannot be the empty string.", fieldName);
-    }
-
-    throw new HumanReadableException("Not a valid %s: %s.", fieldName.toLowerCase(), aliasName);
   }
 
   public Architecture getArchitecture() {
@@ -223,41 +184,17 @@ public class BuckConfig {
     Optional<ImmutableList<String>> rawPaths =
         config.getOptionalListWithoutComments(section, field);
 
-    if (rawPaths.isPresent()) {
-      ImmutableList<Path> paths =
-          rawPaths
-              .get()
-              .stream()
-              .map(
-                  input ->
-                      convertPath(
-                          input,
-                          resolve,
-                          String.format(
-                              "Error in %s.%s: Cell-relative path not found", section, field)))
-              .collect(ImmutableList.toImmutableList());
-      return Optional.of(paths);
+    if (!rawPaths.isPresent()) {
+      return Optional.empty();
     }
 
-    return Optional.empty();
-  }
-
-  public ImmutableSet<String> getBuildTargetForAliasAsString(String possiblyFlavoredAlias) {
-    String[] parts = possiblyFlavoredAlias.split("#", 2);
-    String unflavoredAlias = parts[0];
-    ImmutableSet<BuildTarget> buildTargets = getBuildTargetsForAlias(unflavoredAlias);
-    if (buildTargets.isEmpty()) {
-      return ImmutableSet.of();
+    Stream<Path> paths = rawPaths.get().stream().map(this::getPathFromVfs);
+    if (resolve) {
+      paths = paths.map(projectFilesystem::getPathForRelativePath);
     }
-    String suffix = parts.length == 2 ? "#" + parts[1] : "";
-    return buildTargets
-        .stream()
-        .map(buildTarget -> buildTarget.getFullyQualifiedName() + suffix)
-        .collect(ImmutableSet.toImmutableSet());
-  }
+    paths = paths.filter(projectFilesystem::exists);
 
-  public ImmutableSet<BuildTarget> getBuildTargetsForAlias(String unflavoredAlias) {
-    return getAliases().get(unflavoredAlias);
+    return Optional.of(paths.collect(ImmutableList.toImmutableList()));
   }
 
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
@@ -269,9 +206,12 @@ public class BuckConfig {
     if (targetsToForce.size() == 0) {
       return ImmutableList.of();
     }
+    // TODO(cjhopman): Should this be moved to AliasConfig? It depends on that. Should AliasConfig
+    // expose this logic here as a separate function?
     ImmutableList.Builder<BuildTarget> targets = new ImmutableList.Builder<>();
     for (String targetOrAlias : targetsToForce) {
-      Set<String> expandedAlias = getBuildTargetForAliasAsString(targetOrAlias);
+      Set<String> expandedAlias =
+          getView(AliasConfig.class).getBuildTargetForAliasAsString(targetOrAlias);
       if (expandedAlias.isEmpty()) {
         targets.add(getBuildTargetForFullyQualifiedTarget(targetOrAlias));
       } else {
@@ -356,71 +296,6 @@ public class BuckConfig {
       return PathSourcePath.of(projectFilesystem, path);
     }
     return PathSourcePath.of(projectFilesystem, checkPathExists(path.toString(), errorMessage));
-  }
-
-  /**
-   * In a {@link BuckConfig}, an alias can either refer to a fully-qualified build target, or an
-   * alias defined earlier in the {@code alias} section. The mapping produced by this method
-   * reflects the result of resolving all aliases as values in the {@code alias} section.
-   */
-  private ImmutableSetMultimap<String, BuildTarget> createAliasToBuildTargetMap(
-      ImmutableMap<String, String> rawAliasMap) {
-    // We use a LinkedHashMap rather than an ImmutableMap.Builder because we want both (1) order to
-    // be preserved, and (2) the ability to inspect the Map while building it up.
-    SetMultimap<String, BuildTarget> aliasToBuildTarget = LinkedHashMultimap.create();
-    for (Map.Entry<String, String> aliasEntry : rawAliasMap.entrySet()) {
-      String alias = aliasEntry.getKey();
-      validateAliasName(alias);
-
-      // Determine whether the mapping is to a build target or to an alias.
-      List<String> values = Splitter.on(' ').splitToList(aliasEntry.getValue());
-      for (String value : values) {
-        Set<BuildTarget> buildTargets;
-        if (isValidAliasName(value)) {
-          buildTargets = aliasToBuildTarget.get(value);
-          if (buildTargets.isEmpty()) {
-            throw new HumanReadableException("No alias for: %s.", value);
-          }
-        } else if (value.isEmpty()) {
-          continue;
-        } else {
-          // Here we parse the alias values with a BuildTargetParser to be strict. We could be
-          // looser and just grab everything between "//" and ":" and assume it's a valid base path.
-          buildTargets = ImmutableSet.of(buildTargetParser.apply(value));
-        }
-        aliasToBuildTarget.putAll(alias, buildTargets);
-      }
-    }
-    return ImmutableSetMultimap.copyOf(aliasToBuildTarget);
-  }
-
-  /**
-   * Create a map of {@link BuildTarget} base paths to aliases. Note that there may be more than one
-   * alias to a base path, so the first one listed in the .buckconfig will be chosen.
-   */
-  public ImmutableMap<Path, String> getBasePathToAliasMap() {
-    ImmutableMap<String, String> aliases = config.get(ALIAS_SECTION_HEADER);
-    if (aliases == null) {
-      return ImmutableMap.of();
-    }
-
-    // Build up the Map with an ordinary HashMap because we need to be able to check whether the Map
-    // already contains the key before inserting.
-    Map<Path, String> basePathToAlias = new HashMap<>();
-    for (Map.Entry<String, BuildTarget> entry : getAliases().entries()) {
-      String alias = entry.getKey();
-      BuildTarget buildTarget = entry.getValue();
-
-      Path basePath = buildTarget.getBasePath();
-      if (!basePathToAlias.containsKey(basePath)) {
-        basePathToAlias.put(basePath, alias);
-      }
-    }
-    return ImmutableMap.copyOf(basePathToAlias);
-  }
-
-  public ImmutableSetMultimap<String, BuildTarget> getAliases() {
-    return aliasToBuildTargetMap.get();
   }
 
   public long getDefaultTestTimeoutMillis() {
@@ -642,7 +517,7 @@ public class BuckConfig {
       return false;
     }
     BuckConfig that = (BuckConfig) obj;
-    return Objects.equal(this.config, that.config);
+    return this.hashCode == that.hashCode;
   }
 
   @Override
@@ -652,7 +527,7 @@ public class BuckConfig {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(config);
+    return hashCode;
   }
 
   public ImmutableMap<String, String> getEnvironment() {
@@ -847,12 +722,6 @@ public class BuckConfig {
         : getPathFromVfs(pathString);
   }
 
-  private Path convertPath(String pathString, boolean resolve, String error) {
-    return resolve
-        ? checkPathExistsAndResolve(pathString, error)
-        : checkPathExists(pathString, error);
-  }
-
   public Path checkPathExistsAndResolve(String pathString, String errorMsg) {
     return projectFilesystem.getPathForRelativePath(checkPathExists(pathString, errorMsg));
   }
@@ -1007,5 +876,13 @@ public class BuckConfig {
    */
   public boolean getShouldDeleteTemporaries() {
     return config.getBooleanValue("build", "delete_temporaries", false);
+  }
+
+  public Optional<String> getBuildDetailsTemplate() {
+    return config.get("log", "build_details_template");
+  }
+
+  public ProjectFilesystem getFilesystem() {
+    return projectFilesystem;
   }
 }

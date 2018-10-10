@@ -36,6 +36,7 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -54,7 +55,6 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.infer.annotation.Assertions;
@@ -72,6 +72,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -449,7 +450,7 @@ public class NdkCxxPlatforms {
                     targetConfiguration.getCompiler().getGccVersion(),
                     cxxRuntime));
 
-    Host host = Preconditions.checkNotNull(BUILD_PLATFORMS.get(platform));
+    Host host = Objects.requireNonNull(BUILD_PLATFORMS.get(platform));
     String ndkVersion = readVersion(ndkRoot);
 
     NdkCxxToolchainPaths toolchainPaths =
@@ -928,7 +929,7 @@ public class NdkCxxPlatforms {
     private final String value;
 
     Host(String value) {
-      this.value = Preconditions.checkNotNull(value);
+      this.value = Objects.requireNonNull(value);
     }
 
     @Override
@@ -948,7 +949,7 @@ public class NdkCxxPlatforms {
     private final String value;
 
     ToolchainTarget(String value) {
-      this.value = Preconditions.checkNotNull(value);
+      this.value = Objects.requireNonNull(value);
     }
 
     @Override

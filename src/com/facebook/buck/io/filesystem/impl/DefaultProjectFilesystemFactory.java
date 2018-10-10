@@ -20,7 +20,6 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.util.config.Config;
@@ -28,11 +27,11 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Objects;
+import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
@@ -41,30 +40,20 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   @VisibleForTesting public static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
 
   // A non-exhaustive list of characters that might indicate that we're about to deal with a glob.
-  private static final Pattern GLOB_CHARS = Pattern.compile("[\\*\\?\\{\\[]");
+  private static final Pattern GLOB_CHARS = Pattern.compile("[*?{\\[]");
 
-  // WindowsFS singleton instance
-  @Nullable private static WindowsFS winFSInstance = null;
+  @Nullable
+  private static final WindowsFS winFSInstance =
+      Platform.detect() == Platform.WINDOWS ? new WindowsFS() : null;
 
-  /** Intialize the winFSInstane singleton when on Windows. */
-  static {
-    if (Platform.detect().getType().isWindows()) {
-      winFSInstance = new WindowsFS();
-    }
-  }
-
-  /**
-   * Factory to get a WindowsFS instance.
-   *
-   * @return the WindowsFS instance.
-   */
+  /** @return the WindowsFS singleton. */
   @Nullable
   public static WindowsFS getWindowsFSInstance() {
     return winFSInstance;
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(
+  public DefaultProjectFilesystem createProjectFilesystem(
       Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo) {
     BuckPaths buckPaths = getConfiguredBuckPaths(root, config, embeddedCellBuckOutInfo);
     return new DefaultProjectFilesystem(
@@ -77,12 +66,12 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root, Config config) {
+  public DefaultProjectFilesystem createProjectFilesystem(Path root, Config config) {
     return createProjectFilesystem(root, config, Optional.empty());
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root) {
+  public DefaultProjectFilesystem createProjectFilesystem(Path root) {
     return createProjectFilesystem(root, new Config());
   }
 
@@ -90,47 +79,50 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
       Path root, Config config, BuckPaths buckPaths) {
     ImmutableSet.Builder<PathOrGlobMatcher> builder = ImmutableSet.builder();
 
-    builder.add(new PathOrGlobMatcher(root, ".idea"));
+    builder.add(new PathOrGlobMatcher(Paths.get(".idea")));
 
     String projectKey = "project";
     String ignoreKey = "ignore";
 
     String buckdDirProperty = System.getProperty(BUCK_BUCKD_DIR_KEY, ".buckd");
     if (!Strings.isNullOrEmpty(buckdDirProperty)) {
-      builder.add(new PathOrGlobMatcher(root, buckdDirProperty));
+      addPathMatcherRelativeToRepo(root, builder, Paths.get(buckdDirProperty));
     }
 
     Path cacheDir =
         DefaultProjectFilesystem.getCacheDir(root, config.getValue("cache", "dir"), buckPaths);
-    builder.add(new PathOrGlobMatcher(cacheDir));
+    addPathMatcherRelativeToRepo(root, builder, cacheDir);
 
     config
         .getListWithoutComments(projectKey, ignoreKey)
-        .stream()
-        .map(
-            new Function<String, PathOrGlobMatcher>() {
-              @Nullable
-              @Override
-              public PathOrGlobMatcher apply(String input) {
-                // We don't really want to ignore the output directory when doing things like
-                // filesystem
-                // walks, so return null
-                if (buckPaths.getBuckOut().toString().equals(input)) {
-                  return null; // root.getFileSystem().getPathMatcher("glob:**");
-                }
-
-                if (GLOB_CHARS.matcher(input).find()) {
-                  return new PathOrGlobMatcher(
-                      root.getFileSystem().getPathMatcher("glob:" + input), input);
-                }
-                return new PathOrGlobMatcher(root, input);
+        .forEach(
+            input -> {
+              // We don't really want to ignore the output directory when doing things like
+              // filesystem
+              // walks, so return null
+              if (buckPaths.getBuckOut().toString().equals(input)) {
+                return; // root.getFileSystem().getPathMatcher("glob:**");
               }
-            })
-        // And now remove any null patterns
-        .filter(Objects::nonNull)
-        .forEach(builder::add);
+
+              if (GLOB_CHARS.matcher(input).find()) {
+                builder.add(new PathOrGlobMatcher(input));
+                return;
+              }
+              addPathMatcherRelativeToRepo(root, builder, Paths.get(input));
+            });
 
     return builder.build();
+  }
+
+  private static void addPathMatcherRelativeToRepo(
+      Path root, Builder<PathOrGlobMatcher> builder, Path pathToAdd) {
+    if (!pathToAdd.isAbsolute()
+        || pathToAdd.normalize().startsWith(root.toAbsolutePath().normalize())) {
+      if (pathToAdd.isAbsolute()) {
+        pathToAdd = root.relativize(pathToAdd);
+      }
+      builder.add(new PathOrGlobMatcher(pathToAdd));
+    }
   }
 
   private static BuckPaths getConfiguredBuckPaths(
@@ -156,7 +148,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   @Override
-  public ProjectFilesystem createOrThrow(Path path) throws InterruptedException {
+  public DefaultProjectFilesystem createOrThrow(Path path) {
     try {
       // toRealPath() is necessary to resolve symlinks, allowing us to later
       // check whether files are inside or outside of the project without issue.

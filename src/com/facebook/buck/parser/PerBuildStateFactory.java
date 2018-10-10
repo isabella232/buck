@@ -17,22 +17,33 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.platform.ConstraintBasedPlatform;
+import com.facebook.buck.core.model.platform.ConstraintResolver;
+import com.facebook.buck.core.model.platform.ConstraintValue;
+import com.facebook.buck.core.model.platform.Platform;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.rules.config.ConfigurationRule;
 import com.facebook.buck.core.rules.config.ConfigurationRuleResolver;
 import com.facebook.buck.core.rules.config.impl.ConfigurationRuleSelectableResolver;
 import com.facebook.buck.core.rules.config.impl.SameThreadConfigurationRuleResolver;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.platform.PlatformRule;
+import com.facebook.buck.core.rules.platform.RuleBasedConstraintResolver;
 import com.facebook.buck.core.select.SelectableResolver;
 import com.facebook.buck.core.select.SelectorListResolver;
 import com.facebook.buck.core.select.impl.DefaultSelectorListResolver;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PerBuildStateFactory {
@@ -41,24 +52,66 @@ public class PerBuildStateFactory {
   private final ConstructorArgMarshaller marshaller;
   private final KnownRuleTypesProvider knownRuleTypesProvider;
   private final ParserPythonInterpreterProvider parserPythonInterpreterProvider;
+  private final Watchman watchman;
+  private final BuckEventBus eventBus;
 
   public PerBuildStateFactory(
       TypeCoercerFactory typeCoercerFactory,
       ConstructorArgMarshaller marshaller,
       KnownRuleTypesProvider knownRuleTypesProvider,
-      ParserPythonInterpreterProvider parserPythonInterpreterProvider) {
+      ParserPythonInterpreterProvider parserPythonInterpreterProvider,
+      Watchman watchman,
+      BuckEventBus eventBus) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.marshaller = marshaller;
     this.knownRuleTypesProvider = knownRuleTypesProvider;
     this.parserPythonInterpreterProvider = parserPythonInterpreterProvider;
+    this.watchman = watchman;
+    this.eventBus = eventBus;
   }
 
   public PerBuildState create(
       DaemonicParserState daemonicParserState,
-      BuckEventBus eventBus,
       ListeningExecutorService executorService,
       Cell rootCell,
+      ImmutableList<String> targetPlatforms,
       boolean enableProfiling,
+      SpeculativeParsing speculativeParsing) {
+    return create(
+        daemonicParserState,
+        executorService,
+        rootCell,
+        targetPlatforms,
+        enableProfiling,
+        Optional.empty(),
+        speculativeParsing);
+  }
+
+  public PerBuildState create(
+      DaemonicParserState daemonicParserState,
+      ListeningExecutorService executorService,
+      Cell rootCell,
+      ImmutableList<String> targetPlatforms,
+      boolean enableProfiling,
+      AtomicLong processedBytes,
+      SpeculativeParsing speculativeParsing) {
+    return create(
+        daemonicParserState,
+        executorService,
+        rootCell,
+        targetPlatforms,
+        enableProfiling,
+        Optional.of(processedBytes),
+        speculativeParsing);
+  }
+
+  private PerBuildState create(
+      DaemonicParserState daemonicParserState,
+      ListeningExecutorService executorService,
+      Cell rootCell,
+      ImmutableList<String> targetPlatforms,
+      boolean enableProfiling,
+      Optional<AtomicLong> parseProcessedBytes,
       SpeculativeParsing speculativeParsing) {
 
     SymlinkCache symlinkCache = new SymlinkCache(eventBus, daemonicParserState);
@@ -72,6 +125,7 @@ public class PerBuildStateFactory {
             typeCoercerFactory,
             parserPythonInterpreterProvider,
             enableProfiling,
+            parseProcessedBytes,
             knownRuleTypesProvider);
     ProjectBuildFileParserPool projectBuildFileParserPool =
         new ProjectBuildFileParserPool(
@@ -79,14 +133,18 @@ public class PerBuildStateFactory {
             projectBuildFileParserFactory,
             enableProfiling);
 
-    RawNodeParsePipeline rawNodeParsePipeline =
-        new RawNodeParsePipeline(
-            daemonicParserState.getRawNodeCache(),
+    TargetNodeFactory targetNodeFactory = new TargetNodeFactory(typeCoercerFactory);
+
+    BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline =
+        new BuildFileRawNodeParsePipeline(
+            new PipelineNodeCache<>(daemonicParserState.getRawNodeCache()),
             projectBuildFileParserPool,
             executorService,
-            eventBus);
+            eventBus,
+            watchman);
 
-    AtomicLong parseProcessedBytes = new AtomicLong();
+    BuildTargetRawNodeParsePipeline buildTargetRawNodeParsePipeline =
+        new BuildTargetRawNodeParsePipeline(executorService, buildFileRawNodeParsePipeline);
 
     ParsePipeline<TargetNode<?>> targetNodeParsePipeline;
 
@@ -98,23 +156,20 @@ public class PerBuildStateFactory {
       boolean enableSpeculativeParsing =
           parserConfig.getEnableParallelParsing()
               && speculativeParsing == SpeculativeParsing.ENABLED;
-      TargetNodeFactory targetNodeFactory = new TargetNodeFactory(typeCoercerFactory);
       RawTargetNodePipeline rawTargetNodePipeline =
           new RawTargetNodePipeline(
               pipelineExecutorService,
               daemonicParserState.getOrCreateNodeCache(RawTargetNode.class),
-              rawNodeParsePipeline,
               eventBus,
+              buildFileRawNodeParsePipeline,
+              buildTargetRawNodeParsePipeline,
               new DefaultRawTargetNodeFactory(
-                  knownRuleTypesProvider,
-                  marshaller,
-                  new VisibilityPatternFactory(),
-                  new BuiltTargetVerifier()));
+                  knownRuleTypesProvider, marshaller, new BuiltTargetVerifier()));
 
       PackageBoundaryChecker packageBoundaryChecker =
           new ThrowingPackageBoundaryChecker(daemonicParserState.getBuildFileTrees());
 
-      ParserTargetNodeFactory<RawTargetNode> nonResolvingrawTargetNodeToTargetNodeFactory =
+      ParserTargetNodeFactory<RawTargetNode> nonResolvingRawTargetNodeToTargetNodeFactory =
           new NonResolvingRawTargetNodeToTargetNodeFactory(
               knownRuleTypesProvider,
               marshaller,
@@ -129,20 +184,20 @@ public class PerBuildStateFactory {
               rawTargetNodePipeline,
               eventBus,
               enableSpeculativeParsing,
-              nonResolvingrawTargetNodeToTargetNodeFactory);
+              nonResolvingRawTargetNodeToTargetNodeFactory);
 
       ConfigurationRuleResolver configurationRuleResolver =
           new SameThreadConfigurationRuleResolver(
-              cellManager::getCell,
-              (cell, buildTarget) ->
-                  nonResolvingTargetNodeParsePipeline.getNode(
-                      cell, buildTarget, parseProcessedBytes));
+              cellManager::getCell, nonResolvingTargetNodeParsePipeline::getNode);
 
       SelectableResolver selectableResolver =
           new ConfigurationRuleSelectableResolver(configurationRuleResolver);
 
       SelectorListResolver selectorListResolver =
           new DefaultSelectorListResolver(selectableResolver);
+
+      ConstraintResolver constraintResolver =
+          new RuleBasedConstraintResolver(configurationRuleResolver);
 
       RawTargetNodeToTargetNodeFactory rawTargetNodeToTargetNodeFactory =
           new RawTargetNodeToTargetNodeFactory(
@@ -151,7 +206,11 @@ public class PerBuildStateFactory {
               targetNodeFactory,
               packageBoundaryChecker,
               symlinkCheckers,
-              selectorListResolver);
+              selectorListResolver,
+              constraintResolver,
+              () ->
+                  getTargetPlatform(
+                      configurationRuleResolver, constraintResolver, rootCell, targetPlatforms));
 
       targetNodeParsePipeline =
           new RawTargetNodeToTargetNodeParsePipeline(
@@ -176,8 +235,7 @@ public class PerBuildStateFactory {
                   marshaller,
                   daemonicParserState.getBuildFileTrees(),
                   symlinkCheckers,
-                  new TargetNodeFactory(typeCoercerFactory),
-                  new VisibilityPatternFactory(),
+                  targetNodeFactory,
                   rootCell.getRuleKeyConfiguration()),
               parserConfig.getEnableParallelParsing()
                   ? executorService
@@ -185,12 +243,47 @@ public class PerBuildStateFactory {
               eventBus,
               parserConfig.getEnableParallelParsing()
                   && speculativeParsing == SpeculativeParsing.ENABLED,
-              rawNodeParsePipeline);
+              buildFileRawNodeParsePipeline,
+              buildTargetRawNodeParsePipeline);
     }
 
     cellManager.register(rootCell);
 
-    return new PerBuildState(
-        parseProcessedBytes, cellManager, rawNodeParsePipeline, targetNodeParsePipeline);
+    return new PerBuildState(cellManager, buildFileRawNodeParsePipeline, targetNodeParsePipeline);
+  }
+
+  private Platform getTargetPlatform(
+      ConfigurationRuleResolver configurationRuleResolver,
+      ConstraintResolver constraintResolver,
+      Cell rootCell,
+      ImmutableList<String> targetPlatforms) {
+    if (targetPlatforms.isEmpty()) {
+      return new ConstraintBasedPlatform(ImmutableSet.of());
+    }
+
+    String targetPlatformName = targetPlatforms.get(0);
+    ConfigurationRule configurationRule =
+        configurationRuleResolver.getRule(
+            BuildTargetParser.INSTANCE.parse(
+                targetPlatformName,
+                BuildTargetPatternParser.fullyQualified(),
+                rootCell.getCellPathResolver()));
+
+    if (!(configurationRule instanceof PlatformRule)) {
+      throw new HumanReadableException(
+          "%s is used as a target platform, but not declared using `platform` rule",
+          targetPlatformName);
+    }
+
+    PlatformRule platformRule = (PlatformRule) configurationRule;
+
+    ImmutableSet<ConstraintValue> constraintValues =
+        platformRule
+            .getConstrainValues()
+            .stream()
+            .map(constraintResolver::getConstraintValue)
+            .collect(ImmutableSet.toImmutableSet());
+
+    return new ConstraintBasedPlatform(constraintValues);
   }
 }

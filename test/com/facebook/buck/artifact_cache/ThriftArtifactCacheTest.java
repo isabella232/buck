@@ -138,7 +138,15 @@ public class ThriftArtifactCacheTest {
             .build();
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            "test://",
+            "hostname")) {
       Path artifactPath = tempPaths.newFile().toAbsolutePath();
       CacheResult result =
           Futures.getUnchecked(
@@ -325,7 +333,15 @@ public class ThriftArtifactCacheTest {
     responseRef.set(response);
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            "test://",
+            "hostname")) {
       MultiFetchResult result = cache.multiFetchImpl(requests);
       assertEquals(4, result.getResults().size());
       assertEquals(CacheResultType.MISS, result.getResults().get(0).getCacheResult().getType());
@@ -401,7 +417,15 @@ public class ThriftArtifactCacheTest {
     responseRef.set(response);
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 1, 1)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            1,
+            1,
+            "test://",
+            "hostname")) {
       MultiContainsResult result = cache.multiContainsImpl(ruleKeys);
       assertEquals(4, result.getCacheResults().size());
       assertEquals(CacheResultType.MISS, result.getCacheResults().get(key0).getType());
@@ -450,7 +474,15 @@ public class ThriftArtifactCacheTest {
             .build();
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            "test://",
+            "hostname")) {
       CacheDeleteResult result =
           Futures.getUnchecked(
               cache.deleteAsync(

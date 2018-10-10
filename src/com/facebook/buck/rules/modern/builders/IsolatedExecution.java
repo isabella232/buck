@@ -17,10 +17,12 @@
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
+import com.facebook.buck.remoteexecution.Protocol;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.function.ThrowingFunction;
@@ -28,7 +30,9 @@ import com.google.common.hash.HashCode;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Interface used to implement various isolated execution strategies. In these strategies,
@@ -46,14 +50,17 @@ public interface IsolatedExecution extends Closeable {
       Path cellPrefixRoot)
       throws IOException, StepFailedException, InterruptedException;
 
+  Protocol getProtocol();
+
   /** Creates a BuildRuleStrategy for a particular */
   static BuildRuleStrategy createIsolatedExecutionStrategy(
       IsolatedExecution executionStrategy,
       SourcePathRuleFinder ruleFinder,
       CellPathResolver cellResolver,
       Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher) {
+      ThrowingFunction<Path, HashCode, IOException> fileHasher,
+      Optional<ExecutorService> executorService) {
     return new IsolatedExecutionStrategy(
-        executionStrategy, ruleFinder, cellResolver, rootCell, fileHasher);
+        executionStrategy, ruleFinder, cellResolver, rootCell, fileHasher, executorService);
   }
 }

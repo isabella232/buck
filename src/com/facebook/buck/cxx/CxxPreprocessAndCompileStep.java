@@ -16,12 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -235,6 +235,13 @@ class CxxPreprocessAndCompileStep implements Step {
         new CxxErrorTransformer(
             filesystem, context.shouldReportAbsolutePaths(), headerPathNormalizer);
 
+    if (compiler.needsToRemoveCompiledFilenamesFromOutput()) {
+      // In order to get cleaner logs, the following filter removes lines
+      // with only the filename of the file being compiled,
+      // which is an unavoidable behaviour of the Windows compiler.
+      lines = lines.filter(line -> !line.equals(input.getFileName().toString()));
+    }
+
     String err;
     if (compiler.getDependencyTrackingMode() == DependencyTrackingMode.SHOW_INCLUDES) {
       Map<Boolean, List<String>> includesAndErrors =
@@ -265,7 +272,8 @@ class CxxPreprocessAndCompileStep implements Step {
   }
 
   private static String parseShowIncludeLine(String line) {
-    return line.substring(DEPENDENCY_OUTPUT_PREFIX.length()).trim();
+    // We keep the spaces at the beginning since we may use them to reconstruct the include tree
+    return line.substring(DEPENDENCY_OUTPUT_PREFIX.length());
   }
 
   private ConsoleEvent createConsoleEvent(

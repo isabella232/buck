@@ -57,6 +57,7 @@ import com.facebook.buck.features.project.intellij.model.folders.IjFolder;
 import com.facebook.buck.features.project.intellij.model.folders.SourceFolder;
 import com.facebook.buck.features.project.intellij.model.folders.TestFolder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.groovy.GroovyLibraryBuilder;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
@@ -65,7 +66,6 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -684,9 +684,20 @@ public class DefaultIjModuleFactoryTest {
                 false,
                 false,
                 false,
-                true)
+                true,
+                false)
             : IjProjectBuckConfig.create(
-                buckConfig, AggregationMode.AUTO, null, "", "", false, false, false, false, true);
+                buckConfig,
+                AggregationMode.AUTO,
+                null,
+                "",
+                "",
+                false,
+                false,
+                false,
+                false,
+                true,
+                false);
     JavaPackageFinder packageFinder =
         (buckConfig == null)
             ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())
@@ -733,6 +744,12 @@ public class DefaultIjModuleFactoryTest {
 
               @Override
               public Optional<Path> getAnnotationOutputPath(
+                  TargetNode<? extends JvmLibraryArg> targetNode) {
+                return Optional.empty();
+              }
+
+              @Override
+              public Optional<Path> getAbiAnnotationOutputPath(
                   TargetNode<? extends JvmLibraryArg> targetNode) {
                 return Optional.empty();
               }

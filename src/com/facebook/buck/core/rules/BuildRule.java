@@ -38,10 +38,9 @@ import java.util.SortedSet;
 import javax.annotation.Nullable;
 
 @JsonAutoDetect(
-  fieldVisibility = JsonAutoDetect.Visibility.NONE,
-  getterVisibility = JsonAutoDetect.Visibility.NONE,
-  setterVisibility = JsonAutoDetect.Visibility.NONE
-)
+    fieldVisibility = JsonAutoDetect.Visibility.NONE,
+    getterVisibility = JsonAutoDetect.Visibility.NONE,
+    setterVisibility = JsonAutoDetect.Visibility.NONE)
 public interface BuildRule extends Comparable<BuildRule> {
 
   BuildTarget getBuildTarget();
@@ -109,8 +108,7 @@ public interface BuildRule extends Comparable<BuildRule> {
    * Add additional details when calculating this rule's {@link RuleKey} which isn't available via
    * reflection.
    */
-  @SuppressWarnings("unused")
-  default void appendToRuleKey(RuleKeyObjectSink sink) {}
+  void appendToRuleKey(RuleKeyObjectSink sink);
 
   @Override
   default int compareTo(BuildRule that) {
@@ -128,7 +126,6 @@ public interface BuildRule extends Comparable<BuildRule> {
    * to be cached, it must update its BuildRuleResolver when a new action graph is constructed to
    * avoid leaking the entire action graph it was originally associated with.
    */
-  @SuppressWarnings("unused")
   void updateBuildRuleResolver(
       BuildRuleResolver ruleResolver,
       SourcePathRuleFinder ruleFinder,

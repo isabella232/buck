@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
@@ -62,7 +62,6 @@ import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,6 +73,7 @@ import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
@@ -85,8 +85,12 @@ public class HaskellDescriptionUtils {
   static final Flavor GHCI_FLAV = UserFlavor.of("ghci", "Open a ghci session on this target");
 
   static final Flavor PROF = InternalFlavor.of("prof");
+  // We always build profiling object with PIC so it can be loaded by
+  // ghc-iserv-prof anywhere in the address space without the limitation of
+  // lower 2G address space.
   static final ImmutableList<String> PROF_FLAGS =
-      ImmutableList.of("-prof", "-osuf", "p_o", "-hisuf", "p_hi");
+      ImmutableList.of(
+          "-prof", "-fPIC", "-fexternal-dynamic-refs", "-osuf", "p_o", "-hisuf", "p_hi");
   static final ImmutableList<String> PIC_FLAGS =
       ImmutableList.of("-dynamic", "-fPIC", "-hisuf", "dyn_hi");
 
@@ -304,7 +308,6 @@ public class HaskellDescriptionUtils {
               platform.getCxxPlatform(),
               NativeLinkables.getLinkStyle(link, depType),
               linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
-              ImmutableSet.of(),
               graphBuilder);
       linkerArgsBuilder.addAll(input.getArgs());
     }
@@ -565,8 +568,7 @@ public class HaskellDescriptionUtils {
         srcs,
         argCompilerFlags,
         argGhciBinDep.map(
-            target ->
-                Preconditions.checkNotNull(graphBuilder.getRule(target).getSourcePathToOutput())),
+            target -> Objects.requireNonNull(graphBuilder.getRule(target).getSourcePathToOutput())),
         argGhciInit,
         omnibusSharedObject,
         sharedLibs,

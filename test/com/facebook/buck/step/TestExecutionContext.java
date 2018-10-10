@@ -16,12 +16,12 @@
 
 package com.facebook.buck.step;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.DefaultProcessExecutor;

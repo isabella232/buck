@@ -20,18 +20,19 @@ import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildExecutorRunner;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder;
+import com.facebook.buck.remoteexecution.util.FileTreeBuilder.InputFile;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
-import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.Scope;
@@ -45,7 +46,6 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -54,9 +54,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -77,22 +79,27 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
   private final Path cellPathPrefix;
   private final Set<Optional<String>> cellNames;
   private final Map<HashCode, Node> nodeMap;
+  private final HashFunction hasher;
+  private final Optional<ExecutorService> executorService;
 
   IsolatedExecutionStrategy(
       IsolatedExecution executionStrategy,
       SourcePathRuleFinder ruleFinder,
       CellPathResolver cellResolver,
       Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher) {
+      ThrowingFunction<Path, HashCode, IOException> fileHasher,
+      Optional<ExecutorService> executorService) {
     this.executionStrategy = executionStrategy;
     this.cellResolver = cellResolver;
     this.rootCell = rootCell;
     this.fileHasher = fileHasher;
+    this.executorService = executorService;
     this.nodeMap = new ConcurrentHashMap<>();
+    this.hasher = executionStrategy.getProtocol().getHashFunction();
 
     Delegate delegate =
         (instance, data, children) -> {
-          HashCode hash = Hashing.sha1().hashBytes(data);
+          HashCode hash = hasher.hashBytes(data);
           Node node =
               new Node(
                   data,
@@ -128,7 +135,6 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
                                 .getCellByPath(cellResolver.getCellPath(name).get())
                                 .getBuckConfig())));
 
-    HashFunction hasher = Hashing.sha1();
     this.configHashes =
         cellToConfig
             .entrySet()
@@ -159,14 +165,18 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
 
   @Override
   public void build(
-      ListeningExecutorService service, BuildRule rule, BuildExecutorRunner executorRunner) {
+      ListeningExecutorService buildExecutorService,
+      BuildRule rule,
+      BuildExecutorRunner executorRunner) {
     Preconditions.checkState(rule instanceof ModernBuildRule);
-    service.execute(
-        () ->
-            executorRunner.runWithExecutor(
-                (executionContext, buildRuleBuildContext, buildableContext, stepRunner) -> {
-                  executeRule(rule, executionContext, buildRuleBuildContext, buildableContext);
-                }));
+    executorService
+        .orElse(buildExecutorService)
+        .execute(
+            () ->
+                executorRunner.runWithExecutor(
+                    (executionContext, buildRuleBuildContext, buildableContext, stepRunner) -> {
+                      executeRule(rule, executionContext, buildRuleBuildContext, buildableContext);
+                    }));
   }
 
   private void executeRule(
@@ -217,9 +227,9 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
       inputsBuilder.addFile(
           configPath,
           () -> {
-            byte[] data = Preconditions.checkNotNull(cellToConfig.get(cell));
+            byte[] data = Objects.requireNonNull(cellToConfig.get(cell));
             return new InputFile(
-                Preconditions.checkNotNull(configHashes.get(cell)),
+                Objects.requireNonNull(configHashes.get(cell)),
                 data.length,
                 false,
                 () -> new ByteArrayInputStream(data));
@@ -321,7 +331,7 @@ public class IsolatedExecutionStrategy extends AbstractModernBuildRuleStrategy {
         .addData(
             Paths.get("__data__").resolve(hash.toString()),
             hash.toString(),
-            Preconditions.checkNotNull(nodeMap.get(hash)));
+            Objects.requireNonNull(nodeMap.get(hash)));
   }
 
   private static class Node {

@@ -23,7 +23,7 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
@@ -101,6 +101,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
@@ -435,7 +436,8 @@ public class AppleLibraryDescription
         ImmutableList.of(),
         Optional.empty(),
         Optional.empty(),
-        appleConfig.getCodesignTimeout());
+        appleConfig.getCodesignTimeout(),
+        swiftBuckConfig.getCopyStdlibToFrameworks());
   }
 
   /**
@@ -502,7 +504,8 @@ public class AppleLibraryDescription
             graphBuilder,
             flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
             unstrippedBinaryRule,
-            representativePlatform);
+            representativePlatform,
+            Optional.empty());
 
     return AppleDescriptions.createAppleDebuggableBinary(
         unstrippedBuildTarget,
@@ -1035,7 +1038,7 @@ public class AppleLibraryDescription
         break;
     }
 
-    Preconditions.checkNotNull(metadataType);
+    Objects.requireNonNull(metadataType);
 
     return graphBuilder.requireMetadata(
         baseTarget.withAppendedFlavors(metadataType.getFlavor(), platform.getFlavor()),
@@ -1149,11 +1152,7 @@ public class AppleLibraryDescription
 
   @Override
   public boolean getShouldProduceLibraryArtifact(
-      BuildTarget target,
-      ActionGraphBuilder graphBuilder,
-      CxxPlatform cxxPlatform,
-      Linker.LinkableDepType type,
-      boolean forceLinkWhole) {
+      BuildTarget target, ActionGraphBuilder graphBuilder) {
     return targetContainsSwift(target, graphBuilder);
   }
 

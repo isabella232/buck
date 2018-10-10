@@ -18,16 +18,18 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
-import com.facebook.buck.core.rules.common.BuildDeps;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.common.BuildableSupport.DepsSupplier;
 import com.facebook.buck.core.rules.common.RecordArtifactVerifier;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
@@ -39,9 +41,9 @@ import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.step.Step;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.SortedSet;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -55,33 +57,40 @@ public class CalculateSourceAbi extends AbstractBuildRule
   @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
 
   // This will be added to the rule key by virtue of being returned from getBuildDeps.
-  private final BuildDeps buildDeps;
+  private final DepsSupplier buildDepsSupplier;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
   private final SourcePathRuleFinder ruleFinder;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   private final SourcePath sourcePathToOutput;
 
   public CalculateSourceAbi(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildDeps buildDeps,
       JarBuildStepsFactory jarBuildStepsFactory,
       SourcePathRuleFinder ruleFinder) {
     super(buildTarget, projectFilesystem);
-    this.buildDeps = buildDeps;
+    this.buildDepsSupplier = BuildableSupport.buildDepsSupplier(this, ruleFinder);
     this.jarBuildStepsFactory = jarBuildStepsFactory;
     this.ruleFinder = ruleFinder;
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
     this.sourcePathToOutput =
-        Preconditions.checkNotNull(
+        Objects.requireNonNull(
             jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget(), getProjectFilesystem()));
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
   }
 
   @Override
   public SortedSet<BuildRule> getBuildDeps() {
-    return buildDeps;
+    return buildDepsSupplier.get();
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    buildDepsSupplier.updateRuleFinder(ruleFinder);
   }
 
   @Override
@@ -93,7 +102,7 @@ public class CalculateSourceAbi extends AbstractBuildRule
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return Preconditions.checkNotNull(sourcePathToOutput);
+    return Objects.requireNonNull(sourcePathToOutput);
   }
 
   @Override

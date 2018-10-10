@@ -27,9 +27,9 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.DaemonicCellState.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -50,7 +50,8 @@ public class DaemonicCellStateTest {
   private void populateDummyRawNode(DaemonicCellState state, BuildTarget target) {
     state.putRawNodesIfNotPresentAndStripMetaEntries(
         target.getCellPath().resolve(target.getBasePath().resolve("BUCK")),
-        ImmutableSet.of(
+        ImmutableMap.of(
+            target.getShortName(),
             ImmutableMap.of(
                 "name", target.getShortName(),
                 "buck.base_path", MorePaths.pathWithUnixSeparators(target.getBasePath()))),
@@ -110,7 +111,8 @@ public class DaemonicCellStateTest {
 
     childState.putRawNodesIfNotPresentAndStripMetaEntries(
         targetPath,
-        ImmutableSet.of(
+        ImmutableMap.of(
+            "target",
             // Forms the target "//path/to:target"
             ImmutableMap.of(
                 "buck.base_path", "path/to",

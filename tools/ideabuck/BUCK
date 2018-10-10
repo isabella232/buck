@@ -60,6 +60,9 @@ java_library(
     ),
     provided_deps = [
         "//third-party/java/intellij:intellij-plugin-sdk",
+        # IntelliJ will provide these, too...
+        "//third-party/java/guava:guava",
+        "//third-party/java/jsr:jsr305",
     ],
     source = "1.8",
     target = "1.8",
@@ -67,26 +70,27 @@ java_library(
     deps = [
         ":bundle_generated_lib",
         "//src/com/facebook/buck/event/external:external_lib",
-        "//src/com/facebook/buck/test/result/type:type",
         "//third-party/java/android:ddmlib",
         "//third-party/java/gson:gson",
-        "//third-party/java/guava:guava",
         "//third-party/java/ini4j:ini4j",
         "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",
         "//third-party/java/jackson:jackson-datatype-guava",
         "//third-party/java/jackson:jackson-mrbean",
         "//third-party/java/jetty:jetty",
-        "//third-party/java/jsr:jsr305",
     ],
 )
 
 java_library(
     name = "resources",
     srcs = [],
-    resources = glob([
-        "**/*.png",
-    ]),
+    resources = glob(
+        [
+            "**/*.png",
+            "**/*.xml",
+        ],
+        exclude = ["resources/META-INF/**"],
+    ),
     resources_root = "resources/",
     visibility = [
         "PUBLIC",
@@ -95,11 +99,10 @@ java_library(
 
 java_binary(
     name = "ideabuck",
-    meta_inf_directory = "META-INF",
+    meta_inf_directory = "resources/META-INF",
     deps = [
         ":ideabuck-lib",
         ":resources",
-        "//src/com/facebook/buck/test/result/type:type",
     ],
 )
 
@@ -115,7 +118,7 @@ java_library(
     visibility = ["//tools/ideabuck/tests/..."],
     deps = [
         ":ideabuck-lib",
-        "//src/com/facebook/buck/test/result/type:type",
+        "//src/com/facebook/buck/event/external:external_lib",
         "//third-party/java/guava:guava",
     ],
 )

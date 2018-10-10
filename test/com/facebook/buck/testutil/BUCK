@@ -23,8 +23,6 @@ java_library(
     deps = [
         "//src-gen:thrift",
         "//src/com/facebook/buck/android:utils",
-        "//src/com/facebook/buck/core/cell/name:name",
-        "//src/com/facebook/buck/core/cell/resolver:resolver",
         "//src/com/facebook/buck/core/config:config",
         "//src/com/facebook/buck/core/model:model",
         "//src/com/facebook/buck/core/rulekey:rulekey",
@@ -61,6 +59,7 @@ java_library(
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/versions:types",
         "//src/com/facebook/buck/worker:worker_process",
+        "//test/com/facebook/buck/io/filesystem/impl:testutil",
         "//test/com/facebook/buck/util/timing:testutil",
         "//third-party/java/guava:guava",
         "//third-party/java/hamcrest:java-hamcrest",

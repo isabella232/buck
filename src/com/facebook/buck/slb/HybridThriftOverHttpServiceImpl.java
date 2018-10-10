@@ -16,16 +16,18 @@
 
 package com.facebook.buck.slb;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.SettableFuture;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.Request.Builder;
 import okhttp3.RequestBody;
@@ -42,13 +44,16 @@ public class HybridThriftOverHttpServiceImpl<
     implements HybridThriftOverHttpService<ThriftRequest, ThriftResponse> {
 
   public static final MediaType HYBRID_THRIFT_STREAM_CONTENT_TYPE =
-      Preconditions.checkNotNull(MediaType.parse("application/x-hybrid-thrift-binary"));
+      Objects.requireNonNull(MediaType.parse("application/x-hybrid-thrift-binary"));
   public static final String PROTOCOL_HEADER = "X-Thrift-Protocol";
 
-  private final HybridThriftOverHttpServiceArgs args;
+  private static final Logger LOG = Logger.get(HybridThriftOverHttpServiceImpl.class);
+  private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS = 1000;
+
+  private final HybridThriftOverHttpServiceImplArgs args;
 
   /** New instances. */
-  public HybridThriftOverHttpServiceImpl(HybridThriftOverHttpServiceArgs args) {
+  public HybridThriftOverHttpServiceImpl(HybridThriftOverHttpServiceImplArgs args) {
     this.args = args;
   }
 
@@ -57,17 +62,7 @@ public class HybridThriftOverHttpServiceImpl<
   public ListenableFuture<ThriftResponse> makeRequest(
       HybridThriftRequestHandler<ThriftRequest> request,
       HybridThriftResponseHandler<ThriftResponse> responseHandler) {
-    final SettableFuture<ThriftResponse> future = SettableFuture.create();
-    args.getExecutor()
-        .submit(
-            () -> {
-              try {
-                future.set(makeRequestSync(request, responseHandler));
-              } catch (Throwable e) {
-                future.setException(e);
-              }
-            });
-    return future;
+    return args.getExecutor().submit(() -> makeRequestSync(request, responseHandler));
   }
 
   /** @inheritDoc */
@@ -168,5 +163,25 @@ public class HybridThriftOverHttpServiceImpl<
         // Do not close the underlying stream.
       }
     };
+  }
+
+  @Override
+  public void makeRequest(ThriftRequest thriftRequest, ThriftResponse thriftResponse)
+      throws IOException {
+    makeRequestSync(
+        HybridThriftRequestHandler.createWithoutPayloads(thriftRequest),
+        HybridThriftResponseHandler.createNoPayloadHandler(thriftResponse));
+  }
+
+  @Override
+  public void close() throws IOException {
+    args.getExecutor().shutdown();
+    try {
+      args.getExecutor().awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      LOG.error(e, "Failed to shutdown %s listening executor.", this.getClass());
+      Thread.currentThread().interrupt();
+    }
+    args.getService().close();
   }
 }

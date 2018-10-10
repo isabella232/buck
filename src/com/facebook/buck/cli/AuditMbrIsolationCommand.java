@@ -18,7 +18,8 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -35,11 +36,11 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.TreeMultimap;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -49,6 +50,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.kohsuke.args4j.Argument;
 
@@ -83,7 +85,6 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             params
                 .getParser()
                 .buildTargetGraph(
-                    params.getBuckEventBus(),
                     params.getCell(),
                     getEnableParserProfiling(),
                     pool.getListeningExecutorService(),
@@ -101,21 +102,19 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
       }
 
       ActionGraphBuilder graphBuilder =
-          Preconditions.checkNotNull(
-                  new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
-                      .getFreshActionGraph(
+          Objects.requireNonNull(
+                  new ActionGraphProvider(
                           params.getBuckEventBus(),
-                          targetGraph,
-                          params.getCell().getCellProvider(),
-                          params
-                              .getBuckConfig()
-                              .getView(ActionGraphConfig.class)
-                              .getActionGraphParallelizationMode(),
-                          params
-                              .getBuckConfig()
-                              .getView(ActionGraphConfig.class)
-                              .getShouldInstrumentActionGraph(),
-                          params.getPoolSupplier()))
+                          ActionGraphFactory.create(
+                              params.getBuckEventBus(),
+                              params.getCell().getCellProvider(),
+                              params.getPoolSupplier(),
+                              params.getBuckConfig()),
+                          new ActionGraphCache(
+                              params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                          params.getRuleKeyConfiguration(),
+                          params.getBuckConfig())
+                      .getFreshActionGraph(targetGraph))
               .getActionGraphBuilder();
       graphBuilder.requireAllRules(targets);
 
@@ -196,7 +195,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             String error = String.format("%s %s", crumbs, message);
             Multimap<String, String> failedTargetsByMessage =
                 failuresByRuleType.computeIfAbsent(
-                    getRuleTypeString(instance), ignored -> ArrayListMultimap.create());
+                    getRuleTypeString(instance), ignored -> TreeMultimap.create());
             failedTargetsByMessage.put(error, instance.getFullyQualifiedName());
           }
 
@@ -204,7 +203,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
           public void reportAbsolutePath(BuildRule instance, String crumbs, Path path) {
             Multimap<String, String> inner =
                 absolutePathsRequired.computeIfAbsent(
-                    path.toString(), ignored -> ArrayListMultimap.create());
+                    path.toString(), ignored -> TreeMultimap.create());
             inner.put(crumbs, instance.getFullyQualifiedName());
           }
 
@@ -258,7 +257,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
           builder.addLine(
               "%s failures for rules of type %s.", failure.getValue().size(), failure.getKey());
           for (Entry<String, Collection<String>> instance : asSortedEntries(failure.getValue())) {
-            builder.addLine("  %s: %s", instance.getValue().size(), instance.getKey());
+            builder.addLine(" %s: %s", instance.getValue().size(), instance.getKey());
 
             int count = 0;
             int max = 3;

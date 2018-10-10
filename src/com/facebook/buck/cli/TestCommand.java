@@ -29,7 +29,6 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -37,18 +36,20 @@ import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
 import com.facebook.buck.core.test.rule.TestRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
@@ -57,6 +58,7 @@ import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.test.CoverageReportFormat;
@@ -92,6 +94,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.Set;
@@ -280,10 +283,8 @@ public class TestCommand extends BuildCommand {
     Optional<ImmutableList<String>> coverageExcludes =
         params.getBuckConfig().getOptionalListWithoutComments("test", "coverageExcludes", ',');
 
-    coverageIncludes.ifPresent(
-        strings -> builder.setCoverageIncludes(strings.stream().collect(Collectors.joining(","))));
-    coverageExcludes.ifPresent(
-        strings -> builder.setCoverageExcludes(strings.stream().collect(Collectors.joining(","))));
+    coverageIncludes.ifPresent(strings -> builder.setCoverageIncludes(String.join(",", strings)));
+    coverageExcludes.ifPresent(strings -> builder.setCoverageExcludes(String.join(",", strings)));
 
     return builder.build();
   }
@@ -300,6 +301,7 @@ public class TestCommand extends BuildCommand {
 
   private ExitCode runTestsInternal(
       CommandRunnerParams params,
+      BuildRuleResolver ruleResolver,
       BuildEngine buildEngine,
       Build build,
       BuildContext buildContext,
@@ -317,6 +319,7 @@ public class TestCommand extends BuildCommand {
       int exitCodeInt =
           TestRunning.runTests(
               params,
+              ruleResolver,
               testRules,
               build.getExecutionContext(),
               getTestRunningOptions(params),
@@ -481,7 +484,6 @@ public class TestCommand extends BuildCommand {
               params
                   .getParser()
                   .buildTargetGraphForTargetNodeSpecs(
-                      params.getBuckEventBus(),
                       params.getCell(),
                       getEnableParserProfiling(),
                       pool.getListeningExecutorService(),
@@ -502,7 +504,6 @@ public class TestCommand extends BuildCommand {
               params
                   .getParser()
                   .buildTargetGraphForTargetNodeSpecs(
-                      params.getBuckEventBus(),
                       params.getCell(),
                       getEnableParserProfiling(),
                       pool.getListeningExecutorService(),
@@ -533,7 +534,6 @@ public class TestCommand extends BuildCommand {
                 params
                     .getParser()
                     .buildTargetGraph(
-                        params.getBuckEventBus(),
                         params.getCell(),
                         getEnableParserProfiling(),
                         pool.getListeningExecutorService(),
@@ -556,14 +556,8 @@ public class TestCommand extends BuildCommand {
 
       ActionGraphAndBuilder actionGraphAndBuilder =
           params
-              .getActionGraphCache()
-              .getActionGraph(
-                  params.getBuckEventBus(),
-                  targetGraphAndBuildTargets.getTargetGraph(),
-                  params.getCell().getCellProvider(),
-                  params.getBuckConfig().getView(ActionGraphConfig.class),
-                  params.getRuleKeyConfiguration(),
-                  params.getPoolSupplier());
+              .getActionGraphProvider()
+              .getActionGraph(targetGraphAndBuildTargets.getTargetGraph());
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules =
           Iterables.filter(actionGraphAndBuilder.getActionGraph().getNodes(), TestRule.class);
@@ -593,12 +587,14 @@ public class TestCommand extends BuildCommand {
                     localCachingBuildEngineDelegate,
                     ModernBuildRuleBuilderFactory.getBuildStrategy(
                         params.getBuckConfig().getView(ModernBuildRuleConfig.class),
+                        params.getBuckConfig().getView(RemoteExecutionConfig.class),
                         actionGraphAndBuilder.getActionGraphBuilder(),
                         params.getCell(),
                         params.getCell().getCellPathResolver(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         params.getBuckEventBus(),
-                        params.getConsole()),
+                        params.getConsole(),
+                        Objects.requireNonNull(params.getExecutors().get(ExecutorPool.REMOTE))),
                     pool.getWeightedListeningExecutorService(),
                     new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
@@ -675,7 +671,13 @@ public class TestCommand extends BuildCommand {
             return runTestsExternal(
                 params, build, externalTestRunner.get(), testRules, buildContext);
           }
-          return runTestsInternal(params, cachingBuildEngine, build, buildContext, testRules);
+          return runTestsInternal(
+              params,
+              actionGraphAndBuilder.getActionGraphBuilder(),
+              cachingBuildEngine,
+              build,
+              buildContext,
+              testRules);
         }
       }
     }
@@ -789,7 +791,7 @@ public class TestCommand extends BuildCommand {
       }
 
       if (parsed.size() != 0) {
-        String invalidFormats = parsed.stream().collect(Collectors.joining(","));
+        String invalidFormats = String.join(",", parsed);
         if (option.isArgument()) {
           throw new CmdLineException(
               owner, Messages.ILLEGAL_OPERAND, option.toString(), invalidFormats);

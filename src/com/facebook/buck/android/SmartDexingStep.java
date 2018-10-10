@@ -56,6 +56,7 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -190,11 +191,11 @@ public class SmartDexingStep implements Step {
         if (!secondaryDexJarsMultimap.isEmpty()) {
           for (Map.Entry<Path, Collection<Path>> entry :
               secondaryDexJarsMultimap.asMap().entrySet()) {
-            Path store = entry.getKey();
+            Path secondaryCompressedBlobOutput = entry.getKey();
             Collection<Path> secondaryDexJars = entry.getValue();
             // Construct the output path for our solid blob and its compressed form.
-            Path secondaryBlobOutput = store.getParent().resolve("uncompressed.dex.blob");
-            Path secondaryCompressedBlobOutput = store;
+            Path secondaryBlobOutput =
+                secondaryCompressedBlobOutput.getParent().resolve("uncompressed.dex.blob");
             // Concatenate the jars into a blob and compress it.
             StepRunner stepRunner = new DefaultStepRunner();
             Step concatStep =
@@ -394,7 +395,7 @@ public class SmartDexingStep implements Step {
       for (Path src : srcs) {
         Preconditions.checkState(
             dexInputHashes.containsKey(src), "no hash key exists for path %s", src.toString());
-        Sha1HashCode hash = Preconditions.checkNotNull(dexInputHashes.get(src));
+        Sha1HashCode hash = Objects.requireNonNull(dexInputHashes.get(src));
         hash.update(hasher);
       }
       return hasher.hash().toString();

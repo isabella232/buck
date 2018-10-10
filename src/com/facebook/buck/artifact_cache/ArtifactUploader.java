@@ -19,12 +19,12 @@ package com.facebook.buck.artifact_cache;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.NamedTemporaryFile;
@@ -65,7 +65,8 @@ public class ArtifactUploader {
       ImmutableMap<String, String> buildMetadata,
       SortedSet<Path> pathsToIncludeInArchive,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem) {
+      ProjectFilesystem projectFilesystem,
+      long buildTimeMs) {
     NamedTemporaryFile archive =
         getTemporaryArtifactArchive(
             buildTarget, projectFilesystem, ruleKeys, eventBus, pathsToIncludeInArchive);
@@ -73,7 +74,11 @@ public class ArtifactUploader {
     // Store the artifact, including any additional metadata.
     ListenableFuture<Void> storeFuture =
         artifactCache.store(
-            ArtifactInfo.builder().setRuleKeys(ruleKeys).setMetadata(buildMetadata).build(),
+            ArtifactInfo.builder()
+                .setRuleKeys(ruleKeys)
+                .setMetadata(buildMetadata)
+                .setBuildTimeMs(buildTimeMs)
+                .build(),
             BorrowablePath.borrowablePath(archive.get()));
     Futures.addCallback(
         storeFuture,

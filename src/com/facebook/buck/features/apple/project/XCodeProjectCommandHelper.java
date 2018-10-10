@@ -40,13 +40,13 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.features.halide.HalideBuckConfig;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -88,6 +88,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -114,6 +115,7 @@ public class XCodeProjectCommandHelper {
   private final ImmutableMap<String, String> environment;
   private final ListeningExecutorService executorService;
   private final List<String> arguments;
+  private final boolean absoluteHeaderMapPaths;
   private final boolean enableParserProfiling;
   private final boolean withTests;
   private final boolean withoutTests;
@@ -142,6 +144,7 @@ public class XCodeProjectCommandHelper {
       ListeningExecutorService executorService,
       List<String> arguments,
       ImmutableSet<Flavor> appleCxxFlavors,
+      boolean absoluteHeaderMapPaths,
       boolean enableParserProfiling,
       boolean withTests,
       boolean withoutTests,
@@ -167,6 +170,7 @@ public class XCodeProjectCommandHelper {
     this.environment = environment;
     this.executorService = executorService;
     this.arguments = arguments;
+    this.absoluteHeaderMapPaths = absoluteHeaderMapPaths;
     this.enableParserProfiling = enableParserProfiling;
     this.withTests = withTests;
     this.withoutTests = withoutTests;
@@ -193,7 +197,6 @@ public class XCodeProjectCommandHelper {
           ImmutableSet.copyOf(
               Iterables.concat(
                   parser.resolveTargetSpecs(
-                      buckEventBus,
                       cell,
                       enableParserProfiling,
                       executor,
@@ -325,6 +328,7 @@ public class XCodeProjectCommandHelper {
             .setShouldIncludeTests(isWithTests(buckConfig))
             .setShouldIncludeDependenciesTests(isWithDependenciesTests(buckConfig))
             .setShouldUseHeaderMaps(appleConfig.shouldUseHeaderMapsInXcodeProject())
+            .setShouldUseAbsoluteHeaderMapPaths(absoluteHeaderMapPaths)
             .setShouldMergeHeaderMaps(appleConfig.shouldMergeHeaderMapsInXcodeProject())
             .setShouldAddLinkedLibrariesAsFlags(appleConfig.shouldAddLinkedLibrariesAsFlags())
             .setShouldForceLoadLinkWholeLibraries(
@@ -474,7 +478,7 @@ public class XCodeProjectCommandHelper {
               cxxBuckConfig,
               appleConfig,
               swiftBuckConfig);
-      Preconditions.checkNotNull(
+      Objects.requireNonNull(
           executorService, "CommandRunnerParams does not have executor for PROJECT pool");
       Path outputPath =
           generator.generateWorkspaceAndDependentProjects(projectGenerators, executorService);
@@ -510,7 +514,6 @@ public class XCodeProjectCommandHelper {
       passedInTargetsSet =
           parser
               .resolveTargetSpecs(
-                  buckEventBus,
                   cell,
                   enableParserProfiling,
                   executor,
@@ -658,7 +661,6 @@ public class XCodeProjectCommandHelper {
     if (passedInTargets.isEmpty()) {
       return parser
           .buildTargetGraphForTargetNodeSpecs(
-              buckEventBus,
               cell,
               enableParserProfiling,
               executor,
@@ -668,8 +670,7 @@ public class XCodeProjectCommandHelper {
           .getTargetGraph();
     }
     Preconditions.checkState(!passedInTargets.isEmpty());
-    return parser.buildTargetGraph(
-        buckEventBus, cell, enableParserProfiling, executor, passedInTargets);
+    return parser.buildTargetGraph(cell, enableParserProfiling, executor, passedInTargets);
   }
 
   private TargetGraphAndTargets createTargetGraph(
@@ -694,15 +695,10 @@ public class XCodeProjectCommandHelper {
       if (!needsFullRecursiveParse) {
         projectGraph =
             parser.buildTargetGraph(
-                buckEventBus,
-                cell,
-                enableParserProfiling,
-                executor,
-                Sets.union(graphRoots, explicitTestTargets));
+                cell, enableParserProfiling, executor, Sets.union(graphRoots, explicitTestTargets));
       } else {
         projectGraph =
             parser.buildTargetGraph(
-                buckEventBus,
                 cell,
                 enableParserProfiling,
                 executor,

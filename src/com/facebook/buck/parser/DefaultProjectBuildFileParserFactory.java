@@ -24,10 +24,11 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.io.watchman.Capability;
+import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.json.HybridProjectBuildFileParser;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
-import com.facebook.buck.json.TargetCountVerificationParserDelegate;
+import com.facebook.buck.json.TargetCountVerificationParserDecorator;
 import com.facebook.buck.parser.AbstractParserConfig.SkylarkGlobHandler;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.api.Syntax;
@@ -52,6 +53,7 @@ import com.google.devtools.build.lib.syntax.Runtime;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DefaultProjectBuildFileParserFactory implements ProjectBuildFileParserFactory {
   private final TypeCoercerFactory typeCoercerFactory;
@@ -59,31 +61,36 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   private final ParserPythonInterpreterProvider pythonInterpreterProvider;
   private final KnownRuleTypesProvider knownRuleTypesProvider;
   private final boolean enableProfiling;
+  private final Optional<AtomicLong> processedBytes;
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
       KnownRuleTypesProvider knownRuleTypesProvider,
-      boolean enableProfiling) {
+      boolean enableProfiling,
+      Optional<AtomicLong> processedBytes) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.console = console;
     this.pythonInterpreterProvider = pythonInterpreterProvider;
     this.knownRuleTypesProvider = knownRuleTypesProvider;
     this.enableProfiling = enableProfiling;
+    this.processedBytes = processedBytes;
   }
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
       boolean enableProfiling,
+      Optional<AtomicLong> processedBytes,
       KnownRuleTypesProvider knownRuleTypesProvider) {
     this(
         typeCoercerFactory,
         Console.createNullConsole(),
         pythonInterpreterProvider,
         knownRuleTypesProvider,
-        enableProfiling);
+        enableProfiling,
+        processedBytes);
   }
 
   public DefaultProjectBuildFileParserFactory(
@@ -91,7 +98,13 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
       KnownRuleTypesProvider knownRuleTypesProvider) {
-    this(typeCoercerFactory, console, pythonInterpreterProvider, knownRuleTypesProvider, false);
+    this(
+        typeCoercerFactory,
+        console,
+        pythonInterpreterProvider,
+        knownRuleTypesProvider,
+        false,
+        Optional.empty());
   }
 
   /**
@@ -99,17 +112,18 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
    * ProjectBuildFileParser}.
    */
   @Override
-  public ProjectBuildFileParser createBuildFileParser(BuckEventBus eventBus, Cell cell) {
+  public ProjectBuildFileParser createBuildFileParser(
+      BuckEventBus eventBus, Cell cell, Watchman watchman) {
 
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     boolean useWatchmanGlob =
         parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN
-            && cell.getWatchman().hasWildmatchGlob();
+            && watchman.hasWildmatchGlob();
     boolean watchmanGlobStatResults =
         parserConfig.getWatchmanGlobSanityCheck() == ParserConfig.WatchmanGlobSanityCheck.STAT;
     boolean watchmanUseGlobGenerator =
-        cell.getWatchman().getCapabilities().contains(Capability.GLOB_GENERATOR);
+        watchman.getCapabilities().contains(Capability.GLOB_GENERATOR);
     Optional<String> pythonModuleSearchPath = parserConfig.getPythonModuleSearchPath();
 
     ProjectBuildFileParserOptions buildFileParserOptions =
@@ -128,7 +142,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
             .setUseWatchmanGlob(useWatchmanGlob)
             .setWatchmanGlobStatResults(watchmanGlobStatResults)
             .setWatchmanUseGlobGenerator(watchmanUseGlobGenerator)
-            .setWatchman(cell.getWatchman())
+            .setWatchman(watchman)
             .setWatchmanQueryTimeoutMs(parserConfig.getWatchmanQueryTimeoutMs())
             .setRawConfig(cell.getBuckConfig().getRawConfigForParser())
             .setBuildFileImportWhitelist(parserConfig.getBuildFileImportWhitelist())
@@ -144,11 +158,11 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   /** Creates a delegate wrapper that counts the number of targets declared in a parsed file */
   private static ProjectBuildFileParser createTargetCountingWrapper(
       ProjectBuildFileParser aggregate, int targetCountThreshold, BuckEventBus eventBus) {
-    return new TargetCountVerificationParserDelegate(aggregate, targetCountThreshold, eventBus);
+    return new TargetCountVerificationParserDecorator(aggregate, targetCountThreshold, eventBus);
   }
 
   /** Creates a project build file parser based on Buck configuration settings. */
-  private static ProjectBuildFileParser createProjectBuildFileParser(
+  private ProjectBuildFileParser createProjectBuildFileParser(
       Cell cell,
       TypeCoercerFactory typeCoercerFactory,
       Console console,
@@ -201,7 +215,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
     return parser;
   }
 
-  private static PythonDslProjectBuildFileParser newPythonParser(
+  private PythonDslProjectBuildFileParser newPythonParser(
       Cell cell,
       TypeCoercerFactory typeCoercerFactory,
       Console console,
@@ -212,7 +226,8 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
         typeCoercerFactory,
         cell.getBuckConfig().getEnvironment(),
         eventBus,
-        new DefaultProcessExecutor(console));
+        new DefaultProcessExecutor(console),
+        processedBytes);
   }
 
   private static SkylarkProjectBuildFileParser newSkylarkParser(
@@ -223,7 +238,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       SkylarkGlobHandler skylarkGlobHandler) {
     GlobberFactory globberFactory;
     try {
-      globberFactory = getSkylarkGlobberFactory(cell, buildFileParserOptions, skylarkGlobHandler);
+      globberFactory = getSkylarkGlobberFactory(buildFileParserOptions, skylarkGlobHandler);
     } catch (IOException e) {
       throw new RuntimeException(
           "Watchman glob handler was requested, but Watchman client cannot be created", e);
@@ -272,13 +287,11 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   }
 
   private static GlobberFactory getSkylarkGlobberFactory(
-      Cell cell,
-      ProjectBuildFileParserOptions buildFileParserOptions,
-      SkylarkGlobHandler skylarkGlobHandler)
+      ProjectBuildFileParserOptions buildFileParserOptions, SkylarkGlobHandler skylarkGlobHandler)
       throws IOException {
     SyncCookieState syncCookieState = new SyncCookieState();
     return skylarkGlobHandler == SkylarkGlobHandler.JAVA
-            || cell.getWatchman() == WatchmanFactory.NULL_WATCHMAN
+            || buildFileParserOptions.getWatchman() == WatchmanFactory.NULL_WATCHMAN
         ? NativeGlobber::create
         : HybridGlobberFactory.using(
             buildFileParserOptions.getWatchman().createClient(),

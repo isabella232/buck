@@ -23,7 +23,7 @@ import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
@@ -69,6 +69,7 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
 import com.facebook.buck.unarchive.UnzipStep;
@@ -77,7 +78,6 @@ import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -90,6 +90,7 @@ import com.google.common.hash.Hashing;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.immutables.value.Value;
@@ -123,16 +124,19 @@ public class AppleTestDescription
   private final ToolchainProvider toolchainProvider;
   private final XCodeDescriptions xcodeDescriptions;
   private final AppleConfig appleConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
   private final AppleLibraryDescription appleLibraryDescription;
 
   public AppleTestDescription(
       ToolchainProvider toolchainProvider,
       XCodeDescriptions xcodeDescriptions,
       AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig,
       AppleLibraryDescription appleLibraryDescription) {
     this.toolchainProvider = toolchainProvider;
     this.xcodeDescriptions = xcodeDescriptions;
     this.appleConfig = appleConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
     this.appleLibraryDescription = appleLibraryDescription;
   }
 
@@ -319,7 +323,8 @@ public class AppleTestDescription
             args.getCodesignFlags(),
             args.getCodesignIdentity(),
             Optional.empty(),
-            appleConfig.getCodesignTimeout());
+            appleConfig.getCodesignTimeout(),
+            swiftBuckConfig.getCopyStdlibToFrameworks());
     graphBuilder.addToIndex(bundle);
 
     Optional<SourcePath> xctool = getXctool(projectFilesystem, params, graphBuilder);
@@ -411,7 +416,7 @@ public class AppleTestDescription
                             context
                                 .getSourcePathResolver()
                                 .getAbsolutePath(
-                                    Preconditions.checkNotNull(
+                                    Objects.requireNonNull(
                                         xctoolZipBuildRule.getSourcePathToOutput())),
                             outputDirectory,
                             Optional.empty()))

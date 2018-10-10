@@ -27,14 +27,15 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -60,7 +61,7 @@ public class IncrementalActionGraphGenerator {
       BuckEventBus eventBus, TargetGraph targetGraph, ActionGraphBuilder graphBuilder) {
     int reusedRuleCount = 0;
     if (lastActionGraphBuilder != null) {
-      Preconditions.checkNotNull(lastTargetGraph);
+      Objects.requireNonNull(lastTargetGraph);
 
       // We first walk the new target graph to find new nodes. A new node will invalidate all nodes
       // with the same unflavored target.

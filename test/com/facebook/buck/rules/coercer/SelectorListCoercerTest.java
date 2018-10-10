@@ -21,8 +21,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
@@ -31,7 +31,7 @@ import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.select.impl.SelectorFactory;
 import com.facebook.buck.core.select.impl.SelectorListFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;

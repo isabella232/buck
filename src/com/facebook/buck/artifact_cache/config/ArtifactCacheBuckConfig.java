@@ -23,7 +23,6 @@ import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -32,6 +31,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -382,6 +382,27 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
         .map(SizeUnit::parseBytes);
   }
 
+  /**
+   * Gets the path to a PEM encoded X509 certifiate to use as the TLS client certificate for HTTP
+   * cache requests
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsCertificate() {
+    return buckConfig.getValue("cache", "http_client_tls_cert").map(Paths::get);
+  }
+
+  /**
+   * Gets the path to a PEM encoded PCKS#8 key to use as the TLS client key for HTTP cache requests.
+   * This may be a file that contains both the private key and the certificate if both objects are
+   * newline delimited.
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsKey() {
+    return buckConfig.getValue("cache", "http_client_tls_key").map(Paths::get);
+  }
+
   private boolean getServingLocalCacheEnabled() {
     return buckConfig.getBooleanValue(CACHE_SECTION_NAME, SERVED_CACHE_ENABLED_FIELD_NAME, false);
   }
@@ -433,7 +454,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     String cacheDir = buckConfig.getLocalCacheDirectory(section);
     Path pathToCacheDir =
         buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(cacheDir));
-    Preconditions.checkNotNull(pathToCacheDir);
+    Objects.requireNonNull(pathToCacheDir);
 
     Optional<Long> maxSizeBytes =
         buckConfig.getValue(section, DIR_MAX_SIZE_FIELD).map(SizeUnit::parseBytes);

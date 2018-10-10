@@ -24,7 +24,7 @@ import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ErrorLogger;
@@ -33,11 +33,11 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
@@ -97,7 +97,7 @@ public class BuildReport {
         && console.getVerbosity().shouldPrintStandardInformation()) {
       report.append(linesToText("", " ** Summary of failures encountered during the build **", ""));
       for (BuildResult failureResult : buildExecutionResult.getFailures()) {
-        Throwable failure = Preconditions.checkNotNull(failureResult.getFailure());
+        Throwable failure = Objects.requireNonNull(failureResult.getFailure());
         new ErrorLogger(
                 new ErrorLogger.LogImpl() {
                   @Override
@@ -161,7 +161,7 @@ public class BuildReport {
     }
 
     for (BuildResult failureResult : buildExecutionResult.getFailures()) {
-      Throwable failure = Preconditions.checkNotNull(failureResult.getFailure());
+      Throwable failure = Objects.requireNonNull(failureResult.getFailure());
       while ((failure instanceof BuckExecutionException
               || failure instanceof ExecutionException
               || failure instanceof BuckUncheckedExecutionException)

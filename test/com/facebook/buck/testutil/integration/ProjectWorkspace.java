@@ -27,6 +27,7 @@ import com.dd.plist.BinaryPropertyListParser;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.facebook.buck.cli.Main;
+import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
@@ -36,6 +37,8 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProviderFactory;
 import com.facebook.buck.io.ExecutableFinder;
@@ -45,13 +48,10 @@ import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
-import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.testutil.AbstractWorkspace;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TestConsole;
@@ -268,7 +268,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
     // Add in `--show-output` to the build, so we can parse the output paths after the fact.
     ImmutableList<String> buildArgs =
         ImmutableList.<String>builder().add("--show-output").add(args).build();
-    ProcessResult buildResult = runBuckBuild(buildArgs.toArray(new String[buildArgs.size()]));
+    ProcessResult buildResult = runBuckBuild(buildArgs.toArray(new String[0]));
     buildResult.assertSuccess();
 
     // Grab the stdout lines, which have the build outputs.
@@ -359,10 +359,15 @@ public class ProjectWorkspace extends AbstractWorkspace {
       throws IOException, InterruptedException {
     List<String> command =
         ImmutableList.<String>builder().add(exe).addAll(ImmutableList.copyOf(args)).build();
+    return runCommand(command);
+  }
+
+  public ProcessExecutor.Result runCommand(Iterable<String> command)
+      throws IOException, InterruptedException {
     return doRunCommand(command);
   }
 
-  private ProcessExecutor.Result doRunCommand(List<String> command)
+  private ProcessExecutor.Result doRunCommand(Iterable<String> command)
       throws IOException, InterruptedException {
     ProcessExecutorParams params =
         ProcessExecutorParams.builder()
@@ -442,6 +447,8 @@ public class ProjectWorkspace extends AbstractWorkspace {
       CapturingPrintStream stderr,
       String... args)
       throws IOException {
+    // TODO(cjhopman): This needs to be updated to actually get the correct error-handling from Main
+    // (which will require refactoring there).
     try {
       assertTrue("setUp() must be run before this method is invoked", isSetUp);
       CapturingPrintStream stdout = new CapturingPrintStream();
@@ -508,6 +515,9 @@ public class ProjectWorkspace extends AbstractWorkspace {
       } catch (BuildFileParseException e) {
         stderr.println(e.getHumanReadableErrorMessage());
         exitCode = ExitCode.PARSE_ERROR;
+      } catch (Exception e) {
+        e.printStackTrace(stderr);
+        exitCode = ExceptionHandlerRegistryFactory.create().handleException(e);
       }
 
       return new ProcessResult(
@@ -546,6 +556,9 @@ public class ProjectWorkspace extends AbstractWorkspace {
   /**
    * Runs an event-driven parser on {@code buck-out/log/build.trace}, which is a symlink to the
    * trace of the most recent invocation of Buck (which may not have been a {@code buck build}).
+   *
+   * <p>Warning: If running buckd, make sure `daemon.flush_events_before_exit=true` so that the
+   * trace is materialized before this is ran.
    *
    * @see ChromeTraceParser#parse(Path, Set)
    */
@@ -606,7 +619,6 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
     return LocalCellProviderFactory.create(
             filesystem,
-            WatchmanFactory.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
             rootCellCellPathResolver.getPathMapping(),

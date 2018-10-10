@@ -35,7 +35,7 @@ Example:
 <p>
   Note that any {call buck.remote_file /} rules referenced by your build rules must be downloaded
   with {call buck.cmd_fetch /} prior to calling this command unless you set <code>in_build = true
-  </code> in the <code>[download]</code> section of your {call buck.concept_buckconfig /}.
+  </code> in the <code>[download]</code> section of your {call buck.buckconfig_link /}.
 </p>
 
 
@@ -147,14 +147,9 @@ Example:
 {/call}
 
 
-{call buck.param}
-  {param name: 'verbose' /}
-  {param alias: 'v'/}
-  {param desc}
-  How verbose logging to the console should be, with 1 as the minimum
-  and 10 as the most verbose.
-  {/param}
-{/call}
+{call command_common.show_output_param /}
+
+{call command_common.common_param_xref /}
 
 {/param}
 

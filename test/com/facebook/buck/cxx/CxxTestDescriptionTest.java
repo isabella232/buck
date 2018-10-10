@@ -39,6 +39,7 @@ import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -53,17 +54,16 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.selectors.TestSelectorList;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
@@ -155,7 +155,7 @@ public class CxxTestDescriptionTest {
                     "TEST",
                     "value "
                         + pathResolver.getAbsolutePath(
-                            Preconditions.checkNotNull(someRule.getSourcePathToOutput()))))));
+                            Objects.requireNonNull(someRule.getSourcePathToOutput()))))));
   }
 
   @Test
@@ -193,7 +193,7 @@ public class CxxTestDescriptionTest {
         hasItem(
             "value "
                 + pathResolver.getAbsolutePath(
-                    Preconditions.checkNotNull(someRule.getSourcePathToOutput()))));
+                    Objects.requireNonNull(someRule.getSourcePathToOutput()))));
   }
 
   @Test

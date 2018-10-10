@@ -18,6 +18,7 @@ package com.facebook.buck.core.rules.impl;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -29,8 +30,10 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.CaseFormat;
+import java.lang.reflect.Field;
 import java.util.Objects;
 import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 /**
  * Abstract implementation of a {@link BuildRule} that can be cached. If its current {@link RuleKey}
@@ -47,6 +50,25 @@ public abstract class AbstractBuildRule implements BuildRule {
     this.buildTarget = buildTarget;
     this.projectFilesystem = projectFilesystem;
     this.hashCode = computeHashCode();
+  }
+
+  /** Allows setting the fields after creation. Should only be used when deserializing. */
+  protected static void injectFields(
+      AbstractBuildRule rule, ProjectFilesystem filesystem, BuildTarget target) {
+    setField("projectFilesystem", rule, filesystem);
+    setField("buildTarget", rule, target);
+    setField("typeSupplier", rule, MoreSuppliers.memoize(rule::getTypeForClass));
+    setField("hashCode", rule, rule.computeHashCode());
+  }
+
+  private static void setField(String fieldName, Object instance, @Nullable Object value) {
+    try {
+      Field field = AbstractBuildRule.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      field.set(instance, value);
+    } catch (IllegalAccessException | NoSuchFieldException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Override
@@ -81,6 +103,9 @@ public abstract class AbstractBuildRule implements BuildRule {
   public boolean hasBuildSteps() {
     return true;
   }
+
+  @Override
+  public void appendToRuleKey(RuleKeyObjectSink sink) {}
 
   @Override
   public void updateBuildRuleResolver(

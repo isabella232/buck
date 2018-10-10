@@ -26,15 +26,15 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;

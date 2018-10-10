@@ -82,12 +82,14 @@ public class AuditTestsCommand extends AbstractCommand {
                     new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
-                        params.getCell().getBuckConfig(), params.getExecutableFinder()))
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getWatchman(),
+                    params.getBuckEventBus())
                 .create(
                     params.getParser().getPermState(),
-                    params.getBuckEventBus(),
                     pool.getListeningExecutorService(),
                     params.getCell(),
+                    getTargetPlatforms(),
                     getEnableParserProfiling(),
                     SpeculativeParsing.ENABLED)) {
       BuckQueryEnvironment env =

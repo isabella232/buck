@@ -18,7 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.Hint;
@@ -87,6 +87,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
@@ -265,13 +266,12 @@ public class PrebuiltCxxLibraryDescription
         ImmutableSet.of(),
         NativeLinkableInput.builder()
             .addAllArgs(
-                StringArg.from(
-                    CxxFlags.getFlagsWithPlatformMacroExpansion(
-                        args.getExportedLinkerFlags(),
-                        args.getExportedPlatformLinkerFlags(),
-                        cxxPlatform)))
+                getExportedLinkerArgs(cxxPlatform, args, buildTarget, cellRoots, graphBuilder))
             .addAllArgs(
-                cxxPlatform.getLd().resolve(graphBuilder).linkWhole(SourcePathArg.of(library)))
+                cxxPlatform
+                    .getLd()
+                    .resolve(graphBuilder)
+                    .linkWhole(SourcePathArg.of(library), pathResolver))
             .addAllArgs(
                 StringArg.from(
                     CxxFlags.getFlagsWithPlatformMacroExpansion(
@@ -512,8 +512,7 @@ public class PrebuiltCxxLibraryDescription
       }
 
       private ImmutableListMultimap<CxxSource.Type, Arg> getExportedPreprocessorFlags(
-          CxxPlatform cxxPlatform) {
-
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         return ImmutableListMultimap.copyOf(
             Multimaps.transformValues(
                 CxxFlags.getLanguageFlagsWithMacros(
@@ -528,9 +527,10 @@ public class PrebuiltCxxLibraryDescription
       }
 
       @Override
-      public ImmutableList<String> getExportedLinkerFlags(CxxPlatform cxxPlatform) {
-        return CxxFlags.getFlagsWithPlatformMacroExpansion(
-            args.getExportedLinkerFlags(), args.getExportedPlatformLinkerFlags(), cxxPlatform);
+      public ImmutableList<Arg> getExportedLinkerArgs(
+          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+        return PrebuiltCxxLibraryDescription.this.getExportedLinkerArgs(
+            cxxPlatform, args, buildTarget, cellRoots, graphBuilder);
       }
 
       @Override
@@ -569,7 +569,7 @@ public class PrebuiltCxxLibraryDescription
               buildTarget.withAppendedFlavors(
                   cxxPlatform.getFlavor(), Type.SHARED_INTERFACE.getFlavor());
           BuildRule rule = graphBuilder.requireRule(target);
-          return Preconditions.checkNotNull(rule.getSourcePathToOutput());
+          return Objects.requireNonNull(rule.getSourcePathToOutput());
         }
         return PrebuiltCxxLibraryDescription.this.requireSharedLibrary(
             buildTarget,
@@ -631,7 +631,7 @@ public class PrebuiltCxxLibraryDescription
               HeaderVisibility.PUBLIC,
               CxxPreprocessables.IncludeType.SYSTEM);
         }
-        builder.putAllPreprocessorFlags(getExportedPreprocessorFlags(cxxPlatform));
+        builder.putAllPreprocessorFlags(getExportedPreprocessorFlags(cxxPlatform, graphBuilder));
         builder.addAllFrameworks(args.getFrameworks());
         for (SourcePath includePath :
             paths.getIncludeDirs(
@@ -699,8 +699,7 @@ public class PrebuiltCxxLibraryDescription
         // Build the library path and linker arguments that we pass through the
         // {@link NativeLinkable} interface for linking.
         ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
-        linkerArgsBuilder.addAll(
-            StringArg.from(Preconditions.checkNotNull(getExportedLinkerFlags(cxxPlatform))));
+        linkerArgsBuilder.addAll(getExportedLinkerArgs(cxxPlatform, graphBuilder));
 
         if (!args.isHeaderOnly()) {
           if (type == Linker.LinkableDepType.SHARED) {
@@ -732,7 +731,10 @@ public class PrebuiltCxxLibraryDescription
                                 "Could not find static library for %s.", getBuildTarget())));
             if (args.isLinkWhole() || forceLinkWhole) {
               Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
-              linkerArgsBuilder.addAll(linker.linkWhole(staticLibrary));
+              DefaultSourcePathResolver pathResolver =
+                  DefaultSourcePathResolver.from(
+                      new SourcePathRuleFinder(context.getActionGraphBuilder()));
+              linkerArgsBuilder.addAll(linker.linkWhole(staticLibrary, pathResolver));
             } else {
               linkerArgsBuilder.add(FileListableLinkerInputArg.withSourcePathArg(staticLibrary));
             }
@@ -752,7 +754,6 @@ public class PrebuiltCxxLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions,
           ActionGraphBuilder graphBuilder) {
         NativeLinkableCacheKey key =
             NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
@@ -857,14 +858,15 @@ public class PrebuiltCxxLibraryDescription
                   SourcePathResolver pathResolver,
                   SourcePathRuleFinder ruleFinder) {
                 return NativeLinkableInput.builder()
-                    .addAllArgs(StringArg.from(getExportedLinkerFlags(cxxPlatform)))
+                    .addAllArgs(getExportedLinkerArgs(cxxPlatform, graphBuilder))
                     .addAllArgs(
                         cxxPlatform
                             .getLd()
                             .resolve(graphBuilder)
                             .linkWhole(
                                 SourcePathArg.of(
-                                    getStaticPicLibrary(cxxPlatform, graphBuilder).get())))
+                                    getStaticPicLibrary(cxxPlatform, graphBuilder).get()),
+                                pathResolver))
                     .addAllArgs(StringArg.from(getExportedPostLinkerFlags(cxxPlatform)))
                     .build();
               }
@@ -876,6 +878,22 @@ public class PrebuiltCxxLibraryDescription
             });
       }
     };
+  }
+
+  private ImmutableList<Arg> getExportedLinkerArgs(
+      CxxPlatform cxxPlatform,
+      PrebuiltCxxLibraryDescriptionArg args,
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      ActionGraphBuilder graphBuilder) {
+    return CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
+            args.getExportedLinkerFlags(), args.getExportedPlatformLinkerFlags(), cxxPlatform)
+        .stream()
+        .map(
+            s ->
+                CxxDescriptionEnhancer.toStringWithMacrosArgs(
+                    buildTarget, cellRoots, graphBuilder, cxxPlatform, s))
+        .collect(ImmutableList.toImmutableList());
   }
 
   @Override
@@ -999,12 +1017,13 @@ public class PrebuiltCxxLibraryDescription
       return VersionMatchedCollection.of();
     }
 
-    ImmutableList<String> getExportedLinkerFlags();
+    ImmutableList<StringWithMacros> getExportedLinkerFlags();
 
     ImmutableList<String> getExportedPostLinkerFlags();
 
     @Value.Default
-    default PatternMatchedCollection<ImmutableList<String>> getExportedPlatformLinkerFlags() {
+    default PatternMatchedCollection<ImmutableList<StringWithMacros>>
+        getExportedPlatformLinkerFlags() {
       return PatternMatchedCollection.of();
     }
 
@@ -1042,20 +1061,5 @@ public class PrebuiltCxxLibraryDescription
     }
 
     Optional<Boolean> getSupportsMergedLinking();
-
-    default boolean isNewApiUsed() {
-      return getHeaderDirs().isPresent()
-          || getPlatformHeaderDirs().isPresent()
-          || getVersionedHeaderDirs().isPresent()
-          || getSharedLib().isPresent()
-          || getPlatformSharedLib().isPresent()
-          || getVersionedSharedLib().isPresent()
-          || getStaticLib().isPresent()
-          || getPlatformStaticLib().isPresent()
-          || getVersionedStaticLib().isPresent()
-          || getStaticPicLib().isPresent()
-          || getPlatformStaticPicLib().isPresent()
-          || getVersionedStaticPicLib().isPresent();
-    }
   }
 }

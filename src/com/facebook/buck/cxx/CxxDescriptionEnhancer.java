@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -24,7 +24,6 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -40,6 +39,7 @@ import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.AbstractCxxSource.Type;
 import com.facebook.buck.cxx.CxxBinaryDescription.CommonArg;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -59,7 +59,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.json.JsonConcatenate;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
@@ -94,9 +93,11 @@ import com.google.common.collect.Multimaps;
 import com.google.common.hash.Hashing;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.Files;
+import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -473,7 +474,7 @@ public class CxxDescriptionEnhancer {
                               graphBuilder,
                               ruleFinder,
                               cxxPlatform,
-                              Preconditions.checkNotNull(s.getSourcePath())));
+                              Objects.requireNonNull(s.getSourcePath())));
                     })
                 .collect(ImmutableList.toImmutableList()),
             x -> true,
@@ -493,7 +494,7 @@ public class CxxDescriptionEnhancer {
 
     // Add the private includes of any rules which this rule depends on, and which list this rule as
     // a test.
-    BuildTarget targetWithoutFlavor = ImmutableBuildTarget.of(target.getUnflavoredBuildTarget());
+    BuildTarget targetWithoutFlavor = target.withoutFlavors();
     ImmutableList.Builder<CxxPreprocessorInput> cxxPreprocessorInputFromTestedRulesBuilder =
         ImmutableList.builder();
     for (BuildRule rule : deps) {
@@ -675,9 +676,22 @@ public class CxxDescriptionEnhancer {
   }
 
   private static Path getBinaryOutputPath(
-      BuildTarget target, ProjectFilesystem filesystem, Optional<String> extension) {
-    String format = extension.map(ext -> "%s." + ext).orElse("%s");
-    return BuildTargetPaths.getGenPath(filesystem, target, format);
+      BuildTarget target,
+      ProjectFilesystem filesystem,
+      Optional<String> extension,
+      final Optional<String> outputRootName) {
+    String fullFormat;
+    if (outputRootName.isPresent()) {
+      // Make sure that for user defined output root name, the output goes into
+      // <target>/<User Defined Output Root Name> file.
+      String extensionFormat = extension.map(ext -> "." + ext).orElse("");
+      String outputName = outputRootName.get() + extensionFormat;
+      fullFormat = String.format("%%s%s%s", File.separator, outputName);
+    } else {
+      // Keep the current behavior if the user has not specified it's own output root name.
+      fullFormat = extension.map(ext -> "%s." + ext).orElse("%s");
+    }
+    return BuildTargetPaths.getGenPath(filesystem, target, fullFormat);
   }
 
   @VisibleForTesting
@@ -752,7 +766,7 @@ public class CxxDescriptionEnhancer {
     // Add in deps found via deps query.
     ImmutableList<BuildRule> depQueryDeps =
         args.getDepsQuery()
-            .map(query -> Preconditions.checkNotNull(query.getResolvedQuery()))
+            .map(query -> Objects.requireNonNull(query.getResolvedQuery()))
             .orElse(ImmutableSortedSet.of())
             .stream()
             .map(graphBuilder::getRule)
@@ -799,7 +813,8 @@ public class CxxDescriptionEnhancer {
         args.getLinkerExtraOutputs(),
         args.getPlatformLinkerFlags(),
         args.getCxxRuntimeType(),
-        args.getRawHeaders());
+        args.getRawHeaders(),
+        args.getExecutableName());
   }
 
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinary(
@@ -835,7 +850,8 @@ public class CxxDescriptionEnhancer {
       ImmutableList<String> linkerExtraOutputs,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
       Optional<CxxRuntimeType> cxxRuntimeType,
-      ImmutableSortedSet<SourcePath> rawHeaders) {
+      ImmutableSortedSet<SourcePath> rawHeaders,
+      Optional<String> outputRootName) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     //    TODO(beefon): should be:
@@ -849,7 +865,8 @@ public class CxxDescriptionEnhancer {
                 ? target.withAppendedFlavors(flavoredLinkerMapMode.get().getFlavor())
                 : target,
             projectFilesystem,
-            cxxPlatform.getBinaryExtension());
+            cxxPlatform.getBinaryExtension(),
+            outputRootName);
 
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
@@ -1034,7 +1051,13 @@ public class CxxDescriptionEnhancer {
       }
       CxxStrip stripRule =
           createCxxStripRule(
-              cxxTarget, projectFilesystem, graphBuilder, stripStyle.get(), cxxLink, cxxPlatform);
+              cxxTarget,
+              projectFilesystem,
+              graphBuilder,
+              stripStyle.get(),
+              cxxLink,
+              cxxPlatform,
+              outputRootName);
       cxxStrip = Optional.of(stripRule);
       binaryRuleForExecutable = stripRule;
     } else {
@@ -1089,7 +1112,8 @@ public class CxxDescriptionEnhancer {
       ActionGraphBuilder graphBuilder,
       StripStyle stripStyle,
       BuildRule unstrippedBinaryRule,
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform,
+      Optional<String> outputRootName) {
     return (CxxStrip)
         graphBuilder.computeIfAbsent(
             baseBuildTarget.withAppendedFlavors(CxxStrip.RULE_FLAVOR, stripStyle.getFlavor()),
@@ -1105,7 +1129,10 @@ public class CxxDescriptionEnhancer {
                     stripStyle,
                     cxxPlatform.getStrip(),
                     CxxDescriptionEnhancer.getBinaryOutputPath(
-                        stripBuildTarget, projectFilesystem, cxxPlatform.getBinaryExtension())));
+                        stripBuildTarget,
+                        projectFilesystem,
+                        cxxPlatform.getBinaryExtension(),
+                        outputRootName)));
   }
 
   public static BuildRule createUberCompilationDatabase(

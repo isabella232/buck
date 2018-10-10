@@ -51,10 +51,10 @@ import com.facebook.buck.core.rules.common.InstallTrigger;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
@@ -88,6 +88,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
@@ -354,7 +355,6 @@ public class InstallCommand extends BuildCommand {
                   params
                       .getParser()
                       .resolveTargetSpecs(
-                          params.getBuckEventBus(),
                           params.getCell(),
                           getEnableParserProfiling(),
                           executor,
@@ -368,12 +368,7 @@ public class InstallCommand extends BuildCommand {
       TargetNode<?> node =
           params
               .getParser()
-              .getTargetNode(
-                  params.getBuckEventBus(),
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  executor,
-                  target);
+              .getTargetNode(params.getCell(), getEnableParserProfiling(), executor, target);
 
       if (node != null
           && node.getRuleType()
@@ -595,7 +590,7 @@ public class InstallCommand extends BuildCommand {
     if (helper.installBundleOnDevice(
         selectedUdid,
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printSuccess(
@@ -810,7 +805,7 @@ public class InstallCommand extends BuildCommand {
     if (!appleSimulatorController.installBundleInSimulator(
         appleSimulator.get().getUdid(),
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printBuildFailure(

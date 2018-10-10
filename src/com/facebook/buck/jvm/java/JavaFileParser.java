@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -31,6 +31,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -455,7 +456,7 @@ public class JavaFileParser {
   }
 
   public static JavaFileParser createJavaFileParser(JavacOptions options) {
-    String javaVersion = Preconditions.checkNotNull(javaVersionMap.get(options.getSourceLevel()));
+    String javaVersion = Objects.requireNonNull(javaVersionMap.get(options.getSourceLevel()));
     return new JavaFileParser(AST.JLS8, javaVersion);
   }
 

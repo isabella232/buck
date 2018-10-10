@@ -28,26 +28,26 @@ import com.facebook.buck.slb.PerServerData;
 import com.facebook.buck.slb.PerServerPingData;
 import com.facebook.buck.slb.ServerHealthManagerEvent;
 import com.facebook.buck.slb.ServerHealthManagerEventData;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 
 public class LoadBalancerEventsListener implements BuckEventListener {
   public static final String COUNTER_CATEGORY = "buck_slb_counters";
+  private static final String POOL_NAME_TAG = "server_pool_name";
+
   private final CounterRegistry registry;
   private final ConcurrentMap<URI, ServerCounters> allServerCounters;
-  private final IntegerCounter noHealthyServersCounter;
+  private final ConcurrentMap<String, IntegerCounter> noHealthyServersCounters;
 
   public LoadBalancerEventsListener(CounterRegistry registry) {
     this.registry = registry;
     this.allServerCounters = Maps.newConcurrentMap();
-
-    noHealthyServersCounter =
-        registry.newIntegerCounter(COUNTER_CATEGORY, "no_healthy_servers_count", ImmutableMap.of());
+    this.noHealthyServersCounters = Maps.newConcurrentMap();
   }
 
   @Subscribe
@@ -76,6 +76,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
   @Subscribe
   public void onServerHealthManagerEvent(ServerHealthManagerEvent event) {
     ServerHealthManagerEventData data = event.getData();
+    IntegerCounter noHealthyServersCounter = getNoHealthyServerCounter(data.getServerPoolName());
     if (data.noHealthyServersAvailable()) {
       noHealthyServersCounter.inc();
     }
@@ -117,7 +118,21 @@ public class LoadBalancerEventsListener implements BuckEventListener {
       if (!allServerCounters.containsKey(server)) {
         allServerCounters.put(server, new ServerCounters(registry, server));
       }
-      return Preconditions.checkNotNull(allServerCounters.get(server));
+      return Objects.requireNonNull(allServerCounters.get(server));
+    }
+  }
+
+  private IntegerCounter getNoHealthyServerCounter(String poolName) {
+    synchronized (allServerCounters) {
+      if (!noHealthyServersCounters.containsKey(poolName)) {
+        IntegerCounter counter =
+            registry.newIntegerCounter(
+                COUNTER_CATEGORY,
+                "no_healthy_servers_count",
+                ImmutableMap.of(POOL_NAME_TAG, poolName));
+        noHealthyServersCounters.put(poolName, counter);
+      }
+      return Objects.requireNonNull(noHealthyServersCounters.get(poolName));
     }
   }
 

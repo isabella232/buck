@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -898,7 +898,6 @@ public class HaskellLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions,
           ActionGraphBuilder graphBuilder) {
         Iterable<Arg> linkArgs;
         switch (type) {
@@ -920,7 +919,10 @@ public class HaskellLibraryDescription
                     args.isEnableProfiling());
             linkArgs =
                 args.getLinkWhole() || forceLinkWhole
-                    ? cxxPlatform.getLd().resolve(graphBuilder).linkWhole(archive.toArg())
+                    ? cxxPlatform
+                        .getLd()
+                        .resolve(graphBuilder)
+                        .linkWhole(archive.toArg(), pathResolver)
                     : ImmutableList.of(archive.toArg());
             break;
           case SHARED:

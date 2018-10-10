@@ -361,6 +361,16 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testImlsInIdea() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("imls_in_idea");
+  }
+
+  @Test
+  public void testPythonLibrary() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("python_library");
+  }
+
+  @Test
   public void testOutputDir() throws IOException, InterruptedException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     ProjectWorkspace workspace =
@@ -408,7 +418,8 @@ public class ProjectIntegrationTest {
     for (File file : recursePath(projPath)) {
       if (!(file.isDirectory()
           || file.getPath().contains("log")
-          || file.getName().equals(".progressestimations.json"))) {
+          || file.getName().equals(".progressestimations.json")
+          || file.getName().equals(".currentversion"))) {
         assertTrue(file.lastModified() <= lastModifiedProject);
       }
     }

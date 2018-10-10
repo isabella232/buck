@@ -19,7 +19,7 @@ package com.facebook.buck.android.toolchain.ndk.impl;
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.toolchain.common.BaseAndroidToolchainResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.VersionStringComparator;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
@@ -46,7 +46,7 @@ public class AndroidNdkResolver extends BaseAndroidToolchainResolver {
   private static final Logger LOG = Logger.get(AndroidNdkResolver.class);
 
   /** Android NDK versions starting with this number are not supported. */
-  private static final String NDK_MIN_UNSUPPORTED_VERSION = "17";
+  private static final String NDK_MIN_UNSUPPORTED_VERSION = "18";
 
   // Pre r11 NDKs store the version at RELEASE.txt.
   @VisibleForTesting static final String NDK_PRE_R11_VERSION_FILENAME = "RELEASE.TXT";

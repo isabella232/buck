@@ -16,6 +16,7 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.DigestAndContent;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
 import com.facebook.buck.distributed.thrift.FrontendRequestType;
@@ -24,12 +25,9 @@ import com.facebook.buck.distributed.thrift.RemoteExecutionContainsRequest;
 import com.facebook.buck.distributed.thrift.RemoteExecutionContainsResponse;
 import com.facebook.buck.distributed.thrift.RemoteExecutionFetchRequest;
 import com.facebook.buck.distributed.thrift.RemoteExecutionStoreRequest;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.modern.builders.AsyncBlobFetcher;
-import com.facebook.buck.rules.modern.builders.CasBlobUploader;
-import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadData;
-import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadResult;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
+import com.facebook.buck.remoteexecution.AsyncBlobFetcher;
+import com.facebook.buck.remoteexecution.CasBlobUploader;
+import com.facebook.buck.remoteexecution.Protocol.Digest;
 import com.facebook.buck.slb.HybridThriftOverHttpService;
 import com.facebook.buck.slb.HybridThriftRequestHandler;
 import com.facebook.buck.slb.HybridThriftResponseHandler;
@@ -80,18 +78,19 @@ public class RemoteExecutionStorageService implements AsyncBlobFetcher, CasBlobU
   }
 
   @Override
-  public void fetchToStream(Digest digest, OutputStream outputStream) {
+  public ListenableFuture<Void> fetchToStream(Digest digest, OutputStream outputStream) {
     try {
       fetchToStreamInternal(digest, outputStream).get();
+      return Futures.immediateFuture(null);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      logAndThrowException(digest, e);
+      throw logAndThrowException(digest, e);
     } catch (ExecutionException e) {
-      logAndThrowException(digest, e);
+      throw logAndThrowException(digest, e);
     }
   }
 
-  private static void logAndThrowException(Digest digest, Exception e) {
+  private static BuckUncheckedExecutionException logAndThrowException(Digest digest, Exception e) {
     LOG.error(e, "Could not fetch stream for digest [%s:%d].", digest.getHash(), digest.getSize());
     throw new BuckUncheckedExecutionException(
         e, "When fetching to stream for digest [%s:%d].", digest.getHash(), digest.getSize());

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -39,6 +39,7 @@ import java.lang.management.OperatingSystemMXBean;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -73,7 +74,7 @@ public abstract class ShellStep implements Step {
   private long endTime = 0L;
 
   protected ShellStep(Path workingDirectory) {
-    this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
+    this.workingDirectory = Objects.requireNonNull(workingDirectory);
     this.stdout = Optional.empty();
     this.stderr = Optional.empty();
 

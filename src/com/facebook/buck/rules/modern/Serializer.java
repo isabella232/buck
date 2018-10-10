@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -36,6 +36,7 @@ import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
@@ -47,6 +48,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
@@ -111,7 +113,7 @@ public class Serializer {
   public <T extends AddsToRuleKey> Either<HashCode, byte[]> serialize(
       T instance, ClassInfo<T> classInfo) throws IOException {
     if (cache.containsKey(instance)) {
-      return Preconditions.checkNotNull(cache.get(instance));
+      return Objects.requireNonNull(cache.get(instance));
     }
     Visitor visitor = new Visitor(instance.getClass());
 
@@ -126,7 +128,7 @@ public class Serializer {
       classInfo.visit(instance, visitor);
     }
 
-    return Preconditions.checkNotNull(
+    return Objects.requireNonNull(
         cache.computeIfAbsent(
             instance,
             ignored -> {
@@ -163,12 +165,17 @@ public class Serializer {
     }
 
     @Override
-    public <T> void visitSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType)
-        throws IOException {
+    public <T> void visitSet(ImmutableSet<T> value, ValueTypeInfo<T> innerType) throws IOException {
       stream.writeInt(value.size());
       for (T e : value) {
         innerType.visit(e, this);
       }
+    }
+
+    @Override
+    public <T> void visitSortedSet(ImmutableSortedSet<T> value, ValueTypeInfo<T> innerType)
+        throws IOException {
+      visitSet(value, innerType);
     }
 
     @Override
@@ -196,7 +203,7 @@ public class Serializer {
     public void visitSourcePath(SourcePath value) throws IOException {
       if (value instanceof DefaultBuildTargetSourcePath) {
         value = ruleFinder.getRule(value).get().getSourcePathToOutput();
-        Preconditions.checkNotNull(value);
+        Objects.requireNonNull(value);
       }
 
       if (value instanceof ExplicitBuildTargetSourcePath) {
@@ -341,9 +348,8 @@ public class Serializer {
 
     @Override
     public <K, V> void visitMap(
-        ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+        ImmutableMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
         throws IOException {
-      Preconditions.checkState(value.comparator().equals(Ordering.natural()));
       this.stream.writeInt(value.size());
       RichStream.from(value.entrySet())
           .forEachThrowing(
@@ -351,6 +357,14 @@ public class Serializer {
                 keyType.visit(entry.getKey(), this);
                 valueType.visit(entry.getValue(), this);
               });
+    }
+
+    @Override
+    public <K, V> void visitSortedMap(
+        ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType)
+        throws IOException {
+      Preconditions.checkState(value.comparator().equals(Ordering.natural()));
+      visitMap(value, keyType, valueType);
     }
 
     @Override
@@ -363,6 +377,6 @@ public class Serializer {
   }
 
   private Optional<String> getCellName(ProjectFilesystem filesystem) {
-    return Preconditions.checkNotNull(cellMap.get(filesystem.getRootPath()));
+    return Objects.requireNonNull(cellMap.get(filesystem.getRootPath()));
   }
 }

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -33,6 +33,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -78,11 +79,13 @@ public class GoBinaryDescription
         params,
         context.getActionGraphBuilder(),
         goBuckConfig,
+        args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
         args.getSrcs(),
         args.getResources(),
         args.getCompilerFlags(),
         args.getAssemblerFlags(),
         args.getLinkerFlags(),
+        args.getExternalLinkerFlags(),
         platform);
   }
 
@@ -119,11 +122,15 @@ public class GoBinaryDescription
   interface AbstractGoBinaryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
     Optional<Flavor> getPlatform();
 
+    Optional<Linker.LinkableDepType> getLinkStyle();
+
     ImmutableList<String> getCompilerFlags();
 
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
+
+    ImmutableList<String> getExternalLinkerFlags();
 
     @Value.NaturalOrder
     ImmutableSortedSet<SourcePath> getResources();

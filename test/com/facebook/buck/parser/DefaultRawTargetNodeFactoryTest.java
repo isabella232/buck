@@ -25,6 +25,7 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.RawAttributes;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.select.Selector;
@@ -33,11 +34,9 @@ import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.visibility.BuildTargetVisibilityPattern;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,7 +57,6 @@ public class DefaultRawTargetNodeFactoryTest {
         new DefaultRawTargetNodeFactory(
             knownRuleTypesProvider,
             new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
-            new VisibilityPatternFactory(),
             new BuiltTargetVerifier());
 
     Cell cell = new TestCellBuilder().build();

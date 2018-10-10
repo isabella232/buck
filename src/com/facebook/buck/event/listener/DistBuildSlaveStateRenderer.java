@@ -17,6 +17,7 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
+import com.facebook.buck.event.listener.cachestats.CacheRateStatsKeeper;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Joiner;
@@ -100,7 +101,7 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
   public String renderStatusLine(long slaveID, StringBuilder lineBuilder) {
     Preconditions.checkArgument(slaveID >= 0 && slaveID < slaveStatuses.size());
     BuildSlaveStatus status = slaveStatuses.get((int) slaveID);
-    lineBuilder.append(String.format(" - ", slaveID));
+    lineBuilder.append(" - ");
 
     if (status.getTotalRulesCount() == 0) {
       ImmutableList.Builder<String> columns = new ImmutableList.Builder<>();

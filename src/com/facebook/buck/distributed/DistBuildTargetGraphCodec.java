@@ -27,12 +27,12 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuildTarget;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetGraph;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetNode;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -193,10 +193,7 @@ public class DistBuildTargetGraphCodec {
 
     TargetGraph targetGraph = new TargetGraph(mutableTargetGraph, targetNodeIndex);
 
-    return TargetGraphAndBuildTargets.builder()
-        .setTargetGraph(targetGraph)
-        .addAllBuildTargets(buildTargets.keySet())
-        .build();
+    return TargetGraphAndBuildTargets.of(targetGraph, buildTargets.keySet());
   }
 
   private ListenableFuture<Void> asyncProcessRemoteBuildTarget(
@@ -235,8 +232,7 @@ public class DistBuildTargetGraphCodec {
           MoreMaps.putIfAbsentCheckEquals(graphNodes, target, targetNode);
 
           if (target.isFlavored()) {
-            BuildTarget unflavoredTarget =
-                ImmutableBuildTarget.of(target.getUnflavoredBuildTarget());
+            BuildTarget unflavoredTarget = target.withoutFlavors();
             TargetNode<?> unflavoredTargetNode =
                 parserTargetNodeFactory.createTargetNode(
                     cell,

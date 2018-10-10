@@ -18,14 +18,24 @@ package com.facebook.buck.intellij.ideabuck.lang.psi;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
+import com.intellij.psi.util.PsiTreeUtil;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 public final class BuckPsiUtils {
 
   public static final TokenSet STRING_LITERALS =
-      TokenSet.create(BuckTypes.SINGLE_QUOTED_STRING, BuckTypes.DOUBLE_QUOTED_STRING);
+      TokenSet.create(
+          BuckTypes.SINGLE_QUOTED_STRING,
+          BuckTypes.DOUBLE_QUOTED_STRING,
+          BuckTypes.SINGLE_QUOTED_DOC_STRING,
+          BuckTypes.DOUBLE_QUOTED_DOC_STRING);
 
   private BuckPsiUtils() {}
 
@@ -87,18 +97,116 @@ public final class BuckPsiUtils {
    * Return the text content if the given BuckExpression has only one string value. Return null if
    * this expression has multiple values, for example: "a" + "b"
    */
-  public static String getStringValueFromExpression(BuckExpression expression) {
-    List<BuckValue> values = expression.getValueList();
+  @Nullable
+  public static String getStringValueFromExpression(BuckSingleExpression expression) {
+    List<BuckPrimaryWithSuffix> values = expression.getPrimaryWithSuffixList();
     if (values.size() != 1) {
       return null;
     }
-    PsiElement value = values.get(0); // This should be a "Value" type.
-    if (value.getFirstChild() != null
-        && BuckPsiUtils.hasElementType(value.getFirstChild(), BuckPsiUtils.STRING_LITERALS)) {
-      String text = value.getFirstChild().getText();
-      return text.length() > 2 ? text.substring(1, text.length() - 1) : null;
-    } else {
+    BuckPrimaryWithSuffix buckPrimaryWithSuffix = values.get(0);
+    if (!buckPrimaryWithSuffix.getDotSuffixList().isEmpty()) {
+      return null; // "string {} are unsupported so far".format("methods").trim()
+    }
+    if (!buckPrimaryWithSuffix.getSliceSuffixList().isEmpty()) {
+      return null; // "<<slices>>"[2:-2]
+    }
+    BuckPrimary buckPrimary = buckPrimaryWithSuffix.getPrimary();
+    return getStringValueFromBuckString(buckPrimary.getString());
+  }
+
+  /**
+   * Returns the text content of the given string (without the appropriate quoting).
+   *
+   * <p>This method accepts elements that are either {@link BuckString} elements or any of the
+   * various {@link #STRING_LITERALS}.
+   *
+   * <p>Note that this method is currently underdeveloped and hacky. It does not apply percent-style
+   * formatting (if such formatting is used, this method returns null), nor does it process escape
+   * sequences (these sequences currently appear in their raw form in the string).
+   */
+  @Nullable
+  public static String getStringValueFromBuckString(@Nullable PsiElement stringElement) {
+    if (stringElement == null) {
       return null;
     }
+    if (hasElementType(stringElement, STRING_LITERALS)) {
+      stringElement = stringElement.getParent();
+    }
+    if (!hasElementType(stringElement, BuckTypes.STRING)) {
+      return null;
+    }
+    BuckString buckString = (BuckString) stringElement;
+    if (buckString.getPrimary() != null) {
+      return null; // "%s %s" % ("percent", "formatting")
+    }
+    PsiElement quotedElement = buckString.getSingleQuotedString();
+    if (quotedElement == null) {
+      quotedElement = buckString.getDoubleQuotedString();
+    }
+    if (quotedElement != null) {
+      String text = quotedElement.getText();
+      return text.length() >= 2 ? text.substring(1, text.length() - 1) : null;
+    }
+
+    PsiElement tripleQuotedElement = buckString.getSingleQuotedDocString();
+    if (tripleQuotedElement == null) {
+      tripleQuotedElement = buckString.getDoubleQuotedDocString();
+    }
+    if (tripleQuotedElement != null) {
+      String text = tripleQuotedElement.getText();
+      return text.length() >= 6 ? text.substring(3, text.length() - 3) : null;
+    }
+    return null;
+  }
+
+  /**
+   * Returns the definition for a rule with the given target name in the given root, or {@code null}
+   * if it cannot be found.
+   */
+  @Nullable
+  public static PsiElement findTargetInPsiTree(PsiElement root, String name) {
+    for (BuckFunctionCall buckRuleBlock :
+        PsiTreeUtil.findChildrenOfType(root, BuckFunctionCall.class)) {
+      BuckFunctionCallSuffix buckRuleBody = buckRuleBlock.getFunctionCallSuffix();
+      for (BuckArgument buckProperty :
+          PsiTreeUtil.findChildrenOfType(buckRuleBody, BuckArgument.class)) {
+        if (!Optional.ofNullable(buckProperty.getPropertyLvalue())
+            .map(lvalue -> lvalue.getIdentifier().getText())
+            .filter("name"::equals)
+            .isPresent()) {
+          continue;
+        }
+        if (name.equals(getStringValueFromExpression(buckProperty.getSingleExpression()))) {
+          return buckRuleBlock;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Returns a mapping from rule names that start with the given prefix to their target elements.
+   */
+  public static Map<String, PsiElement> findTargetsInPsiTree(PsiFile psiFile, String namePrefix) {
+    Map<String, PsiElement> targetsByName = new HashMap<>();
+    for (BuckFunctionCall buckRuleBlock :
+        PsiTreeUtil.findChildrenOfType(psiFile, BuckFunctionCall.class)) {
+      BuckFunctionCallSuffix buckRuleBody = buckRuleBlock.getFunctionCallSuffix();
+      for (BuckArgument buckArgument :
+          PsiTreeUtil.findChildrenOfType(buckRuleBody, BuckArgument.class)) {
+        BuckPropertyLvalue propertyLvalue = buckArgument.getPropertyLvalue();
+        if (propertyLvalue == null || !"name".equals(propertyLvalue.getText())) {
+          continue;
+        }
+        String name = BuckPsiUtils.getStringValueFromExpression(buckArgument.getSingleExpression());
+        if (name != null) {
+          if (name.startsWith(namePrefix)) {
+            targetsByName.put(name, buckRuleBlock);
+          }
+          break;
+        }
+      }
+    }
+    return targetsByName;
   }
 }

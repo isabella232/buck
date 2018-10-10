@@ -24,6 +24,7 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
@@ -44,19 +45,19 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
 import com.facebook.buck.jvm.java.AnnotationProcessingEvent;
 import com.facebook.buck.jvm.java.tracing.JavacPhaseEvent;
-import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.support.bgtasks.BackgroundTask;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.ImmutableBackgroundTask;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessResourceConsumption;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.perf.ProcessTracker;
@@ -122,7 +123,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   private final ThreadMXBean threadMXBean;
 
   private final ExecutorService outputExecutor;
-  private final BackgroundTaskManager bgTaskManager;
+  private final TaskManagerScope managerScope;
 
   private final BuildId buildId;
 
@@ -131,7 +132,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       InvocationInfo invocationInfo,
       Clock clock,
       ChromeTraceBuckConfig config,
-      BackgroundTaskManager bgTaskManager)
+      TaskManagerScope managerScope)
       throws IOException {
     this(
         projectFilesystem,
@@ -141,7 +142,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         TimeZone.getDefault(),
         ManagementFactory.getThreadMXBean(),
         config,
-        bgTaskManager);
+        managerScope);
   }
 
   @VisibleForTesting
@@ -153,7 +154,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       TimeZone timeZone,
       ThreadMXBean threadMXBean,
       ChromeTraceBuckConfig config,
-      BackgroundTaskManager bgTaskManager)
+      TaskManagerScope managerScope)
       throws IOException {
     this.logDirectoryPath = invocationInfo.getLogDirectoryPath();
     this.projectFilesystem = projectFilesystem;
@@ -170,9 +171,11 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         };
     this.threadMXBean = threadMXBean;
     this.config = config;
-    this.bgTaskManager = bgTaskManager;
+    this.managerScope = managerScope;
     this.outputExecutor =
-        MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()));
+        MostExecutors.newSingleThreadExecutor(
+            new CommandThreadFactory(
+                getClass().getName(), GlobalStateManager.singleton().getThreadToCommandRegister()));
     TracePathAndStream tracePathAndStream = createPathAndStream(invocationInfo.getBuildId());
     this.tracePath = tracePathAndStream.getPath();
     this.traceStream = tracePathAndStream.getStream();
@@ -249,9 +252,10 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         ImmutableBackgroundTask.<ChromeTraceBuildListenerCloseArgs>builder()
             .setAction(closeAction)
             .setActionArgs(args)
+            .setName("ChromeTraceBuildListener_close")
             .build();
 
-    bgTaskManager.schedule(task, "ChromeTraceBuildListener_close");
+    managerScope.schedule(task);
   }
 
   @Subscribe
