@@ -143,6 +143,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
             BuildTargetPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget(), "__%s_kapt_generated__"));
       }
     }
+    return Optional.empty();
   }
 
   @Override
