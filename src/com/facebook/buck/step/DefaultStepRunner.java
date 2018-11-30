@@ -44,7 +44,7 @@ public final class DefaultStepRunner implements StepRunner {
     try {
       executionResult = step.execute(context);
     } catch (IOException | RuntimeException e) {
-      LOG.verbose("LOG MARKER")
+      LOG.verbose("LOG MARKER");
       LOG.verbose(e.toString());
       LOG.verbose(context.toString());
       LOG.verbose(step.toString());
