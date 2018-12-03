@@ -41,7 +41,7 @@ public final class DefaultStepRunner implements StepRunner {
     LOG.verbose(started.toString());
     context.getBuckEventBus().post(started);
     StepExecutionResult executionResult = StepExecutionResults.ERROR;
-    LOG.verbose("DEFAULT_STEP_MARKER")
+    LOG.verbose("DEFAULT_STEP_MARKER");
     try {
       executionResult = step.execute(context);
     } catch (IOException | RuntimeException e) {
