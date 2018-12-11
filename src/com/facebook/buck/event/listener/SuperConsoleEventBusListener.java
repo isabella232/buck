@@ -42,6 +42,8 @@ import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
+import com.facebook.buck.event.listener.cachestats.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -59,6 +61,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
@@ -72,10 +75,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -105,7 +110,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       threadsToRunningTestSummaryEvent;
   private final ConcurrentMap<Long, Optional<? extends TestStatusMessageEvent>>
       threadsToRunningTestStatusMessageEvent;
-  private final ConcurrentMap<Long, Optional<? extends LeafEvent>> threadsToRunningStep;
+  private final ConcurrentMap<Long, ConcurrentLinkedDeque<LeafEvent>> threadsToRunningStep;
 
   private final ConcurrentLinkedQueue<ConsoleEvent> logEvents;
 
@@ -166,6 +171,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private final Optional<String> buildIdLine;
   private final Optional<String> buildDetailsLine;
+  private final ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
@@ -178,7 +184,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       TimeZone timeZone,
       BuildId buildId,
       boolean printBuildId,
-      Optional<String> buildDetailsTemplate) {
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     this(
         config,
         console,
@@ -194,7 +201,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         true,
         buildId,
         printBuildId,
-        buildDetailsTemplate);
+        buildDetailsTemplate,
+        additionalConsoleLineProviders);
   }
 
   @VisibleForTesting
@@ -213,7 +221,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       boolean hideEmptyDownload,
       BuildId buildId,
       boolean printBuildId,
-      Optional<String> buildDetailsTemplate) {
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     super(
         console,
         clock,
@@ -222,6 +231,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         false,
         config.getNumberOfSlowRulesToShow(),
         config.shouldShowSlowRulesInConsole());
+    this.additionalConsoleLineProviders = additionalConsoleLineProviders;
     this.locale = locale;
     this.formatTimeFunction = this::formatElapsedTime;
     this.threadsToRunningTestSummaryEvent =
@@ -411,23 +421,21 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         Optional.of(this.minimumDurationMillisecondsToShowWatchman),
         lines);
 
-    long parseTime =
-        logEventPair(
+    boolean parseFinished =
+        addLineFromEvents(
             "Parsing buck files",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
             buckFilesParsingEvents.values(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowParse),
             lines);
 
-    long actionGraphTime =
-        logEventPair(
+    boolean actionGraphFinished =
+        addLineFromEvents(
             "Creating action graph",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
             actionGraphEvents.values(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowActionGraph),
@@ -445,9 +453,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     // If parsing has not finished, then there is no build rule information to print yet.
-    if (buildStarted == null
-        || parseTime == UNFINISHED_EVENT_PAIR
-        || actionGraphTime == UNFINISHED_EVENT_PAIR) {
+    if (buildStarted == null || !parseFinished || !actionGraphFinished) {
       return lines.build();
     }
 
@@ -493,6 +499,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       }
     }
 
+    for (AdditionalConsoleLineProvider provider : additionalConsoleLineProviders) {
+      lines.addAll(provider.createConsoleLinesAtTime(currentTimeMillis));
+    }
+
     if (networkStatsKeeper.getRemoteDownloadedArtifactsCount() > 0 || !this.hideEmptyDownload) {
       lines.add(getNetworkStatsLine(buildFinished));
     }
@@ -534,7 +544,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               currentTimeMillis,
               outputMaxColumns,
               buildRuleMinimumDurationMillis,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
@@ -560,7 +570,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               outputMaxColumns,
               threadsToRunningTestSummaryEvent,
               threadsToRunningTestStatusMessageEvent,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
@@ -581,6 +591,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     maybePrintBuildDetails(lines);
 
     return lines.build();
+  }
+
+  private Map<Long, Optional<? extends LeafEvent>> getCurrentThreadsToStep() {
+    return Maps.transformValues(
+        threadsToRunningStep, list -> Optional.ofNullable(Objects.requireNonNull(list).peekLast()));
   }
 
   private void maybePrintBuildDetails(Builder<String> lines) {
@@ -773,34 +788,49 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void stepStarted(StepEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
+  }
+
+  private void runningStepStarted(LeafEvent started) {
+    Objects.requireNonNull(started, "event was null.");
+    Objects.requireNonNull(
+            Objects.requireNonNull(threadsToRunningStep, "map was null.")
+                .computeIfAbsent(started.getThreadId(), ignored -> new ConcurrentLinkedDeque<>()),
+            "value was null.")
+        .add(started);
   }
 
   @Subscribe
   public void stepFinished(StepEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
+  }
+
+  private void runningStepFinished(long threadId) {
+    Objects.requireNonNull(threadsToRunningStep, "map was null.")
+        .computeIfAbsent(threadId, ignored -> new ConcurrentLinkedDeque<>())
+        .pollLast();
   }
 
   // TODO(cjhopman): We should introduce a simple LeafEvent-like thing that everything that logs
   // step-like things can subscribe to.
   @Subscribe
   public void simpleLeafEventStarted(LeafEvents.SimpleLeafEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void simpleLeafEventFinished(LeafEvents.SimpleLeafEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
   public void ruleKeyCalculationStarted(RuleKeyCalculationEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void ruleKeyCalculationFinished(RuleKeyCalculationEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Override
@@ -841,25 +871,25 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void artifactCacheStarted(ArtifactCacheEvent.Started started) {
     if (started.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+      runningStepStarted(started);
     }
   }
 
   @Subscribe
   public void artifactCacheFinished(ArtifactCacheEvent.Finished finished) {
     if (finished.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+      runningStepFinished(finished.getThreadId());
     }
   }
 
   @Subscribe
   public void artifactCompressionStarted(ArtifactCompressionEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe

@@ -16,12 +16,11 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.cli.Dot.Builder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
-import com.facebook.buck.core.util.graph.Dot;
-import com.facebook.buck.core.util.graph.Dot.Builder;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
@@ -32,7 +31,7 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.PatternsMatcher;
@@ -40,14 +39,11 @@ import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -62,6 +58,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
@@ -177,8 +174,7 @@ public class QueryCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     if (arguments.isEmpty()) {
       throw new CommandLineException("must specify at least the query expression");
     }
@@ -186,23 +182,32 @@ public class QueryCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Query", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildStateFactory(
+            PerBuildStateFactory.createFactory(
                     params.getTypeCoercerFactory(),
-                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    new DefaultConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getCell().getBuckConfig(),
                     params.getWatchman(),
-                    params.getBuckEventBus())
+                    params.getBuckEventBus(),
+                    params.getManifestServiceSupplier(),
+                    params.getFileHashCache())
                 .create(
                     params.getParser().getPermState(),
                     pool.getListeningExecutorService(),
                     params.getCell(),
+                    getTargetPlatforms(),
                     getEnableParserProfiling(),
                     SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
       BuckQueryEnvironment env =
-          BuckQueryEnvironment.from(params, parserState, executor, getEnableParserProfiling());
+          BuckQueryEnvironment.from(
+              params,
+              parserState,
+              executor,
+              getEnableParserProfiling(),
+              getExcludeIncompatibleTargets());
       return formatAndRunQuery(params, env);
     } catch (QueryException e) {
       throw new HumanReadableException(e);
@@ -470,7 +475,7 @@ public class QueryCommand extends AbstractCommand {
             return ImmutableSet.of();
           }
 
-          int nodeRank = Preconditions.checkNotNull(ranks.get(node));
+          int nodeRank = Objects.requireNonNull(ranks.get(node));
           ImmutableSortedSet<TargetNode<?>> sinks =
               ImmutableSortedSet.copyOf(
                   Sets.filter(graph.getOutgoingNodesFor(node), shouldContainNode::test));
@@ -548,12 +553,9 @@ public class QueryCommand extends AbstractCommand {
             .getConsole()
             .printErrorText(
                 "unable to find rule for target " + node.getBuildTarget().getFullyQualifiedName());
-        continue;
       }
     }
-    return ImmutableSortedMap.<String, SortedMap<String, Object>>naturalOrder()
-        .putAll(attributesMap)
-        .build();
+    return ImmutableSortedMap.copyOf(attributesMap);
   }
 
   private static Optional<SortedMap<String, Object>> getAttributes(
@@ -597,12 +599,13 @@ public class QueryCommand extends AbstractCommand {
   }
 
   public static String getEscapedArgumentsListAsString(List<String> arguments) {
-    return Joiner.on(" ").join(Lists.transform(arguments, arg -> "'" + arg + "'"));
+    return arguments.stream().map(arg -> "'" + arg + "'").collect(Collectors.joining(" "));
   }
 
   private static String getSetRepresentation(List<String> args) {
-    String argsList = Joiner.on(' ').join(Iterables.transform(args, input -> "'" + input + "'"));
-    return "set(" + argsList + ")";
+    return args.stream()
+        .map(input -> "'" + input + "'")
+        .collect(Collectors.joining(" ", "set(", ")"));
   }
 
   static String getAuditDependenciesQueryFormat(boolean isTransitive, boolean includeTests) {

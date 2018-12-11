@@ -23,7 +23,6 @@ import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -32,6 +31,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -133,6 +133,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   private static final String DEFAULT_SCHEDULE_TYPE = "none";
   public static final String MULTI_FETCH = "multi_fetch";
   private static final String MULTI_FETCH_LIMIT = "multi_fetch_limit";
+  public static final String MULTI_CHECK = "multi_check";
   private static final int DEFAULT_MULTI_FETCH_LIMIT = 100;
 
   private static final String DOWNLOAD_HEAVY_BUILD_CACHE_FETCH_THREADS =
@@ -155,6 +156,10 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     return buckConfig
         .getEnum(CACHE_SECTION_NAME, MULTI_FETCH, MultiFetchType.class)
         .orElse(MultiFetchType.DEFAULT);
+  }
+
+  public boolean getMultiCheckEnabled() {
+    return buckConfig.getBooleanValue(CACHE_SECTION_NAME, MULTI_CHECK, false);
   }
 
   @Override
@@ -382,6 +387,42 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
         .map(SizeUnit::parseBytes);
   }
 
+  /**
+   * Gets the path to a PEM encoded X509 certifiate to use as the TLS client certificate for HTTP
+   * cache requests
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsCertificate() {
+    return buckConfig.getValue(CACHE_SECTION_NAME, "http_client_tls_cert").map(Paths::get);
+  }
+
+  /**
+   * Gets the path to a PEM encoded PCKS#8 key to use as the TLS client key for HTTP cache requests.
+   * This may be a file that contains both the private key and the certificate if both objects are
+   * newline delimited.
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsKey() {
+    return buckConfig.getValue(CACHE_SECTION_NAME, "http_client_tls_key").map(Paths::get);
+  }
+
+  /** Thread pools that are available for task execution. */
+  public enum Executor {
+    /** @see com.google.common.util.concurrent.MoreExecutors#directExecutor() */
+    DIRECT,
+    /** an executor responsible for carrying out only disk-related operations */
+    DISK_IO,
+  }
+
+  /** @return The thread pool dir cache store operations should be executed on. */
+  public Executor getDirCacheStoreExecutor() {
+    return buckConfig
+        .getEnum(CACHE_SECTION_NAME, "dir_cache_store_executor", Executor.class)
+        .orElse(Executor.DIRECT);
+  }
+
   private boolean getServingLocalCacheEnabled() {
     return buckConfig.getBooleanValue(CACHE_SECTION_NAME, SERVED_CACHE_ENABLED_FIELD_NAME, false);
   }
@@ -403,8 +444,9 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   }
 
   private ImmutableMap<String, String> getCacheHeaders(String section, String fieldName) {
-    ImmutableMap.Builder<String, String> headerBuilder = ImmutableMap.builder();
     ImmutableList<String> rawHeaders = buckConfig.getListWithoutComments(section, fieldName, ';');
+    ImmutableMap.Builder<String, String> headerBuilder =
+        ImmutableMap.builderWithExpectedSize(rawHeaders.size());
     for (String rawHeader : rawHeaders) {
       List<String> splitHeader =
           Splitter.on(':').omitEmptyStrings().trimResults().splitToList(rawHeader);
@@ -433,7 +475,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     String cacheDir = buckConfig.getLocalCacheDirectory(section);
     Path pathToCacheDir =
         buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(cacheDir));
-    Preconditions.checkNotNull(pathToCacheDir);
+    Objects.requireNonNull(pathToCacheDir);
 
     Optional<Long> maxSizeBytes =
         buckConfig.getValue(section, DIR_MAX_SIZE_FIELD).map(SizeUnit::parseBytes);

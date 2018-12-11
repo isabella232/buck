@@ -33,7 +33,7 @@ import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
@@ -56,7 +56,8 @@ public class CxxPlatformsTest {
     CompilerProvider compiler =
         new CompilerProvider(
             Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC));
+            Optional.of(CxxToolProvider.Type.GCC),
+            false);
     PreprocessorProvider preprocessor =
         new PreprocessorProvider(
             Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),

@@ -18,9 +18,9 @@ package com.facebook.buck.distributed;
 
 import com.facebook.buck.distributed.testutil.InMemoryRemoteExecutionHttpService;
 import com.facebook.buck.distributed.thrift.FrontendResponse;
-import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadData;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
-import com.facebook.buck.rules.modern.builders.thrift.ThriftProtocol;
+import com.facebook.buck.remoteexecution.CasBlobUploader.UploadData;
+import com.facebook.buck.remoteexecution.Protocol.Digest;
+import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
 import com.facebook.buck.slb.ThriftException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -33,7 +33,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,13 +41,13 @@ import org.junit.Test;
 public class RemoteExecutionStorageServiceTest {
   private InMemoryRemoteExecutionHttpService inMemoryService;
   private RemoteExecutionStorageService service;
-  private ThriftProtocol protocol;
+  private GrpcProtocol protocol;
 
   @Before
   public void setUp() {
     inMemoryService = new InMemoryRemoteExecutionHttpService();
     service = inMemoryService.createRemoteExecutionStorageService();
-    protocol = new ThriftProtocol();
+    protocol = new GrpcProtocol();
   }
 
   @Test
@@ -66,7 +65,7 @@ public class RemoteExecutionStorageServiceTest {
 
   @Test
   public void testStoreAndFetchAfter()
-      throws IOException, ExecutionException, InterruptedException, TimeoutException {
+      throws IOException, ExecutionException, InterruptedException {
     ImmutableList<UploadData> allUploadData = createData("key1", "key2");
     service.batchUpdateBlobs(allUploadData);
     for (UploadData data : allUploadData) {
@@ -76,8 +75,7 @@ public class RemoteExecutionStorageServiceTest {
   }
 
   @Test
-  public void testStoreAndMissing()
-      throws IOException, ExecutionException, InterruptedException, TimeoutException {
+  public void testStoreAndMissing() throws IOException {
     ImmutableList<UploadData> allUploadData = createData("key3", "key4");
     service.batchUpdateBlobs(allUploadData);
 

@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 
 import argparse
 import datetime
@@ -72,6 +86,12 @@ def parse_args(args):
             "If specified, use this for the release message. If not specified, "
             "and a new release is created, user will be prompted for a message"
         ),
+    )
+    parser.add_argument(
+        "--no-prompt-for-message",
+        help="If set, use a default message rather than prompting for a message",
+        action="store_false",
+        dest="prompt_for_message",
     )
     parser.add_argument(
         "--no-build-deb",
@@ -367,7 +387,11 @@ def main():
             release = get_release_for_tag(args.repository, github_token, version_tag)
         else:
             release = create_new_release(
-                args.repository, github_token, version_tag, args.release_message
+                args.repository,
+                github_token,
+                version_tag,
+                args.release_message,
+                args.prompt_for_message,
             )
         if args.output_dir:
             output_dir = args.output_dir

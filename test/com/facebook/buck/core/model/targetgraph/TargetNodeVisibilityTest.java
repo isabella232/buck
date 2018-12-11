@@ -31,13 +31,13 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternParser;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
@@ -236,7 +236,6 @@ public class TargetNodeVisibilityTest {
   private static TargetNode<?> createTargetNode(
       BuildTarget buildTarget, ImmutableList<String> visibilities, ImmutableList<String> withinView)
       throws NoSuchBuildTargetException {
-    VisibilityPatternParser parser = new VisibilityPatternParser();
     CellPathResolver cellNames = TestCellPathResolver.get(filesystem);
     FakeRuleDescription description = new FakeRuleDescription();
     FakeRuleDescriptionArg arg =
@@ -251,11 +250,11 @@ public class TargetNodeVisibilityTest {
             ImmutableSet.of(),
             visibilities
                 .stream()
-                .map(s -> parser.parse(cellNames, s))
+                .map(s -> VisibilityPatternParser.parse(cellNames, s))
                 .collect(ImmutableSet.toImmutableSet()),
             withinView
                 .stream()
-                .map(s -> parser.parse(cellNames, s))
+                .map(s -> VisibilityPatternParser.parse(cellNames, s))
                 .collect(ImmutableSet.toImmutableSet()),
             createCellRoots(filesystem));
   }

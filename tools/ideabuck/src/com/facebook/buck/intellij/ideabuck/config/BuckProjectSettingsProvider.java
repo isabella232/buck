@@ -18,15 +18,12 @@ package com.facebook.buck.intellij.ideabuck.config;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.intellij.openapi.components.AbstractProjectComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
@@ -39,6 +36,7 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
     implements PersistentStateComponent<BuckProjectSettingsProvider.State> {
 
   private BuckExecutableDetector buckExecutableDetector;
+  private BuckCellSettingsProvider buckCellSettingsProvider;
   private State state = new State();
   private static final Logger LOG = Logger.getInstance(BuckProjectSettingsProvider.class);
 
@@ -47,13 +45,20 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
   }
 
   public BuckProjectSettingsProvider(Project project) {
-    this(project, BuckExecutableDetector.newInstance());
+    this(
+        project,
+        BuckCellSettingsProvider.getInstance(project),
+        BuckExecutableDetector.newInstance());
   }
 
   @VisibleForTesting
-  BuckProjectSettingsProvider(Project project, BuckExecutableDetector buckExecutableDetector) {
+  BuckProjectSettingsProvider(
+      Project project,
+      BuckCellSettingsProvider buckCellSettingsProvider,
+      BuckExecutableDetector buckExecutableDetector) {
     super(project);
     this.buckExecutableDetector = buckExecutableDetector;
+    this.buckCellSettingsProvider = buckCellSettingsProvider;
   }
 
   public Project getProject() {
@@ -68,6 +73,10 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
   @Override
   public void loadState(State state) {
     this.state = state;
+    if (state.cells != null) {
+      buckCellSettingsProvider.setCells(state.cells);
+      state.cells = null;
+    }
   }
 
   /**
@@ -154,14 +163,6 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
     state.showDebug = showDebug;
   }
 
-  public boolean isAutoDepsEnabled() {
-    return state.enableAutoDeps;
-  }
-
-  public void setAutoDepsEnabled(boolean enableAutoDeps) {
-    state.enableAutoDeps = enableAutoDeps;
-  }
-
   public boolean isRunAfterInstall() {
     return state.runAfterInstall;
   }
@@ -200,24 +201,6 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
 
   public void setCustomizedInstallSettingCommand(String customizedInstallSettingCommand) {
     state.customizedInstallSettingCommand = customizedInstallSettingCommand;
-  }
-
-  /** Returns a list of buck cells in this project. */
-  public List<BuckCell> getCells() {
-    List<BuckCell> result = new ArrayList<>(state.cells.size());
-    for (BuckCell cell : state.cells) {
-      result.add(cell.copy());
-    }
-    return result;
-  }
-
-  /** Sets a list of buck cells in this project. */
-  public void setCells(List<BuckCell> cells) {
-    ImmutableList.Builder<BuckCell> builder = ImmutableList.builder();
-    for (BuckCell cell : cells) {
-      builder.add(cell.copy());
-    }
-    this.state.cells = builder.build();
   }
 
   @Override
@@ -272,8 +255,12 @@ public class BuckProjectSettingsProvider extends AbstractProjectComponent
     /** User's customized install command string, e.g. "-a -b -c". */
     public String customizedInstallSettingCommand = "";
 
-    /** Buck cells supported in this project. */
-    public List<BuckCell> cells = Lists.newArrayList(BuckCell.DEFAULT_CELL);
+    /**
+     * Buck cells supported in this project.
+     *
+     * @deprecated Moved to {@link BuckCellSettingsProvider.State#cells}.
+     */
+    @Deprecated @Nullable public List<BuckCell> cells = null;
 
     @Override
     public boolean equals(Object o) {

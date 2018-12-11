@@ -130,6 +130,9 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   @Nullable
   private String skylarkProfile;
 
+  @Option(name = GlobalCliOptions.TARGET_PLATFORMS_LONG_ARG, usage = "Target platforms.")
+  private List<String> targetPlatforms = new ArrayList<>();
+
   @Override
   public LogConfigSetup getLogConfig() {
     return LogConfigSetup.DEFAULT_SETUP;
@@ -155,6 +158,12 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
           "Enable profiling of buck.py internals (not the target being compiled) in the debug"
               + "log and trace.")
   private boolean enableParserProfiling = false;
+
+  @Option(
+      name = GlobalCliOptions.EXCLUDE_INCOMPATIBLE_TARGETS_LONG_ARG,
+      usage =
+          "Exclude targets that are not compatible with the given target platform. (experimental)")
+  private boolean excludeIncompatibleTargets = false;
 
   @Option(name = GlobalCliOptions.HELP_LONG_ARG, usage = "Prints the available options and exits.")
   private boolean help = false;
@@ -216,7 +225,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   @Override
-  public final ExitCode run(CommandRunnerParams params) throws IOException, InterruptedException {
+  public final ExitCode run(CommandRunnerParams params) throws Exception {
     if (help) {
       printUsage(params.getConsole().getStdOut());
       return ExitCode.SUCCESS;
@@ -243,8 +252,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     };
   }
 
-  public abstract ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException;
+  public abstract ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception;
 
   protected CommandLineBuildTargetNormalizer getCommandLineBuildTargetNormalizer(
       BuckConfig buckConfig) {
@@ -383,6 +391,15 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   @Override
   public boolean performsBuild() {
     return false;
+  }
+
+  @Override
+  public ImmutableList<String> getTargetPlatforms() {
+    return ImmutableList.copyOf(targetPlatforms);
+  }
+
+  public boolean getExcludeIncompatibleTargets() {
+    return excludeIncompatibleTargets;
   }
 
   /**

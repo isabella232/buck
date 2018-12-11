@@ -31,12 +31,12 @@ import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.select.TestSelectable;
 import com.facebook.buck.core.select.TestSelectableResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.BuildTargetTypeCoercer;
 import com.facebook.buck.rules.coercer.CoerceFailedException;
 import com.facebook.buck.rules.coercer.FlavorTypeCoercer;
 import com.facebook.buck.rules.coercer.ListTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercer;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -50,7 +50,7 @@ public class DefaultSelectorListResolverTest {
   private SelectableConfigurationContext configurationContext;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     configurationContext = new SelectableConfigurationContext() {};
   }
 
@@ -242,7 +242,7 @@ public class DefaultSelectorListResolverTest {
       resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
     } catch (HumanReadableException e) {
       assertEquals(
-          "None of the conditions in attribute \"some_attribute\" match the configuration. Checked conditions:\n"
+          "None of the conditions in attribute \"some_attribute\" of //a:b match the configuration.\nChecked conditions:\n"
               + " //x:y",
           e.getHumanReadableErrorMessage());
     }
@@ -275,7 +275,7 @@ public class DefaultSelectorListResolverTest {
       resolver.resolveList(configurationContext, keyTarget, "some_attribute", selectorList);
     } catch (HumanReadableException e) {
       assertEquals(
-          "None of the conditions in attribute \"some_attribute\" match the configuration: Custom message",
+          "None of the conditions in attribute \"some_attribute\" of //a:b match the configuration: Custom message",
           e.getHumanReadableErrorMessage());
     }
   }

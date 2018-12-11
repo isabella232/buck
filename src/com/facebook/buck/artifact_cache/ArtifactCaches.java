@@ -40,9 +40,9 @@ import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SingleUriService;
 import com.facebook.buck.support.bgtasks.BackgroundTask;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.ImmutableBackgroundTask;
 import com.facebook.buck.support.bgtasks.TaskAction;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.support.bgtasks.Timeout;
 import com.facebook.buck.util.randomizedtrial.RandomizedTrial;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -52,6 +52,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
@@ -68,6 +69,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okhttp3.tls.HandshakeCertificates;
 import okio.Buffer;
 import okio.BufferedSource;
 import okio.ForwardingSource;
@@ -88,7 +90,11 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
   private final ListeningExecutorService httpFetchExecutorService;
   private final ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService;
   private List<ArtifactCache> artifactCaches = new ArrayList<>();
-  private final BackgroundTaskManager bgTaskManager;
+  private final ListeningExecutorService dirWriteExecutorService;
+  private final TaskManagerScope managerScope;
+  private final String producerId;
+  private final String producerHostname;
+  private final Optional<ClientCertificateHandler> clientCertificateHandler;
 
   /** {@link TaskAction} implementation for {@link ArtifactCaches}. */
   static class ArtifactCachesCloseAction implements TaskAction<List<ArtifactCache>> {
@@ -116,7 +122,7 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
             .setName("ArtifactCaches_close")
             .setTimeout(Timeout.of(TIMEOUT_SECONDS, TimeUnit.SECONDS))
             .build();
-    bgTaskManager.schedule(closeTask);
+    managerScope.schedule(closeTask);
 
     buckEventBus.post(HttpArtifactCacheEvent.newShutdownEvent());
   }
@@ -132,6 +138,10 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
    * @param buckEventBus event bus
    * @param projectFilesystem filesystem to store files on
    * @param wifiSsid current WiFi ssid to decide if we want the http cache or not
+   * @param dirWriteExecutorService executor service used for dir cache stores
+   * @param producerId free-form identifier of a user or machine uploading artifacts, can be used on
+   *     cache server side for monitoring
+   * @param clientCertificateHandler container for client certificate information
    */
   public ArtifactCaches(
       ArtifactCacheBuckConfig buckConfig,
@@ -141,7 +151,11 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
       ListeningExecutorService downloadHeavyBuildHttpFetchExecutorService,
-      BackgroundTaskManager bgTaskManager) {
+      ListeningExecutorService dirWriteExecutorService,
+      TaskManagerScope managerScope,
+      String producerId,
+      String producerHostname,
+      Optional<ClientCertificateHandler> clientCertificateHandler) {
     this.buckConfig = buckConfig;
     this.buckEventBus = buckEventBus;
     this.projectFilesystem = projectFilesystem;
@@ -149,7 +163,11 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
     this.httpWriteExecutorService = httpWriteExecutorService;
     this.httpFetchExecutorService = httpFetchExecutorService;
     this.downloadHeavyBuildHttpFetchExecutorService = downloadHeavyBuildHttpFetchExecutorService;
-    this.bgTaskManager = bgTaskManager;
+    this.dirWriteExecutorService = dirWriteExecutorService;
+    this.managerScope = managerScope;
+    this.producerId = producerId;
+    this.producerHostname = producerHostname;
+    this.clientCertificateHandler = clientCertificateHandler;
   }
 
   private static Request.Builder addHeadersToBuilder(
@@ -211,8 +229,12 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
             isDownloadHeavyBuild
                 ? downloadHeavyBuildHttpFetchExecutorService
                 : httpFetchExecutorService,
+            dirWriteExecutorService,
             cacheTypeBlacklist,
-            distributedBuildModeEnabled);
+            distributedBuildModeEnabled,
+            producerId,
+            producerHostname,
+            clientCertificateHandler);
 
     artifactCaches.add(artifactCache);
 
@@ -230,7 +252,11 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
         httpWriteExecutorService,
         httpFetchExecutorService,
         downloadHeavyBuildHttpFetchExecutorService,
-        bgTaskManager);
+        dirWriteExecutorService,
+        managerScope,
+        producerId,
+        producerHostname,
+        clientCertificateHandler);
   }
 
   /**
@@ -244,7 +270,13 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ArtifactCacheBuckConfig buckConfig, ProjectFilesystem projectFilesystem) {
     return buckConfig
         .getServedLocalCache()
-        .map(input -> createDirArtifactCache(Optional.empty(), input, projectFilesystem));
+        .map(
+            input ->
+                createDirArtifactCache(
+                    Optional.empty(),
+                    input,
+                    projectFilesystem,
+                    MoreExecutors.newDirectExecutorService()));
   }
 
   private static ArtifactCache newInstanceInternal(
@@ -254,8 +286,12 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       Optional<String> wifiSsid,
       ListeningExecutorService httpWriteExecutorService,
       ListeningExecutorService httpFetchExecutorService,
+      ListeningExecutorService dirWriteExecutorService,
       ImmutableSet<CacheType> cacheTypeBlacklist,
-      boolean distributedBuildModeEnabled) {
+      boolean distributedBuildModeEnabled,
+      String producerId,
+      String producerHostname,
+      Optional<ClientCertificateHandler> clientCertificateHandler) {
     ImmutableSet<ArtifactCacheMode> modes = buckConfig.getArtifactCacheModes();
     if (modes.isEmpty()) {
       return new NoopArtifactCache();
@@ -271,7 +307,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
         case unknown:
           break;
         case dir:
-          initializeDirCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
+          initializeDirCaches(
+              cacheEntries, buckEventBus, projectFilesystem, builder, dirWriteExecutorService);
           break;
         case http:
           initializeDistributedCaches(
@@ -284,7 +321,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
               httpFetchExecutorService,
               builder,
               HttpArtifactCache::new,
-              mode);
+              mode,
+              clientCertificateHandler);
           break;
         case sqlite:
           initializeSQLiteCaches(cacheEntries, buckEventBus, projectFilesystem, builder);
@@ -309,8 +347,12 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
                       distributedBuildModeEnabled,
                       buckEventBus.getBuildId(),
                       getMultiFetchLimit(buckConfig, buckEventBus),
-                      buckConfig.getHttpFetchConcurrency()),
-              mode);
+                      buckConfig.getHttpFetchConcurrency(),
+                      buckConfig.getMultiCheckEnabled(),
+                      producerId,
+                      producerHostname),
+              mode,
+              clientCertificateHandler);
           break;
       }
     }
@@ -341,10 +383,15 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ArtifactCacheEntries artifactCacheEntries,
       BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
-      ImmutableList.Builder<ArtifactCache> builder) {
+      ImmutableList.Builder<ArtifactCache> builder,
+      ListeningExecutorService storeExecutorService) {
     for (DirCacheEntry cacheEntry : artifactCacheEntries.getDirCacheEntries()) {
       builder.add(
-          createDirArtifactCache(Optional.ofNullable(buckEventBus), cacheEntry, projectFilesystem));
+          createDirArtifactCache(
+              Optional.ofNullable(buckEventBus),
+              cacheEntry,
+              projectFilesystem,
+              storeExecutorService));
     }
   }
 
@@ -358,7 +405,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ListeningExecutorService httpFetchExecutorService,
       ImmutableList.Builder<ArtifactCache> builder,
       NetworkCacheFactory factory,
-      ArtifactCacheMode cacheMode) {
+      ArtifactCacheMode cacheMode,
+      Optional<ClientCertificateHandler> clientCertificateHandler) {
     for (HttpCacheEntry cacheEntry : artifactCacheEntries.getHttpCacheEntries()) {
       if (!cacheEntry.isWifiUsableForDistributedCache(wifiSsid)) {
         buckEventBus.post(
@@ -380,7 +428,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
               httpFetchExecutorService,
               buckConfig,
               factory,
-              cacheMode));
+              cacheMode,
+              clientCertificateHandler));
     }
   }
 
@@ -400,7 +449,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
   private static ArtifactCache createDirArtifactCache(
       Optional<BuckEventBus> buckEventBus,
       DirCacheEntry dirCacheConfig,
-      ProjectFilesystem projectFilesystem) {
+      ProjectFilesystem projectFilesystem,
+      ListeningExecutorService storeExecutorService) {
     Path cacheDir = dirCacheConfig.getCacheDir();
     try {
       DirArtifactCache dirArtifactCache =
@@ -409,7 +459,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
               projectFilesystem,
               cacheDir,
               dirCacheConfig.getCacheReadMode(),
-              dirCacheConfig.getMaxSizeBytes());
+              dirCacheConfig.getMaxSizeBytes(),
+              storeExecutorService);
 
       if (!buckEventBus.isPresent()) {
         return dirArtifactCache;
@@ -435,7 +486,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ListeningExecutorService httpFetchExecutorService,
       ArtifactCacheBuckConfig config,
       NetworkCacheFactory factory,
-      ArtifactCacheMode cacheMode) {
+      ArtifactCacheMode cacheMode,
+      Optional<ClientCertificateHandler> clientCertificateHandler) {
     ArtifactCache cache =
         createHttpArtifactCache(
             cacheDescription,
@@ -446,7 +498,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
             httpFetchExecutorService,
             config,
             factory,
-            cacheMode);
+            cacheMode,
+            clientCertificateHandler);
     return new RetryingCacheDecorator(cacheMode, cache, config.getMaxFetchRetries(), buckEventBus);
   }
 
@@ -459,7 +512,8 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
       ListeningExecutorService httpFetchExecutorService,
       ArtifactCacheBuckConfig config,
       NetworkCacheFactory factory,
-      ArtifactCacheMode cacheMode) {
+      ArtifactCacheMode cacheMode,
+      Optional<ClientCertificateHandler> clientCertificateHandler) {
 
     // Setup the default client to use.
     OkHttpClient.Builder storeClientBuilder = new OkHttpClient.Builder();
@@ -504,6 +558,15 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
                   chain.proceed(
                       addHeadersToBuilder(chain.request().newBuilder(), writeHeaders).build()));
     }
+
+    // Add client certificate information if present
+    clientCertificateHandler.ifPresent(
+        handler -> {
+          HandshakeCertificates certificates = handler.getHandshakeCertificates();
+          storeClientBuilder.sslSocketFactory(
+              certificates.sslSocketFactory(), certificates.trustManager());
+          handler.getHostnameVerifier().ifPresent(storeClientBuilder::hostnameVerifier);
+        });
 
     OkHttpClient storeClient = storeClientBuilder.build();
 

@@ -40,6 +40,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.distributed.DistBuildStatus;
@@ -70,7 +71,6 @@ import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestCaseSummary;
@@ -84,6 +84,7 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
@@ -109,6 +110,7 @@ import java.util.Collection;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.Phaser;
@@ -409,6 +411,44 @@ public class SuperConsoleEventBusListenerTest {
             "Building... 0.5 sec",
             " - //banana:stand... 0.3 sec (running doing_something[0.1 sec])"));
 
+    String innerStepShortName = "doing_something_inner";
+    String innerStepDescription = "working hard (for real)";
+    UUID innerStepUuid = UUID.randomUUID();
+    StepEvent.Started innerStepEventStarted =
+        StepEvent.started(innerStepShortName, innerStepDescription, innerStepUuid);
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            innerStepEventStarted, 800L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
+
+    // Should now show the inner step.
+    validateBuildIdConsole(
+        listener,
+        900L,
+        ImmutableList.of(
+            parsingLine,
+            actionGraphLine,
+            formatCacheStatsLine(true, 1, 23f, 0f),
+            "Building... 0.5 sec",
+            " - //banana:stand... 0.3 sec (running doing_something_inner[0.1 sec])"));
+
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(
+            StepEvent.finished(innerStepEventStarted, 0),
+            900L,
+            TimeUnit.MILLISECONDS,
+            /* threadId */ 0L));
+
+    // Should now return to showing the outer step.
+    validateBuildIdConsole(
+        listener,
+        900L,
+        ImmutableList.of(
+            parsingLine,
+            actionGraphLine,
+            formatCacheStatsLine(true, 1, 23f, 0f),
+            "Building... 0.5 sec",
+            " - //banana:stand... 0.3 sec (running doing_something[0.1 sec])"));
+
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             StepEvent.finished(stepEventStarted, 0),
@@ -646,7 +686,7 @@ public class SuperConsoleEventBusListenerTest {
             "HTTP CACHE UPLOAD... 2.10 Kbytes (2 COMPLETE/1 FAILED/0 UPLOADING/0 PENDING)"));
 
     CommandEvent.Started commandStarted =
-        CommandEvent.started("build", ImmutableList.of(), true, 1234);
+        CommandEvent.started("build", ImmutableList.of(), OptionalLong.of(100), 1234);
     eventBus.post(CommandEvent.finished(commandStarted, ExitCode.SUCCESS));
     if (buildDetailsTemplate.isPresent()) {
       validateBuildIdConsole(
@@ -2117,7 +2157,7 @@ public class SuperConsoleEventBusListenerTest {
             fakeClock,
             noisySummaryVerbosity,
             new DefaultExecutionEnvironment(
-                ImmutableMap.copyOf(System.getenv()), System.getProperties()),
+                EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             Locale.US,
             logPath,
             timeZone,
@@ -2127,7 +2167,8 @@ public class SuperConsoleEventBusListenerTest {
             false,
             buildId,
             false,
-            Optional.empty());
+            Optional.empty(),
+            ImmutableList.of());
     eventBus.register(listener);
 
     ProjectBuildFileParseEvents.Started parseEventStarted =
@@ -2448,9 +2489,12 @@ public class SuperConsoleEventBusListenerTest {
             0L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
+    ActionGraphEvent.Started actionGraphStarted = ActionGraphEvent.started();
+    eventBus.postWithoutConfiguring(
+        configureTestEventAtTime(actionGraphStarted, 0L, TimeUnit.MILLISECONDS, /* threadId */ 0L));
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            ActionGraphEvent.finished(ActionGraphEvent.started()),
+            ActionGraphEvent.finished(actionGraphStarted),
             0L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -2663,7 +2707,9 @@ public class SuperConsoleEventBusListenerTest {
     ProgressEstimator e = new ProgressEstimator(storagePath, eventBus);
     listener.setProgressEstimator(e);
 
-    eventBus.post(CommandEvent.started("project", ImmutableList.of("arg1", "arg2"), false, 23L));
+    eventBus.post(
+        CommandEvent.started(
+            "project", ImmutableList.of("arg1", "arg2"), OptionalLong.empty(), 23L));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -2722,7 +2768,9 @@ public class SuperConsoleEventBusListenerTest {
     ProgressEstimator e = new ProgressEstimator(storagePath, eventBus);
     listener.setProgressEstimator(e);
 
-    eventBus.post(CommandEvent.started("project", ImmutableList.of("arg1", "arg2"), false, 23L));
+    eventBus.post(
+        CommandEvent.started(
+            "project", ImmutableList.of("arg1", "arg2"), OptionalLong.empty(), 23L));
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
@@ -3022,7 +3070,7 @@ public class SuperConsoleEventBusListenerTest {
             clock,
             silentSummaryVerbosity,
             new DefaultExecutionEnvironment(
-                ImmutableMap.copyOf(System.getenv()), System.getProperties()),
+                EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             Locale.US,
             logPath,
             timeZone,
@@ -3032,7 +3080,8 @@ public class SuperConsoleEventBusListenerTest {
             false,
             buildId,
             printBuildId,
-            buildDetailsTemplate);
+            buildDetailsTemplate,
+            ImmutableList.of());
     eventBus.register(listener);
     return listener;
   }

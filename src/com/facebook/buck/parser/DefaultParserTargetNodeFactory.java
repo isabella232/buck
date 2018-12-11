@@ -38,7 +38,7 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.ParamInfoException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
+import com.facebook.buck.rules.visibility.VisibilityPatterns;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSet;
@@ -48,6 +48,7 @@ import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -62,7 +63,6 @@ public class DefaultParserTargetNodeFactory
   private final PackageBoundaryChecker packageBoundaryChecker;
   private final TargetNodeListener<TargetNode<?>> nodeListener;
   private final TargetNodeFactory targetNodeFactory;
-  private final VisibilityPatternFactory visibilityPatternFactory;
   private final RuleKeyConfiguration ruleKeyConfiguration;
   private final BuiltTargetVerifier builtTargetVerifier;
 
@@ -72,7 +72,6 @@ public class DefaultParserTargetNodeFactory
       PackageBoundaryChecker packageBoundaryChecker,
       TargetNodeListener<TargetNode<?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
-      VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration,
       BuiltTargetVerifier builtTargetVerifier) {
     this.knownRuleTypesProvider = knownRuleTypesProvider;
@@ -80,7 +79,6 @@ public class DefaultParserTargetNodeFactory
     this.packageBoundaryChecker = packageBoundaryChecker;
     this.nodeListener = nodeListener;
     this.targetNodeFactory = targetNodeFactory;
-    this.visibilityPatternFactory = visibilityPatternFactory;
     this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.builtTargetVerifier = builtTargetVerifier;
   }
@@ -91,7 +89,6 @@ public class DefaultParserTargetNodeFactory
       LoadingCache<Cell, BuildFileTree> buildFileTrees,
       TargetNodeListener<TargetNode<?>> nodeListener,
       TargetNodeFactory targetNodeFactory,
-      VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
         knownRuleTypesProvider,
@@ -99,7 +96,6 @@ public class DefaultParserTargetNodeFactory
         new ThrowingPackageBoundaryChecker(buildFileTrees),
         nodeListener,
         targetNodeFactory,
-        visibilityPatternFactory,
         ruleKeyConfiguration,
         new BuiltTargetVerifier());
   }
@@ -108,7 +104,6 @@ public class DefaultParserTargetNodeFactory
       KnownRuleTypesProvider knownRuleTypesProvider,
       ConstructorArgMarshaller marshaller,
       TargetNodeFactory targetNodeFactory,
-      VisibilityPatternFactory visibilityPatternFactory,
       RuleKeyConfiguration ruleKeyConfiguration) {
     return new DefaultParserTargetNodeFactory(
         knownRuleTypesProvider,
@@ -118,7 +113,6 @@ public class DefaultParserTargetNodeFactory
           // No-op.
         },
         targetNodeFactory,
-        visibilityPatternFactory,
         ruleKeyConfiguration,
         new BuiltTargetVerifier());
   }
@@ -156,10 +150,10 @@ public class DefaultParserTargetNodeFactory
                 declaredDeps,
                 rawNode);
         visibilityPatterns =
-            visibilityPatternFactory.createFromStringList(
+            VisibilityPatterns.createFromStringList(
                 cell.getCellPathResolver(), "visibility", rawNode.get("visibility"), target);
         withinViewPatterns =
-            visibilityPatternFactory.createFromStringList(
+            VisibilityPatterns.createFromStringList(
                 cell.getCellPathResolver(), "within_view", rawNode.get("within_view"), target);
       }
 
@@ -222,7 +216,7 @@ public class DefaultParserTargetNodeFactory
 
   private static RuleType parseBuildRuleTypeFromRawRule(
       KnownRuleTypes knownRuleTypes, Map<String, Object> map) {
-    String type = (String) Preconditions.checkNotNull(map.get(BuckPyFunction.TYPE_PROPERTY_NAME));
+    String type = (String) Objects.requireNonNull(map.get(BuckPyFunction.TYPE_PROPERTY_NAME));
     return knownRuleTypes.getRuleType(type);
   }
 }

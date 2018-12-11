@@ -51,6 +51,7 @@ import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
 import com.facebook.buck.features.project.intellij.model.IjProjectElement;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -60,7 +61,6 @@ import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Functions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -485,7 +485,7 @@ public class IjModuleGraphTest {
         FluentIterable.from(moduleGraph.getNodes()).filter(IjLibrary.class).first().get();
 
     assertEquals(ImmutableSet.of(rDotJavaClassPath), productModule.getExtraClassPathDependencies());
-    assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getClassPaths());
+    assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getBinaryJars());
     assertEquals(
         moduleGraph.getDependentLibrariesFor(productModule),
         ImmutableMap.of(rDotJavaLibrary, DependencyType.PROD));
@@ -647,8 +647,10 @@ public class IjModuleGraphTest {
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     IjProjectConfig projectConfig =
-        IjProjectBuckConfig.create(
-            buckConfig, aggregationMode, null, "", "", false, false, false, false, true, false);
+        IjTestProjectConfig.createBuilder(buckConfig)
+            .setAggregationMode(aggregationMode)
+            .setExcludeArtifactsEnabled(false)
+            .build();
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     JavaPackageFinder packageFinder =
         (buckConfig == null)
@@ -695,6 +697,12 @@ public class IjModuleGraphTest {
 
               @Override
               public Optional<Path> getAnnotationOutputPath(
+                  TargetNode<? extends JvmLibraryArg> targetNode) {
+                return Optional.empty();
+              }
+
+              @Override
+              public Optional<Path> getAbiAnnotationOutputPath(
                   TargetNode<? extends JvmLibraryArg> targetNode) {
                 return Optional.empty();
               }

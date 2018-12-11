@@ -51,8 +51,8 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -62,6 +62,7 @@ import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -547,7 +548,7 @@ public class OCamlIntegrationTest {
 
     Path ocamlc =
         new ExecutableFinder(Platform.detect())
-            .getExecutable(Paths.get("ocamlc"), ImmutableMap.copyOf(System.getenv()));
+            .getExecutable(Paths.get("ocamlc"), EnvVariablesProvider.getSystemEnv());
 
     ProcessExecutor.Result result = workspace.runCommand(ocamlc.toString(), "-where");
     assertEquals(0, result.getExitCode());
@@ -652,7 +653,7 @@ public class OCamlIntegrationTest {
       throws IOException, InterruptedException {
     Path ocamlc =
         new ExecutableFinder(Platform.detect())
-            .getExecutable(Paths.get("ocamlc"), ImmutableMap.copyOf(System.getenv()));
+            .getExecutable(Paths.get("ocamlc"), EnvVariablesProvider.getSystemEnv());
 
     ProcessExecutor.Result result = workspace.runCommand(ocamlc.toString(), "-version");
     assertEquals(0, result.getExitCode());

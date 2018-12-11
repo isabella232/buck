@@ -67,6 +67,7 @@ import com.facebook.buck.cxx.CxxSymlinkTreeHeaders;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
@@ -101,6 +102,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
@@ -193,6 +195,7 @@ public class AppleLibraryDescription
   private final XCodeDescriptions xcodeDescriptions;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
+  private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
   private final CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors;
   private final CxxLibraryFlavored cxxLibraryFlavored;
@@ -204,6 +207,7 @@ public class AppleLibraryDescription
       XCodeDescriptions xcodeDescriptions,
       SwiftLibraryDescription swiftDelegate,
       AppleConfig appleConfig,
+      CxxBuckConfig cxxBuckConfig,
       SwiftBuckConfig swiftBuckConfig,
       CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors,
       CxxLibraryFlavored cxxLibraryFlavored,
@@ -218,6 +222,7 @@ public class AppleLibraryDescription
     this.swiftDelegate =
         appleConfig.shouldUseSwiftDelegate() ? Optional.of(swiftDelegate) : Optional.empty();
     this.appleConfig = appleConfig;
+    this.cxxBuckConfig = cxxBuckConfig;
     this.swiftBuckConfig = swiftBuckConfig;
   }
 
@@ -502,6 +507,7 @@ public class AppleLibraryDescription
             context.getProjectFilesystem(),
             graphBuilder,
             flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
+            cxxBuckConfig.shouldCacheStrip(),
             unstrippedBinaryRule,
             representativePlatform,
             Optional.empty());
@@ -1037,7 +1043,7 @@ public class AppleLibraryDescription
         break;
     }
 
-    Preconditions.checkNotNull(metadataType);
+    Objects.requireNonNull(metadataType);
 
     return graphBuilder.requireMetadata(
         baseTarget.withAppendedFlavors(metadataType.getFlavor(), platform.getFlavor()),

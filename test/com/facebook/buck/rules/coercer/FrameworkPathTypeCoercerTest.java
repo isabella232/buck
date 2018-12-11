@@ -21,7 +21,7 @@ import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.junit.Before;
@@ -30,8 +30,7 @@ import org.junit.Test;
 public class FrameworkPathTypeCoercerTest {
 
   private final TypeCoercer<BuildTarget> buildTargetTypeCoercer = new BuildTargetTypeCoercer();
-  private final TypeCoercer<Path> pathTypeCoercer =
-      new PathTypeCoercer(PathTypeCoercer.PathExistenceVerificationMode.VERIFY);
+  private final TypeCoercer<Path> pathTypeCoercer = new PathTypeCoercer();
   private final TypeCoercer<SourcePath> sourcePathTypeCoercer =
       new SourcePathTypeCoercer(buildTargetTypeCoercer, pathTypeCoercer);
   private final TypeCoercer<FrameworkPath> frameworkPathTypeCoercer =

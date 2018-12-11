@@ -17,11 +17,13 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.UnknownCellException;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -37,7 +39,7 @@ public abstract class BuildTargetPatternParser<T> {
   private final String baseName;
 
   protected BuildTargetPatternParser(String baseName) {
-    this.baseName = Preconditions.checkNotNull(baseName);
+    this.baseName = Objects.requireNonNull(baseName);
   }
 
   public String getBaseName() {
@@ -82,8 +84,16 @@ public abstract class BuildTargetPatternParser<T> {
     String buildTargetPattern;
     int index = buildTargetPatternWithCell.indexOf(BUILD_RULE_PREFIX);
     if (index > 0) {
-      cellPath =
-          cellNames.getCellPathOrThrow(Optional.of(buildTargetPatternWithCell.substring(0, index)));
+      try {
+        cellPath =
+            cellNames.getCellPathOrThrow(
+                Optional.of(buildTargetPatternWithCell.substring(0, index)));
+      } catch (UnknownCellException e) {
+        throw new BuildTargetParseException(
+            String.format(
+                "When parsing %s: %s",
+                buildTargetPatternWithCell, e.getHumanReadableErrorMessage()));
+      }
       buildTargetPattern = buildTargetPatternWithCell.substring(index);
     } else {
       cellPath = cellNames.getCellPathOrThrow(Optional.empty());
@@ -117,7 +127,7 @@ public abstract class BuildTargetPatternParser<T> {
    * @param baseName name such as {@code //first-party/orca}
    */
   public static BuildTargetPatternParser<BuildTargetPattern> forBaseName(String baseName) {
-    Preconditions.checkNotNull(Strings.emptyToNull(baseName));
+    Objects.requireNonNull(Strings.emptyToNull(baseName));
     return new BuildFileContext(baseName);
   }
 

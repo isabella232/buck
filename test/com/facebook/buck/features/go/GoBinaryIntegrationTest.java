@@ -20,7 +20,6 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
@@ -42,7 +41,7 @@ public class GoBinaryIntegrationTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
-  public void ensureGoIsAvailable() throws IOException, InterruptedException {
+  public void ensureGoIsAvailable() throws IOException {
     GoAssumptions.assumeGoCompilerAvailable();
   }
 
@@ -193,14 +192,14 @@ public class GoBinaryIntegrationTest {
 
   @Test
   public void nonGoLibraryDepErrors() throws IOException {
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(Matchers.containsString("is not an instance of go_library"));
-
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "binary_with_library", tmp);
     workspace.setUp();
 
-    workspace.runBuckCommand("run", "//:illegal_dep").assertFailure();
+    ProcessResult processResult = workspace.runBuckCommand("run", "//:illegal_dep");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(), Matchers.containsString("is not an instance of go_library"));
   }
 
   @Test
@@ -257,7 +256,7 @@ public class GoBinaryIntegrationTest {
   }
 
   @Test
-  public void buildConstraints() throws IOException, InterruptedException {
+  public void buildConstraints() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "build_constraints", tmp);
     workspace.setUp();

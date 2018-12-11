@@ -32,11 +32,15 @@ import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.CompilerOutputPaths;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
 
@@ -44,14 +48,14 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   private final SourcePathResolver sourcePathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final ProjectFilesystem projectFilesystem;
-  private final ImmutableSet.Builder<BuildTarget> requiredBuildTargets;
+  private final Set<BuildTarget> requiredBuildTargets;
 
   DefaultIjModuleFactoryResolver(
       ActionGraphBuilder graphBuilder,
       SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       ProjectFilesystem projectFilesystem,
-      ImmutableSet.Builder<BuildTarget> requiredBuildTargets) {
+      Set<BuildTarget> requiredBuildTargets) {
     this.graphBuilder = graphBuilder;
     this.sourcePathResolver = sourcePathResolver;
     this.ruleFinder = ruleFinder;
@@ -67,7 +71,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     if (dummyRDotJavaRule.isPresent()) {
       requiredBuildTargets.add(dummyRDotJavaTarget);
       return Optional.of(
-          DummyRDotJava.getRDotJavaBinFolder(dummyRDotJavaTarget, projectFilesystem));
+          DummyRDotJava.getOutputJarPath(dummyRDotJavaTarget, projectFilesystem));
     }
     return Optional.empty();
   }
@@ -121,13 +125,26 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     AnnotationProcessingParams annotationProcessingParams =
         targetNode
             .getConstructorArg()
-            .buildAnnotationProcessingParams(
-                targetNode.getBuildTarget(), projectFilesystem, graphBuilder);
+            .buildAnnotationProcessingParams(targetNode.getBuildTarget(), graphBuilder);
     if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
       return Optional.empty();
     }
 
     return CompilerOutputPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget());
+  }
+
+  @Override
+  public Optional<Path> getAbiAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode) {
+    Optional<BuildRule> buildRule = graphBuilder.getRuleOptional(targetNode.getBuildTarget());
+    if (buildRule.isPresent()) {
+      ImmutableSortedSet<BuildRule> sourceOnlyAbiRules =
+          JavaLibraryRules.getSourceOnlyAbiRules(graphBuilder, ImmutableSet.of(buildRule.get()));
+      if (!sourceOnlyAbiRules.isEmpty()) {
+        return getAnnotationOutputPath(
+            targetNode.copyWithFlavors(sourceOnlyAbiRules.first().getBuildTarget().getFlavors()));
+      }
+    }
+    return Optional.empty();
   }
 
   @Override
@@ -140,7 +157,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   private Path getRelativePathAndRecordRule(SourcePath sourcePath) {
     requiredBuildTargets.addAll(
         Optionals.toStream(ruleFinder.getRule(sourcePath).map(BuildRule::getBuildTarget))
-            .iterator());
+            .collect(Collectors.toList()));
     return sourcePathResolver.getRelativePath(sourcePath);
   }
 }

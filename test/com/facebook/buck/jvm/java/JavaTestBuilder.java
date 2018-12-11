@@ -26,11 +26,12 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.TestCxxPlatformsProviderFactory;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -83,7 +84,7 @@ public class JavaTestBuilder
     return this;
   }
 
-  public JavaTestBuilder setVmArgs(@Nullable ImmutableList<String> vmArgs) {
+  public JavaTestBuilder setVmArgs(@Nullable ImmutableList<StringWithMacros> vmArgs) {
     getArgForPopulating().setVmArgs(Optional.ofNullable(vmArgs).orElse(ImmutableList.of()));
     return this;
   }

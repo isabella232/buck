@@ -17,13 +17,13 @@
 package com.facebook.buck.features.apple.project;
 
 import com.facebook.buck.apple.xcode.XCScheme;
+import com.facebook.buck.apple.xcode.XCScheme.AdditionalActions;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -79,6 +80,7 @@ class SchemeGenerator {
   private final ImmutableMap<PBXTarget, Path> targetToProjectPathMap;
 
   private Optional<XCScheme> outputScheme = Optional.empty();
+  private final Optional<XCScheme.LaunchAction.WatchInterface> watchInterface;
   private final XCScheme.LaunchAction.LaunchStyle launchStyle;
   private final Optional<ImmutableMap<SchemeActionType, ImmutableMap<String, String>>>
       environmentVariables;
@@ -106,9 +108,11 @@ class SchemeGenerator {
                   SchemeActionType,
                   ImmutableMap<XCScheme.AdditionalActions, ImmutableList<String>>>>
           additionalSchemeActions,
-      XCScheme.LaunchAction.LaunchStyle launchStyle) {
+      XCScheme.LaunchAction.LaunchStyle launchStyle,
+      Optional<XCScheme.LaunchAction.WatchInterface> watchInterface) {
     this.projectFilesystem = projectFilesystem;
     this.primaryTarget = primaryTarget;
+    this.watchInterface = watchInterface;
     this.launchStyle = launchStyle;
     this.orderedBuildTargets = orderedBuildTargets;
     this.orderedBuildTestTargets = orderedBuildTestTargets;
@@ -169,7 +173,7 @@ class SchemeGenerator {
       }
       Path outputPath = outputDirectory.getParent();
       String buildableReferencePath;
-      Path projectPath = Preconditions.checkNotNull(targetToProjectPathMap.get(target));
+      Path projectPath = Objects.requireNonNull(targetToProjectPathMap.get(target));
       if (outputPath == null) {
         // Root directory project
         buildableReferencePath = projectPath.toString();
@@ -180,10 +184,10 @@ class SchemeGenerator {
       XCScheme.BuildableReference buildableReference =
           new XCScheme.BuildableReference(
               buildableReferencePath,
-              Preconditions.checkNotNull(target.getGlobalID()),
+              Objects.requireNonNull(target.getGlobalID()),
               target.getProductReference() != null
                   ? target.getProductReference().getName()
-                  : Preconditions.checkNotNull(target.getProductName()),
+                  : Objects.requireNonNull(target.getProductName()),
               blueprintName);
       buildTargetToBuildableReferenceMap.put(target, buildableReference);
     }
@@ -228,15 +232,13 @@ class SchemeGenerator {
 
     XCScheme.TestAction testAction =
         new XCScheme.TestAction(
-            Preconditions.checkNotNull(actionConfigNames.get(SchemeActionType.TEST)),
+            Objects.requireNonNull(actionConfigNames.get(SchemeActionType.TEST)),
             Optional.ofNullable(envVariables.get(SchemeActionType.TEST)),
             additionalCommandsForSchemeAction(
-                SchemeActionType.TEST,
-                XCScheme.AdditionalActions.PRE_SCHEME_ACTIONS,
-                primaryBuildReference),
+                SchemeActionType.TEST, AdditionalActions.PRE_SCHEME_ACTIONS, primaryBuildReference),
             additionalCommandsForSchemeAction(
                 SchemeActionType.TEST,
-                XCScheme.AdditionalActions.POST_SCHEME_ACTIONS,
+                AdditionalActions.POST_SCHEME_ACTIONS,
                 primaryBuildReference));
 
     for (PBXTarget target : orderedRunTestTargets) {
@@ -258,58 +260,59 @@ class SchemeGenerator {
             Optional.of(
                 new XCScheme.LaunchAction(
                     primaryBuildableReference,
-                    Preconditions.checkNotNull(actionConfigNames.get(SchemeActionType.LAUNCH)),
+                    Objects.requireNonNull(actionConfigNames.get(SchemeActionType.LAUNCH)),
                     runnablePath,
                     remoteRunnablePath,
+                    watchInterface,
                     launchStyle,
                     Optional.ofNullable(envVariables.get(SchemeActionType.LAUNCH)),
                     additionalCommandsForSchemeAction(
                         SchemeActionType.LAUNCH,
-                        XCScheme.AdditionalActions.PRE_SCHEME_ACTIONS,
+                        AdditionalActions.PRE_SCHEME_ACTIONS,
                         primaryBuildReference),
                     additionalCommandsForSchemeAction(
                         SchemeActionType.LAUNCH,
-                        XCScheme.AdditionalActions.POST_SCHEME_ACTIONS,
+                        AdditionalActions.POST_SCHEME_ACTIONS,
                         primaryBuildReference)));
 
         profileAction =
             Optional.of(
                 new XCScheme.ProfileAction(
                     primaryBuildableReference,
-                    Preconditions.checkNotNull(actionConfigNames.get(SchemeActionType.PROFILE)),
+                    Objects.requireNonNull(actionConfigNames.get(SchemeActionType.PROFILE)),
                     Optional.ofNullable(envVariables.get(SchemeActionType.PROFILE)),
                     additionalCommandsForSchemeAction(
                         SchemeActionType.PROFILE,
-                        XCScheme.AdditionalActions.PRE_SCHEME_ACTIONS,
+                        AdditionalActions.PRE_SCHEME_ACTIONS,
                         primaryBuildReference),
                     additionalCommandsForSchemeAction(
                         SchemeActionType.PROFILE,
-                        XCScheme.AdditionalActions.POST_SCHEME_ACTIONS,
+                        AdditionalActions.POST_SCHEME_ACTIONS,
                         primaryBuildReference)));
       }
     }
     XCScheme.AnalyzeAction analyzeAction =
         new XCScheme.AnalyzeAction(
-            Preconditions.checkNotNull(actionConfigNames.get(SchemeActionType.ANALYZE)),
+            Objects.requireNonNull(actionConfigNames.get(SchemeActionType.ANALYZE)),
             additionalCommandsForSchemeAction(
                 SchemeActionType.ANALYZE,
-                XCScheme.AdditionalActions.PRE_SCHEME_ACTIONS,
+                AdditionalActions.PRE_SCHEME_ACTIONS,
                 primaryBuildReference),
             additionalCommandsForSchemeAction(
                 SchemeActionType.ANALYZE,
-                XCScheme.AdditionalActions.POST_SCHEME_ACTIONS,
+                AdditionalActions.POST_SCHEME_ACTIONS,
                 primaryBuildReference));
 
     XCScheme.ArchiveAction archiveAction =
         new XCScheme.ArchiveAction(
-            Preconditions.checkNotNull(actionConfigNames.get(SchemeActionType.ARCHIVE)),
+            Objects.requireNonNull(actionConfigNames.get(SchemeActionType.ARCHIVE)),
             additionalCommandsForSchemeAction(
                 SchemeActionType.ARCHIVE,
-                XCScheme.AdditionalActions.PRE_SCHEME_ACTIONS,
+                AdditionalActions.PRE_SCHEME_ACTIONS,
                 primaryBuildReference),
             additionalCommandsForSchemeAction(
                 SchemeActionType.ARCHIVE,
-                XCScheme.AdditionalActions.POST_SCHEME_ACTIONS,
+                AdditionalActions.POST_SCHEME_ACTIONS,
                 primaryBuildReference));
 
     XCScheme scheme =
@@ -464,6 +467,29 @@ class SchemeGenerator {
       launchActionElem.appendChild(productRunnableElem);
       Element refElem = serializeBuildableReference(doc, launchAction.getBuildableReference());
       productRunnableElem.appendChild(refElem);
+    }
+
+    Optional<XCScheme.LaunchAction.WatchInterface> watchInterface =
+        launchAction.getWatchInterface();
+    if (watchInterface.isPresent()) {
+      Optional<String> watchInterfaceValue = Optional.empty();
+      switch (watchInterface.get()) {
+        case MAIN:
+          // excluded from scheme
+        case COMPLICATION:
+          watchInterfaceValue = Optional.of("32");
+          break;
+        case DYNAMIC_NOTIFICATION:
+          watchInterfaceValue = Optional.of("8");
+          break;
+        case STATIC_NOTIFICATION:
+          watchInterfaceValue = Optional.of("16");
+          break;
+      }
+
+      if (watchInterfaceValue.isPresent()) {
+        launchActionElem.setAttribute("launchAutomaticallySubstyle", watchInterfaceValue.get());
+      }
     }
 
     XCScheme.LaunchAction.LaunchStyle launchStyle = launchAction.getLaunchStyle();

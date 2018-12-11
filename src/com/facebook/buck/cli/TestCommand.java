@@ -36,6 +36,7 @@ import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
@@ -48,6 +49,7 @@ import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
@@ -279,10 +281,8 @@ public class TestCommand extends BuildCommand {
     Optional<ImmutableList<String>> coverageExcludes =
         params.getBuckConfig().getOptionalListWithoutComments("test", "coverageExcludes", ',');
 
-    coverageIncludes.ifPresent(
-        strings -> builder.setCoverageIncludes(strings.stream().collect(Collectors.joining(","))));
-    coverageExcludes.ifPresent(
-        strings -> builder.setCoverageExcludes(strings.stream().collect(Collectors.joining(","))));
+    coverageIncludes.ifPresent(strings -> builder.setCoverageIncludes(String.join(",", strings)));
+    coverageExcludes.ifPresent(strings -> builder.setCoverageExcludes(String.join(",", strings)));
 
     return builder.build();
   }
@@ -299,6 +299,7 @@ public class TestCommand extends BuildCommand {
 
   private ExitCode runTestsInternal(
       CommandRunnerParams params,
+      BuildRuleResolver ruleResolver,
       BuildEngine buildEngine,
       Build build,
       BuildContext buildContext,
@@ -316,6 +317,7 @@ public class TestCommand extends BuildCommand {
       int exitCodeInt =
           TestRunning.runTests(
               params,
+              ruleResolver,
               testRules,
               build.getExecutionContext(),
               getTestRunningOptions(params),
@@ -454,8 +456,7 @@ public class TestCommand extends BuildCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
 
     assertArguments(params);
 
@@ -479,7 +480,7 @@ public class TestCommand extends BuildCommand {
           targetGraphAndBuildTargets =
               params
                   .getParser()
-                  .buildTargetGraphForTargetNodeSpecs(
+                  .buildTargetGraphWithoutConfigurationTargets(
                       params.getCell(),
                       getEnableParserProfiling(),
                       pool.getListeningExecutorService(),
@@ -488,6 +489,7 @@ public class TestCommand extends BuildCommand {
                                   BuildFileSpec.fromRecursivePath(
                                       Paths.get(""), params.getCell().getRoot()))
                               .withOnlyTests(true)),
+                      getExcludeIncompatibleTargets(),
                       parserConfig.getDefaultFlavorsMode());
           targetGraphAndBuildTargets =
               targetGraphAndBuildTargets.withBuildTargets(ImmutableSet.of());
@@ -499,7 +501,7 @@ public class TestCommand extends BuildCommand {
           targetGraphAndBuildTargets =
               params
                   .getParser()
-                  .buildTargetGraphForTargetNodeSpecs(
+                  .buildTargetGraphWithoutConfigurationTargets(
                       params.getCell(),
                       getEnableParserProfiling(),
                       pool.getListeningExecutorService(),
@@ -507,6 +509,7 @@ public class TestCommand extends BuildCommand {
                           params.getCell().getCellPathResolver(),
                           params.getBuckConfig(),
                           getArguments()),
+                      getExcludeIncompatibleTargets(),
                       parserConfig.getDefaultFlavorsMode());
 
           LOG.debug("Got explicit build targets %s", targetGraphAndBuildTargets.getBuildTargets());
@@ -583,12 +586,13 @@ public class TestCommand extends BuildCommand {
                     localCachingBuildEngineDelegate,
                     ModernBuildRuleBuilderFactory.getBuildStrategy(
                         params.getBuckConfig().getView(ModernBuildRuleConfig.class),
+                        params.getBuckConfig().getView(RemoteExecutionConfig.class),
                         actionGraphAndBuilder.getActionGraphBuilder(),
                         params.getCell(),
                         params.getCell().getCellPathResolver(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         params.getBuckEventBus(),
-                        params.getConsole()),
+                        params.getTraceInfoProvider()),
                     pool.getWeightedListeningExecutorService(),
                     new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
@@ -665,7 +669,13 @@ public class TestCommand extends BuildCommand {
             return runTestsExternal(
                 params, build, externalTestRunner.get(), testRules, buildContext);
           }
-          return runTestsInternal(params, cachingBuildEngine, build, buildContext, testRules);
+          return runTestsInternal(
+              params,
+              actionGraphAndBuilder.getActionGraphBuilder(),
+              cachingBuildEngine,
+              build,
+              buildContext,
+              testRules);
         }
       }
     }
@@ -779,7 +789,7 @@ public class TestCommand extends BuildCommand {
       }
 
       if (parsed.size() != 0) {
-        String invalidFormats = parsed.stream().collect(Collectors.joining(","));
+        String invalidFormats = String.join(",", parsed);
         if (option.isArgument()) {
           throw new CmdLineException(
               owner, Messages.ILLEGAL_OPERAND, option.toString(), invalidFormats);

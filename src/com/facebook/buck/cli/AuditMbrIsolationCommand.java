@@ -36,12 +36,11 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-import java.io.IOException;
+import com.google.common.collect.TreeMultimap;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,6 +49,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.kohsuke.args4j.Argument;
 
@@ -66,8 +66,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) {
     try {
       // Create a TargetGraph that is composed of the transitive closure of all of the dependent
       // BuildRules for the specified BuildTargetPaths.
@@ -101,7 +100,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
       }
 
       ActionGraphBuilder graphBuilder =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
                   new ActionGraphProvider(
                           params.getBuckEventBus(),
                           ActionGraphFactory.create(
@@ -194,7 +193,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             String error = String.format("%s %s", crumbs, message);
             Multimap<String, String> failedTargetsByMessage =
                 failuresByRuleType.computeIfAbsent(
-                    getRuleTypeString(instance), ignored -> ArrayListMultimap.create());
+                    getRuleTypeString(instance), ignored -> TreeMultimap.create());
             failedTargetsByMessage.put(error, instance.getFullyQualifiedName());
           }
 
@@ -202,7 +201,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
           public void reportAbsolutePath(BuildRule instance, String crumbs, Path path) {
             Multimap<String, String> inner =
                 absolutePathsRequired.computeIfAbsent(
-                    path.toString(), ignored -> ArrayListMultimap.create());
+                    path.toString(), ignored -> TreeMultimap.create());
             inner.put(crumbs, instance.getFullyQualifiedName());
           }
 
@@ -256,7 +255,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
           builder.addLine(
               "%s failures for rules of type %s.", failure.getValue().size(), failure.getKey());
           for (Entry<String, Collection<String>> instance : asSortedEntries(failure.getValue())) {
-            builder.addLine("  %s: %s", instance.getValue().size(), instance.getKey());
+            builder.addLine(" %s: %s", instance.getValue().size(), instance.getKey());
 
             int count = 0;
             int max = 3;

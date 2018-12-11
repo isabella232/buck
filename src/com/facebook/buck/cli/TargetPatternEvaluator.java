@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.AliasConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -54,11 +55,16 @@ public class TargetPatternEvaluator {
   private final CommandLineTargetNodeSpecParser targetNodeSpecParser;
   private final BuckConfig buckConfig;
   private final Cell rootCell;
+  private final boolean excludeUnsupportedTargets;
 
   private Map<String, ImmutableSet<QueryTarget>> resolvedTargets = new HashMap<>();
 
   public TargetPatternEvaluator(
-      Cell rootCell, BuckConfig buckConfig, Parser parser, boolean enableProfiling) {
+      Cell rootCell,
+      BuckConfig buckConfig,
+      Parser parser,
+      boolean enableProfiling,
+      boolean excludeUnsupportedTargets) {
     this.rootCell = rootCell;
     this.parser = parser;
     this.enableProfiling = enableProfiling;
@@ -66,6 +72,7 @@ public class TargetPatternEvaluator {
     this.projectRoot = rootCell.getFilesystem().getRootPath();
     this.targetNodeSpecParser =
         new CommandLineTargetNodeSpecParser(buckConfig, new BuildTargetPatternTargetNodeParser());
+    this.excludeUnsupportedTargets = excludeUnsupportedTargets;
   }
 
   /** Attempts to parse and load the given collection of patterns. */
@@ -90,7 +97,8 @@ public class TargetPatternEvaluator {
       }
 
       // Check if this is an alias.
-      ImmutableSet<BuildTarget> aliasTargets = buckConfig.getBuildTargetsForAlias(pattern);
+      ImmutableSet<BuildTarget> aliasTargets =
+          AliasConfig.from(buckConfig).getBuildTargetsForAlias(pattern);
       if (!aliasTargets.isEmpty()) {
         for (BuildTarget alias : aliasTargets) {
           unresolved.put(alias.getFullyQualifiedName(), pattern);
@@ -149,7 +157,8 @@ public class TargetPatternEvaluator {
             SpeculativeParsing.DISABLED,
             // We disable mapping //path/to:lib to //path/to:lib#default,static
             // because the query engine doesn't handle flavors very well.
-            ParserConfig.ApplyDefaultFlavorsMode.DISABLED);
+            ParserConfig.ApplyDefaultFlavorsMode.DISABLED,
+            excludeUnsupportedTargets);
     LOG.verbose("Resolved target patterns %s -> targets %s", patterns, buildTargets);
 
     // Convert the ordered result into a result map of pattern to set of resolved targets.

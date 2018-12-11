@@ -66,7 +66,9 @@ java_library(
     ],
     source = "1.8",
     target = "1.8",
-    visibility = ["//tools/ideabuck/..."],
+    visibility = [
+        "//tools/ideabuck/...",
+    ],
     deps = [
         ":bundle_generated_lib",
         "//src/com/facebook/buck/event/external:external_lib",
@@ -84,9 +86,13 @@ java_library(
 java_library(
     name = "resources",
     srcs = [],
-    resources = glob([
-        "**/*.png",
-    ]),
+    resources = glob(
+        [
+            "**/*.png",
+            "**/*.xml",
+        ],
+        exclude = ["resources/META-INF/**"],
+    ),
     resources_root = "resources/",
     visibility = [
         "PUBLIC",
@@ -95,7 +101,7 @@ java_library(
 
 java_binary(
     name = "ideabuck",
-    meta_inf_directory = "META-INF",
+    meta_inf_directory = "resources/META-INF",
     deps = [
         ":ideabuck-lib",
         ":resources",
@@ -111,7 +117,9 @@ java_library(
         exclude = TEST_SRC,
     ),
     target = "1.8",
-    visibility = ["//tools/ideabuck/tests/..."],
+    visibility = [
+        "//tools/ideabuck/tests/...",
+    ],
     deps = [
         ":ideabuck-lib",
         "//src/com/facebook/buck/event/external:external_lib",

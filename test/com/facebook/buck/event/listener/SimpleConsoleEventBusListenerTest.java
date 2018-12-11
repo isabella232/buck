@@ -32,6 +32,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
@@ -47,16 +48,15 @@ import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -68,6 +68,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import org.junit.Before;
 import org.junit.Test;
@@ -267,7 +268,7 @@ public class SimpleConsoleEventBusListenerTest {
     assertOutput(expectedOutput, console);
 
     CommandEvent.Started commandStarted =
-        CommandEvent.started("build", ImmutableList.of(), true, 1234);
+        CommandEvent.started("build", ImmutableList.of(), OptionalLong.of(100), 1234);
     eventBus.post(CommandEvent.finished(commandStarted, ExitCode.SUCCESS));
     if (buildDetailsTemplate.isPresent()) {
       expectedOutput +=
@@ -561,7 +562,7 @@ public class SimpleConsoleEventBusListenerTest {
             Locale.US,
             logPath,
             new DefaultExecutionEnvironment(
-                ImmutableMap.copyOf(System.getenv()), System.getProperties()),
+                EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             buildId,
             printBuildId,
             buildDetailsTemplate);

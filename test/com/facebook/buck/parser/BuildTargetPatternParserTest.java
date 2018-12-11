@@ -25,8 +25,8 @@ import com.facebook.buck.core.cell.CellPathResolverView;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.FileSystem;
@@ -44,7 +44,7 @@ public class BuildTargetPatternParserTest {
   @Rule public ExpectedException exception = ExpectedException.none();
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     vfs = filesystem.getRootPath().getFileSystem();
   }
@@ -190,5 +190,26 @@ public class BuildTargetPatternParserTest {
     exception.expectMessage("absolute");
     exception.expectMessage("(found ///facebookorca/...)");
     buildTargetPatternParser.parse(createCellRoots(filesystem), "///facebookorca/...");
+  }
+
+  @Test
+  public void testIncludesTargetNameInMissingCellErrorMessage() {
+    BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser =
+        BuildTargetPatternParser.forVisibilityArgument();
+
+    ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+    CellPathResolver rootCellPathResolver =
+        DefaultCellPathResolver.of(
+            filesystem.getPath("root").normalize(),
+            ImmutableMap.of("localreponame", filesystem.getPath("localrepo").normalize()));
+
+    exception.expect(BuildTargetParseException.class);
+    // It contains the pattern
+    exception.expectMessage("lclreponame//facebook/...");
+    // The invalid cell
+    exception.expectMessage("Unknown cell: lclreponame");
+    // And the suggestion
+    exception.expectMessage("localreponame");
+    buildTargetPatternParser.parse(rootCellPathResolver, "lclreponame//facebook/...");
   }
 }

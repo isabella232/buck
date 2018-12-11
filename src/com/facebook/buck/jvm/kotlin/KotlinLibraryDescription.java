@@ -16,6 +16,8 @@
 
 package com.facebook.buck.jvm.kotlin;
 
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
@@ -40,21 +42,25 @@ import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
-import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Objects;
 import java.util.Optional;
 import org.immutables.value.Value;
 
 public class KotlinLibraryDescription
-    implements DescriptionWithTargetGraph<KotlinLibraryDescriptionArg>, Flavored {
+    implements DescriptionWithTargetGraph<KotlinLibraryDescriptionArg>,
+        ImplicitDepsInferringDescription<KotlinLibraryDescriptionArg>,
+        Flavored {
   public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS =
       ImmutableSet.of(JavaLibrary.SRC_JAR, JavaLibrary.MAVEN_JAR);
 
   private final ToolchainProvider toolchainProvider;
   private final KotlinBuckConfig kotlinBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
+  private final JavacFactory javacFactory;
 
   public KotlinLibraryDescription(
       ToolchainProvider toolchainProvider,
@@ -63,6 +69,7 @@ public class KotlinLibraryDescription
     this.toolchainProvider = toolchainProvider;
     this.kotlinBuckConfig = kotlinBuckConfig;
     this.javaBuckConfig = javaBuckConfig;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
   }
 
   @Override
@@ -108,7 +115,7 @@ public class KotlinLibraryDescription
         return MavenUberJar.SourceJar.create(
             buildTargetWithMavenFlavor,
             projectFilesystem,
-            Preconditions.checkNotNull(paramsWithMavenFlavor),
+            Objects.requireNonNull(paramsWithMavenFlavor),
             args.getSrcs(),
             mavenCoords,
             args.getMavenPomTemplate());
@@ -121,7 +128,6 @@ public class KotlinLibraryDescription
                 .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                 .getJavacOptions(),
             buildTarget,
-            projectFilesystem,
             graphBuilder,
             args);
 
@@ -136,7 +142,7 @@ public class KotlinLibraryDescription
                 kotlinBuckConfig,
                 javaBuckConfig,
                 args,
-                JavacFactory.getDefault(toolchainProvider))
+                javacFactory)
             .setJavacOptions(javacOptions)
             .build();
 
@@ -156,10 +162,20 @@ public class KotlinLibraryDescription
           defaultKotlinLibrary,
           buildTargetWithMavenFlavor,
           projectFilesystem,
-          Preconditions.checkNotNull(paramsWithMavenFlavor),
+          Objects.requireNonNull(paramsWithMavenFlavor),
           args.getMavenCoords(),
           args.getMavenPomTemplate());
     }
+  }
+
+  @Override
+  public void findDepsForTargetFromConstructorArgs(
+      BuildTarget buildTarget,
+      CellPathResolver cellRoots,
+      KotlinLibraryDescriptionArg constructorArg,
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
   }
 
   public enum AnnotationProcessingTool {

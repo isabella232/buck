@@ -79,6 +79,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -113,7 +114,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
   private final Tool javaRuntimeLauncher;
 
-  private final ImmutableList<String> vmArgs;
+  private final ImmutableList<Arg> vmArgs;
 
   private final ImmutableMap<String, String> nativeLibsEnvironment;
 
@@ -158,7 +159,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Set<String> contacts,
       TestType testType,
       Tool javaRuntimeLauncher,
-      List<String> vmArgs,
+      List<Arg> vmArgs,
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
       Optional<Long> testCaseTimeoutMs,
@@ -231,7 +232,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     ImmutableList<String> properVmArgs =
         amendVmArgs(
-            this.vmArgs,
+            Arg.stringify(this.vmArgs, pathResolver),
             pathResolver,
             executionContext.getTargetDevice(),
             options.getJavaTempDir());
@@ -429,7 +430,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 .getPathForRelativePath(getPathToTestOutputDirectory().resolve(path));
         if (!isUsingTestSelectors && !Files.isRegularFile(testResultFile)) {
           String message;
-          for (JUnitStep junit : Preconditions.checkNotNull(junits)) {
+          for (JUnitStep junit : Objects.requireNonNull(junits)) {
             if (junit.hasTimedOut()) {
               message = "test timed out before generating results file";
             } else {

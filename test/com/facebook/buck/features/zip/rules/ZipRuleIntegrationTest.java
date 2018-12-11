@@ -16,27 +16,29 @@
 
 package com.facebook.buck.features.zip.rules;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.ExitCode;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 
 public class ZipRuleIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
-  @Rule public ExpectedException expectedException = ExpectedException.none();
 
   @Test
   public void shouldZipSources() throws IOException {
@@ -134,6 +136,86 @@ public class ZipRuleIntegrationTest {
   }
 
   @Test
+  public void shouldExcludeEverything() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:excludeall");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipArchiveEntry cake = zipFile.getEntry("cake.txt");
+      assertThat(cake, Matchers.nullValue());
+      ZipArchiveEntry taco = zipFile.getEntry("menu.txt");
+      assertThat(taco, Matchers.nullValue());
+    }
+  }
+
+  @Test
+  public void shouldExcludeNothing() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:excludenothing");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipArchiveEntry cake = zipFile.getEntry("cake.txt");
+      assertThat(cake, Matchers.notNullValue());
+      ZipArchiveEntry taco = zipFile.getEntry("menu.txt");
+      assertThat(taco, Matchers.notNullValue());
+    }
+  }
+
+  @Test
+  public void shouldExcludeNothingInSubDirectory() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:excludesnothinginsubfolder");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipArchiveEntry cake = zipFile.getEntry("cake.txt");
+      assertThat(cake, Matchers.notNullValue());
+      ZipArchiveEntry cheesy = zipFile.getEntry("beans/cheesy.txt");
+      assertThat(cheesy, Matchers.notNullValue());
+    }
+  }
+
+  @Test
+  public void shouldExcludeOneFileInSubDirectory() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:excludesexactmatchinsubfolder");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipArchiveEntry cake = zipFile.getEntry("cake.txt");
+      assertThat(cake, Matchers.notNullValue());
+      ZipArchiveEntry cheesy = zipFile.getEntry("beans/cheesy.txt");
+      assertThat(cheesy, Matchers.nullValue());
+    }
+  }
+
+  @Test
+  public void shouldExcludeOnlyCake() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:excludecake");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipArchiveEntry cake = zipFile.getEntry("cake.txt");
+      assertThat(cake, Matchers.nullValue());
+      ZipArchiveEntry taco = zipFile.getEntry("menu.txt");
+      assertThat(taco, Matchers.notNullValue());
+    }
+  }
+
+  @Test
   public void shouldUnpackContentsOfZipSources() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
@@ -159,11 +241,11 @@ public class ZipRuleIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
     workspace.setUp();
 
-    expectedException.expect(java.lang.IllegalArgumentException.class);
-    expectedException.expectMessage(
-        Matchers.containsString("Illegal to define merge_source_zips when zip_srcs is present"));
-
-    workspace.runBuckBuild("//example:zipbreak");
+    ProcessResult processResult = workspace.runBuckBuild("//example:zipbreak");
+    processResult.assertExitCode(ExitCode.FATAL_GENERIC);
+    assertThat(
+        processResult.getStderr(),
+        containsString("Illegal to define merge_source_zips when zip_srcs is present"));
   }
 
   @Test
@@ -177,6 +259,60 @@ public class ZipRuleIntegrationTest {
     try (ZipFile zipFile = new ZipFile(zip.toFile())) {
       ZipInspector inspector = new ZipInspector(zip);
       inspector.assertFileDoesNotExist("taco.txt");
+    }
+  }
+
+  @Test
+  public void shouldExcludeFromRegularZip() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:exclude_from_zip");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipInspector inspector = new ZipInspector(zip);
+      inspector.assertFileDoesNotExist("cake.txt");
+    }
+  }
+
+  @Test
+  public void shouldCopyFromGenruleOutput() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:copy_zip");
+
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipInspector inspector = new ZipInspector(zip);
+      inspector.assertFileExists("copy_out/cake.txt");
+    }
+  }
+
+  @Test
+  public void shouldOverwriteDuplicates() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:overwrite_duplicates");
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipInspector inspector = new ZipInspector(zip);
+      inspector.assertFileContents(Paths.get("cake.txt"), "Cake :)");
+    }
+  }
+
+  @Test
+  public void testOrderInZipSrcsAffectsResults() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "zip-rule", tmp);
+    workspace.setUp();
+
+    Path zip = workspace.buildAndReturnOutput("//example:overwrite_duplicates_in_different_order");
+    try (ZipFile zipFile = new ZipFile(zip.toFile())) {
+      ZipInspector inspector = new ZipInspector(zip);
+      inspector.assertFileContents(Paths.get("cake.txt"), "Guten Tag");
     }
   }
 }

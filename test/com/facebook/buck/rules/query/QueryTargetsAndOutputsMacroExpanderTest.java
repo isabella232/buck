@@ -31,10 +31,10 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.QueryTargetsAndOutputsMacroExpander;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.HashMapWithStats;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
@@ -64,7 +64,7 @@ public class QueryTargetsAndOutputsMacroExpanderTest {
   private HashMapWithStats<MacroMatchResult, Object> cache;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     cache = new HashMapWithStats<>();
     expander = new QueryTargetsAndOutputsMacroExpander(Optional.empty());
     handler = new MacroHandler(ImmutableMap.of("query_targets_and_outputs", expander));

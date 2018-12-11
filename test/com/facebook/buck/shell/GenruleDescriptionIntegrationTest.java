@@ -25,11 +25,12 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.CharMatcher;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.Assume;
@@ -138,6 +139,16 @@ public class GenruleDescriptionIntegrationTest {
   }
 
   @Test
+  public void testRdepsQuery() throws Exception {
+    expectGenruleOutput(":echo_with_rdeps", ImmutableList.of("//:app", "//:lib_a", "//:lib_d"));
+  }
+
+  @Test
+  public void testRdepsQueryWithDepth1() throws Exception {
+    expectGenruleOutput(":echo_with_rdeps_1", ImmutableList.of("//:lib_a", "//:lib_d"));
+  }
+
+  @Test
   public void testQueryResultsAreInvalidatedWhenDirectDepChanges() throws Exception {
     // Build once to warm cache
     workspace.runBuckCommand("build", "//:echo_deps_of_a").assertSuccess();
@@ -216,6 +227,15 @@ public class GenruleDescriptionIntegrationTest {
         ImmutableList.of("//other:hidden", getOutputFile("//other:hidden").toString()));
   }
 
+  @Test
+  public void testQueryTargetsAndOutputsWithLabels() throws Exception {
+    expectGenruleOutput(
+        ":package_genrule",
+        ImmutableList.of(
+            getOutputFile("//:resources_a").toString(),
+            getOutputFile("//:resources_b").toString()));
+  }
+
   private void expectOutputPathsGenruleOutput(String genrule, List<String> expectedOutputs)
       throws Exception {
     expectGenruleOutput(
@@ -231,11 +251,9 @@ public class GenruleDescriptionIntegrationTest {
     ProcessResult buildResult = workspace.runBuckCommand("build", genrule);
     buildResult.assertSuccess();
 
-    String outputFileContents = workspace.getFileContents(getOutputFile(genrule));
+    String outputFileContents = workspace.getFileContents(getOutputFile(genrule)).trim();
     List<String> actualOutput =
-        Arrays.stream(outputFileContents.split("\\s"))
-            .map(String::trim)
-            .collect(Collectors.toList());
+        Splitter.on(CharMatcher.whitespace()).omitEmptyStrings().splitToList(outputFileContents);
     assertEquals(expectedOutputs, actualOutput);
   }
 

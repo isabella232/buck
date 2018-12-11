@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.httpserver.WebServer;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import java.io.IOException;
 import java.util.Optional;
@@ -50,7 +50,7 @@ public class ServerStatusCommandTest {
   }
 
   @Test
-  public void testWhenHttpserverRunning() throws IOException, InterruptedException {
+  public void testWhenHttpserverRunning() throws Exception {
     webServerPort = 9000;
 
     ServerStatusCommand command = new ServerStatusCommand();
@@ -60,7 +60,7 @@ public class ServerStatusCommandTest {
   }
 
   @Test
-  public void testWhenHttpserverNotRunning() throws IOException, InterruptedException {
+  public void testWhenHttpserverNotRunning() throws Exception {
     webServerPort = -1;
 
     ServerStatusCommand command = new ServerStatusCommand();
@@ -70,7 +70,7 @@ public class ServerStatusCommandTest {
   }
 
   @Test
-  public void testPrintJson() throws IOException, InterruptedException {
+  public void testPrintJson() throws Exception {
     webServerPort = 9000;
 
     ServerStatusCommand command = new ServerStatusCommand();

@@ -19,5 +19,5 @@ package com.facebook.buck.step;
 public enum ExecutorPool {
   CPU,
   NETWORK,
-  PROJECT,
+  PROJECT
 }

@@ -33,17 +33,15 @@ import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.Sl
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.versions.VersionException;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
@@ -53,6 +51,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 
 /** Initializes the build engine delegate, the target graph and the action graph. */
 public class DelegateAndGraphsInitializer {
@@ -70,7 +69,7 @@ public class DelegateAndGraphsInitializer {
                 () -> {
                   try {
                     return createDelegateAndGraphs();
-                  } catch (InterruptedException | IOException e) {
+                  } catch (InterruptedException e) {
                     LOG.error(
                         e, "Critical failure while creating the build engine delegate and graphs.");
                     throw new RuntimeException(e);
@@ -87,7 +86,7 @@ public class DelegateAndGraphsInitializer {
         delegateAndGraphs, x -> x.getActionGraphAndBuilder(), MoreExecutors.directExecutor());
   }
 
-  private DelegateAndGraphs createDelegateAndGraphs() throws IOException, InterruptedException {
+  private DelegateAndGraphs createDelegateAndGraphs() throws InterruptedException {
     LOG.info("Starting to preload source files.");
     StackedFileHashCaches stackedCaches = createStackedFileHashesAndPreload();
     LOG.info("Finished pre-loading source files.");
@@ -113,10 +112,10 @@ public class DelegateAndGraphsInitializer {
       DistBuildTargetGraphCodec codec = createGraphCodec();
       ImmutableMap<Integer, Cell> cells = args.getState().getCells();
       TargetGraphAndBuildTargets targetGraphAndBuildTargets =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
               codec.createTargetGraph(
                   args.getState().getRemoteState().getTargetGraph(),
-                  key -> Preconditions.checkNotNull(cells.get(key))));
+                  key -> Objects.requireNonNull(cells.get(key))));
 
       try {
         if (args.getState().getRemoteRootCellConfig().getBuildVersions()) {
@@ -146,9 +145,7 @@ public class DelegateAndGraphsInitializer {
   private ActionGraphAndBuilder createActionGraphAndResolver(TargetGraph targetGraph) {
     args.getTimingStatsTracker().startTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     try {
-      ActionGraphAndBuilder actionGraphAndBuilder =
-          args.getActionGraphProvider().getActionGraph(Preconditions.checkNotNull(targetGraph));
-      return actionGraphAndBuilder;
+      return args.getActionGraphProvider().getActionGraph(Objects.requireNonNull(targetGraph));
     } finally {
       args.getTimingStatsTracker().stopTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     }
@@ -162,7 +159,7 @@ public class DelegateAndGraphsInitializer {
     if (remoteConfig.materializeSourceFilesOnDemand()) {
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(
-              Preconditions.checkNotNull(actionGraphAndBuilder).getActionGraphBuilder());
+              Objects.requireNonNull(actionGraphAndBuilder).getActionGraphBuilder());
       cachingBuildEngineDelegate =
           new DistBuildCachingEngineDelegate(
               DefaultSourcePathResolver.from(ruleFinder),
@@ -213,20 +210,19 @@ public class DelegateAndGraphsInitializer {
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             args.getKnownRuleTypesProvider(),
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            new TargetNodeFactory(typeCoercerFactory),
-            new VisibilityPatternFactory(),
+            new DefaultConstructorArgMarshaller(typeCoercerFactory),
+            new TargetNodeFactory(
+                typeCoercerFactory, PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY),
             args.getRuleKeyConfiguration());
 
     return new DistBuildTargetGraphCodec(
-        Preconditions.checkNotNull(args.getExecutorService()),
+        Objects.requireNonNull(args.getExecutorService()),
         parserTargetNodeFactory,
         input -> {
           try {
             return args.getParser()
                 .getTargetNodeRawAttributes(
                     args.getState().getRootCell().getCell(input.getBuildTarget()),
-                    /* enableProfiling */ false,
                     args.getExecutorService(),
                     input);
           } catch (BuildFileParseException e) {
@@ -266,7 +262,7 @@ public class DelegateAndGraphsInitializer {
                       .createMaterializerAndPreload(
                           cache,
                           args.getProvider(),
-                          Preconditions.checkNotNull(args.getExecutors().get(ExecutorPool.CPU)));
+                          Objects.requireNonNull(args.getExecutors().get(ExecutorPool.CPU)));
                 } catch (IOException exception) {
                   throw new RuntimeException(
                       String.format(

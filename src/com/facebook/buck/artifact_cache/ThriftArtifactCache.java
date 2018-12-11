@@ -80,6 +80,9 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   private final BuildId buildId;
   private final int multiFetchLimit;
   private final int concurrencyLevel;
+  private final boolean multiCheckEnabled;
+  private final String producerId;
+  private final String producerHostname;
 
   public ThriftArtifactCache(
       NetworkCacheArgs args,
@@ -87,13 +90,19 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       boolean distributedBuildModeEnabled,
       BuildId buildId,
       int multiFetchLimit,
-      int concurrencyLevel) {
+      int concurrencyLevel,
+      boolean multiCheckEnabled,
+      String producerId,
+      String producerHostname) {
     super(args);
     this.buildId = buildId;
     this.multiFetchLimit = multiFetchLimit;
     this.concurrencyLevel = concurrencyLevel;
+    this.multiCheckEnabled = multiCheckEnabled;
     this.hybridThriftEndpoint = hybridThriftEndpoint;
     this.distributedBuildModeEnabled = distributedBuildModeEnabled;
+    this.producerId = producerId;
+    this.producerHostname = producerHostname;
   }
 
   @Override
@@ -377,6 +386,11 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
   }
 
   @Override
+  protected boolean isMultiCheckEnabled() {
+    return multiCheckEnabled;
+  }
+
+  @Override
   protected MultiFetchResult multiFetchImpl(Iterable<FetchRequest> requests) throws IOException {
     ImmutableList<RuleKey> keys =
         RichStream.from(requests)
@@ -649,7 +663,15 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
 
     BuckCacheStoreRequest storeRequest = new BuckCacheStoreRequest();
     ArtifactMetadata artifactMetadata =
-        infoToMetadata(info, artifact, getRepository(), scheduleType, distributedBuildModeEnabled);
+        infoToMetadata(
+            info,
+            artifact,
+            getRepository(),
+            scheduleType,
+            distributedBuildModeEnabled,
+            producerId,
+            producerHostname,
+            artifact.size());
     storeRequest.setMetadata(artifactMetadata);
     PayloadInfo payloadInfo = new PayloadInfo();
     long artifactSizeBytes = artifact.size();
@@ -721,7 +743,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       ByteSource file,
       String repository,
       String scheduleType,
-      boolean distributedBuildModeEnabled)
+      boolean distributedBuildModeEnabled,
+      String producerId,
+      String producerHostname,
+      long artifactSize)
       throws IOException {
     ArtifactMetadata metadata = new ArtifactMetadata();
     if (info.getBuildTarget().isPresent()) {
@@ -744,6 +769,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     metadata.setRepository(repository);
     metadata.setScheduleType(scheduleType);
     metadata.setDistributedBuildModeEnabled(distributedBuildModeEnabled);
+    metadata.setProducerId(producerId);
+    metadata.setProducerHostname(producerHostname);
+    metadata.setBuildTimeMs(info.getBuildTimeMs());
+    metadata.setSizeBytes(artifactSize);
 
     return metadata;
   }

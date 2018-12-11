@@ -21,7 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -37,7 +37,7 @@ public class ManifestEntriesTypeCoercerTest {
   private Path basePath = Paths.get("java/com/facebook/buck/example");
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     DefaultTypeCoercerFactory factory = new DefaultTypeCoercerFactory();
     TypeCoercer<?> typeCoercer = factory.typeCoercerForType(ManifestEntries.class);
     assertTrue(typeCoercer instanceof ManifestEntriesTypeCoercer);

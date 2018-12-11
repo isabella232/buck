@@ -63,7 +63,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final SourcePath main;
   @AddToRuleKey private final ImmutableSet<SourcePath> resources;
-  private CellPathResolver cellRoots;
+  private final CellPathResolver cellRoots;
 
   /** The path where the output will be written. */
   private final Path output;
@@ -140,7 +140,7 @@ public class ShBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     // Configure the template output.
     ImmutableMap.Builder<String, Object> valuesBuilder = ImmutableMap.builder();
-    valuesBuilder.put("path_to_project_root", Escaper.escapeAsBashString(pathToProjectRoot));
+    valuesBuilder.put("path_to_project_root_file", Escaper.escapeAsBashString(pathToProjectRoot));
     valuesBuilder.put(
         "script_to_run",
         Escaper.escapeAsBashString(context.getSourcePathResolver().getRelativePath(main)));

@@ -260,7 +260,7 @@ public class SwiftLibraryDescription
       CxxPreprocessorInput inputs =
           CxxPreprocessorInput.concat(
               CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                  cxxPlatform, graphBuilder, params.getBuildDeps()));
+                  cxxPlatform, graphBuilder, params.getBuildDeps(), x -> true));
       PreprocessorFlags cxxDeps =
           PreprocessorFlags.of(
               Optional.empty(),
@@ -408,6 +408,7 @@ public class SwiftLibraryDescription
 
     SwiftLibraryDescriptionArg.Builder delegateArgsBuilder = SwiftLibraryDescriptionArg.builder();
     SwiftDescriptions.populateSwiftLibraryDescriptionArg(
+        swiftBuckConfig,
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)),
         delegateArgsBuilder,
         args,
@@ -440,7 +441,6 @@ public class SwiftLibraryDescription
     args.getSrcs().forEach(src -> srcsDepsBuilder.add(src));
     BuildRuleParams paramsWithSrcDeps = params.copyAppendingExtraDeps(srcsDepsBuilder.build());
 
-    BuildTarget buildTargetCopy = buildTarget;
     return new SwiftCompile(
         cxxPlatform,
         swiftBuckConfig,
@@ -457,7 +457,7 @@ public class SwiftLibraryDescription
             .map(
                 f ->
                     CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                        buildTargetCopy, cellRoots, graphBuilder, cxxPlatform, f))
+                        buildTarget, cellRoots, graphBuilder, cxxPlatform, f))
             .toImmutableList(),
         args.getEnableObjcInterop(),
         args.getBridgingHeader(),

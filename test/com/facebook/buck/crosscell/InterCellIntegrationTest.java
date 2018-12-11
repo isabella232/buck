@@ -43,6 +43,7 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.jvm.java.testutil.Bootclasspath;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -199,7 +200,7 @@ public class InterCellIntegrationTest {
   }
 
   @Test
-  public void xCellCxxLibraryBuildsShouldBeHermetic() throws InterruptedException, IOException {
+  public void xCellCxxLibraryBuildsShouldBeHermetic() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     Pair<ProjectWorkspace, ProjectWorkspace> cells =
@@ -270,7 +271,7 @@ public class InterCellIntegrationTest {
         prepare("inter-cell/java/primary", "inter-cell/java/secondary");
     ProjectWorkspace primary = cells.getFirst();
 
-    String systemBootclasspath = System.getProperty("sun.boot.class.path");
+    String systemBootclasspath = Bootclasspath.getSystemBootclasspath();
     ProcessResult result =
         primary.runBuckBuild(
             "//:java-binary",
@@ -429,12 +430,13 @@ public class InterCellIntegrationTest {
     TestDataHelper.overrideBuckconfig(
         secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
 
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(
-        "Overridden cxx:cc path not found: /does/not/exist\n\n"
-            + "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'");
-    // This should throw
-    primary.runBuckBuild("//:cxxbinary");
+    ProcessResult processResult = primary.runBuckBuild("//:cxxbinary");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        containsString(
+            "Overridden cxx:cc path not found: /does/not/exist\n\n"
+                + "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'"));
   }
 
   @Test
@@ -562,9 +564,6 @@ public class InterCellIntegrationTest {
 
   @Test
   public void childCellWithCellMappingNotInRootCellShouldThrowError() throws IOException {
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage("repositories.third must exist in the root cell's cell mappings.");
-
     ProjectWorkspace root = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace second = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace third = createWorkspace("inter-cell/validation/root");
@@ -572,7 +571,11 @@ public class InterCellIntegrationTest {
     registerCell(second, "third", third);
 
     // should fail since "third" is not specified in root
-    root.runBuckBuild("//:dummy");
+    ProcessResult processResult = root.runBuckBuild("//:dummy");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        containsString("repositories.third must exist in the root cell's cell mappings."));
   }
 
   @Test
@@ -591,10 +594,6 @@ public class InterCellIntegrationTest {
 
   @Test
   public void childCellWithCellMappingThatDiffersFromRootCellShouldThrowError() throws IOException {
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(
-        "repositories.third must point to the same directory as the root cell's cell "
-            + "mapping:");
     ProjectWorkspace root = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace second = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace third = createWorkspace("inter-cell/validation/root");
@@ -603,7 +602,13 @@ public class InterCellIntegrationTest {
     registerCell(root, "third", second);
 
     // should fail since we mapped "third" to wrong cell
-    root.runBuckBuild("//:dummy");
+    ProcessResult processResult = root.runBuckBuild("//:dummy");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        containsString(
+            "repositories.third must point to the same directory as the root cell's cell "
+                + "mapping:"));
   }
 
   @Test
@@ -876,6 +881,15 @@ public class InterCellIntegrationTest {
     secondary.runBuckBuild("primary//:hello").assertSuccess();
   }
 
+  @Test
+  public void crossCellBinarySharedLinkCanRun() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/cxx_binary_shared/primary", "inter-cell/cxx_binary_shared/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    primary.runBuckCommand("run", "secondary//:main").assertSuccess();
+  }
+
   private static String sortLines(String input) {
     return RichStream.from(Splitter.on('\n').trimResults().omitEmptyStrings().split(input))
         .sorted()
@@ -912,6 +926,11 @@ public class InterCellIntegrationTest {
         ImmutableMap.of(
             "repositories",
             ImmutableMap.of(
-                cellName, cellToRegisterAsCellName.getPath(".").normalize().toString())));
+                cellName,
+                cellToModifyConfigOf
+                    .getDestPath()
+                    .relativize(cellToRegisterAsCellName.getPath("."))
+                    .normalize()
+                    .toString())));
   }
 }

@@ -1,3 +1,18 @@
+/*
+ * Copyright 2018-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
 {namespace buck}
 
 /**
@@ -406,6 +421,18 @@ docsearch({
 {/if}
 {/template}
 
+/**
+ * @param? rendered_text  Optionally, specify the rendered text for the
+ *                        link. If not specified, the rendered text is 
+ *                        "Key Concepts".
+ */
+{template .key_concepts_link}
+  {if $rendered_text}
+    <a href="{ROOT}about/overview.html">{$rendered_text}</a>
+  {else}
+    <a href="{ROOT}about/overview.html">Key Concepts</a>
+  {/if}
+{/template}
 
 /**
  * @param name
@@ -605,6 +632,11 @@ docsearch({
 {/template}
 
 /***/
+{template .cxx_genrule}
+{call .ruleLink}{param name : 'cxx_genrule' /}{/call}
+{/template}
+
+/***/
 {template .cxx_library}
 {call .ruleLink}{param name : 'cxx_library' /}{/call}
 {/template}
@@ -687,9 +719,10 @@ docsearch({
 /**
  * @param page
  * @param name
+ * @param? navid
  */
 {template .concept_link}
-<a href="{ROOT}concept/{$page}.html">{$name}</a>
+<a href="{ROOT}concept/{$page}.html{if isNonnull($navid)}#{$navid}{/if}">{$name|noAutoescape}</a>
 {/template}
 
 /**
@@ -739,6 +772,11 @@ docsearch({
 <a href="{ROOT}setup/intellij_plugin_build.html">Building the Buck Intellij Plugin</a>
 {/template}
 
+/***/
+{template .buckd}
+<a href="{ROOT}concept/buckd.html"><code>buckd</code></a>
+{/template}
+
 /**
  * @param name
  * @param? section
@@ -771,11 +809,6 @@ docsearch({
 {/template}
 
 /***/
-{template .cmd_buckd}
-<a href="{ROOT}command/buckd.html"><code>buckd</code></a>
-{/template}
-
-/***/
 {template .cmd_fetch}
 {call .cmd_link}{param name : 'fetch' /}{/call}
 {/template}
@@ -788,6 +821,11 @@ docsearch({
 /***/
 {template .cmd_install}
 {call .cmd_link}{param name : 'install' /}{/call}
+{/template}
+
+/***/
+{template .cmd_kill}
+{call .cmd_link}{param name : 'kill' /}{/call}
 {/template}
 
 /***/
@@ -806,6 +844,11 @@ docsearch({
 {/template}
 
 /***/
+{template .cmd_targets}
+{call .cmd_link}{param name: 'targets' /}{/call}
+{/template}
+
+/***/
 {template .cmd_test}
 {call .cmd_link}{param name: 'test' /}{/call}
 {/template}
@@ -821,8 +864,8 @@ docsearch({
 {/template}
 
 /***/
-{template .concept_buckconfig}
-<a href="{ROOT}concept/buckconfig.html"><code>.buckconfig</code></a>
+{template .buckconfig_link}
+<a href="{ROOT}files-and-dirs/buckconfig.html"><code>.buckconfig</code></a>
 {/template}
 
 /***/

@@ -38,9 +38,9 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
@@ -48,7 +48,7 @@ import org.junit.Test;
 public class AndroidInstrumentationApkTest {
 
   @Test
-  public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() throws Exception {
+  public void testAndroidInstrumentationApkExcludesClassesFromInstrumentedApk() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -129,7 +129,6 @@ public class AndroidInstrumentationApkTest {
                     new ProGuardConfig(FakeBuckConfig.builder().build()),
                     CxxPlatformUtils.DEFAULT_CONFIG,
                     new DxConfig(FakeBuckConfig.builder().build()),
-                    new ApkConfig(FakeBuckConfig.builder().build()),
                     toolchainProvider)
                 .createBuildRule(
                     TestBuildRuleCreationContextFactory.create(
