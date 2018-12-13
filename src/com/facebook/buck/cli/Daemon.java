@@ -44,6 +44,7 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.WatchedFileHashCache;
+import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.collect.ImmutableList;
@@ -77,6 +78,8 @@ final class Daemon implements Closeable {
   private final RuleKeyCacheRecycler<RuleKey> defaultRuleKeyFactoryCacheRecycler;
   private final ImmutableMap<Path, WatchmanCursor> cursor;
   private final KnownRuleTypesProvider knownRuleTypesProvider;
+  private final Clock clock;
+  private final long startTime;
 
   private final BackgroundTaskManager bgTaskManager;
 
@@ -84,7 +87,8 @@ final class Daemon implements Closeable {
       Cell rootCell,
       KnownRuleTypesProvider knownRuleTypesProvider,
       Watchman watchman,
-      Optional<WebServer> webServerToReuse) {
+      Optional<WebServer> webServerToReuse,
+      Clock clock) {
     this.rootCell = rootCell;
     this.fileEventBus = new EventBus("file-change-events");
 
@@ -144,8 +148,10 @@ final class Daemon implements Closeable {
     LOG.debug("Using Watchman Cursor: %s", cursor);
     persistentWorkerPools = new ConcurrentHashMap<>();
 
-    // todo(sch): have this read off config's flush_events
-    this.bgTaskManager = new AsyncBackgroundTaskManager(true);
+    this.bgTaskManager =
+        new AsyncBackgroundTaskManager(rootCell.getBuckConfig().getFlushEventsBeforeExit());
+    this.clock = clock;
+    this.startTime = clock.currentTimeMillis();
   }
 
   Cell getRootCell() {
@@ -318,5 +324,10 @@ final class Daemon implements Closeable {
         LOG.error(e);
       }
     }
+  }
+
+  /** @return the length of time in millis since this daemon was started */
+  public long getUptime() {
+    return clock.currentTimeMillis() - startTime;
   }
 }

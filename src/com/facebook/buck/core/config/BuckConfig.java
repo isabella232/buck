@@ -116,7 +116,9 @@ public class BuckConfig {
             "log_build_id_to_console_enabled",
             "build_details_template"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of("ide_prompt"));
-    ignoreFieldsForDaemonRestartBuilder.put("ui", ImmutableSet.of("superconsole"));
+    ignoreFieldsForDaemonRestartBuilder.put(
+        "ui",
+        ImmutableSet.of("superconsole", "thread_line_limit", "thread_line_output_max_columns"));
     ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
     IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
   }
@@ -1002,5 +1004,9 @@ public class BuckConfig {
 
   public Optional<String> getBuildDetailsTemplate() {
     return config.get("log", "build_details_template");
+  }
+
+  public ProjectFilesystem getFilesystem() {
+    return projectFilesystem;
   }
 }

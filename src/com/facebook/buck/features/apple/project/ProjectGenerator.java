@@ -1288,11 +1288,10 @@ public class ProjectGenerator {
       FluentIterable<TargetNode<?>> depTargetNodes = collectRecursiveLibraryDepTargets(targetNode);
 
       if (includeFrameworks && isFocusedOnTarget) {
-        ImmutableSet.Builder<FrameworkPath> frameworksBuilder = ImmutableSet.builder();
-        frameworksBuilder.addAll(collectRecursiveFrameworkDependencies(targetNode));
-        frameworksBuilder.addAll(targetNode.getConstructorArg().getFrameworks());
-        frameworksBuilder.addAll(targetNode.getConstructorArg().getLibraries());
-        mutator.setFrameworks(frameworksBuilder.build());
+
+        if (!options.shouldAddLinkedLibrariesAsFlags()) {
+          mutator.setFrameworks(getSytemFrameworksLibsForTargetNode(targetNode));
+        }
 
         ImmutableSet<PBXFileReference> targetNodeDeps =
             filterRecursiveLibraryDependenciesForLinkerPhase(depTargetNodes);
@@ -1751,7 +1750,8 @@ public class ProjectGenerator {
               generateConfigKey("OTHER_LDFLAGS", platform),
               Streams.stream(
                       Iterables.transform(
-                          Iterables.concat(platformLinkerFlags.get(platform)),
+                          Iterables.concat(
+                              otherLdFlags, Iterables.concat(platformLinkerFlags.get(platform))),
                           Escaper.BASH_ESCAPER::apply))
                   .collect(Collectors.joining(" ")));
         }
@@ -1815,6 +1815,15 @@ public class ProjectGenerator {
     return target;
   }
 
+  private ImmutableSet<FrameworkPath> getSytemFrameworksLibsForTargetNode(
+      TargetNode<? extends CommonArg> targetNode) {
+    ImmutableSet.Builder<FrameworkPath> frameworksBuilder = ImmutableSet.builder();
+    frameworksBuilder.addAll(collectRecursiveFrameworkDependencies(targetNode));
+    frameworksBuilder.addAll(targetNode.getConstructorArg().getFrameworks());
+    frameworksBuilder.addAll(targetNode.getConstructorArg().getLibraries());
+    return frameworksBuilder.build();
+  }
+
   /**
    * Subdivide the various deps and write out to the xcconfig file for scripts to post process if
    * needed*
@@ -1834,6 +1843,10 @@ public class ProjectGenerator {
     FluentIterable<TargetNode<?>> filteredDeps =
         collectRecursiveLibraryDepsMinusBundleLoaderDeps(
             targetNode, depTargetNodes, bundleLoaderNode);
+
+    ImmutableSet<FrameworkPath> systemFwkOrLibs = getSytemFrameworksLibsForTargetNode(targetNode);
+    ImmutableList<String> systemFwkOrLibFlags =
+        collectSystemLibraryAndFrameworkLinkerFlags(systemFwkOrLibs);
 
     if (options.shouldForceLoadLinkWholeLibraries() || options.shouldAddLinkedLibrariesAsFlags()) {
       ImmutableList<String> forceLoadLocal =
@@ -1924,7 +1937,10 @@ public class ProjectGenerator {
               Streams.stream(focusedFrameworkFlags).collect(Collectors.joining(" ")))
           .put(
               "BUCK_LINKER_FLAGS_FRAMEWORK_OTHER",
-              Streams.stream(otherFrameworkFlags).collect(Collectors.joining(" ")));
+              Streams.stream(otherFrameworkFlags).collect(Collectors.joining(" ")))
+          .put(
+              "BUCK_LINKER_FLAGS_SYSTEM",
+              Streams.stream(systemFwkOrLibFlags).collect(Collectors.joining(" ")));
     }
 
     Stream<String> otherLdFlagsStream = Streams.stream(otherLdFlags).map(Escaper.BASH_ESCAPER);
@@ -1935,6 +1951,7 @@ public class ProjectGenerator {
           Streams.concat(
                   otherLdFlagsStream,
                   Stream.of(
+                      "$BUCK_LINKER_FLAGS_SYSTEM",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_FOCUSED",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_OTHER",
@@ -1962,6 +1979,7 @@ public class ProjectGenerator {
           Streams.concat(
                   otherLdFlagsStream,
                   Stream.of(
+                      "$BUCK_LINKER_FLAGS_SYSTEM",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_LOCAL",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_FOCUSED",
                       "$BUCK_LINKER_FLAGS_FRAMEWORK_OTHER",
@@ -3229,7 +3247,12 @@ public class ProjectGenerator {
       builder.add(
           getHeaderSearchPathFromSymlinkTreeRoot(
               getHeaderSymlinkTreePath(targetNode, HeaderVisibility.PRIVATE)));
-      builder.add(getHeaderSearchPathFromSymlinkTreeRoot(getRelativePathToMergedHeaderMap()));
+      if (options.shouldUseAbsoluteHeaderMapPaths()) {
+        builder.add(
+            getHeaderSearchPathFromSymlinkTreeRoot(getPathToMergedHeaderMap().toAbsolutePath()));
+      } else {
+        builder.add(getHeaderSearchPathFromSymlinkTreeRoot(getRelativePathToMergedHeaderMap()));
+      }
       visitRecursivePrivateHeaderSymlinkTreesForTests(
           targetNode,
           (nativeNode, headerVisibility) -> {
@@ -3741,6 +3764,16 @@ public class ProjectGenerator {
     }
   }
 
+  private ImmutableList<String> collectSystemLibraryAndFrameworkLinkerFlags(
+      ImmutableSet<FrameworkPath> paths) {
+    FluentIterable<FrameworkPath> pathList = FluentIterable.from(paths);
+    return pathList
+        .transform(fwkOrLib -> getSystemFrameworkOrLibraryLinkerFlag(fwkOrLib))
+        .filter(Optional::isPresent)
+        .transform(input -> input.get())
+        .toList();
+  }
+
   private ImmutableList<String> collectLibraryLinkerFlags(
       FluentIterable<TargetNode<?>> targetNodes) {
     return targetNodes
@@ -3799,6 +3832,34 @@ public class ProjectGenerator {
     } else {
       return Optional.empty();
     }
+  }
+
+  private Optional<String> getSystemFrameworkOrLibraryLinkerFlag(FrameworkPath framework) {
+
+    SourceTreePath sourceTreePath;
+    if (framework.getSourceTreePath().isPresent()) {
+      sourceTreePath = framework.getSourceTreePath().get();
+    } else if (framework.getSourcePath().isPresent()) {
+      sourceTreePath =
+          new SourceTreePath(
+              PBXReference.SourceTree.SOURCE_ROOT,
+              pathRelativizer.outputPathToSourcePath(framework.getSourcePath().get()),
+              Optional.empty());
+    } else {
+      return Optional.empty();
+    }
+
+    String nameWithoutExtension = MorePaths.getNameWithoutExtension(sourceTreePath.getPath());
+
+    if (nameWithoutExtension.length() > 0) {
+      String libraryPrefix = "lib";
+      if (nameWithoutExtension.startsWith(libraryPrefix)) {
+        return Optional.of("-l" + nameWithoutExtension.substring(libraryPrefix.length()));
+      } else {
+        return Optional.of("-framework " + nameWithoutExtension);
+      }
+    }
+    return Optional.empty();
   }
 
   private Optional<String> getLibraryLinkerFlag(TargetNode<?> targetNode) {

@@ -82,6 +82,7 @@ import com.facebook.buck.event.listener.RuleKeyLoggerListener;
 import com.facebook.buck.event.listener.SimpleConsoleEventBusListener;
 import com.facebook.buck.event.listener.SuperConsoleConfig;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
 import com.facebook.buck.io.ExecutableFinder;
@@ -111,6 +112,9 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
+import com.facebook.buck.remoteexecution.RemoteExecutionConsoleLineProvider;
+import com.facebook.buck.remoteexecution.RemoteExecutionEventListener;
+import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -122,7 +126,7 @@ import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.support.bgtasks.AsyncBackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.support.cli.args.BuckArgsMethods;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -222,6 +226,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
@@ -233,6 +238,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 import org.kohsuke.args4j.CmdLineException;
@@ -616,7 +622,6 @@ public final class Main {
     // If this command is not read only, acquire the command semaphore to become the only executing
     // read/write command. Early out will also help to not rotate log on each BUSY status which
     // happens in setupLogging().
-    boolean shouldCleanUpTrash = false;
     try (CloseableWrapper<Semaphore> semaphore = getSemaphoreWrapper(command)) {
       if (!command.isReadOnly() && semaphore == null) {
         LOG.warn("Buck server was busy executing a command. Maybe retrying later will help.");
@@ -709,7 +714,6 @@ public final class Main {
               filesystem.getBuckPaths().getGenDir(),
               filesystem.getBuckPaths().getScratchDir(),
               filesystem.getBuckPaths().getResDir());
-          shouldCleanUpTrash = true;
           filesystem.mkdirs(filesystem.getBuckPaths().getCurrentVersionFile().getParent());
           filesystem.writeContentsToPath(
               ruleKeyConfiguration.getCoreKey(), filesystem.getBuckPaths().getCurrentVersionFile());
@@ -776,10 +780,10 @@ public final class Main {
           context.isPresent() && (watchman != WatchmanFactory.NULL_WATCHMAN)
               ? Optional.of(
                   daemonLifecycleManager.getDaemon(
-                      rootCell, knownRuleTypesProvider, watchman, console))
+                      rootCell, knownRuleTypesProvider, watchman, console, clock))
               : Optional.empty();
 
-      if (!daemon.isPresent() && shouldCleanUpTrash) {
+      if (!daemon.isPresent()) {
         // Clean up the trash on a background thread if this was a
         // non-buckd read-write command. (We don't bother waiting
         // for it to complete; the thread is a daemon thread which
@@ -788,15 +792,14 @@ public final class Main {
       }
 
       BackgroundTaskManager bgTaskManager;
-      // todo(sch): have blocking read off config's flush_events
-      boolean blocking = true;
+      boolean blocking = rootCell.getBuckConfig().getFlushEventsBeforeExit();
       if (!blocking && !daemon.isPresent()) {
         LOG.warn(
             "Manager cannot be async (as currently set in config) when not on daemon. Initializing blocking manager.");
       }
       bgTaskManager =
           daemon.map((d) -> d.getBgTaskManager()).orElse(new AsyncBackgroundTaskManager(true));
-      bgTaskManager.notify(Notification.COMMAND_START);
+      TaskManagerScope managerScope = bgTaskManager.getNewScope(buildId);
 
       ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
 
@@ -875,6 +878,12 @@ public final class Main {
               args,
               unexpandedCommandLineArgs,
               filesystem.getBuckPaths().getLogDir());
+
+      RemoteExecutionConfig remoteExecutionConfig = buckConfig.getView(RemoteExecutionConfig.class);
+      Optional<RemoteExecutionEventListener> remoteExecutionListener =
+          remoteExecutionConfig.isSuperConsoleEnabled()
+              ? Optional.of(new RemoteExecutionEventListener())
+              : Optional.empty();
 
       try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
               GlobalStateManager.singleton()
@@ -962,7 +971,9 @@ public final class Main {
                     filesystem.getBuckPaths().getLogDir().resolve("test.log"),
                     buildId,
                     buckConfig.isLogBuildIdToConsoleEnabled(),
-                    buckConfig.getBuildDetailsTemplate());
+                    buckConfig.getBuildDetailsTemplate(),
+                    createAdditionalConsoleLinesProviders(
+                        remoteExecutionListener, remoteExecutionConfig));
             // This makes calls to LOG.error(...) post to the EventBus, instead of writing to
             // stderr.
             Closeable logErrorToEventBus =
@@ -995,7 +1006,7 @@ public final class Main {
                     httpWriteExecutorService.get(),
                     httpFetchExecutorService.get(),
                     stampedeSyncBuildHttpFetchExecutorService.get(),
-                    bgTaskManager);
+                    managerScope);
 
             // Once command completes it should be safe to not wait for executors and other stateful
             // objects to terminate and release semaphore right away. It will help to retry
@@ -1070,7 +1081,8 @@ public final class Main {
                   consoleListener,
                   counterRegistry,
                   commandEventListeners,
-                  bgTaskManager);
+                  managerScope,
+                  remoteExecutionListener);
 
           if (buckConfig.isBuckConfigLocalWarningEnabled() && !console.getVerbosity().isSilent()) {
             ImmutableList<Path> localConfigFiles =
@@ -1142,7 +1154,9 @@ public final class Main {
               CommandEvent.started(
                   command.getDeclaredSubCommandName(),
                   remainingArgs,
-                  daemon.isPresent(),
+                  daemon.isPresent()
+                      ? OptionalLong.of(daemon.get().getUptime())
+                      : OptionalLong.empty(),
                   getBuckPID());
           buildEventBus.post(startedEvent);
 
@@ -1158,6 +1172,7 @@ public final class Main {
                   watchman,
                   knownRuleTypesProvider,
                   rootCell,
+                  command::getTargetPlatforms,
                   daemon,
                   buildEventBus,
                   forkJoinPoolSupplier,
@@ -1250,7 +1265,7 @@ public final class Main {
           // signal nailgun that we are not interested in client disconnect events anymore
           context.ifPresent(c -> c.removeAllClientListeners());
 
-          if (daemon.isPresent() && shouldCleanUpTrash) {
+          if (daemon.isPresent()) {
             // Clean up the trash in the background if this was a buckd
             // read-write command. (We don't bother waiting for it to
             // complete; the cleaner will ensure subsequent cleans are
@@ -1274,11 +1289,25 @@ public final class Main {
           // TODO(buck_team): refactor eventListeners for RAII
           flushAndCloseEventListeners(console, eventListeners);
 
-          bgTaskManager.notify(Notification.COMMAND_END);
+          managerScope.close();
         }
       }
     }
     return exitCode;
+  }
+
+  private ImmutableList<AdditionalConsoleLineProvider> createAdditionalConsoleLinesProviders(
+      Optional<RemoteExecutionEventListener> remoteExecutionListener,
+      RemoteExecutionConfig remoteExecutionConfig) {
+    if (!remoteExecutionListener.isPresent() || !remoteExecutionConfig.isSuperConsoleEnabled()) {
+      ImmutableList.of();
+    }
+
+    return ImmutableList.of(
+        new RemoteExecutionConsoleLineProvider(
+            remoteExecutionConfig.isSuperConsoleEnabledForCasStats(),
+            remoteExecutionConfig.isSuperConsoleEnabledForCasStats(),
+            remoteExecutionListener.get()));
   }
 
   /** Struct for the multiple values returned by {@link #getParserAndCaches}. */
@@ -1304,6 +1333,7 @@ public final class Main {
       Watchman watchman,
       KnownRuleTypesProvider knownRuleTypesProvider,
       Cell rootCell,
+      Supplier<ImmutableList<String>> targetPlatforms,
       Optional<Daemon> daemonOptional,
       BuckEventBus buildEventBus,
       CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier,
@@ -1367,7 +1397,8 @@ public final class Main {
                   buildEventBus),
               new TargetSpecResolver(),
               watchman,
-              buildEventBus);
+              buildEventBus,
+              targetPlatforms);
       daemon.getFileEventBus().register(daemon.getDaemonicParserState());
 
       parserAndCaches =
@@ -1402,7 +1433,8 @@ public final class Main {
                       buildEventBus),
                   new TargetSpecResolver(),
                   watchman,
-                  buildEventBus),
+                  buildEventBus,
+                  targetPlatforms),
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(
                   new VersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
@@ -1733,7 +1765,8 @@ public final class Main {
       AbstractConsoleEventBusListener consoleEventBusListener,
       CounterRegistry counterRegistry,
       Iterable<BuckEventListener> commandSpecificEventListeners,
-      BackgroundTaskManager bgTaskManager) {
+      TaskManagerScope managerScope,
+      Optional<RemoteExecutionEventListener> remoteExecutionListener) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(consoleEventBusListener)
@@ -1748,7 +1781,7 @@ public final class Main {
       try {
         ChromeTraceBuildListener chromeTraceBuildListener =
             new ChromeTraceBuildListener(
-                projectFilesystem, invocationInfo, clock, chromeTraceConfig, bgTaskManager);
+                projectFilesystem, invocationInfo, clock, chromeTraceConfig, managerScope);
         eventListenersBuilder.add(chromeTraceBuildListener);
         fileEventBus.ifPresent(bus -> bus.register(chromeTraceBuildListener));
       } catch (IOException e) {
@@ -1774,7 +1807,7 @@ public final class Main {
             invocationInfo.getLogFilePath(),
             invocationInfo.getLogDirectoryPath(),
             invocationInfo.getBuildId(),
-            bgTaskManager));
+            managerScope));
     if (buckConfig.isRuleKeyLoggerEnabled()) {
       eventListenersBuilder.add(
           new RuleKeyLoggerListener(
@@ -1782,7 +1815,7 @@ public final class Main {
               invocationInfo,
               MostExecutors.newSingleThreadExecutor(
                   new CommandThreadFactory(getClass().getName(), commonThreadFactoryState)),
-              bgTaskManager));
+              managerScope));
     }
 
     eventListenersBuilder.add(
@@ -1791,7 +1824,7 @@ public final class Main {
             invocationInfo,
             MostExecutors.newSingleThreadExecutor(
                 new CommandThreadFactory(getClass().getName(), commonThreadFactoryState)),
-            bgTaskManager));
+            managerScope));
 
     if (buckConfig.isMachineReadableLoggerEnabled()) {
       try {
@@ -1802,7 +1835,7 @@ public final class Main {
                 MostExecutors.newSingleThreadExecutor(
                     new CommandThreadFactory(getClass().getName(), commonThreadFactoryState)),
                 artifactCacheConfig.getArtifactCacheModes(),
-                bgTaskManager));
+                managerScope));
       } catch (FileNotFoundException e) {
         LOG.warn("Unable to open stream for machine readable log file.");
       }
@@ -1817,9 +1850,13 @@ public final class Main {
     if (buckConfig.isCriticalPathAnalysisEnabled()) {
       eventListenersBuilder.add(
           new BuildTargetDurationListener(
-              invocationInfo, projectFilesystem, buckConfig.getCriticalPathCount(), bgTaskManager));
+              invocationInfo, projectFilesystem, buckConfig.getCriticalPathCount(), managerScope));
     }
     eventListenersBuilder.addAll(commandSpecificEventListeners);
+
+    if (remoteExecutionListener.isPresent()) {
+      eventListenersBuilder.add(remoteExecutionListener.get());
+    }
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
     eventListeners.forEach(buckEventBus::register);
@@ -1848,7 +1885,8 @@ public final class Main {
       Path testLogPath,
       BuildId buildId,
       boolean printBuildId,
-      Optional<String> buildDetailsTemplate) {
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> remoteExecutionConsoleLineProvider) {
     if (config.isEnabled(console, Platform.detect())) {
       SuperConsoleEventBusListener superConsole =
           new SuperConsoleEventBusListener(
@@ -1862,7 +1900,8 @@ public final class Main {
               TimeZone.getDefault(),
               buildId,
               printBuildId,
-              buildDetailsTemplate);
+              buildDetailsTemplate,
+              remoteExecutionConsoleLineProvider);
       superConsole.startRenderScheduler(
           SUPER_CONSOLE_REFRESH_RATE.toMillis(), TimeUnit.MILLISECONDS);
       return superConsole;

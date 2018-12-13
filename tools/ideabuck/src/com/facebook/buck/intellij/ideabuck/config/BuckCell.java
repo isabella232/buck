@@ -17,14 +17,13 @@
 package com.facebook.buck.intellij.ideabuck.config;
 
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 
 /** Persistent per-cell preferences in a {@link com.intellij.openapi.project.Project}. */
 public class BuckCell {
   public String name = "";
   public String root = "$PROJECT_DIR$";
   public String buildFileName = "BUCK";
-
-  public static BuckCell DEFAULT_CELL = new BuckCell();
 
   /** Returns a copy of this cell. */
   public BuckCell copy() {
@@ -45,7 +44,7 @@ public class BuckCell {
 
   /** Sets the name of this cell. */
   public void setName(String name) {
-    this.name = name;
+    this.name = Preconditions.checkNotNull(name);
   }
 
   /**
@@ -61,7 +60,7 @@ public class BuckCell {
 
   /** Sets the root directory of this cell. */
   public void setRoot(String root) {
-    this.root = root;
+    this.root = Preconditions.checkNotNull(root);
   }
 
   /**
@@ -76,7 +75,7 @@ public class BuckCell {
 
   /** Sets the name of Buck files for this cell. */
   public void setBuildFileName(String buildFileName) {
-    this.buildFileName = buildFileName;
+    this.buildFileName = Preconditions.checkNotNull(buildFileName);
   }
 
   @Override

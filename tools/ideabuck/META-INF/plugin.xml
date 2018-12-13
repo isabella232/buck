@@ -1,30 +1,32 @@
-<idea-plugin version="2">
+<idea-plugin>
   <id>intellij.buck.plugin</id>
   <name>Buck for IDEA</name>
-  <version>3.5-SNAPSHOT</version>
+  <version>3.5.3-SNAPSHOT</version>
   <category>Build</category>
   <vendor email="fb-plugins@fb.com" url="www.facebook.com">Facebook, Inc.</vendor>
 
   <description><![CDATA[
-      An IntelliJ plugin for Buck build system.<br>
-      <h3>Features:</h3>
-      <ul>
-        <li>Syntax highlighting for BUCK file</li>
-        <li>Keywords auto completion</li>
-        <li>Go to buck file with one click</li>
-        <li>Go to to paths of dependencies with one click</li>
-        <li>Buck file formatter</li>
-        <li>Buck line commenter</li>
-        <li>Buck dependencies sorter</li>
-      </ul>
-    ]]></description>
+    An IntelliJ plugin for <a href="https://buckbuild.com">the Buck build system.</a>
+    <h3>Features:</h3>
+    <ul>
+      <li>Syntax highlighting for BUCK file</li>
+      <li>Keywords auto completion</li>
+      <li>Go to buck file with one click</li>
+      <li>Go to to paths of dependencies with one click</li>
+      <li>Buck file formatter</li>
+      <li>Buck line commenter</li>
+      <li>Buck dependencies sorter</li>
+    </ul>
+  ]]></description>
 
   <change-notes><![CDATA[
-<h3>3.5</h3>
+<h3>3.5.x</h3>
 <ul>
-  <li>Moved "Go to Buck file" action to Navigate menu and "Go To" popup menu.</li>
+  <li>Move "Go to Buck file" action to Navigate menu and "Go To" popup menu.</li>
   <li>Show warning about missing Buck server as a balloon.</li>
-  <li>Introduce project-level settings, stored in <code>.idea/ideabuck.xml</code></li>
+  <li>Add project-level settings, stored in <code>.idea/ideabuck.xml</code></li>
+  <li>Add limited support for cross-cell navigation in the editor.</li>
+  <li>Improved click-through navigation in the buck editor</li>
 </ul>
 
 <h3>3.4</h3>
@@ -203,6 +205,8 @@
     <lang.foldingBuilder
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.folding.BuckFoldingBuilder"/>
+    <codeInsight.unresolvedReferenceQuickFixProvider
+      implementation="com.facebook.buck.intellij.ideabuck.autodeps.BuckAutoDepsQuickFixProvider"/>
     <completion.contributor
       language="Buck"
       implementationClass="com.facebook.buck.intellij.ideabuck.completion.BuckCompletionContributor"/>
@@ -324,6 +328,11 @@
       <implementation-class>com.facebook.buck.intellij.ideabuck.config.BuckModule
       </implementation-class>
       <loadForDefaultProject/>
+    </component>
+    <component>
+      <implementation-class>
+        com.facebook.buck.intellij.ideabuck.util.BuckCellFinder
+      </implementation-class>
     </component>
     <component>
       <implementation-class>com.facebook.buck.intellij.ideabuck.config.BuckProjectSettingsProvider
