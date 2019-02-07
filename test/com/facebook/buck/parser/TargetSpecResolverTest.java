@@ -26,6 +26,7 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -35,16 +36,24 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.watchman.WatchmanFactory;
+import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.TargetSpecResolver.FlavorEnhancer;
+import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
@@ -78,6 +87,11 @@ public class TargetSpecResolverTest {
   private TargetSpecResolver targetNodeTargetSpecResolver;
   private FlavorEnhancer<TargetNode<?>> flavorEnhancer;
 
+  private static ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
+      getManifestSupplier() {
+    return ThrowingCloseableMemoizedSupplier.of(() -> null, ManifestService::close);
+  }
+
   @Before
   public void setUp() throws Exception {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "target_specs", tmp);
@@ -88,7 +102,7 @@ public class TargetSpecResolverTest {
     cell = new TestCellBuilder().setFilesystem(filesystem).build();
     eventBus = BuckEventBusForTests.newInstance();
     typeCoercerFactory = new DefaultTypeCoercerFactory();
-    constructorArgMarshaller = new ConstructorArgMarshaller(typeCoercerFactory);
+    constructorArgMarshaller = new DefaultConstructorArgMarshaller(typeCoercerFactory);
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
@@ -97,21 +111,26 @@ public class TargetSpecResolverTest {
     parserPythonInterpreterProvider =
         new ParserPythonInterpreterProvider(parserConfig, executableFinder);
     perBuildStateFactory =
-        new PerBuildStateFactory(
+        PerBuildStateFactory.createFactory(
             typeCoercerFactory,
             constructorArgMarshaller,
             knownRuleTypesProvider,
             parserPythonInterpreterProvider,
+            cell.getBuckConfig(),
             WatchmanFactory.NULL_WATCHMAN,
-            eventBus);
-    targetNodeTargetSpecResolver = new TargetSpecResolver();
+            eventBus,
+            getManifestSupplier(),
+            new FakeFileHashCache(ImmutableMap.of()),
+            new ParsingUnconfiguredBuildTargetFactory());
+
+    targetNodeTargetSpecResolver = new TargetSpecResolver(eventBus, WatchmanFactory.NULL_WATCHMAN);
     parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory);
     flavorEnhancer = (target, targetNode, targetType) -> target;
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(1));
   }
 
   @After
-  public void tearDown() throws Exception {
+  public void tearDown() {
     executorService.shutdown();
   }
 
@@ -186,18 +205,48 @@ public class TargetSpecResolverTest {
     assertThat(targets, equalTo(ImmutableList.of(ImmutableSet.of(foo), ImmutableSet.of(bar))));
   }
 
+  @Test
+  public void resolveTargetSpecsIgnoresBuckout() throws Exception {
+    Path buckout = filesystem.getBuckPaths().getBuckOut();
+    Path buckFile = cellRoot.resolve(buckout.resolve("BUCK"));
+    Files.createDirectories(buckFile.getParent());
+    Files.write(buckFile, "genrule(name='foo', out='foo', cmd='foo')".getBytes(UTF_8));
+
+    ImmutableList<ImmutableSet<BuildTarget>> targets =
+        resolve(
+            ImmutableList.of(
+                TargetNodePredicateSpec.of(
+                    BuildFileSpec.fromRecursivePath(buckout, cell.getRoot()))));
+    assertThat(targets, equalTo(ImmutableList.of(ImmutableSet.of())));
+  }
+
   private ImmutableList<ImmutableSet<BuildTarget>> resolve(Iterable<? extends TargetNodeSpec> specs)
       throws IOException, InterruptedException {
     PerBuildState state =
         perBuildStateFactory.create(
-            parser.getPermState(), executorService, cell, false, SpeculativeParsing.DISABLED);
+            parser.getPermState(),
+            executorService,
+            cell,
+            ImmutableList.of(),
+            false,
+            SpeculativeParsing.DISABLED);
     return targetNodeTargetSpecResolver.resolveTargetSpecs(
-        eventBus,
         cell,
-        WatchmanFactory.NULL_WATCHMAN,
         specs,
         flavorEnhancer,
-        state.getTargetNodeProviderForSpecResolver(),
+        new TargetNodeProviderForSpecResolver<TargetNode<?>>() {
+          @Override
+          public ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target)
+              throws BuildTargetException {
+            return state.getTargetNodeJob(target);
+          }
+
+          @Override
+          public ListenableFuture<ImmutableList<TargetNode<?>>> getAllTargetNodesJob(
+              Cell cell, Path buildFile) throws BuildTargetException {
+            return state.getAllTargetNodesJob(cell, buildFile);
+          }
+        },
         (spec, nodes) -> spec.filter(nodes));
   }
 }

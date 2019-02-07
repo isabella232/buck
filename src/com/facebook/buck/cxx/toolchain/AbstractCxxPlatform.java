@@ -70,6 +70,15 @@ interface AbstractCxxPlatform extends FlavorConvertible {
 
   List<String> getCudaflags();
 
+  // HIP is the compiler for AMD rocm tool chain
+  Optional<PreprocessorProvider> getHippp();
+
+  List<String> getHipppflags();
+
+  Optional<CompilerProvider> getHip();
+
+  List<String> getHipflags();
+
   Optional<PreprocessorProvider> getAsmpp();
 
   List<String> getAsmppflags();
@@ -89,6 +98,8 @@ interface AbstractCxxPlatform extends FlavorConvertible {
   List<String> getStripFlags();
 
   ArchiverProvider getAr();
+
+  ArchiveContents getArchiveContents();
 
   List<String> getArflags();
 
@@ -111,6 +122,8 @@ interface AbstractCxxPlatform extends FlavorConvertible {
   DebugPathSanitizer getAssemblerDebugPathSanitizer();
 
   HeaderVerification getHeaderVerification();
+
+  Optional<Boolean> getUseArgFile();
 
   /**
    * @return a map for macro names to their respective expansions, to be used to expand macro

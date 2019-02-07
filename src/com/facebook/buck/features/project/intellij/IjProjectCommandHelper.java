@@ -16,9 +16,10 @@
 
 package com.facebook.buck.features.project.intellij;
 
+import com.facebook.buck.cli.ProjectGeneratorParameters;
 import com.facebook.buck.cli.ProjectTestsMode;
-import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -28,6 +29,9 @@ import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPattern;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPatternParser;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBus;
@@ -55,6 +59,7 @@ import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.buck.versions.VersionedTargetGraphAndTargets;
@@ -69,6 +74,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 public class IjProjectCommandHelper {
@@ -81,6 +87,7 @@ public class IjProjectCommandHelper {
   private final ActionGraphProvider actionGraphProvider;
   private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
+  private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
   private final Cell cell;
   private final IjProjectConfig projectConfig;
   private final boolean enableParserProfiling;
@@ -99,6 +106,7 @@ public class IjProjectCommandHelper {
       ActionGraphProvider actionGraphProvider,
       InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
       Cell cell,
       IjProjectConfig projectConfig,
       boolean enableParserProfiling,
@@ -126,6 +134,7 @@ public class IjProjectCommandHelper {
     this.argsParser = argsParser;
 
     this.projectGeneratorParameters = projectGeneratorParameters;
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
   }
 
   public ExitCode parseTargetsAndRunProjectGenerator(List<String> arguments)
@@ -259,7 +268,7 @@ public class IjProjectCommandHelper {
   private ImmutableSet<BuildTarget> writeProjectAndGetRequiredBuildTargets(
       TargetGraphAndTargets targetGraphAndTargets) throws IOException {
     ActionGraphAndBuilder result =
-        Preconditions.checkNotNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
+        Objects.requireNonNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
 
     ActionGraphBuilder graphBuilder = result.getActionGraphBuilder();
 
@@ -403,6 +412,7 @@ public class IjProjectCommandHelper {
               buckEventBus,
               buckConfig,
               typeCoercerFactory,
+              unconfiguredBuildTargetFactory,
               explicitTestTargets);
     }
     return targetGraphAndTargets;
@@ -422,6 +432,43 @@ public class IjProjectCommandHelper {
     } else {
       nodes = projectRoots;
     }
-    return TargetGraphAndTargets.getExplicitTestTargets(nodes.iterator());
+    ImmutableSet<BuildTarget> tests =
+        TargetGraphAndTargets.getExplicitTestTargets(nodes.iterator());
+
+    return filterTests(
+        tests,
+        cell.getCellPathResolver(),
+        projectConfig.getIncludeTestPatterns(),
+        projectConfig.getExcludeTestPatterns());
+  }
+
+  public static ImmutableSet<BuildTarget> filterTests(
+      ImmutableSet<BuildTarget> testTargets,
+      CellPathResolver cellPathResolver,
+      ImmutableSet<String> includes,
+      ImmutableSet<String> excludes) {
+    BuildTargetPatternParser<BuildTargetPattern> parser =
+        BuildTargetPatternParser.forVisibilityArgument();
+    ImmutableSet<BuildTargetPattern> includePatterns =
+        getPatterns(parser, cellPathResolver, includes);
+    ImmutableSet<BuildTargetPattern> excludePatterns =
+        getPatterns(parser, cellPathResolver, excludes);
+    return RichStream.from(testTargets)
+        .filter(
+            test ->
+                (includePatterns.isEmpty()
+                        || includePatterns.stream().anyMatch(pattern -> pattern.matches(test)))
+                    && (excludePatterns.isEmpty()
+                        || excludePatterns.stream().noneMatch(pattern -> pattern.matches(test))))
+        .toImmutableSet();
+  }
+
+  private static ImmutableSet<BuildTargetPattern> getPatterns(
+      BuildTargetPatternParser<BuildTargetPattern> parser,
+      CellPathResolver cellPathResolver,
+      ImmutableSet<String> patterns) {
+    return RichStream.from(patterns)
+        .map(pattern -> parser.parse(cellPathResolver, pattern))
+        .toImmutableSet();
   }
 }

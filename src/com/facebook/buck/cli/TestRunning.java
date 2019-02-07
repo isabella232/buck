@@ -16,11 +16,17 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidBinary;
+import com.facebook.buck.android.AndroidInstrumentationApk;
+import com.facebook.buck.android.AndroidInstrumentationTest;
+import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -30,6 +36,7 @@ import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
@@ -42,9 +49,9 @@ import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
 import com.facebook.buck.jvm.java.JacocoConstants;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryWithTests;
+import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -86,6 +93,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -117,6 +125,7 @@ public class TestRunning {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public static int runTests(
       CommandRunnerParams params,
+      BuildRuleResolver ruleResolver,
       Iterable<TestRule> tests,
       ExecutionContext executionContext,
       TestRunningOptions options,
@@ -257,7 +266,7 @@ public class TestRunning {
               UUID testUUID =
                   testUUIDMap.get(
                       testResultSummary.getTestCaseName() + ":" + testResultSummary.getTestName());
-              Preconditions.checkNotNull(testUUID);
+              Objects.requireNonNull(testUUID);
               params.getBuckEventBus().post(TestSummaryEvent.finished(testUUID, testResultSummary));
             }
 
@@ -404,12 +413,19 @@ public class TestRunning {
         JavaBuckConfig javaBuckConfig = params.getBuckConfig().getView(JavaBuckConfig.class);
         DefaultJavaPackageFinder defaultJavaPackageFinder =
             javaBuckConfig.createDefaultJavaPackageFinder();
+
+        JavaOptions javaOptions = javaBuckConfig.getDefaultJavaOptions();
+        ToolProvider javaRuntimeProvider = javaOptions.getJavaRuntimeProvider();
+        Preconditions.checkState(
+            Iterables.isEmpty(javaRuntimeProvider.getParseTimeDeps()),
+            "Using a rule-defined java runtime does not currently support generating code coverage.");
+
         stepRunner.runStepForBuildTarget(
             executionContext,
             getReportCommand(
                 rulesUnderTestForCoverage,
                 defaultJavaPackageFinder,
-                javaBuckConfig.getDefaultJavaOptions().getJavaRuntimeLauncher(),
+                javaRuntimeProvider.resolve(ruleResolver),
                 params.getCell().getFilesystem(),
                 buildContext.getSourcePathResolver(),
                 ruleFinder,
@@ -562,6 +578,33 @@ public class TestRunning {
             ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
             if (depTests.contains(test.getBuildTarget())) {
               rulesUnderTest.add(dep);
+            }
+          }
+        }
+      }
+      if (test instanceof AndroidInstrumentationTest) {
+        // Look at the transitive dependencies for `tests` attribute that refers to this test.
+        AndroidInstrumentationTest androidInstrumentationTest = (AndroidInstrumentationTest) test;
+
+        HasInstallableApk apk = androidInstrumentationTest.getApk();
+        if (apk instanceof AndroidBinary) {
+          AndroidBinary androidBinary = (AndroidBinary) apk;
+          Iterable<JavaLibrary> transitiveDeps = androidBinary.getTransitiveClasspathDeps();
+
+          if (androidBinary instanceof AndroidInstrumentationApk) {
+            transitiveDeps =
+                Iterables.concat(
+                    transitiveDeps,
+                    ((AndroidInstrumentationApk) androidBinary)
+                        .getApkUnderTest()
+                        .getTransitiveClasspathDeps());
+          }
+          for (JavaLibrary dep : transitiveDeps) {
+            if (dep instanceof JavaLibraryWithTests) {
+              ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
+              if (depTests.contains(test.getBuildTarget())) {
+                rulesUnderTest.add(dep);
+              }
             }
           }
         }

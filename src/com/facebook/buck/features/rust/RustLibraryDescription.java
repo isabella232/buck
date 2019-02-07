@@ -154,8 +154,9 @@ public class RustLibraryDescription
         rustPlatform -> {
           ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
           RustCompileUtils.addFeatures(buildTarget, args.getFeatures(), rustcArgs);
-          rustcArgs.addAll(args.getRustcFlags());
+          RustCompileUtils.addTargetTripleForFlavor(rustPlatform.getFlavor(), rustcArgs);
           rustcArgs.addAll(rustPlatform.getRustLibraryFlags());
+          rustcArgs.addAll(args.getRustcFlags());
           return rustcArgs.build();
         };
 

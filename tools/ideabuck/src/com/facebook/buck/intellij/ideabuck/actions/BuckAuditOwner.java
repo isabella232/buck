@@ -35,6 +35,7 @@ public class BuckAuditOwner {
     ApplicationManager.getApplication()
         .executeOnPooledThread(
             new Runnable() {
+              @Override
               public void run() {
                 BuckBuildManager buildManager = BuckBuildManager.getInstance(project);
                 BuckModule buckModule = project.getComponent(BuckModule.class);
@@ -47,8 +48,7 @@ public class BuckAuditOwner {
                 buckModule.attach(targetsString.toString());
 
                 BuckCommandHandler handler =
-                    new ResultCallbackBuckHandler(
-                        project, project.getBaseDir(), BuckCommand.AUDIT_OWNER, futureCallback);
+                    new ResultCallbackBuckHandler(project, BuckCommand.AUDIT_OWNER, futureCallback);
                 for (String target : targets) {
                   handler.command().addParameter(target);
                 }

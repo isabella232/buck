@@ -30,24 +30,24 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.listener.RenderingConsole;
 import com.facebook.buck.event.listener.SuperConsoleConfig;
 import com.facebook.buck.event.listener.SuperConsoleEventBusListener;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -132,8 +132,7 @@ public class CacheCommandTest {
   }
 
   @Test
-  public void testRunCommandAndFetchArtifactsUnsuccessfully()
-      throws IOException, InterruptedException {
+  public void testRunCommandAndFetchArtifactsUnsuccessfully() throws Exception {
     final String ruleKeyHash = "b64009ae3762a42a1651c139ec452f0d18f48e21";
 
     ArtifactCache cache = new FakeArtifactCache(new RuleKey(ruleKeyHash), CacheResult.miss());
@@ -153,8 +152,7 @@ public class CacheCommandTest {
   }
 
   @Test
-  public void testRunCommandAndFetchArtifactsSuccessfullyAndSuperConsole()
-      throws IOException, InterruptedException {
+  public void testRunCommandAndFetchArtifactsSuccessfullyAndSuperConsole() throws Exception {
     final String ruleKeyHash = "b64009ae3762a42a1651c139ec452f0d18f48e21";
 
     ArtifactCache cache =
@@ -194,11 +192,11 @@ public class CacheCommandTest {
     SuperConsoleEventBusListener listener =
         new SuperConsoleEventBusListener(
             emptySuperConsoleConfig,
-            console,
+            new RenderingConsole(clock, console),
             clock,
             silentSummaryVerbosity,
             new DefaultExecutionEnvironment(
-                ImmutableMap.copyOf(System.getenv()), System.getProperties()),
+                EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             Locale.US,
             logPath,
             timeZone,
@@ -208,7 +206,8 @@ public class CacheCommandTest {
             false,
             new BuildId("1234-5678"),
             false,
-            Optional.empty());
+            Optional.empty(),
+            ImmutableList.of());
     eventBus.register(listener);
     return listener;
   }

@@ -52,7 +52,7 @@ import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -70,7 +70,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
-  public void testNdkLibrary() throws Exception {
+  public void testNdkLibrary() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -224,7 +224,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   }
 
   @Test(expected = HumanReadableException.class)
-  public void testEmptyNativePlatformsWithNativeLinkables() throws Exception {
+  public void testEmptyNativePlatformsWithNativeLinkables() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     CxxLibrary cxxLibrary =
@@ -271,7 +271,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   }
 
   @Test
-  public void testEmptyNativePlatformsWithNativeLinkableAssets() throws Exception {
+  public void testEmptyNativePlatformsWithNativeLinkableAssets() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     CxxLibrary cxxLibrary =

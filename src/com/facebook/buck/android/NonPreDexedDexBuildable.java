@@ -22,6 +22,7 @@ import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -40,7 +41,6 @@ import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -116,6 +116,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   @AddToRuleKey private final OptionalInt xzCompressionLevel;
   @AddToRuleKey private final boolean shouldSplitDex;
   @AddToRuleKey private final String dexTool;
+  private final boolean desugarInterfaceMethods;
 
   private final AndroidPlatformTarget androidPlatformTarget;
   private final ListeningExecutorService dxExecutorService;
@@ -173,7 +174,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
       NonPredexedDexBuildableArgs args,
       ProjectFilesystem filesystem,
       BuildTarget buildTarget,
-      String dexTool) {
+      String dexTool,
+      boolean desugarInterfaceMethods) {
     super(buildTarget, filesystem);
     this.androidPlatformTarget = androidPlatformTarget;
     this.additionalJarsForProguard = additionalJarsForProguard;
@@ -208,6 +210,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
                 BuildableSupport.deriveDeps(this, ruleFinder)
                     .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
     this.dexTool = dexTool;
+    this.desugarInterfaceMethods = desugarInterfaceMethods;
   }
 
   @VisibleForTesting
@@ -855,10 +858,9 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
     if (reorderClassesIntraDex) {
       String primaryDexFileName = primaryDexPath.getFileName().toString();
       String smartDexPrimaryDexFileName = "smart-dex-" + primaryDexFileName;
-      Path smartDexPrimaryDexPath =
+      selectedPrimaryDexPath =
           Paths.get(
               primaryDexPath.toString().replace(primaryDexFileName, smartDexPrimaryDexFileName));
-      selectedPrimaryDexPath = smartDexPrimaryDexPath;
     }
     SmartDexingStep smartDexingCommand =
         new SmartDexingStep(
@@ -875,7 +877,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
             dxExecutorService,
             xzCompressionLevel,
             dxMaxHeapSize,
-            dexTool);
+            dexTool,
+            desugarInterfaceMethods);
     steps.add(smartDexingCommand);
 
     if (reorderClassesIntraDex) {

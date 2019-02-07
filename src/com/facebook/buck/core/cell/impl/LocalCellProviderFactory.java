@@ -26,13 +26,12 @@ import com.facebook.buck.core.cell.InvalidCellOverrideException;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.util.config.Config;
@@ -58,7 +57,8 @@ public class LocalCellProviderFactory {
       CellPathResolver rootCellCellPathResolver,
       BuckModuleManager moduleManager,
       ToolchainProviderFactory toolchainProviderFactory,
-      ProjectFilesystemFactory projectFilesystemFactory) {
+      ProjectFilesystemFactory projectFilesystemFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
 
     ImmutableMap<Path, RawConfig> pathToConfigOverrides;
     try {
@@ -123,8 +123,8 @@ public class LocalCellProviderFactory {
                   embeddedCellBuckOutInfo =
                       Optional.of(
                           EmbeddedCellBuckOutInfo.of(
-                              rootFilesystem.resolve(
-                                  rootFilesystem.getBuckPaths().getEmbeddedCellsBuckOutBaseDir()),
+                              rootFilesystem.resolve(rootFilesystem.getRootPath()),
+                              rootFilesystem.getBuckPaths(),
                               canonicalCellName.get()));
                 }
                 ProjectFilesystem cellFilesystem =
@@ -138,11 +138,9 @@ public class LocalCellProviderFactory {
                         rootConfig.getArchitecture(),
                         rootConfig.getPlatform(),
                         rootConfig.getEnvironment(),
-                        target ->
-                            BuildTargetParser.INSTANCE.parse(
-                                target,
-                                BuildTargetPatternParser.fullyQualified(),
-                                cellPathResolver));
+                        buildTargetName ->
+                            unconfiguredBuildTargetFactory.create(
+                                cellPathResolver, buildTargetName));
 
                 RuleKeyConfiguration ruleKeyConfiguration =
                     ConfigRuleKeyConfigurationFactory.create(buckConfig, moduleManager);
@@ -156,12 +154,12 @@ public class LocalCellProviderFactory {
                 return ImmutableCell.of(
                     cellPathResolver.getKnownRoots(),
                     canonicalCellName,
+                    cellFilesystem,
+                    buckConfig,
                     cellProvider,
                     toolchainProvider,
                     ruleKeyConfiguration,
-                    cellPathResolver,
-                    cellFilesystem,
-                    buckConfig);
+                    cellPathResolver);
               }
             },
         cellProvider ->

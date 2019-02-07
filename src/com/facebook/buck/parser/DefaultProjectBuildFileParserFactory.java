@@ -17,21 +17,26 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.io.watchman.Capability;
 import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.io.watchman.WatchmanFactory;
-import com.facebook.buck.json.HybridProjectBuildFileParser;
-import com.facebook.buck.json.PythonDslProjectBuildFileParser;
-import com.facebook.buck.json.TargetCountVerificationParserDelegate;
+import com.facebook.buck.json.TargetCountVerificationParserDecorator;
+import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.AbstractParserConfig.SkylarkGlobHandler;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.api.Syntax;
+import com.facebook.buck.parser.cache.impl.AbstractParserCacheConfig;
+import com.facebook.buck.parser.cache.impl.CachingProjectBuildFileParserDecorator;
+import com.facebook.buck.parser.cache.impl.ParserCache;
+import com.facebook.buck.parser.cache.impl.ParserCacheConfig;
 import com.facebook.buck.parser.decorators.EventReportingProjectBuildFileParser;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -45,6 +50,8 @@ import com.facebook.buck.skylark.parser.RuleFunctionFactory;
 import com.facebook.buck.skylark.parser.SkylarkProjectBuildFileParser;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
+import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.events.EventKind;
@@ -53,6 +60,7 @@ import com.google.devtools.build.lib.syntax.Runtime;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class DefaultProjectBuildFileParserFactory implements ProjectBuildFileParserFactory {
   private final TypeCoercerFactory typeCoercerFactory;
@@ -60,39 +68,65 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   private final ParserPythonInterpreterProvider pythonInterpreterProvider;
   private final KnownRuleTypesProvider knownRuleTypesProvider;
   private final boolean enableProfiling;
+  private final Optional<AtomicLong> processedBytes;
+  private final ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
+      manifestServiceSupplier;
+  private final FileHashCache fileHashCache;
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
       KnownRuleTypesProvider knownRuleTypesProvider,
-      boolean enableProfiling) {
+      boolean enableProfiling,
+      Optional<AtomicLong> processedBytes,
+      ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
+      FileHashCache fileHashCache) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.console = console;
     this.pythonInterpreterProvider = pythonInterpreterProvider;
     this.knownRuleTypesProvider = knownRuleTypesProvider;
     this.enableProfiling = enableProfiling;
+    this.processedBytes = processedBytes;
+    this.manifestServiceSupplier = manifestServiceSupplier;
+    this.fileHashCache = fileHashCache;
   }
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
       boolean enableProfiling,
-      KnownRuleTypesProvider knownRuleTypesProvider) {
+      Optional<AtomicLong> processedBytes,
+      KnownRuleTypesProvider knownRuleTypesProvider,
+      ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
+      FileHashCache fileHashCache) {
     this(
         typeCoercerFactory,
         Console.createNullConsole(),
         pythonInterpreterProvider,
         knownRuleTypesProvider,
-        enableProfiling);
+        enableProfiling,
+        processedBytes,
+        manifestServiceSupplier,
+        fileHashCache);
   }
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
-      KnownRuleTypesProvider knownRuleTypesProvider) {
-    this(typeCoercerFactory, console, pythonInterpreterProvider, knownRuleTypesProvider, false);
+      KnownRuleTypesProvider knownRuleTypesProvider,
+      ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
+      FileHashCache fileHashCache) {
+    this(
+        typeCoercerFactory,
+        console,
+        pythonInterpreterProvider,
+        knownRuleTypesProvider,
+        false,
+        Optional.empty(),
+        manifestServiceSupplier,
+        fileHashCache);
   }
 
   /**
@@ -136,6 +170,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
             .setBuildFileImportWhitelist(parserConfig.getBuildFileImportWhitelist())
             .setDisableImplicitNativeRules(parserConfig.getDisableImplicitNativeRules())
             .setWarnAboutDeprecatedSyntax(parserConfig.isWarnAboutDeprecatedSyntax())
+            .setPackageImplicitIncludes(parserConfig.getPackageImplicitIncludes())
             .build();
     return EventReportingProjectBuildFileParser.of(
         createProjectBuildFileParser(
@@ -146,11 +181,27 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   /** Creates a delegate wrapper that counts the number of targets declared in a parsed file */
   private static ProjectBuildFileParser createTargetCountingWrapper(
       ProjectBuildFileParser aggregate, int targetCountThreshold, BuckEventBus eventBus) {
-    return new TargetCountVerificationParserDelegate(aggregate, targetCountThreshold, eventBus);
+    return new TargetCountVerificationParserDecorator(aggregate, targetCountThreshold, eventBus);
+  }
+
+  private ProjectBuildFileParser addCachingDecoratorIfEnabled(
+      BuckConfig buckConfig,
+      SkylarkProjectBuildFileParser skylarkParser,
+      ProjectFilesystem filesystem,
+      BuckEventBus eventBus) {
+    AbstractParserCacheConfig parserCacheConfig = buckConfig.getView(ParserCacheConfig.class);
+    if (parserCacheConfig.isParserCacheEnabled()) {
+      ParserCache parserCache =
+          ParserCache.of(buckConfig, filesystem, manifestServiceSupplier, eventBus);
+      return CachingProjectBuildFileParserDecorator.of(
+          parserCache, skylarkParser, buckConfig.getConfig(), filesystem, fileHashCache);
+    }
+
+    return skylarkParser;
   }
 
   /** Creates a project build file parser based on Buck configuration settings. */
-  private static ProjectBuildFileParser createProjectBuildFileParser(
+  private ProjectBuildFileParser createProjectBuildFileParser(
       Cell cell,
       TypeCoercerFactory typeCoercerFactory,
       Console console,
@@ -167,23 +218,31 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
                   newPythonParser(
                       cell, typeCoercerFactory, console, eventBus, buildFileParserOptions),
                   Syntax.SKYLARK,
-                  newSkylarkParser(
-                      cell,
-                      typeCoercerFactory,
-                      eventBus,
-                      buildFileParserOptions,
-                      parserConfig.getSkylarkGlobHandler())),
+                  addCachingDecoratorIfEnabled(
+                      cell.getBuckConfig(),
+                      newSkylarkParser(
+                          cell,
+                          typeCoercerFactory,
+                          eventBus,
+                          buildFileParserOptions,
+                          parserConfig.getSkylarkGlobHandler()),
+                      cell.getFilesystem(),
+                      eventBus)),
               defaultBuildFileSyntax);
     } else {
       switch (defaultBuildFileSyntax) {
         case SKYLARK:
           parser =
-              newSkylarkParser(
-                  cell,
-                  typeCoercerFactory,
-                  eventBus,
-                  buildFileParserOptions,
-                  parserConfig.getSkylarkGlobHandler());
+              addCachingDecoratorIfEnabled(
+                  cell.getBuckConfig(),
+                  newSkylarkParser(
+                      cell,
+                      typeCoercerFactory,
+                      eventBus,
+                      buildFileParserOptions,
+                      parserConfig.getSkylarkGlobHandler()),
+                  cell.getFilesystem(),
+                  eventBus);
           break;
         case PYTHON_DSL:
           parser =
@@ -203,7 +262,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
     return parser;
   }
 
-  private static PythonDslProjectBuildFileParser newPythonParser(
+  private PythonDslProjectBuildFileParser newPythonParser(
       Cell cell,
       TypeCoercerFactory typeCoercerFactory,
       Console console,
@@ -214,7 +273,8 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
         typeCoercerFactory,
         cell.getBuckConfig().getEnvironment(),
         eventBus,
-        new DefaultProcessExecutor(console));
+        new DefaultProcessExecutor(console),
+        processedBytes);
   }
 
   private static SkylarkProjectBuildFileParser newSkylarkParser(
@@ -247,17 +307,21 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
     }
 
     try {
+      // TODO(ttsugrii): consider using a less verbose event handler. Also fancy handler can be
+      // configured for terminals that support it.
+      ConsoleEventHandler eventHandler =
+          new ConsoleEventHandler(
+              eventBus,
+              EventKind.ALL_EVENTS,
+              ImmutableSet.copyOf(buckGlobals.getNativeModule().getFieldNames()),
+              augmentor);
       SkylarkProjectBuildFileParser skylarkParser =
           SkylarkProjectBuildFileParser.using(
               buildFileParserOptions,
               eventBus,
               SkylarkFilesystem.using(cell.getFilesystem()),
               buckGlobals,
-              new ConsoleEventHandler(
-                  eventBus,
-                  EventKind.ALL_EVENTS,
-                  ImmutableSet.copyOf(buckGlobals.getNativeModule().getFieldNames()),
-                  augmentor),
+              eventHandler,
               globberFactory);
 
       // All built-ins should have already been discovered. Freezing improves performance by

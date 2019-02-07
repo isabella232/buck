@@ -25,6 +25,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -32,8 +33,10 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.watchman.WatchmanFactory;
+import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
@@ -44,13 +47,16 @@ import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -82,8 +88,13 @@ public class BuckQueryEnvironmentTest {
     return QueryBuildTarget.of(BuildTargetFactory.newInstance(cellRoot, baseName, shortName));
   }
 
+  private static ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
+      getManifestSupplier() {
+    return ThrowingCloseableMemoizedSupplier.of(() -> null, ManifestService::close);
+  }
+
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() throws IOException {
     eventBus = BuckEventBusForTests.newInstance();
     capturingConsoleEventListener = new CapturingConsoleEventListener();
     eventBus.register(capturingConsoleEventListener);
@@ -103,26 +114,31 @@ public class BuckQueryEnvironmentTest {
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     PerBuildStateFactory perBuildStateFactory =
-        new PerBuildStateFactory(
+        PerBuildStateFactory.createFactory(
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
+            new DefaultConstructorArgMarshaller(typeCoercerFactory),
             knownRuleTypesProvider,
             new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+            cell.getBuckConfig(),
             WatchmanFactory.NULL_WATCHMAN,
-            eventBus);
+            eventBus,
+            getManifestSupplier(),
+            new FakeFileHashCache(ImmutableMap.of()),
+            new ParsingUnconfiguredBuildTargetFactory());
     Parser parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory, eventBus);
     parserState =
         perBuildStateFactory.create(
             parser.getPermState(),
             executor,
             cell,
+            ImmutableList.of(),
             /* enableProfiling */ false,
             SpeculativeParsing.ENABLED);
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
-            cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false);
-    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser);
+            cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false, false);
+    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser, parserState);
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     buckQueryEnvironment =
         BuckQueryEnvironment.from(
@@ -178,10 +194,11 @@ public class BuckQueryEnvironmentTest {
   }
 
   @Test
-  public void whenNonExistentFileIsQueriedAWarningIsIssued() throws QueryException {
+  public void whenNonExistentFileIsQueriedAWarningIsIssued() {
     ImmutableList<String> expectedTargets = ImmutableList.of("/foo/bar");
     buckQueryEnvironment.getFileOwners(expectedTargets);
-    String expectedWarning = "File /foo/bar does not exist";
+    String expectedWarning =
+        "File " + MorePaths.pathWithPlatformSeparators("/foo/bar") + " does not exist";
     assertThat(
         capturingConsoleEventListener.getLogMessages(),
         CoreMatchers.equalTo(singletonList(expectedWarning)));

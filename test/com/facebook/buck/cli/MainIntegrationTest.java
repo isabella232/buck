@@ -90,7 +90,6 @@ public class MainIntegrationTest {
         "  install        builds and installs an application",
         "  kill           kill buckd for the current project",
         "  killall        kill all buckd processes",
-        "  parser-cache   Load and save state of the parser cache",
         "  project        generates project configuration files for an IDE",
         "  publish        builds and publishes a library to a central repository",
         "  query          "
@@ -99,7 +98,6 @@ public class MainIntegrationTest {
         "  root           prints the absolute path to the root of the current buck project",
         "  run            runs a target as a command",
         "  server         query and control the http server",
-        "  suggest        suggests a refactoring for the specified build target",
         "  targets        prints the list of buildable targets",
         "  test           builds and runs the tests for the specified target",
         "  uninstall      uninstalls an APK",

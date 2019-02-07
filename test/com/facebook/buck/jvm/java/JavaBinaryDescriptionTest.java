@@ -37,8 +37,8 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -50,7 +50,7 @@ import org.junit.Test;
 public class JavaBinaryDescriptionTest {
 
   @Test
-  public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
+  public void rulesExportedFromDepsBecomeFirstOrderDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     FakeJavaLibrary transitiveLibrary =
@@ -112,7 +112,7 @@ public class JavaBinaryDescriptionTest {
             .setSharedLib(lib);
     JavaLibraryBuilder javaLibBuilder =
         new JavaLibraryBuilder(
-                BuildTargetFactory.newInstance("//:lib"), new FakeProjectFilesystem(), null)
+                BuildTargetFactory.newInstance("//:lib"), new FakeProjectFilesystem())
             .addDep(cxxLibBuilder.getTarget())
             .addSrc(Paths.get("test/source.java"));
     JavaBinaryRuleBuilder javaBinBuilder =

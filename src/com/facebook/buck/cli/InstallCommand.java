@@ -20,6 +20,7 @@ import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidInstallConfig;
 import com.facebook.buck.android.HasInstallableApk;
+import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.apple.AppleBundle;
@@ -34,6 +35,7 @@ import com.facebook.buck.apple.simulator.AppleSimulatorDiscovery;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.impl.DescriptionCache;
@@ -61,8 +63,6 @@ import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
@@ -88,6 +88,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
@@ -201,8 +202,7 @@ public class InstallCommand extends BuildCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     assertArguments(params);
 
     BuildRunResult buildRunResult;
@@ -536,7 +536,7 @@ public class InstallCommand extends BuildCommand {
     AppleDeviceHelper helper = new AppleDeviceHelper(processExecutor, helperPath);
     ImmutableMap<String, String> connectedDevices = helper.getConnectedDevices();
 
-    if (connectedDevices.size() == 0) {
+    if (connectedDevices.isEmpty()) {
       params
           .getConsole()
           .printBuildFailure(
@@ -589,7 +589,7 @@ public class InstallCommand extends BuildCommand {
     if (helper.installBundleOnDevice(
         selectedUdid,
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printSuccess(
@@ -804,7 +804,7 @@ public class InstallCommand extends BuildCommand {
     if (!appleSimulatorController.installBundleInSimulator(
         appleSimulator.get().getUdid(),
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printBuildFailure(

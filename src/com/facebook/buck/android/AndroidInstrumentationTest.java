@@ -21,6 +21,7 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -38,7 +39,6 @@ import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.test.TestCaseSummary;
@@ -198,7 +198,9 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             Optional.of(device.getSerialNumber()),
             Optional.empty(),
             getFilterString(options),
-            Optional.empty()));
+            Optional.empty(),
+            executionContext.isDebugEnabled(),
+            executionContext.isCodeCoverageEnabled()));
 
     return steps.build();
   }
@@ -227,7 +229,9 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
       Optional<String> deviceSerial,
       Optional<Path> instrumentationApkPath,
       Optional<String> classFilterArg,
-      Optional<Path> apkUnderTestPath) {
+      Optional<Path> apkUnderTestPath,
+      boolean debugEnabled,
+      boolean codeCoverageEnabled) {
     String packageName =
         AdbHelper.tryToExtractPackageNameFromManifest(pathResolver, apk.getApkInfo());
     String testRunner =
@@ -246,6 +250,8 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             .setDirectoryForTestResults(directoryForTestResults)
             .setInstrumentationApkPath(instrumentationApkPath)
             .setTestPackage(packageName)
+            .setCodeCoverageEnabled(codeCoverageEnabled)
+            .setDebugEnabled(debugEnabled)
             .setTestRunner(testRunner)
             .setTestRunnerClasspath(TESTRUNNER_CLASSES)
             .setDdmlibJarPath(ddmlib)
@@ -263,9 +269,9 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   private String getPathForResourceJar(PackagedResource packagedResource) {
-    return PathSourcePath.of(this.getProjectFilesystem(), packagedResource.get())
-        .getRelativePath()
-        .toString();
+    ProjectFilesystem filesystem = this.getProjectFilesystem();
+    Path relativePath = PathSourcePath.of(filesystem, packagedResource.get()).getRelativePath();
+    return filesystem.resolve(relativePath).toString();
   }
 
   @Override
@@ -363,7 +369,9 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
                     .getSourcePathResolver()
                     .getAbsolutePath(apk.getApkInfo().getApkPath())),
             Optional.empty(),
-            apkUnderTestPath);
+            apkUnderTestPath,
+            executionContext.isDebugEnabled(),
+            executionContext.isCodeCoverageEnabled());
 
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
@@ -379,5 +387,9 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
     Stream.Builder<BuildTarget> builder = Stream.builder();
     builder.add(apk.getBuildTarget());
     return builder.build();
+  }
+
+  public HasInstallableApk getApk() {
+    return apk;
   }
 }

@@ -18,9 +18,8 @@ package com.facebook.buck.versions;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
@@ -32,6 +31,12 @@ import java.util.stream.Collectors;
 
 public class QueryTargetTranslator implements TargetTranslator<Query> {
 
+  private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+
+  public QueryTargetTranslator(UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+  }
+
   @Override
   public Class<Query> getTranslatableClass() {
     return Query.class;
@@ -40,7 +45,7 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
   @Override
   public Optional<Query> translateTargets(
       CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
+      String targetBaseName,
       TargetNodeTranslator translator,
       Query query) {
 
@@ -48,7 +53,7 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
     ImmutableList<BuildTarget> targets;
     try {
       targets =
-          QueryUtils.extractBuildTargets(cellPathResolver, pattern, query)
+          QueryUtils.extractBuildTargets(cellPathResolver, targetBaseName, query)
               .collect(ImmutableList.toImmutableList());
     } catch (QueryException e) {
       throw new RuntimeException("Error parsing/executing query from deps", e);
@@ -76,8 +81,11 @@ public class QueryTargetTranslator implements TargetTranslator<Query> {
     while (matcher.find()) {
       builder.append(queryString, lastEnd, matcher.start());
       BuildTarget target =
-          BuildTargetParser.INSTANCE.parse(matcher.group(), pattern, cellPathResolver);
-      Optional<BuildTarget> translated = translator.translate(cellPathResolver, pattern, target);
+          unconfiguredBuildTargetFactory
+              .createForBaseName(cellPathResolver, targetBaseName, matcher.group())
+              .configure(EmptyTargetConfiguration.INSTANCE);
+      Optional<BuildTarget> translated =
+          translator.translate(cellPathResolver, targetBaseName, target);
       builder.append(translated.orElse(target).getFullyQualifiedName());
       lastEnd = matcher.end();
     }

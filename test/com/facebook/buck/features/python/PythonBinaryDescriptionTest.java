@@ -61,6 +61,8 @@ import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
@@ -74,12 +76,9 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.ShBinary;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -88,6 +87,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
@@ -132,7 +132,7 @@ public class PythonBinaryDescriptionTest {
   }
 
   @Test
-  public void thatMainSourcePathPropagatesToDeps() throws Exception {
+  public void thatMainSourcePathPropagatesToDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:gen"))
@@ -199,7 +199,7 @@ public class PythonBinaryDescriptionTest {
     PythonBinary binary = builder.setMainModule("main").build(graphBuilder);
     assertThat(
         pathResolver
-            .getRelativePath(Preconditions.checkNotNull(binary.getSourcePathToOutput()))
+            .getRelativePath(Objects.requireNonNull(binary.getSourcePathToOutput()))
             .toString(),
         Matchers.endsWith(".different_extension"));
   }
@@ -215,7 +215,7 @@ public class PythonBinaryDescriptionTest {
         builder.setMainModule("main").setExtension(".different_extension").build(graphBuilder);
     assertThat(
         pathResolver
-            .getRelativePath(Preconditions.checkNotNull(binary.getSourcePathToOutput()))
+            .getRelativePath(Objects.requireNonNull(binary.getSourcePathToOutput()))
             .toString(),
         Matchers.endsWith(".different_extension"));
   }
@@ -236,9 +236,7 @@ public class PythonBinaryDescriptionTest {
         binary.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
     PexStep pexStep = FluentIterable.from(buildSteps).filter(PexStep.class).get(0);
-    assertThat(
-        pexStep.getCommandPrefix(),
-        Matchers.hasItems(buildArgs.toArray(new String[buildArgs.size()])));
+    assertThat(pexStep.getCommandPrefix(), Matchers.hasItems(buildArgs.toArray(new String[0])));
   }
 
   @Test
@@ -548,7 +546,7 @@ public class PythonBinaryDescriptionTest {
   }
 
   @Test
-  public void packageStyleParam() throws Exception {
+  public void packageStyleParam() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     PythonBinary pythonBinary =
         PythonBinaryBuilder.create(BuildTargetFactory.newInstance("//:bin"))
@@ -776,7 +774,7 @@ public class PythonBinaryDescriptionTest {
   }
 
   @Test
-  public void pexToolBuilderAddedToRuntimeDeps() throws Exception {
+  public void pexToolBuilderAddedToRuntimeDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(TargetGraphFactory.newInstance());
 
     ShBinary pyTool =
@@ -855,8 +853,7 @@ public class PythonBinaryDescriptionTest {
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
                     .add(
                         Pattern.compile(
-                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
-                            Pattern.LITERAL),
+                            CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(), Pattern.LITERAL),
                         ImmutableSortedSet.of(libraryABuilder.getTarget()))
                     .add(
                         Pattern.compile("matches nothing", Pattern.LITERAL),

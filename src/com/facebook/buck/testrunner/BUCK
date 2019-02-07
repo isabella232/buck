@@ -8,6 +8,8 @@ java_library(
     deps = [
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
+        "//src/com/facebook/buck/util/environment:platform",
+        "//src/com/facebook/buck/util/string:string",
     ],
 )
 
@@ -22,6 +24,8 @@ java_library(
         "JulLogFormatter.java",
         "SameThreadFailOnTimeout.java",
     ],
+    source = "8",
+    target = "8",
     tests = [
         "//test/com/facebook/buck/testrunner:testrunner",
     ],
@@ -103,6 +107,7 @@ genrule(
         "$(exe //py/buck/zip:munger)",
         "--input=$(location :testrunner-bin)",
         "--output=$OUT",
+        "--exclude=",
         "--include=com/facebook/buck/",
     ]),
     visibility = [

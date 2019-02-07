@@ -48,6 +48,12 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.MacroExpander;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
@@ -56,6 +62,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
@@ -70,6 +77,8 @@ public class GoTestDescription
         VersionRoot<GoTestDescriptionArg> {
 
   private static final Flavor TEST_LIBRARY_FLAVOR = InternalFlavor.of("test-library");
+  public static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+      ImmutableList.of(new LocationMacroExpander());
 
   private final GoBuckConfig goBuckConfig;
   private final ToolchainProvider toolchainProvider;
@@ -254,6 +263,13 @@ public class GoTestDescription
             platform);
     graphBuilder.addToIndex(testMain);
 
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(buildTarget)
+            .setCellPathResolver(context.getCellPathResolver())
+            .setExpanders(MACRO_EXPANDERS)
+            .build();
+
     return new GoTest(
         buildTarget,
         projectFilesystem,
@@ -263,7 +279,13 @@ public class GoTestDescription
         args.getContacts(),
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(goBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                goBuckConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
+        ImmutableMap.copyOf(
+            Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder))),
         args.getRunTestSeparately(),
         args.getResources(),
         coverageMode);
@@ -281,7 +303,11 @@ public class GoTestDescription
       GoPlatform platform) {
     Path packageName = getGoPackageName(graphBuilder, buildTarget, args);
     boolean createResourcesSymlinkTree =
-        goBuckConfig.getDelegate().getExternalTestRunner().isPresent();
+        goBuckConfig
+            .getDelegate()
+            .getView(TestBuckConfig.class)
+            .getExternalTestRunner()
+            .isPresent();
 
     BuildRule testLibrary =
         new NoopBuildRuleWithDeclaredAndExtraDeps(
@@ -310,6 +336,7 @@ public class GoTestDescription
             graphBuilder,
             goBuckConfig,
             args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
+            args.getLinkMode(),
             ImmutableSet.of(generatedTestMain.getSourcePathToOutput()),
             createResourcesSymlinkTree ? args.getResources() : ImmutableSortedSet.of(),
             args.getCompilerFlags(),
@@ -476,31 +503,23 @@ public class GoTestDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractGoTestDescriptionArg
-      extends CommonDescriptionArg, HasContacts, HasDeclaredDeps, HasSrcs, HasTestTimeout {
-    Optional<Flavor> getPlatform();
-
+      extends CommonDescriptionArg,
+          HasContacts,
+          HasDeclaredDeps,
+          HasSrcs,
+          HasTestTimeout,
+          HasGoLinkable {
     Optional<BuildTarget> getLibrary();
 
     Optional<String> getPackageName();
 
     Optional<GoTestCoverStep.Mode> getCoverageMode();
 
-    Optional<Linker.LinkableDepType> getLinkStyle();
-
-    ImmutableList<String> getCompilerFlags();
-
-    ImmutableList<String> getAssemblerFlags();
-
-    ImmutableList<String> getLinkerFlags();
-
-    ImmutableList<String> getExternalLinkerFlags();
+    ImmutableMap<String, StringWithMacros> getEnv();
 
     @Value.Default
     default boolean getRunTestSeparately() {
       return false;
     }
-
-    @Value.NaturalOrder
-    ImmutableSortedSet<SourcePath> getResources();
   }
 }

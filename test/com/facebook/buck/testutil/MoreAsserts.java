@@ -19,10 +19,10 @@ package com.facebook.buck.testutil;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Joiner;
@@ -110,19 +110,16 @@ public final class MoreAsserts {
         fail(
             prefixWithUserMessage(
                 userMessage,
-                "Item "
-                    + index
-                    + " does not exist in the "
-                    + "observed list ("
-                    + errmsgPart
-                    + "): "
-                    + expectedIter.next()));
+                "Item %d does not exist in the observed list (%s): %s",
+                index,
+                errmsgPart,
+                expectedIter.next()));
       }
       Object expectedItem = expectedIter.next();
       Object observedItem = observedIter.next();
       assertEquals(
           prefixWithUserMessage(
-              userMessage, "Item " + index + " in the lists should match (" + errmsgPart + ")."),
+              userMessage, "Item %d in the lists should match (%s).", index, errmsgPart),
           expectedItem,
           observedItem);
       ++index;
@@ -131,8 +128,9 @@ public final class MoreAsserts {
       fail(
           prefixWithUserMessage(
               userMessage,
-              "Extraneous item %s in the observed list (" + errmsgPart + "): %s.",
+              "Extraneous item %d in the observed list (%s): %s.",
               index,
+              errmsgPart,
               observedIter.next()));
     }
   }

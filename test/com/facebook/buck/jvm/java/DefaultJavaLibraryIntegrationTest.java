@@ -21,6 +21,8 @@ import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -42,6 +44,7 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.json.HasJsonField;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
+import com.facebook.buck.jvm.java.testutil.Bootclasspath;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -56,6 +59,7 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -112,14 +116,27 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
 
   @Test
+  public void testBootclasspathIsPassedCorrectly() throws IOException {
+    setUpProjectWorkspaceForScenario("bootclasspath");
+    workspace.addBuckConfigLocalOption(
+        "java",
+        "bootclasspath-7",
+        Joiner.on(":").join("boot.jar", "other.jar", Bootclasspath.getSystemBootclasspath()));
+    ProcessResult processResult = workspace.runBuckBuild("-v", "5", "//:lib");
+    processResult.assertSuccess();
+    assertThat(
+        processResult.getStderr(), allOf(containsString("boot.jar"), containsString("other.jar")));
+  }
+
+  @Test
   public void testBuildJavaLibraryWithoutSrcsAndVerifyAbi()
-      throws InterruptedException, IOException, CompressorException {
+      throws IOException, CompressorException {
     setUpProjectWorkspaceForScenario("abi");
     workspace.enableDirCache();
 
@@ -879,6 +896,94 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testCustomJavacPerTarget() throws IOException {
+    setUpProjectWorkspaceForScenario("custom_javac");
+
+    String javacTarget = "//python:javac";
+    String libTarget = "//java:lib_with_custom_javac";
+
+    BuildTarget target = BuildTargetFactory.newInstance(libTarget);
+    ProcessResult result = workspace.runBuckBuild(target.getFullyQualifiedName());
+    result.assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(javacTarget);
+    workspace.getBuildLog().assertTargetBuiltLocally(libTarget);
+
+    Path classesDir = workspace.getPath(CompilerOutputPaths.of(target, filesystem).getClassesDir());
+
+    assertThat("Classes directory should exist.", Files.exists(classesDir), is(Boolean.TRUE));
+    ArrayList<String> classFiles = new ArrayList<>();
+    for (File file : classesDir.toFile().listFiles()) {
+      classFiles.add(file.getName());
+    }
+    assertThat(
+        "There should be 2 class files saved to disk from the compiler", classFiles, hasSize(2));
+    assertThat(classFiles, hasItem("JavacMain.class"));
+    assertThat(classFiles, hasItem("Extra.class"));
+
+    Path jarPath = workspace.getPath(CompilerOutputPaths.getOutputJarPath(target, filesystem));
+    assertTrue(Files.exists(jarPath));
+
+    // Check that normal and member classes were removed as expected.
+    ZipInspector zipInspector = new ZipInspector(jarPath);
+    zipInspector.assertFileExists("JavacMain.class");
+    zipInspector.assertFileExists("Extra.class");
+
+    // Test that editing the custom compiler causes rebuilds correctly.
+    workspace.replaceFileContents("python/javac.py", "Extra.class", "Extra2.class");
+    result = workspace.runBuckBuild(target.getFullyQualifiedName());
+    result.assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(javacTarget);
+    workspace.getBuildLog().assertTargetBuiltLocally(libTarget);
+  }
+
+  @Test
+  public void testCustomJavacInBuckConfig() throws IOException {
+    setUpProjectWorkspaceForScenario("custom_javac");
+
+    String javacTarget = "//python:javac";
+    String libTarget = "//root_java:lib_with_default_javac";
+
+    workspace.addBuckConfigLocalOption("tools", "javac", "//python:javac");
+
+    BuildTarget target = BuildTargetFactory.newInstance(libTarget);
+    ProcessResult result = workspace.runBuckBuild(target.getFullyQualifiedName());
+    result.assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(javacTarget);
+    workspace.getBuildLog().assertTargetBuiltLocally(libTarget);
+
+    Path classesDir = workspace.getPath(CompilerOutputPaths.of(target, filesystem).getClassesDir());
+
+    assertThat("Classes directory should exist.", Files.exists(classesDir), is(Boolean.TRUE));
+    ArrayList<String> classFiles = new ArrayList<>();
+    for (File file : classesDir.toFile().listFiles()) {
+      classFiles.add(file.getName());
+    }
+    assertThat(
+        "There should be 2 class files saved to disk from the compiler", classFiles, hasSize(2));
+    assertThat(classFiles, hasItem("JavacMain.class"));
+    assertThat(classFiles, hasItem("Extra.class"));
+
+    Path jarPath = workspace.getPath(CompilerOutputPaths.getOutputJarPath(target, filesystem));
+    assertTrue(Files.exists(jarPath));
+
+    // Check that normal and member classes were removed as expected.
+    ZipInspector zipInspector = new ZipInspector(jarPath);
+    zipInspector.assertFileExists("JavacMain.class");
+    zipInspector.assertFileExists("Extra.class");
+
+    // Test that editing the custom compiler causes rebuilds correctly.
+    workspace.replaceFileContents("python/javac.py", "Extra.class", "Extra2.class");
+    result = workspace.runBuckBuild(target.getFullyQualifiedName());
+    result.assertSuccess();
+
+    workspace.getBuildLog().assertTargetBuiltLocally(javacTarget);
+    workspace.getBuildLog().assertTargetBuiltLocally(libTarget);
+  }
+
+  @Test
   public void testSpoolClassFilesDirectlyToJarWithRemoveClasses() throws IOException {
     setUpProjectWorkspaceForScenario("spool_class_files_directly_to_jar_with_remove_classes");
 
@@ -1046,14 +1151,13 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     assertThat(
         result.getStderr(),
         Matchers.stringContainsInOrder(
-            "Build failed:",
             "The annotation processor com.example.buck.AnnotationProcessor has crashed.",
             "java.lang.RuntimeException: java.lang.IllegalArgumentException: Test crash!   |\n|  at com.example.buck.AnnotationProcessor.process(AnnotationProcessor.java:22) |\n|  ...", // Buck frames have been stripped properly
             "Caused by: java.lang.IllegalArgumentException: Test crash!", // Without then stripping
             // out the caused
             // exception!
-            "    When running <javac>.",
-            "    When building rule //:main."));
+            "When running <javac>.",
+            "When building rule //:main."));
   }
 
   @Test

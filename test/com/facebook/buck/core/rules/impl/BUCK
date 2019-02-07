@@ -17,10 +17,11 @@ java_test(
         "//test/com/facebook/buck/core/build/context:testutil",
         "//test/com/facebook/buck/core/model:testutil",
         "//test/com/facebook/buck/core/model/targetgraph:testutil",
+        "//test/com/facebook/buck/core/rules:testutil",
         "//test/com/facebook/buck/core/rules/resolver/impl:testutil",
         "//test/com/facebook/buck/core/sourcepath:testutil",
         "//test/com/facebook/buck/io/filesystem:testutil",
-        "//test/com/facebook/buck/rules:testutil",
+        "//test/com/facebook/buck/io/filesystem/impl:testutil",
         "//test/com/facebook/buck/rules/keys:testutil",
         "//test/com/facebook/buck/shell:testutil",
         "//test/com/facebook/buck/step:testutil",
@@ -41,5 +42,10 @@ java_library(
     ],
     deps = [
         "//src/com/facebook/buck/core/rules/impl:impl",
+        "//src/com/facebook/buck/core/test/rule:rule",
+        "//test/com/facebook/buck/core/model:testutil",
+        "//test/com/facebook/buck/core/rules:testutil",
+        "//test/com/facebook/buck/io/filesystem/impl:testutil",
+        "//third-party/java/jsr:jsr305",
     ],
 )

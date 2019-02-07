@@ -25,21 +25,17 @@ import com.facebook.buck.distributed.thrift.RemoteExecutionContainsRequest;
 import com.facebook.buck.distributed.thrift.RemoteExecutionContainsResponse;
 import com.facebook.buck.distributed.thrift.RemoteExecutionFetchRequest;
 import com.facebook.buck.distributed.thrift.RemoteExecutionStoreRequest;
-import com.facebook.buck.rules.modern.builders.AsyncBlobFetcher;
-import com.facebook.buck.rules.modern.builders.CasBlobUploader;
-import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadData;
-import com.facebook.buck.rules.modern.builders.MultiThreadedBlobUploader.UploadResult;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
+import com.facebook.buck.remoteexecution.AsyncBlobFetcher;
+import com.facebook.buck.remoteexecution.CasBlobUploader;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.facebook.buck.slb.HybridThriftOverHttpService;
 import com.facebook.buck.slb.HybridThriftRequestHandler;
 import com.facebook.buck.slb.HybridThriftResponseHandler;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
-import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -80,21 +76,22 @@ public class RemoteExecutionStorageService implements AsyncBlobFetcher, CasBlobU
   }
 
   @Override
-  public void fetchToStream(Digest digest, OutputStream outputStream) {
+  public ListenableFuture<Void> fetchToStream(Digest digest, OutputStream outputStream) {
     try {
       fetchToStreamInternal(digest, outputStream).get();
+      return Futures.immediateFuture(null);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      logAndThrowException(digest, e);
+      throw logAndThrowException(digest, e);
     } catch (ExecutionException e) {
-      logAndThrowException(digest, e);
+      throw logAndThrowException(digest, e);
     }
   }
 
-  private static void logAndThrowException(Digest digest, Exception e) {
-    LOG.error(e, "Could not fetch stream for digest [%s:%d].", digest.getHash(), digest.getSize());
+  private static BuckUncheckedExecutionException logAndThrowException(Digest digest, Exception e) {
+    LOG.error(e, "Could not fetch stream for digest [%s].", digest);
     throw new BuckUncheckedExecutionException(
-        e, "When fetching to stream for digest [%s:%d].", digest.getHash(), digest.getSize());
+        e, "When fetching to stream for digest [%s].", digest);
   }
 
   private ListenableFuture<FrontendResponse> fetchToStreamInternal(
@@ -197,7 +194,6 @@ public class RemoteExecutionStorageService implements AsyncBlobFetcher, CasBlobU
   public ImmutableList<UploadResult> batchUpdateBlobs(final ImmutableList<UploadData> blobs) {
     RemoteExecutionStoreRequest request = new RemoteExecutionStoreRequest();
     final AtomicLong totalPayloadsSizeBytes = new AtomicLong(0);
-    List<ThrowingSupplier<InputStream, IOException>> payloads = Lists.newArrayList();
     for (UploadData item : blobs) {
       com.facebook.buck.distributed.thrift.Digest digest = convertDigest(item.digest);
       new com.facebook.buck.distributed.thrift.Digest();
@@ -205,7 +201,6 @@ public class RemoteExecutionStorageService implements AsyncBlobFetcher, CasBlobU
       DigestAndContent digestAndContent = new DigestAndContent();
       digestAndContent.setDigest(digest);
       request.addToDigests(digestAndContent);
-      payloads.add(item.data);
     }
 
     FrontendRequest frontendRequest =

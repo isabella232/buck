@@ -21,6 +21,7 @@ import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -56,7 +57,6 @@ import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Path;
@@ -136,8 +136,7 @@ public abstract class DistBuildFactory {
       ScheduledExecutorService sourceFileMultiFetchScheduler,
       ListeningExecutorService executorService,
       ProjectFilesystemFactory projectFilesystemFactory,
-      Optional<Path> globalCacheDir)
-      throws IOException, InterruptedException {
+      Optional<Path> globalCacheDir) {
     return new MultiSourceContentsProvider(
         new ServerContentsProvider(
             service,
@@ -168,7 +167,8 @@ public abstract class DistBuildFactory {
       BuildSlaveTimingStatsTracker timingStatsTracker,
       CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
       MinionBuildProgressTracker minionBuildProgressTracker,
-      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope) {
+      RuleKeyCacheScope<RuleKey> ruleKeyCacheScope,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -228,6 +228,8 @@ public abstract class DistBuildFactory {
             .setHealthCheckStatsTracker(healthCheckStatsTracker)
             .setRuleKeyCacheScope(ruleKeyCacheScope)
             .setRemoteCommand(state.getRemoteState().getCommand())
+            .setMetadataProvider(params.getMetadataProvider())
+            .setUnconfiguredBuildTargetFactory(unconfiguredBuildTargetFactory)
             .build());
   }
 }

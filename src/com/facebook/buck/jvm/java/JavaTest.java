@@ -16,8 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.android.device.TargetDevice;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -46,11 +48,9 @@ import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.test.TestCaseSummary;
@@ -61,9 +61,7 @@ import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.ZipFileTraversal;
-import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -79,6 +77,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -110,10 +109,11 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final JavaLibrary compiledTestsLibrary;
 
-  private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
+  private final Optional<AdditionalClasspathEntriesProvider> additionalClasspathEntriesProvider;
+
   private final Tool javaRuntimeLauncher;
 
-  private final ImmutableList<String> vmArgs;
+  private final ImmutableList<Arg> vmArgs;
 
   private final ImmutableMap<String, String> nativeLibsEnvironment;
 
@@ -153,12 +153,12 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       JavaLibrary compiledTestsLibrary,
-      ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
+      Optional<AdditionalClasspathEntriesProvider> additionalClasspathEntriesProvider,
       Set<String> labels,
       Set<String> contacts,
       TestType testType,
       Tool javaRuntimeLauncher,
-      List<String> vmArgs,
+      List<Arg> vmArgs,
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
       Optional<Long> testCaseTimeoutMs,
@@ -170,17 +170,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Optional<SourcePath> unbundledResourcesRoot) {
     super(buildTarget, projectFilesystem, params);
     this.compiledTestsLibrary = compiledTestsLibrary;
-
-    for (Either<SourcePath, Path> path : additionalClasspathEntries) {
-      if (path.isRight()) {
-        Preconditions.checkState(
-            path.getRight().isAbsolute(),
-            "Additional classpath entries must be absolute but got %s",
-            path.getRight());
-      }
-    }
-
-    this.additionalClasspathEntries = additionalClasspathEntries;
+    this.additionalClasspathEntriesProvider = additionalClasspathEntriesProvider;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.vmArgs = ImmutableList.copyOf(vmArgs);
     this.nativeLibsEnvironment = ImmutableMap.copyOf(nativeLibsEnvironment);
@@ -231,7 +221,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     ImmutableList<String> properVmArgs =
         amendVmArgs(
-            this.vmArgs,
+            Arg.stringify(this.vmArgs, pathResolver),
             pathResolver,
             executionContext.getTargetDevice(),
             options.getJavaTempDir());
@@ -429,7 +419,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 .getPathForRelativePath(getPathToTestOutputDirectory().resolve(path));
         if (!isUsingTestSelectors && !Files.isRegularFile(testResultFile)) {
           String message;
-          for (JUnitStep junit : Preconditions.checkNotNull(junits)) {
+          for (JUnitStep junit : Objects.requireNonNull(junits)) {
             if (junit.hasTimedOut()) {
               message = "test timed out before generating results file";
             } else {
@@ -693,16 +683,12 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                                 .map(buildContext.getSourcePathResolver()::getAbsolutePath)
                                 .collect(ImmutableSet.toImmutableSet()))
                         .addAll(
-                            additionalClasspathEntries
-                                .stream()
+                            additionalClasspathEntriesProvider
                                 .map(
                                     e ->
-                                        e.isLeft()
-                                            ? buildContext
-                                                .getSourcePathResolver()
-                                                .getAbsolutePath(e.getLeft())
-                                            : e.getRight())
-                                .collect(ImmutableSet.toImmutableSet()))
+                                        e.getAdditionalClasspathEntries(
+                                            buildContext.getSourcePathResolver()))
+                                .orElse(ImmutableList.of()))
                         .addAll(getBootClasspathEntries())
                         .build();
                 getProjectFilesystem()
@@ -713,5 +699,9 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
               }
             })
         .build();
+  }
+
+  public interface AdditionalClasspathEntriesProvider {
+    ImmutableList<Path> getAdditionalClasspathEntries(SourcePathResolver resolver);
   }
 }

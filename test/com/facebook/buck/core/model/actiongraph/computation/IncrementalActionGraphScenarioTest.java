@@ -39,6 +39,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -56,6 +57,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxTestBuilder;
 import com.facebook.buck.cxx.CxxTestUtils;
+import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.cxx.SharedLibraryInterfacePlatforms;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -78,6 +80,7 @@ import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -87,13 +90,12 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionUniverse;
 import com.facebook.buck.versions.VersionUniverseVersionSelector;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -370,13 +372,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(binaryTarget, binaryTarget2)),
                 new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
     ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
     queryTransitiveDeps(result);
@@ -541,13 +545,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(compilationDatabaseTarget)),
                 new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     ActionGraphAndBuilder result = createActionGraph(versionedTargetGraph);
@@ -565,13 +571,15 @@ public class IncrementalActionGraphScenarioTest {
             versionedAliasBuilder.build(filesystem),
             libraryBuilder.build(filesystem));
     TargetGraph newVersionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     newUnversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     newUnversionedTargetGraph, ImmutableSet.of(binaryTarget)),
                 new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     ActionGraphAndBuilder newResult = createActionGraph(newVersionedTargetGraph);
@@ -1159,6 +1167,40 @@ public class IncrementalActionGraphScenarioTest {
         createActionGraph(TargetGraphFactory.newInstance(buildNodes(builder)));
 
     assertCommonBuildRulesNotSame(firstResult, lastResult, target.getUnflavoredBuildTarget());
+  }
+
+  @Test
+  public void testPrebuiltCxxLibrary() {
+    CxxPlatform plat1 = CxxPlatformUtils.DEFAULT_PLATFORM;
+    CxxPlatform plat2 = CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("other"));
+    FlavorDomain<CxxPlatform> platforms = FlavorDomain.of("C/C++ Platform", plat1, plat2);
+
+    // Create an action graph with two different binaries using two different platforms, both
+    // consuming the same location macro exported by a library dependency.
+    GenruleBuilder genBuilder =
+        GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:gen"))
+            .setOut("out")
+            .setCmd("command");
+    PrebuiltCxxLibraryBuilder libBuilder =
+        new PrebuiltCxxLibraryBuilder(BuildTargetFactory.newInstance("//:lib"), platforms)
+            .setHeaderOnly(true)
+            .setExportedPreprocessorFlags(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format("%s", LocationMacro.of(genBuilder.getTarget()))));
+    CxxTestBuilder test1Builder =
+        new CxxTestBuilder(
+                BuildTargetFactory.newInstance("//:test1"), cxxBuckConfig, plat1, platforms)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.cpp"))))
+            .setDeps(ImmutableSortedSet.of(libBuilder.getTarget()));
+    CxxTestBuilder test2Builder =
+        new CxxTestBuilder(
+                BuildTargetFactory.newInstance("//:test2"), cxxBuckConfig, plat2, platforms)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.cpp"))))
+            .setDeps(ImmutableSortedSet.of(libBuilder.getTarget()));
+
+    // Build a graph from the first binary followed by the second to verify caches work correctly.
+    createActionGraph(genBuilder, libBuilder, test1Builder);
+    createActionGraph(genBuilder, libBuilder, test2Builder);
   }
 
   private void assertBuildRulesSame(
