@@ -23,6 +23,7 @@ import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
 import com.facebook.buck.core.rules.config.ConfigurationRuleResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.immutables.value.Value;
 
 /**
@@ -57,7 +58,7 @@ public class ConfigSettingDescription implements ConfigurationRuleDescription<Co
       Cell cell,
       BuildTarget buildTarget,
       ConfigSettingArg arg) {
-    return new ConfigSettingRule(buildTarget, arg.getValues());
+    return new ConfigSettingRule(buildTarget, arg.getValues(), arg.getConstraintValues());
   }
 
   @BuckStyleImmutable
@@ -66,5 +67,7 @@ public class ConfigSettingDescription implements ConfigurationRuleDescription<Co
     String getName();
 
     ImmutableMap<String, String> getValues();
+
+    ImmutableSet<BuildTarget> getConstraintValues();
   }
 }

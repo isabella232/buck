@@ -55,10 +55,10 @@ import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -92,7 +92,7 @@ public class LuaBinaryDescriptionTest {
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
   @Test
-  public void mainModule() throws Exception {
+  public void mainModule() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     LuaBinary binary =
         new LuaBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
@@ -102,7 +102,7 @@ public class LuaBinaryDescriptionTest {
   }
 
   @Test
-  public void extensionOverride() throws Exception {
+  public void extensionOverride() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -118,7 +118,7 @@ public class LuaBinaryDescriptionTest {
   }
 
   @Test
-  public void toolOverride() throws Exception {
+  public void toolOverride() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Tool override = new CommandTool.Builder().addArg("override").build();
     LuaBinary binary =
@@ -503,8 +503,7 @@ public class LuaBinaryDescriptionTest {
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
                     .add(
                         Pattern.compile(
-                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
-                            Pattern.LITERAL),
+                            CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(), Pattern.LITERAL),
                         ImmutableSortedSet.of(libraryABuilder.getTarget()))
                     .add(
                         Pattern.compile("matches nothing", Pattern.LITERAL),

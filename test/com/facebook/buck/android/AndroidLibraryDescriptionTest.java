@@ -27,9 +27,11 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.core.toolchain.tool.impl.testutil.SimpleTool;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -37,7 +39,6 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
@@ -209,8 +210,8 @@ public class AndroidLibraryDescriptionTest extends AbiCompilationModeTest {
             "android",
             Paths.get(""),
             entries,
-            Paths.get(""),
-            Paths.get(""),
+            () -> new SimpleTool(""),
+            () -> new SimpleTool(""),
             Paths.get(""),
             Paths.get(""),
             Paths.get(""),

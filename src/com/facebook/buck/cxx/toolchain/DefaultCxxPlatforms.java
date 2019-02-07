@@ -170,14 +170,26 @@ public class DefaultCxxPlatforms {
     Supplier<PathSourcePath> defaultCxxFrontendSupplier =
         MoreSuppliers.memoize(() -> config.getSourcePath(defaultCxxFrontend));
     PreprocessorProvider aspp = new PreprocessorProvider(defaultCFrontendSupplier, defaultToolType);
-    CompilerProvider as = new CompilerProvider(defaultCFrontendSupplier, defaultToolType);
+    CompilerProvider as =
+        new CompilerProvider(
+            defaultCFrontendSupplier,
+            defaultToolType,
+            config.getUseDetailedUntrackedHeaderMessages());
 
     PreprocessorProvider cpp = new PreprocessorProvider(defaultCFrontendSupplier, defaultToolType);
-    CompilerProvider cc = new CompilerProvider(defaultCFrontendSupplier, defaultToolType);
+    CompilerProvider cc =
+        new CompilerProvider(
+            defaultCFrontendSupplier,
+            defaultToolType,
+            config.getUseDetailedUntrackedHeaderMessages());
 
     PreprocessorProvider cxxpp =
         new PreprocessorProvider(defaultCxxFrontendSupplier, defaultToolType);
-    CompilerProvider cxx = new CompilerProvider(defaultCxxFrontendSupplier, defaultToolType);
+    CompilerProvider cxx =
+        new CompilerProvider(
+            defaultCxxFrontendSupplier,
+            defaultToolType,
+            config.getUseDetailedUntrackedHeaderMessages());
 
     return CxxPlatforms.build(
         FLAVOR,
@@ -196,8 +208,11 @@ public class DefaultCxxPlatforms {
         ImmutableList.of(),
         getHashedFileTool(config, "strip", DEFAULT_STRIP, env),
         ArchiverProvider.from(archiver),
+        ArchiveContents.NORMAL,
         ranlib,
         new PosixNmSymbolNameTool(getHashedFileTool(config, "nm", DEFAULT_NM, env)),
+        ImmutableList.of(),
+        ImmutableList.of(),
         ImmutableList.of(),
         ImmutableList.of(),
         ImmutableList.of(),

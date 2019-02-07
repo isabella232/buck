@@ -367,6 +367,7 @@ public class CxxLibraryFactory {
             .contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
         args.isReexportAllHeaderDependencies()
             .orElse(cxxBuckConfig.getDefaultReexportAllHeaderDependencies()),
+        args.getSupportsMergedLinking().orElse(true),
         delegate);
   }
 
@@ -863,7 +864,6 @@ public class CxxLibraryFactory {
         graphBuilder,
         ruleFinder,
         cxxPlatform,
-        cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,
         ImmutableList.copyOf(objects),
         /* cacheable */ true);

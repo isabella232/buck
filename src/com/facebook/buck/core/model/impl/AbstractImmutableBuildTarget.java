@@ -115,6 +115,17 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
   }
 
   @Override
+  public BuildTarget withShortName(String shortName) {
+    return ImmutableBuildTarget.of(
+        ImmutableUnflavoredBuildTarget.of(
+            getUnflavoredBuildTarget().getCellPath(),
+            getUnflavoredBuildTarget().getCell(),
+            getUnflavoredBuildTarget().getBaseName(),
+            shortName),
+        getFlavors());
+  }
+
+  @Override
   public BuildTarget withoutFlavors(Set<Flavor> flavors) {
     return ImmutableBuildTarget.of(
         getUnflavoredBuildTarget(), Sets.difference(getFlavors(), flavors));
@@ -123,6 +134,11 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
   @Override
   public BuildTarget withoutFlavors(Flavor... flavors) {
     return withoutFlavors(ImmutableSet.copyOf(flavors));
+  }
+
+  @Override
+  public BuildTarget withoutFlavors() {
+    return ImmutableBuildTarget.of(getUnflavoredBuildTarget());
   }
 
   @Override

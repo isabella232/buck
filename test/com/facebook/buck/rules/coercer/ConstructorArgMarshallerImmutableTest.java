@@ -33,14 +33,15 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.parser.syntax.ImmutableListWithSelects;
+import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
-import com.google.devtools.build.lib.syntax.SelectorValue;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
@@ -70,7 +71,7 @@ public class ConstructorArgMarshallerImmutableTest {
   @Before
   public void setUpInspector() {
     basePath = Paths.get("example", "path");
-    marshaller = new ConstructorArgMarshaller(new DefaultTypeCoercerFactory());
+    marshaller = new DefaultConstructorArgMarshaller(new DefaultTypeCoercerFactory());
     filesystem = new FakeProjectFilesystem();
   }
 
@@ -623,7 +624,7 @@ public class ConstructorArgMarshallerImmutableTest {
   @Test
   public void populateFromCoercedAttributesThrowsOnSelectorList() {
     SelectorList<String> selectorList =
-        new SelectorList<>(new IdentityTypeCoercer<>(String.class), Collections.emptyList());
+        new SelectorList<>(new StringTypeCoercer(), Collections.emptyList());
 
     expected.expect(IllegalArgumentException.class);
     expected.expectMessage("Attribute \"string\" is not resolved");
@@ -705,9 +706,11 @@ public class ConstructorArgMarshallerImmutableTest {
 
   @Test
   public void convertRawAttributesCoercesSelectableValues() throws CoerceFailedException {
-    com.google.devtools.build.lib.syntax.SelectorList selectorList =
-        com.google.devtools.build.lib.syntax.SelectorList.of(
-            new SelectorValue(ImmutableMap.of("//a:c", "b", "DEFAULT", "c"), ""));
+    ImmutableListWithSelects selectorList =
+        ImmutableListWithSelects.of(
+            ImmutableList.of(
+                ImmutableSelectorValue.of(ImmutableMap.of("//a:c", "b", "DEFAULT", "c"), "")),
+            ImmutableMap.class);
     ImmutableMap<String, Object> attributes =
         marshaller.convertRawAttributes(
             createCellRoots(filesystem),

@@ -16,11 +16,13 @@
 
 package com.facebook.buck.intellij.ideabuck.navigation;
 
-import com.facebook.buck.intellij.ideabuck.external.IntellijBuckAction;
+import com.facebook.buck.intellij.ideabuck.api.BuckTarget;
+import com.facebook.buck.intellij.ideabuck.api.BuckTargetLocator;
+import com.facebook.buck.intellij.ideabuck.api.BuckTargetPattern;
 import com.facebook.buck.intellij.ideabuck.lang.BuckLanguage;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckValue;
-import com.facebook.buck.intellij.ideabuck.util.BuckCellFinder;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
+import com.google.common.annotations.VisibleForTesting;
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationHandlerBase;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -35,44 +37,92 @@ public class BuckGotoProvider extends GotoDeclarationHandlerBase {
 
   @Nullable
   @Override
-  public PsiElement getGotoDeclarationTarget(@Nullable PsiElement source, Editor editor) {
-    if (source == null || !(source.getLanguage() instanceof BuckLanguage)) {
+  public PsiElement getGotoDeclarationTarget(@Nullable PsiElement element, Editor unused) {
+    return getGotoDeclarationTarget(element);
+  }
+
+  @VisibleForTesting
+  PsiElement getGotoDeclarationTarget(@Nullable PsiElement element) {
+    if (element == null || !(element.getLanguage() instanceof BuckLanguage)) {
       return null;
     }
-
-    final Project project = editor.getProject();
-    if (project == null) {
+    Project project = element.getProject();
+    if (project.isDefault()) {
       return null;
     }
-
-    VirtualFile sourceFile = source.getContainingFile().getVirtualFile();
-    BuckCellFinder buckCellFinder = BuckCellFinder.getInstance(project);
-
-    String target = source.getText();
-    if (target.length() >= 2
-        && ((target.startsWith("'") && target.endsWith("'"))
-            || (target.startsWith("\"") && target.endsWith("\"")))) {
-      target = target.substring(1, target.length() - 1);
+    String elementAsString = BuckPsiUtils.getStringValueFromBuckString(element);
+    if (elementAsString == null) {
+      return null;
     }
-
-    Optional<VirtualFile> targetFile;
-    if (PsiTreeUtil.getParentOfType(source, BuckLoadTargetArgument.class) != null) {
-      targetFile = buckCellFinder.findExtensionFile(sourceFile, target);
-    } else if (PsiTreeUtil.getParentOfType(source, BuckValue.class) != null) {
-      targetFile = buckCellFinder.findBuckTargetFile(sourceFile, target);
+    VirtualFile sourceFile = element.getContainingFile().getVirtualFile();
+    if (sourceFile == null) {
+      return null;
+    }
+    Optional<BuckTargetPattern> targetPattern = BuckTargetPattern.parse(elementAsString);
+    if (targetPattern.isPresent()) {
+      if (PsiTreeUtil.getParentOfType(element, BuckLoadTargetArgument.class) != null) {
+        return resolveAsLoadTarget(project, sourceFile, targetPattern.get());
+      } else {
+        return targetPattern
+            .flatMap(BuckTargetPattern::asBuckTarget)
+            .map(t -> resolveAsBuckTarget(project, sourceFile, t))
+            .orElseGet(() -> resolveAsBuckTargetPattern(project, sourceFile, targetPattern.get()));
+      }
     } else {
-      targetFile = Optional.empty();
+      return resolveAsRelativeFile(project, sourceFile, elementAsString);
     }
+  }
 
-    return targetFile
-        .map(
-            f -> {
-              project
-                  .getMessageBus()
-                  .syncPublisher(IntellijBuckAction.EVENT)
-                  .consume(this.getClass().toString());
-              return PsiManager.getInstance(project).findFile(f);
-            })
+  @Nullable
+  private PsiElement resolveAsLoadTarget(
+      Project project, VirtualFile sourceFile, BuckTargetPattern targetPattern) {
+    BuckTargetLocator buckTargetLocator = BuckTargetLocator.getInstance(project);
+    return targetPattern
+        .asBuckTarget()
+        .flatMap(target -> buckTargetLocator.resolve(sourceFile, target))
+        .flatMap(buckTargetLocator::findVirtualFileForExtensionFile)
+        .map(targetFile -> findPsiElementForVirtualFile(project, targetFile))
         .orElse(null);
+  }
+
+  @Nullable
+  private PsiElement resolveAsBuckTargetPattern(
+      Project project, VirtualFile sourceFile, BuckTargetPattern targetPattern) {
+    BuckTargetLocator buckTargetLocator = BuckTargetLocator.getInstance(project);
+    return buckTargetLocator
+        .resolve(sourceFile, targetPattern)
+        .flatMap(buckTargetLocator::findVirtualFileForTargetPattern)
+        .map(targetFile -> findPsiElementForVirtualFile(project, targetFile))
+        .orElse(null);
+  }
+
+  @Nullable
+  private PsiElement resolveAsBuckTarget(
+      Project project, VirtualFile sourceFile, BuckTarget target) {
+    BuckTargetLocator buckTargetLocator = BuckTargetLocator.getInstance(project);
+    return buckTargetLocator
+        .resolve(sourceFile, target)
+        .flatMap(buckTargetLocator::findElementForTarget)
+        .map(o -> (PsiElement) o)
+        .orElse(null);
+  }
+
+  @Nullable
+  private PsiElement resolveAsRelativeFile(
+      Project project, VirtualFile sourceFile, String elementAsString) {
+    return Optional.of(sourceFile.getParent())
+        .map(f -> f.findFileByRelativePath(elementAsString))
+        .map(f -> findPsiElementForVirtualFile(project, f))
+        .orElse(null);
+  }
+
+  @Nullable
+  private PsiElement findPsiElementForVirtualFile(Project project, VirtualFile file) {
+    PsiManager psiManager = PsiManager.getInstance(project);
+    if (file.isDirectory()) {
+      return psiManager.findDirectory(file);
+    } else {
+      return psiManager.findFile(file);
+    }
   }
 }

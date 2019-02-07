@@ -46,16 +46,10 @@ java_library(
 )
 
 java_library(
-    name = "ideabuck-lib",
+    name = "api",
     srcs = glob(
         [
-            "src/**/*.java",
-        ],
-        exclude = [
-            "src/com/facebook/buck/intellij/ideabuck/file/BuckFileType.java",
-            "src/com/facebook/buck/intellij/ideabuck/icons/BuckIcons.java",
-            "src/com/facebook/buck/intellij/ideabuck/lang/psi/*.java",
-            "src/com/facebook/buck/intellij/ideabuck/lang/BuckLanguage.java",
+            "src/com/facebook/buck/intellij/ideabuck/api/**/*.java",
         ],
     ),
     provided_deps = [
@@ -66,7 +60,39 @@ java_library(
     ],
     source = "1.8",
     target = "1.8",
-    visibility = ["//tools/ideabuck/..."],
+    visibility = [
+        "PUBLIC",
+    ],
+)
+
+java_library(
+    name = "ideabuck-lib",
+    srcs = glob(
+        [
+            "src/**/*.java",
+        ],
+        exclude = [
+            "src/com/facebook/buck/intellij/ideabuck/api/**/*.java",
+            "src/com/facebook/buck/intellij/ideabuck/file/BuckFileType.java",
+            "src/com/facebook/buck/intellij/ideabuck/icons/BuckIcons.java",
+            "src/com/facebook/buck/intellij/ideabuck/lang/psi/*.java",
+            "src/com/facebook/buck/intellij/ideabuck/lang/BuckLanguage.java",
+        ],
+    ),
+    exported_deps = [
+        ":api",
+    ],
+    provided_deps = [
+        "//third-party/java/intellij:intellij-plugin-sdk",
+        # IntelliJ will provide these, too...
+        "//third-party/java/guava:guava",
+        "//third-party/java/jsr:jsr305",
+    ],
+    source = "1.8",
+    target = "1.8",
+    visibility = [
+        "//tools/ideabuck/...",
+    ],
     deps = [
         ":bundle_generated_lib",
         "//src/com/facebook/buck/event/external:external_lib",
@@ -84,9 +110,13 @@ java_library(
 java_library(
     name = "resources",
     srcs = [],
-    resources = glob([
-        "**/*.png",
-    ]),
+    resources = glob(
+        [
+            "**/*.png",
+            "**/*.xml",
+        ],
+        exclude = ["resources/META-INF/**"],
+    ),
     resources_root = "resources/",
     visibility = [
         "PUBLIC",
@@ -95,27 +125,10 @@ java_library(
 
 java_binary(
     name = "ideabuck",
-    meta_inf_directory = "META-INF",
+    meta_inf_directory = "resources/META-INF",
     deps = [
         ":ideabuck-lib",
         ":resources",
-    ],
-)
-
-TEST_SRC = ["tests/unit/**/*Test.java"]
-
-java_library(
-    name = "tests-lib",
-    srcs = glob(
-        ["tests/unit/**/*.java"],
-        exclude = TEST_SRC,
-    ),
-    target = "1.8",
-    visibility = ["//tools/ideabuck/tests/..."],
-    deps = [
-        ":ideabuck-lib",
-        "//src/com/facebook/buck/event/external:external_lib",
-        "//third-party/java/guava:guava",
     ],
 )
 

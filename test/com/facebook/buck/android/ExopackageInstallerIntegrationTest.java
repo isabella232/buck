@@ -41,7 +41,6 @@ import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
@@ -55,6 +54,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.zip.ZipEntry;
@@ -432,8 +432,8 @@ public class ExopackageInstallerIntegrationTest {
             currentBuildState.resourcesContents,
             currentBuildState.modularDexesContents);
 
-    // TODO(cjhopman): fix exo install when library is renamed but content remains the same.
-    // checkExoInstall(0, 0, 1, 0);
+    // Note: zero libs installed.  The content is already on device, so only metadata changes.
+    checkExoInstall(0, 0, 0, 0, 0);
   }
 
   @Test
@@ -471,6 +471,29 @@ public class ExopackageInstallerIntegrationTest {
             currentBuildState.modularDexesContents);
 
     checkExoInstall(0, 0, 0, 0, 0);
+  }
+
+  @Test
+  public void testExoInstallWithDuplicateNativeLibs() throws Exception {
+    setDefaultFullBuildState();
+
+    checkExoInstall(1, 2, 2, 3, 2);
+
+    currentBuildState =
+        new ExoState(
+            currentBuildState.apkContent,
+            currentBuildState.manifestContent,
+            currentBuildState.secondaryDexesContents,
+            ImmutableSortedMap.of(
+                "libs/" + SdkConstants.ABI_INTEL_ATOM + "/libone.so", "libfake\n",
+                "libs/" + SdkConstants.ABI_INTEL_ATOM + "/libtwo.so", "libfake\n",
+                "libs/" + SdkConstants.ABI_ARMEABI_V7A + "/libone.so", "libfake\n",
+                "libs/" + SdkConstants.ABI_ARMEABI_V7A + "/libtwo.so", "libfake\n"),
+            currentBuildState.resourcesContents,
+            currentBuildState.modularDexesContents);
+
+    // Note: Just one lib installed.  They are identical, so we only install 1.
+    checkExoInstall(0, 0, 1, 0, 0);
   }
 
   private void debug(String msg) {
@@ -564,7 +587,7 @@ public class ExopackageInstallerIntegrationTest {
               libsContents.get(k));
           expectedMetadata
               .append(prefix)
-              .append(k.substring(k.lastIndexOf("/") + 1, k.length() - 3))
+              .append(k, k.lastIndexOf("/") + 1, k.length() - 3)
               .append(" native-")
               .append(libHash)
               .append(".so");
@@ -696,7 +719,7 @@ public class ExopackageInstallerIntegrationTest {
                     entry -> {
                       try {
                         return Files.toString(
-                            Preconditions.checkNotNull(entry.getValue()).toFile(), Charsets.UTF_8);
+                            Objects.requireNonNull(entry.getValue()).toFile(), Charsets.UTF_8);
                       } catch (IOException e) {
                         throw new RuntimeException(e);
                       }
@@ -719,11 +742,7 @@ public class ExopackageInstallerIntegrationTest {
       zf.write(apkContent.getBytes(Charsets.US_ASCII), 0, apkContent.length());
       zf.closeEntry();
     }
-    try {
-      ZipScrubberStep.of(filesystem.resolve(apkPath)).execute(executionContext);
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    }
+    ZipScrubberStep.of(filesystem.resolve(apkPath)).execute(executionContext);
   }
 
   private String createFakeManifest(String manifestContent) {

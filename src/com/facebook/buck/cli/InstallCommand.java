@@ -88,6 +88,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
@@ -201,8 +202,7 @@ public class InstallCommand extends BuildCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     assertArguments(params);
 
     BuildRunResult buildRunResult;
@@ -536,7 +536,7 @@ public class InstallCommand extends BuildCommand {
     AppleDeviceHelper helper = new AppleDeviceHelper(processExecutor, helperPath);
     ImmutableMap<String, String> connectedDevices = helper.getConnectedDevices();
 
-    if (connectedDevices.size() == 0) {
+    if (connectedDevices.isEmpty()) {
       params
           .getConsole()
           .printBuildFailure(
@@ -589,7 +589,7 @@ public class InstallCommand extends BuildCommand {
     if (helper.installBundleOnDevice(
         selectedUdid,
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printSuccess(
@@ -804,7 +804,7 @@ public class InstallCommand extends BuildCommand {
     if (!appleSimulatorController.installBundleInSimulator(
         appleSimulator.get().getUdid(),
         pathResolver.getAbsolutePath(
-            Preconditions.checkNotNull(appleBundle.getSourcePathToOutput())))) {
+            Objects.requireNonNull(appleBundle.getSourcePathToOutput())))) {
       params
           .getConsole()
           .printBuildFailure(

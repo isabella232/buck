@@ -18,9 +18,13 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.rules.modern.DefaultFieldInputs;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -75,11 +79,13 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   }
 
   @Value.Default
+  @AddToRuleKey
   protected boolean isProductionBuild() {
     return false;
   }
 
   @Value.Default
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   protected boolean isVerbose() {
     return false;
   }
@@ -106,11 +112,14 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   @AddToRuleKey
   public abstract List<String> getExtraArguments();
 
+  // TODO(cjhopman): This should use SourcePaths
   @AddToRuleKey
   protected abstract Optional<String> getBootclasspath();
 
+  // TODO(cjhopman): This should be resolved to the appropriate source.
   // TODO(cjhopman): Should this be added to the rulekey?
-  protected abstract Map<String, String> getSourceToBootclasspath();
+  @CustomFieldBehavior({DefaultFieldInputs.class, DefaultFieldSerialization.class})
+  protected abstract Map<String, ImmutableList<PathSourcePath>> getSourceToBootclasspath();
 
   @AddToRuleKey
   protected boolean isDebug() {
@@ -124,6 +133,7 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
   }
 
   @Value.Default
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   protected boolean trackJavacPhaseEvents() {
     return false;
   }
@@ -178,8 +188,16 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
     if (getBootclasspath().isPresent()) {
       optionsConsumer.addOptionValue("bootclasspath", getBootclasspath().get());
     } else {
-      String bcp = getSourceToBootclasspath().get(getSourceLevel());
-      if (bcp != null) {
+      ImmutableList<PathSourcePath> bootclasspath =
+          getSourceToBootclasspath().get(getSourceLevel());
+      if (bootclasspath != null) {
+        String bcp =
+            bootclasspath
+                .stream()
+                .map(pathResolver::getAbsolutePath)
+                .map(filesystem::relativize)
+                .map(Path::toString)
+                .collect(Collectors.joining(File.pathSeparator));
         optionsConsumer.addOptionValue("bootclasspath", bcp);
       }
     }
@@ -188,7 +206,7 @@ abstract class AbstractJavacOptions implements AddsToRuleKey {
     AnnotationProcessingParams annotationProcessingParams = getAnnotationProcessingParams();
     if (!annotationProcessingParams.isEmpty()) {
       ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
-          annotationProcessingParams.getAnnotationProcessors();
+          annotationProcessingParams.getModernProcessors();
 
       // Specify processorpath to search for processors.
       optionsConsumer.addOptionValue(

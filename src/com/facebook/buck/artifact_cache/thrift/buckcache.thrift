@@ -1,6 +1,8 @@
 # Copyright 2016 Facebook. All Rights Reserved.
 #
-# To refresh the protocol run the following command:
+# To refresh the protocol, make sure you have public version of Thrift installed:
+#   brew install thrift
+# and run the following command:
 #   /usr/local/bin/thrift --gen java:generated_annotations=undated  -out src-gen/ src/com/facebook/buck/artifact_cache/thrift/buckcache.thrift
 #
 # This .thrift file contains the protocol required by the buck client to
@@ -21,6 +23,7 @@ enum BuckCacheRequestType {
   MANIFEST_APPEND = 108,
   MANIFEST_FETCH = 109,
   MANIFEST_DELETE = 110,
+  MANIFEST_SET = 111,
 }
 
 struct RuleKey {
@@ -36,6 +39,14 @@ struct ArtifactMetadata {
   6: optional string scheduleType;
   7: optional string artifactPayloadMd5;
   8: optional bool distributedBuildModeEnabled;
+  // Free-form identifier of a service that produced the artifact
+  9: optional string producerId;
+  // How long it took to build this artifact, in milliseconds
+  10: optional i64 buildTimeMs;
+  // Hostname of a machine that produced the artifact
+  11: optional string producerHostname;
+  // Size of the content in bytes
+  12: optional i64 sizeBytes;
 }
 
 enum ContainsResultType {
@@ -205,6 +216,13 @@ struct ManifestDeleteRequest {
 struct ManifestDeleteResponse {
 }
 
+struct ManifestSetRequest {
+  1: optional Manifest manifest;
+}
+
+struct ManifestSetResponse {
+}
+
 struct BuckCacheRequest {
   1: optional BuckCacheRequestType type = BuckCacheRequestType.UNKNOWN;
 
@@ -221,6 +239,7 @@ struct BuckCacheRequest {
   108: optional ManifestAppendRequest manifestAppendRequest;
   109: optional ManifestFetchRequest manifestFetchRequest;
   110: optional ManifestDeleteRequest manifestDeleteRequest;
+  111: optional ManifestSetRequest manifestSetRequest;
 }
 
 struct BuckCacheResponse {
@@ -244,4 +263,5 @@ struct BuckCacheResponse {
   108: optional ManifestAppendResponse manifestAppendResponse;
   109: optional ManifestFetchResponse manifestFetchResponse;
   110: optional ManifestDeleteResponse manifestDeleteResponse;
+  111: optional ManifestSetResponse manifestSetResponse;
 }

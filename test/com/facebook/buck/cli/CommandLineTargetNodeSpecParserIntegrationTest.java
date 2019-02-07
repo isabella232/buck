@@ -18,9 +18,7 @@ package com.facebook.buck.cli;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.testutil.ProcessResult;
@@ -31,6 +29,7 @@ import com.facebook.buck.util.ExitCode;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
+import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -63,29 +62,60 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
     workspace.setUp();
 
     // First check for a correct usage.
-    ProcessResult result = workspace.runBuckCommand("targets", "//simple/...").assertSuccess();
+    ProcessResult processResult =
+        workspace.runBuckCommand("targets", "//simple/...").assertSuccess();
     assertEquals(
         ImmutableSet.of("//simple:simple", "//simple/foo:foo", "//simple/bar:bar"),
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator())
+                .omitEmptyStrings()
+                .split(processResult.getStdout())));
+
+    // Check for some expected failure cases.
+
+    processResult = workspace.runBuckCommand("targets", "//simple:...");
+    processResult.assertExitCode(ExitCode.PARSE_ERROR);
+    assertThat(
+        processResult.getStderr(),
+        Matchers.allOf(
+            Matchers.containsString("The rule //simple:... could not be found."),
+            Matchers.containsString("check the spelling and whether it exists in"),
+            Matchers.containsString("BUCK")));
+
+    processResult = workspace.runBuckCommand("targets", "//simple/....");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        Matchers.containsString("//simple/.... references non-existent directory simple"));
+  }
+
+  @Test
+  public void targetsTypo() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "command_line_parser", tmp);
+    workspace.setUp();
+
+    // First check for correct usage.
+    ProcessResult result = workspace.runBuckCommand("targets", "//simple:").assertSuccess();
+    assertEquals(
+        ImmutableSet.of("//simple:simple"),
         ImmutableSet.copyOf(
             Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
 
     // Check for some expected failure cases.
-    try {
-      workspace.runBuckCommand("targets", "//simple:...");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getMessage(),
-          Matchers.containsString(
-              "No rule found when resolving target //simple:... in build file //simple/BUCK"));
-    }
-    try {
-      workspace.runBuckCommand("targets", "//simple/....");
-      fail("Should not reach this");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getMessage(),
-          Matchers.containsString("//simple/.... references non-existent directory simple"));
-    }
+    result = workspace.runBuckCommand("targets", "//sImple:");
+    result.assertFailure();
+
+    Matcher<String> errorMessageMatcher =
+        Matchers.allOf(
+            Matchers.containsString("The case of the build path provided"),
+            Matchers.containsString("sImple"),
+            Matchers.containsString(
+                "does not match the actual path. "
+                    + "This is an issue even on case-insensitive file systems. "
+                    + "Please check the spelling of the provided path."));
+
+    assertThat(result.getStderr(), errorMessageMatcher);
   }
 
   @Test

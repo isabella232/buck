@@ -16,15 +16,15 @@
 
 package com.facebook.buck.intellij.ideabuck.config;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 
 /** Persistent per-cell preferences in a {@link com.intellij.openapi.project.Project}. */
 public class BuckCell {
   public String name = "";
   public String root = "$PROJECT_DIR$";
   public String buildFileName = "BUCK";
-
-  public static BuckCell DEFAULT_CELL = new BuckCell();
 
   /** Returns a copy of this cell. */
   public BuckCell copy() {
@@ -45,7 +45,15 @@ public class BuckCell {
 
   /** Sets the name of this cell. */
   public void setName(String name) {
-    this.name = name;
+    this.name = Preconditions.checkNotNull(name);
+  }
+
+  /** Builder pattern for creating buck cells. */
+  @VisibleForTesting
+  public BuckCell withName(String name) {
+    BuckCell copy = copy();
+    copy.setName(name);
+    return copy;
   }
 
   /**
@@ -61,7 +69,15 @@ public class BuckCell {
 
   /** Sets the root directory of this cell. */
   public void setRoot(String root) {
-    this.root = root;
+    this.root = Preconditions.checkNotNull(root);
+  }
+
+  /** Builder pattern for creating buck cells. */
+  @VisibleForTesting
+  public BuckCell withRoot(String root) {
+    BuckCell copy = copy();
+    copy.setRoot(root);
+    return copy;
   }
 
   /**
@@ -76,7 +92,15 @@ public class BuckCell {
 
   /** Sets the name of Buck files for this cell. */
   public void setBuildFileName(String buildFileName) {
-    this.buildFileName = buildFileName;
+    this.buildFileName = Preconditions.checkNotNull(buildFileName);
+  }
+
+  /** Builder pattern for creating buck cells. */
+  @VisibleForTesting
+  public BuckCell withBuildFileName(String buildFileName) {
+    BuckCell copy = copy();
+    copy.setBuildFileName(buildFileName);
+    return copy;
   }
 
   @Override
@@ -96,5 +120,20 @@ public class BuckCell {
   @Override
   public int hashCode() {
     return Objects.hashCode(name, root, buildFileName);
+  }
+
+  @Override
+  public String toString() {
+    return "BuckCell{"
+        + "name='"
+        + name
+        + '\''
+        + ", root='"
+        + root
+        + '\''
+        + ", buildFileName='"
+        + buildFileName
+        + '\''
+        + '}';
   }
 }

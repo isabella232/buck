@@ -27,6 +27,8 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPatternParser;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
@@ -37,8 +39,6 @@ import com.facebook.buck.distributed.thrift.RemoteCommand;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.config.Config;
@@ -55,6 +55,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.pf4j.PluginManager;
 
@@ -208,7 +209,7 @@ public class DistBuildState {
 
     CellProvider cellProvider =
         DistributedCellProviderFactory.create(
-            Preconditions.checkNotNull(rootCellParams), cellParams.build(), rootCellPathResolver);
+            Objects.requireNonNull(rootCellParams), cellParams.build(), rootCellPathResolver);
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -262,13 +263,13 @@ public class DistBuildState {
   }
 
   public Cell getRootCell() {
-    return Preconditions.checkNotNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
+    return Objects.requireNonNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
   }
 
   public TargetGraphAndBuildTargets createTargetGraph(DistBuildTargetGraphCodec codec)
       throws InterruptedException {
     return codec.createTargetGraph(
-        remoteState.getTargetGraph(), key -> Preconditions.checkNotNull(cells.get(key)));
+        remoteState.getTargetGraph(), key -> Objects.requireNonNull(cells.get(key)));
   }
 
   public ProjectFileHashCache createRemoteFileHashCache(ProjectFileHashCache decoratedCache) {
@@ -279,9 +280,7 @@ public class DistBuildState {
       return decoratedCache;
     }
 
-    ProjectFileHashCache remoteCache =
-        DistBuildFileHashes.createFileHashCache(decoratedCache, remoteFileHashes);
-    return remoteCache;
+    return DistBuildFileHashes.createFileHashCache(decoratedCache, remoteFileHashes);
   }
 
   public ProjectFileHashCache createMaterializerAndPreload(

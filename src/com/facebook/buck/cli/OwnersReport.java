@@ -19,19 +19,21 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +41,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -77,17 +80,16 @@ final class OwnersReport {
     return nonFileInputs;
   }
 
-  @VisibleForTesting
-  static OwnersReport emptyReport() {
+  private static OwnersReport emptyReport() {
     return new OwnersReport(
         ImmutableSetMultimap.of(), ImmutableSet.of(), ImmutableSet.of(), ImmutableSet.of());
   }
 
   private boolean isEmpty() {
-    return owners.size() == 0
-        && inputsWithNoOwners.size() == 0
-        && nonExistentInputs.size() == 0
-        && nonFileInputs.size() == 0;
+    return owners.isEmpty()
+        && inputsWithNoOwners.isEmpty()
+        && nonExistentInputs.isEmpty()
+        && nonFileInputs.isEmpty();
   }
 
   @VisibleForTesting
@@ -148,33 +150,33 @@ final class OwnersReport {
     }
   }
 
-  static Builder builder(Cell rootCell, Parser parser) {
-    return new Builder(rootCell, parser);
+  static Builder builder(Cell rootCell, Parser parser, PerBuildState parserState) {
+    return new Builder(rootCell, parser, parserState);
   }
 
   static final class Builder {
     private final Cell rootCell;
     private final Parser parser;
+    private final PerBuildState parserState;
 
-    private Builder(Cell rootCell, Parser parser) {
+    private Builder(Cell rootCell, Parser parser, PerBuildState parserState) {
       this.rootCell = rootCell;
       this.parser = parser;
+      this.parserState = parserState;
     }
 
     private OwnersReport getReportForBasePath(
-        Map<Path, ImmutableSet<TargetNode<?>>> map,
-        ListeningExecutorService executor,
+        Map<Path, ImmutableList<TargetNode<?>>> map,
         Cell cell,
         Path basePath,
         Path cellRelativePath) {
       Path buckFile = cell.getFilesystem().resolve(basePath).resolve(cell.getBuildFileName());
-      ImmutableSet<TargetNode<?>> targetNodes =
+      ImmutableList<TargetNode<?>> targetNodes =
           map.computeIfAbsent(
               buckFile,
               basePath1 -> {
                 try {
-                  return parser.getAllTargetNodes(
-                      cell, /* enable profiling */ false, executor, basePath1);
+                  return parser.getAllTargetNodes(parserState, cell, basePath1);
                 } catch (BuildFileParseException e) {
                   throw new HumanReadableException(e);
                 }
@@ -204,9 +206,7 @@ final class OwnersReport {
     }
 
     OwnersReport build(
-        ImmutableMap<Cell, BuildFileTree> buildFileTrees,
-        ListeningExecutorService executor,
-        Iterable<String> arguments) {
+        ImmutableMap<Cell, BuildFileTree> buildFileTrees, Iterable<String> arguments) {
       ProjectFilesystem rootCellFilesystem = rootCell.getFilesystem();
       Path rootPath = rootCellFilesystem.getRootPath();
       Preconditions.checkState(rootPath.isAbsolute());
@@ -249,6 +249,7 @@ final class OwnersReport {
       ImmutableSet<String> missingFiles =
           RichStream.from(arguments)
               .filter(f -> !Files.exists(rootCellFilesystem.getPathForRelativePath(f)))
+              .map(MorePaths::pathWithPlatformSeparators)
               .toImmutableSet();
 
       ImmutableSet.Builder<Path> inputWithNoOwners = ImmutableSet.builder();
@@ -262,13 +263,13 @@ final class OwnersReport {
 
         Cell cell = entry.getKey().get();
         BuildFileTree buildFileTree =
-            Preconditions.checkNotNull(
+            Objects.requireNonNull(
                 buildFileTrees.get(cell),
                 "cell is be derived from buildFileTree keys, so should be present");
 
         // Path from buck file to target nodes. We keep our own cache here since the manner that we
         // are calling the parser does not make use of its internal caches.
-        Map<Path, ImmutableSet<TargetNode<?>>> map = new HashMap<>();
+        Map<Path, ImmutableList<TargetNode<?>>> map = new HashMap<>();
         for (Path absolutePath : entry.getValue()) {
           Path cellRelativePath = cell.getFilesystem().relativize(absolutePath);
           ImmutableSet<Path> basePaths = getAllBasePathsForPath(buildFileTree, cellRelativePath);
@@ -279,9 +280,7 @@ final class OwnersReport {
           report =
               basePaths
                   .stream()
-                  .map(
-                      basePath ->
-                          getReportForBasePath(map, executor, cell, basePath, cellRelativePath))
+                  .map(basePath -> getReportForBasePath(map, cell, basePath, cellRelativePath))
                   .reduce(report, OwnersReport::updatedWith);
         }
       }

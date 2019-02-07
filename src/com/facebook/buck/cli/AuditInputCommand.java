@@ -22,11 +22,11 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPatternParser;
 import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -71,8 +71,7 @@ public class AuditInputCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
     // TargetNodes for the specified BuildTargetPaths.
     ImmutableSet<String> fullyQualifiedBuildTargets =
@@ -133,7 +132,7 @@ public class AuditInputCommand extends AbstractCommand {
       @Override
       public void visit(TargetNode<?> node) {
         Optional<Cell> cellRoot = params.getCell().getCellIfKnown(node.getBuildTarget());
-        Cell cell = cellRoot.isPresent() ? cellRoot.get() : params.getCell();
+        Cell cell = cellRoot.orElse(params.getCell());
         LOG.debug("Looking at inputs for %s", node.getBuildTarget().getFullyQualifiedName());
 
         ImmutableSortedSet.Builder<Path> targetInputs =
@@ -171,7 +170,7 @@ public class AuditInputCommand extends AbstractCommand {
       @Override
       public void visit(TargetNode<?> node) {
         Optional<Cell> cellRoot = params.getCell().getCellIfKnown(node.getBuildTarget());
-        Cell cell = cellRoot.isPresent() ? cellRoot.get() : params.getCell();
+        Cell cell = cellRoot.orElse(params.getCell());
         for (Path input : node.getInputs()) {
           LOG.debug("Walking input %s", input);
           try {

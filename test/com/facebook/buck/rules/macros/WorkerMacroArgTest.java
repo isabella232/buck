@@ -20,22 +20,23 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.shell.ShBinaryBuilder;
 import com.facebook.buck.shell.WorkerToolBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.hamcrest.Matchers;
@@ -84,7 +85,7 @@ public class WorkerMacroArgTest {
   }
 
   @Test
-  public void testWorkerMacroArgWithNoMacros() throws MacroException, NoSuchBuildTargetException {
+  public void testWorkerMacroArgWithNoMacros() throws NoSuchBuildTargetException {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     MacroHandler macroHandler =
@@ -129,7 +130,7 @@ public class WorkerMacroArgTest {
           cellNames,
           graphBuilder,
           unexpanded);
-    } catch (MacroException e) {
+    } catch (HumanReadableException e) {
       assertThat(e.getMessage(), Matchers.containsString("does not correspond to a worker_tool"));
     }
   }
@@ -137,6 +138,8 @@ public class WorkerMacroArgTest {
   @Test
   public void testWorkerMacroArgWithMacroInWrongLocation() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    WorkerToolBuilder.newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker"))
+        .build(graphBuilder);
 
     MacroHandler macroHandler =
         new MacroHandler(ImmutableMap.of("worker", new WorkerMacroExpander()));

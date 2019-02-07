@@ -22,18 +22,17 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
-import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -44,7 +43,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   public FakeJavaLibrary(
       BuildTarget target, ProjectFilesystem filesystem, ImmutableSortedSet<BuildRule> deps) {
-    super(target, filesystem, deps.toArray(new BuildRule[deps.size()]));
+    super(target, filesystem, deps.toArray(new BuildRule[0]));
   }
 
   public FakeJavaLibrary(BuildTarget target, ImmutableSortedSet<BuildRule> deps) {
@@ -108,15 +107,25 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
     return ImmutableSortedSet.of();
   }
 
+  @Override
+  public Optional<String> getResourcesRoot() {
+    return Optional.empty();
+  }
+
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<SourcePath> srcs) {
-    Preconditions.checkNotNull(srcs);
+    Objects.requireNonNull(srcs);
     this.srcs = srcs;
     return this;
   }
 
   @Override
-  public Optional<Path> getGeneratedSourcePath() {
+  public Optional<SourcePath> getGeneratedAnnotationSourcePath() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean hasAnnotationProcessing() {
+    return false;
   }
 
   @Override

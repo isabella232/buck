@@ -70,11 +70,6 @@ import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 class AndroidBinaryBuildable implements AddsToRuleKey {
-  /**
-   * The filename of the solidly compressed libraries if compressAssetLibraries is set to true. This
-   * file can be found in assets/lib.
-   */
-  private static final String SOLID_COMPRESSED_ASSET_LIBRARY_FILENAME = "libs.xzs";
 
   /**
    * This is the path from the root of the APK that should contain the metadata.txt and
@@ -93,6 +88,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey final boolean packageAssetLibraries;
   @AddToRuleKey final boolean compressAssetLibraries;
+  @AddToRuleKey final Optional<CompressionAlgorithm> assetCompressionAlgorithm;
 
   @AddToRuleKey private final Optional<RedexOptions> redexOptions;
 
@@ -113,8 +109,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   // Post-process resource compression
   @AddToRuleKey private final boolean isCompressResources;
-
-  @AddToRuleKey private final int apkCompressionLevel;
 
   @AddToRuleKey private final ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths;
 
@@ -139,6 +133,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       OptionalInt xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
+      Optional<CompressionAlgorithm> assetCompressionAlgorithm,
       Tool javaRuntimeLauncher,
       SourcePath androidManifestPath,
       boolean isCompressResources,
@@ -147,7 +142,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
       ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths,
-      int apkCompressionLevel,
       boolean isApk) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
@@ -168,8 +162,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     this.nativeFilesInfo = nativeFilesInfo;
     this.packageAssetLibraries = packageAssetLibraries;
     this.compressAssetLibraries = compressAssetLibraries;
+    this.assetCompressionAlgorithm = assetCompressionAlgorithm;
     this.resourceFilesInfo = resourceFilesInfo;
-    this.apkCompressionLevel = apkCompressionLevel;
     this.isApk = isApk;
   }
 
@@ -232,7 +226,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
         .map(pathResolver::getRelativePath)
         .forEach(zipFiles::add);
 
-    if (ExopackageMode.enabledForNativeLibraries(exopackageModes)) {
+    if (ExopackageMode.enabledForNativeLibraries(exopackageModes)
+        && !ExopackageMode.enabledForArch64(exopackageModes)) {
       // We need to include a few dummy native libraries with our application so that Android knows
       // to run it as 32-bit.  Android defaults to 64-bit when no libraries are provided at all,
       // causing us to fail to load our 32-bit exopackage native libraries later.
@@ -278,8 +273,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
               pathToKeystore,
               keystoreProperties,
               false,
-              javaRuntimeLauncher.getCommandPrefix(pathResolver),
-              apkCompressionLevel));
+              javaRuntimeLauncher.getCommandPrefix(pathResolver)));
     } else {
       Path tempBundleConfig =
           BuildTargetPaths.getGenPath(
@@ -349,7 +343,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
               pathToKeystore,
               keystoreProperties,
               false,
-              apkCompressionLevel,
               tempBundleConfig,
               modulesInfo.build(),
               moduleNames));
@@ -683,10 +676,11 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       steps.add(new ConcatStep(getProjectFilesystem(), outputAssetLibrariesBuilder, libOutputBlob));
       int compressionLevel = xzCompressionLevel.orElse(XzStep.DEFAULT_COMPRESSION_LEVEL);
       steps.add(
-          new XzStep(
+          CompressionAlgorithmCreator.createCompressionStep(
+              assetCompressionAlgorithm.orElse(CompressionAlgorithm.XZ),
               getProjectFilesystem(),
               libOutputBlob,
-              libSubdirectory.resolve(SOLID_COMPRESSED_ASSET_LIBRARY_FILENAME),
+              libSubdirectory,
               compressionLevel));
     }
   }

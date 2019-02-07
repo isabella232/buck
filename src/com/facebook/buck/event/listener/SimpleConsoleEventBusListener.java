@@ -39,7 +39,6 @@ import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestStatusMessage;
-import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
@@ -51,7 +50,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -62,7 +60,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final Locale locale;
   private final BuildId buildId;
   private final Optional<String> buildDetailsTemplate;
-  private final AtomicLong parseTime;
   private final TestResultFormatter testFormatter;
   private final ImmutableList.Builder<TestStatusMessage> testStatusMessageBuilder =
       ImmutableList.builder();
@@ -74,7 +71,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private volatile Optional<BuildStatus> stampedeBuildStatus = Optional.empty();
 
   public SimpleConsoleEventBusListener(
-      Console console,
+      RenderingConsole console,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       boolean hideSucceededRules,
@@ -97,7 +94,6 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     this.locale = locale;
     this.buildId = buildId;
     this.buildDetailsTemplate = buildDetailsTemplate;
-    this.parseTime = new AtomicLong(0);
     this.hideSucceededRules = hideSucceededRules;
 
     this.testFormatter =
@@ -133,16 +129,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    this.parseTime.set(
-        logEventPair(
-            "PARSING BUCK FILES",
-            /* suffix */ Optional.empty(),
-            clock.currentTimeMillis(),
-            0L,
-            buckFilesParsingEvents.values(),
-            getEstimatedProgressOfParsingBuckFiles(),
-            Optional.empty(),
-            lines));
+    addLineFromEvents(
+        "PARSING BUCK FILES",
+        /* suffix */ Optional.empty(),
+        clock.currentTimeMillis(),
+        buckFilesParsingEvents.values(),
+        getEstimatedProgressOfParsingBuckFiles(),
+        Optional.empty(),
+        lines);
     printLines(lines);
   }
 
@@ -154,16 +148,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    this.parseTime.set(
-        logEventPair(
-            "CREATING ACTION GRAPH",
-            /* suffix */ Optional.empty(),
-            clock.currentTimeMillis(),
-            0L,
-            actionGraphEvents.values(),
-            Optional.empty(),
-            Optional.empty(),
-            lines));
+    addLineFromEvents(
+        "CREATING ACTION GRAPH",
+        /* suffix */ Optional.empty(),
+        clock.currentTimeMillis(),
+        actionGraphEvents.values(),
+        Optional.empty(),
+        Optional.empty(),
+        lines);
     printLines(lines);
   }
 
@@ -243,7 +235,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    formatConsoleEvent(event, lines);
+    lines.addAll(formatConsoleEvent(event));
     printLines(lines);
   }
 
@@ -363,7 +355,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
 
     if ((BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null)) && !hideSucceededRules)
         || console.getVerbosity().shouldPrintBinaryRunInformation()) {
-      console.getStdErr().println(line);
+      console.logLines(line);
     }
   }
 
@@ -415,10 +407,12 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     // Print through the {@code DirtyPrintStreamDecorator} so printing from the simple console
     // is considered to dirty stderr and stdout and so it gets synchronized to avoid interlacing
     // output.
-    if (lines.size() == 0) {
+    if (lines.isEmpty()) {
       return;
     }
-    console.getStdErr().println(String.join(System.lineSeparator(), lines));
+    if (console.getVerbosity().shouldPrintStandardInformation()) {
+      console.logLines(lines);
+    }
   }
 
   @Override

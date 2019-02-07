@@ -19,6 +19,7 @@ package com.facebook.buck.cxx.toolchain;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
@@ -33,8 +34,9 @@ import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -56,7 +58,8 @@ public class CxxPlatformsTest {
     CompilerProvider compiler =
         new CompilerProvider(
             Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC));
+            Optional.of(CxxToolProvider.Type.GCC),
+            false);
     PreprocessorProvider preprocessor =
         new PreprocessorProvider(
             Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
@@ -88,6 +91,7 @@ public class CxxPlatformsTest {
             .setHeaderVerification(CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification())
             .setPublicHeadersSymlinksEnabled(true)
             .setPrivateHeadersSymlinksEnabled(true)
+            .setArchiveContents(ArchiveContents.NORMAL)
             .build();
 
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
@@ -213,5 +217,27 @@ public class CxxPlatformsTest {
                 InternalFlavor.of("custom"))
             .getSharedLibraryExtension(),
         equalTo(extension));
+  }
+
+  @Test
+  public void archiveContentsPlatformOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    ArchiveContents archiveContents = ArchiveContents.THIN;
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of(
+            "cxx#" + flavor,
+            ImmutableMap.of(
+                "archive_contents",
+                CaseFormat.UPPER_UNDERSCORE.to(
+                    CaseFormat.LOWER_UNDERSCORE, archiveContents.name())));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertEquals(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getArchiveContents(),
+        archiveContents);
   }
 }

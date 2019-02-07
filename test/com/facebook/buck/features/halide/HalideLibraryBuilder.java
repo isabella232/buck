@@ -31,11 +31,11 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -89,7 +89,7 @@ public class HalideLibraryBuilder
                     ImmutableMap.of(
                         HalideBuckConfig.HALIDE_XCODE_COMPILE_SCRIPT_KEY,
                         path.toString(),
-                        String.format("target_%s", CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()),
+                        String.format("target_%s", CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR),
                         "halide-target")))
             .setFilesystem(filesystem)
             .build();

@@ -1,10 +1,16 @@
 java_library(
     name = "thrift",
-    srcs = glob(["**/*.java"]),
+    srcs = glob(["**/thrift/**/*.java"]),
     exported_deps = [
         "//third-party/java/thrift:libthrift",
     ],
     abi_generation_mode = "source",
+    # Thrift generated code has a dependency on javax.annotation.Generated.
+    # In Java 10, we have to add an explicit module dependency to access this.
+    extra_arguments = select({
+        "DEFAULT": [],
+        "//tools/build/config:java_10": ["--add-modules", "java.xml.ws.annotation"],
+    }),
     visibility = ["PUBLIC"],
     deps = [
         # This dep is looked up at runtime by reflection.
@@ -12,4 +18,13 @@ java_library(
         "//third-party/java/slf4j:slf4j-api",
         "//third-party/java/fbthrift:fbthrift",
     ],
+)
+
+java_library(
+    name = "protobuf",
+    srcs = glob(["**/proto/**/*.java"]),
+    exported_deps = [
+        "//third-party/java/protobuf:protobuf",
+    ],
+    visibility = ["PUBLIC"],
 )

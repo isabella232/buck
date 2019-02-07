@@ -37,12 +37,14 @@ import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
+import com.facebook.buck.event.external.events.BuckEventExternalInterface;
+import com.facebook.buck.event.listener.cachestats.CacheRateStatsKeeper;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
-import com.facebook.buck.util.Console;
+import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.i18n.NumberFormatter;
 import com.facebook.buck.util.timing.Clock;
@@ -68,10 +70,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -101,8 +105,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
           });
 
   protected static final long UNFINISHED_EVENT_PAIR = -1;
-  protected final Console console;
+  protected final RenderingConsole console;
   protected final Clock clock;
+  protected final Verbosity verbosity;
   protected final Ansi ansi;
   private final Locale locale;
   private final boolean showTextInAllCaps;
@@ -175,8 +180,10 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   protected final ImmutableSet<String> buildDetailsCommands =
       ImmutableSet.of("build", "test", "install");
 
+  private final AtomicBoolean topSlowestRulesLogged = new AtomicBoolean(false);
+
   public AbstractConsoleEventBusListener(
-      Console console,
+      RenderingConsole console,
       Clock clock,
       Locale locale,
       ExecutionEnvironment executionEnvironment,
@@ -187,6 +194,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     this.clock = clock;
     this.locale = locale;
     this.ansi = console.getAnsi();
+    this.verbosity = console.getVerbosity();
     this.showTextInAllCaps = showTextInAllCaps;
     this.numberOfSlowRulesToShow = numberOfSlowRulesToShow;
     this.showSlowRulesInConsole = showSlowRulesInConsole;
@@ -409,6 +417,61 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * @param prefix Prefix to print for this event pair.
    * @param suffix Suffix to print for this event pair.
    * @param currentMillis The current time in milliseconds.
+   * @param eventPairs the collection of start/end events to measure elapsed time.
+   * @param lines The builder to append lines to.
+   * @return True if all events are finished, false otherwise
+   */
+  protected boolean addLineFromEvents(
+      String prefix,
+      Optional<String> suffix,
+      long currentMillis,
+      Collection<EventPair> eventPairs,
+      Optional<Double> progress,
+      Optional<Long> minimum,
+      ImmutableList.Builder<String> lines) {
+
+    EventPair startAndFinish = getStartAndFinish(eventPairs);
+
+    if (!startAndFinish.getStart().isPresent()) {
+      // nothing to display, event has not even started yet
+      return false;
+    }
+
+    boolean isFinished = startAndFinish.getFinish().isPresent();
+    long startTime = startAndFinish.getStartTime();
+    long endTime = isFinished ? startAndFinish.getEndTime() : currentMillis;
+    long elapsedTime = endTime - startTime;
+
+    if (minimum.isPresent() && elapsedTime < minimum.get()) {
+      return isFinished;
+    }
+
+    String result = prefix;
+    if (!isFinished) {
+      result += "... ";
+    } else {
+      result += showTextInAllCaps ? ": FINISHED IN " : ": finished in ";
+    }
+    result += formatElapsedTime(elapsedTime);
+
+    if (progress.isPresent()) {
+      result += isFinished ? " (100%)" : " (" + Math.round(progress.get() * 100) + "%)";
+    }
+
+    if (suffix.isPresent()) {
+      result += " " + suffix.get();
+    }
+
+    lines.add(result);
+    return isFinished;
+  }
+
+  /**
+   * Adds a line about a set of start and finished events to lines.
+   *
+   * @param prefix Prefix to print for this event pair.
+   * @param suffix Suffix to print for this event pair.
+   * @param currentMillis The current time in milliseconds.
    * @param offsetMs Offset to remove from calculated time. Set this to a non-zero value if the
    *     event pair would contain another event. For example, build time includes parse time, but to
    *     make the events easier to reason about it makes sense to pull parse time out of build time.
@@ -417,6 +480,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * @return The summed time between start and finished events if each start event has a matching
    *     finished event, otherwise {@link AbstractConsoleEventBusListener#UNFINISHED_EVENT_PAIR}.
    */
+  @Deprecated
   protected long logEventPair(
       String prefix,
       Optional<String> suffix,
@@ -459,6 +523,46 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   /**
+   * Calculate event pair that start and end the sequence. If there is any ongoing event, end event
+   * would be empty.
+   *
+   * @param eventPairs the collection of event starts/stops.
+   * @return The pair of events, start event is the earliest start event, end event is the latest
+   *     finish event, or empty if there are ongoing events, i.e. not completed pairs
+   */
+  private static EventPair getStartAndFinish(Collection<EventPair> eventPairs) {
+
+    Optional<BuckEventExternalInterface> start = Optional.empty();
+    Optional<BuckEventExternalInterface> end = Optional.empty();
+    boolean anyOngoing = false;
+
+    for (EventPair pair : eventPairs) {
+      Optional<BuckEventExternalInterface> candidate = pair.getStart();
+      if (!start.isPresent()
+          || (candidate.isPresent()
+              && candidate.get().getTimestamp() < start.get().getTimestamp())) {
+        start = candidate;
+      }
+
+      if (anyOngoing) {
+        continue;
+      }
+
+      candidate = pair.getFinish();
+      if (!candidate.isPresent()) {
+        anyOngoing = true;
+        end = Optional.empty();
+        continue;
+      }
+
+      if (!end.isPresent() || candidate.get().getTimestamp() > end.get().getTimestamp()) {
+        end = candidate;
+      }
+    }
+    return EventPair.of(start, end);
+  }
+
+  /**
    * Takes a collection of start and finished events. If there are any events that have a start, but
    * no finished time, the collection is considered ongoing.
    *
@@ -467,6 +571,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * @return -1 if all events are completed, otherwise the time elapsed between the latest event and
    *     currentMillis.
    */
+  @Deprecated
   protected static long getWorkingTimeFromLastStartUntilNow(
       Collection<EventPair> eventPairs, long currentMillis) {
     // We examine all events to determine whether we have any incomplete events and also
@@ -512,10 +617,10 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   /** Formats a {@link ConsoleEvent} and adds it to {@code lines}. */
-  protected void formatConsoleEvent(ConsoleEvent logEvent, ImmutableList.Builder<String> lines) {
+  protected ImmutableList<String> formatConsoleEvent(ConsoleEvent logEvent) {
     if (logEvent.getMessage() == null) {
       LOG.error("Got logEvent with null message");
-      return;
+      return ImmutableList.of();
     }
     String formattedLine = "";
     if (logEvent.containsAnsiEscapeCodes() || logEvent.getLevel().equals(Level.INFO)) {
@@ -528,8 +633,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     if (!formattedLine.isEmpty()) {
       // Split log messages at newlines and add each line individually to keep the line count
       // consistent.
-      lines.addAll(Splitter.on(System.lineSeparator()).split(formattedLine));
+      return ImmutableList.copyOf(Splitter.on(System.lineSeparator()).split(formattedLine));
     }
+    return ImmutableList.of();
   }
 
   @Subscribe
@@ -904,8 +1010,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
     Comparator<UnflavoredBuildTarget> comparator =
         (target1, target2) -> {
-          Long elapsedTime1 = Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target1));
-          Long elapsedTime2 = Preconditions.checkNotNull(timeSpentMillisecondsInRules.get(target2));
+          Long elapsedTime1 = Objects.requireNonNull(timeSpentMillisecondsInRules.get(target1));
+          Long elapsedTime2 = Objects.requireNonNull(timeSpentMillisecondsInRules.get(target2));
           long delta = elapsedTime2 - elapsedTime1;
           return Long.compare(delta, 0L);
         };
@@ -932,10 +1038,16 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       }
     }
     ImmutableList<String> slowRulesLogs = slowRulesLogsBuilder.build();
-    LOG.info(String.join(System.lineSeparator(), slowRulesLogs));
+    logTopSlowBuildRulesIfNotLogged(slowRulesLogs);
 
     if (showSlowRulesInConsole) {
       lines.addAll(slowRulesLogs);
+    }
+  }
+
+  private void logTopSlowBuildRulesIfNotLogged(ImmutableList<String> slowRulesLogs) {
+    if (topSlowestRulesLogged.compareAndSet(false, true)) {
+      LOG.info(String.join(System.lineSeparator(), slowRulesLogs));
     }
   }
 

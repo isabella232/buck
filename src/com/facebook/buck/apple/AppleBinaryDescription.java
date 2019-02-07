@@ -54,6 +54,7 @@ import com.facebook.buck.cxx.CxxBinaryMetadataFactory;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -110,6 +111,7 @@ public class AppleBinaryDescription
   private final XCodeDescriptions xcodeDescriptions;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
+  private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
   private final CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors;
   private final CxxBinaryFactory cxxBinaryFactory;
@@ -121,6 +123,7 @@ public class AppleBinaryDescription
       XCodeDescriptions xcodeDescriptions,
       SwiftLibraryDescription swiftDelegate,
       AppleConfig appleConfig,
+      CxxBuckConfig cxxBuckConfig,
       SwiftBuckConfig swiftBuckConfig,
       CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors,
       CxxBinaryFactory cxxBinaryFactory,
@@ -131,6 +134,7 @@ public class AppleBinaryDescription
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
     this.appleConfig = appleConfig;
+    this.cxxBuckConfig = cxxBuckConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.cxxBinaryImplicitFlavors = cxxBinaryImplicitFlavors;
     this.cxxBinaryFactory = cxxBinaryFactory;
@@ -319,7 +323,8 @@ public class AppleBinaryDescription
         unstrippedBinaryRule,
         AppleDebugFormat.FLAVOR_DOMAIN.getRequiredValue(buildTarget),
         cxxPlatformsProvider,
-        appleCxxPlatformsFlavorDomain);
+        appleCxxPlatformsFlavorDomain,
+        cxxBuckConfig.shouldCacheStrip());
   }
 
   private BuildRule createBundleBuildRule(
@@ -392,8 +397,10 @@ public class AppleBinaryDescription
         ImmutableList.of(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
         appleConfig.getCodesignTimeout(),
-        swiftBuckConfig.getCopyStdlibToFrameworks());
+        swiftBuckConfig.getCopyStdlibToFrameworks(),
+        cxxBuckConfig.shouldCacheStrip());
   }
 
   private BuildRule createBinary(
@@ -413,7 +420,7 @@ public class AppleBinaryDescription
     Optional<MultiarchFileInfo> fatBinaryInfo =
         MultiarchFileInfos.create(appleCxxPlatformsFlavorDomain, buildTarget);
     if (fatBinaryInfo.isPresent()) {
-      if (shouldUseStubBinary(buildTarget)) {
+      if (shouldUseStubBinary(buildTarget, args)) {
         BuildTarget thinTarget = Iterables.getFirst(fatBinaryInfo.get().getThinTargets(), null);
         return requireThinBinary(
             context,
@@ -445,7 +452,8 @@ public class AppleBinaryDescription
           params,
           graphBuilder,
           fatBinaryInfo.get(),
-          thinRules.build());
+          thinRules.build(),
+          cxxBuckConfig);
     } else {
       return requireThinBinary(
           context,
@@ -494,7 +502,7 @@ public class AppleBinaryDescription
 
           Optional<Path> stubBinaryPath =
               getStubBinaryPath(buildTarget, appleCxxPlatformsFlavorDomain, args);
-          if (shouldUseStubBinary(buildTarget) && stubBinaryPath.isPresent()) {
+          if (shouldUseStubBinary(buildTarget, args) && stubBinaryPath.isPresent()) {
             try {
               return new WriteFile(
                   buildTarget,
@@ -545,9 +553,15 @@ public class AppleBinaryDescription
         });
   }
 
-  private boolean shouldUseStubBinary(BuildTarget buildTarget) {
+  private boolean shouldUseStubBinary(BuildTarget buildTarget, AppleBinaryDescriptionArg args) {
+    // If the target has sources, it's not a watch app, it might be a watch extension instead.
+    // In this case, we don't need to add a watch kit stub.
+    if (!args.getSrcs().isEmpty()) {
+      return false;
+    }
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     return (flavors.contains(AppleBundleDescription.WATCH_OS_FLAVOR)
+        || flavors.contains(AppleBundleDescription.WATCH_OS_64_32_FLAVOR)
         || flavors.contains(AppleBundleDescription.WATCH_SIMULATOR_FLAVOR)
         || flavors.contains(LEGACY_WATCH_FLAVOR));
   }

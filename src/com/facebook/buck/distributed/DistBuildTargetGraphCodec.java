@@ -193,10 +193,7 @@ public class DistBuildTargetGraphCodec {
 
     TargetGraph targetGraph = new TargetGraph(mutableTargetGraph, targetNodeIndex);
 
-    return TargetGraphAndBuildTargets.builder()
-        .setTargetGraph(targetGraph)
-        .addAllBuildTargets(buildTargets.keySet())
-        .build();
+    return TargetGraphAndBuildTargets.of(targetGraph, buildTargets.keySet());
   }
 
   private ListenableFuture<Void> asyncProcessRemoteBuildTarget(
@@ -235,8 +232,7 @@ public class DistBuildTargetGraphCodec {
           MoreMaps.putIfAbsentCheckEquals(graphNodes, target, targetNode);
 
           if (target.isFlavored()) {
-            BuildTarget unflavoredTarget =
-                ImmutableBuildTarget.of(target.getUnflavoredBuildTarget());
+            BuildTarget unflavoredTarget = target.withoutFlavors();
             TargetNode<?> unflavoredTargetNode =
                 parserTargetNodeFactory.createTargetNode(
                     cell,

@@ -71,12 +71,10 @@ public class GoListStep extends ShellStep {
       commandBuilder.add("{{ ." + listTypes.get(0).name() + "}}");
     } else {
       commandBuilder.add(
-          String.join(
-              ":",
-              listTypes
-                  .stream()
-                  .map(fileType -> "{{join ." + fileType.name() + " \":\"}}")
-                  .collect(Collectors.toList())));
+          listTypes
+              .stream()
+              .map(fileType -> "{{join ." + fileType.name() + " \":\"}}")
+              .collect(Collectors.joining(":")));
     }
 
     if (targetFile.isPresent()) {
@@ -106,6 +104,9 @@ public class GoListStep extends ShellStep {
         .put("GOOS", platform.getGoOs())
         .put("GOARCH", platform.getGoArch())
         .put("GOARM", platform.getGoArm())
+        // without this env variable go tool list tries to download packages from go.mod
+        // for source files outside GOROOT that's always true for Buck
+        .put("GO111MODULE", "off")
         .build();
   }
 

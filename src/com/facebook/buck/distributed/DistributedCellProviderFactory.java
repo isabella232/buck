@@ -23,10 +23,10 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.ImmutableCell;
 import com.facebook.buck.core.cell.impl.RootCellFactory;
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetParser;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPatternParser;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.DefaultToolchainProvider;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.google.common.base.Preconditions;
@@ -36,6 +36,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /** Creates a {@link CellProvider} to be used in a distributed build. */
@@ -61,7 +62,7 @@ public class DistributedCellProviderFactory {
             CacheLoader.from(
                 cellPath -> {
                   DistBuildCellParams cellParam =
-                      Preconditions.checkNotNull(
+                      Objects.requireNonNull(
                           cellParams.get(cellPath),
                           "This should only be called for secondary cells.");
                   Path currentCellRoot = cellParam.getFilesystem().getRootPath();
@@ -104,12 +105,12 @@ public class DistributedCellProviderFactory {
                       // Distributed builds don't care about cell names, use a sentinel value that
                       // will show up if it actually does care about them.
                       cellParam.getCanonicalName(),
+                      cellParam.getFilesystem(),
+                      configWithResolver,
                       cellProvider,
                       toolchainProvider,
                       ruleKeyConfiguration,
-                      currentCellResolver,
-                      cellParam.getFilesystem(),
-                      configWithResolver);
+                      currentCellResolver);
                 }),
         cellProvider ->
             RootCellFactory.create(

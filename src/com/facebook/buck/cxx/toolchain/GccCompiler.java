@@ -20,9 +20,40 @@ import com.google.common.collect.ImmutableList;
 import java.util.Optional;
 
 public class GccCompiler extends DefaultCompiler {
+  /**
+   * Whether we should use -MD (dependency list) or -H (dependency tree) for dependency tracking.
+   */
+  /** The tree may be used for detailed untracked header error message but may hurt performance. */
+  private final boolean useDependencyTree;
 
-  public GccCompiler(Tool tool) {
-    super(tool);
+  private final DependencyTrackingMode dependencyTrackingMode;
+
+  public GccCompiler(Tool tool, boolean useDependencyTree) {
+    this(tool, useDependencyTree, false);
+  }
+
+  public GccCompiler(Tool tool, boolean useDependencyTree, boolean useUnixPathSeparator) {
+    super(tool, useUnixPathSeparator);
+    this.useDependencyTree = useDependencyTree;
+    if (useDependencyTree) {
+      dependencyTrackingMode = DependencyTrackingMode.SHOW_HEADERS;
+    } else {
+      dependencyTrackingMode = DependencyTrackingMode.MAKEFILE;
+    }
+  }
+
+  @Override
+  public DependencyTrackingMode getDependencyTrackingMode() {
+    return dependencyTrackingMode;
+  }
+
+  @Override
+  public ImmutableList<String> outputDependenciesArgs(String outputPath) {
+    if (useDependencyTree) {
+      return ImmutableList.of("-H");
+    } else {
+      return ImmutableList.of("-MD", "-MF", outputPath);
+    }
   }
 
   @Override

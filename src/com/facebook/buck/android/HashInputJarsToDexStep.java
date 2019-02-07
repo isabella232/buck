@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -77,8 +78,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     ImmutableList.Builder<Path> allInputs = ImmutableList.builder();
     allInputs.addAll(primaryInputsToDex.get());
     if (secondaryOutputToInputs.isPresent()) {
@@ -99,7 +99,7 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
 
                     if (classNamesToHashes.containsKey(className)) {
                       HashCode classHash =
-                          Preconditions.checkNotNull(classNamesToHashes.get(className));
+                          Objects.requireNonNull(classNamesToHashes.get(className));
                       hasher.putBytes(classHash.asBytes());
                     } else {
                       LOG.warn("%s hashes not found", className);

@@ -30,9 +30,11 @@ import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.EvalException;
 import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.SkylarkList;
+import com.google.devtools.build.lib.syntax.SkylarkUtils;
 import com.google.devtools.build.lib.syntax.Type;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 
 /**
@@ -50,6 +52,9 @@ import javax.annotation.Nullable;
             + "<code>native.cxx_library</code>.")
 public class SkylarkNativeModule {
 
+  // Matches any of "**/", "*/**/" globs
+  private static final Pattern TOP_LEVEL_GLOB_PATTERN = Pattern.compile("(\\*/)*\\*\\*/.*");
+
   @SkylarkCallable(
       name = "package_name",
       doc =
@@ -63,7 +68,7 @@ public class SkylarkNativeModule {
       useAst = true,
       useEnvironment = true)
   public String packageName(FuncallExpression ast, Environment env) throws EvalException {
-    env.checkLoadingPhase("native.package_name", ast.getLocation());
+    SkylarkUtils.checkLoadingPhase(env, "native.package_name", ast.getLocation());
     ParseContext parseContext = ParseContext.getParseContext(env, ast);
     return parseContext
         .getPackageContext()
@@ -85,7 +90,7 @@ public class SkylarkNativeModule {
       useEnvironment = true)
   public String repositoryName(Location location, FuncallExpression ast, Environment env)
       throws EvalException {
-    env.checkLoadingPhase("native.repository_name", location);
+    SkylarkUtils.checkLoadingPhase(env, "native.repository_name", location);
     ParseContext parseContext = ParseContext.getParseContext(env, ast);
     return parseContext.getPackageContext().getPackageIdentifier().getRepository().getName();
   }
@@ -100,7 +105,7 @@ public class SkylarkNativeModule {
       useEnvironment = true)
   public Boolean ruleExists(String name, FuncallExpression ast, Environment env)
       throws EvalException {
-    env.checkLoadingOrWorkspacePhase("native.rule_exists", ast.getLocation());
+    SkylarkUtils.checkLoadingOrWorkspacePhase(env, "native.rule_exists", ast.getLocation());
     ParseContext parseContext = ParseContext.getParseContext(env, ast);
     return parseContext.hasRule(name);
   }
@@ -154,8 +159,7 @@ public class SkylarkNativeModule {
       return SkylarkList.MutableList.empty();
     }
     if (parseContext.getPackageContext().getPackageIdentifier().getRunfilesPath().isEmpty()
-        && include.stream().anyMatch(str -> str.matches("(\\*\\/)*\\*\\*\\/.*"))) {
-      // Matches any of "**/", "*/**/" globs
+        && include.stream().anyMatch(str -> TOP_LEVEL_GLOB_PATTERN.matcher(str).matches())) {
       throw new EvalException(
           ast.getLocation(), "Recursive globs are prohibited at top-level directory");
     }
@@ -264,6 +268,36 @@ public class SkylarkNativeModule {
       documented = true)
   public Info hostInfo() {
     return HostInfo.HOST_INFO;
+  }
+
+  @SkylarkCallable(
+      name = "implicit_package_symbol",
+      doc =
+          "Gives access to a symbol that has been implicitly loaded for the package of the build "
+              + "file that is currently being evaluated. If the symbol was not present, "
+              + "`default` will be returned.",
+      documented = true,
+      useAst = true,
+      useEnvironment = true,
+      allowReturnNones = true,
+      parameters = {
+        @Param(
+            name = "symbol",
+            type = String.class,
+            doc = "the symbol from implicitly loaded files to return."),
+        @Param(
+            name = "default",
+            type = Object.class,
+            defaultValue = "None",
+            doc = "if no implicit symbol with the requested name exists, return this value."),
+      })
+  public @Nullable Object implicitPackageSymbol(
+      String symbol, Object defaultValue, FuncallExpression ast, Environment env)
+      throws EvalException {
+    return ParseContext.getParseContext(env, ast)
+        .getPackageContext()
+        .getImplicitlyLoadedSymbols()
+        .getOrDefault(symbol, defaultValue);
   }
 
   public static final SkylarkNativeModule NATIVE_MODULE = new SkylarkNativeModule();

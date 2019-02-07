@@ -44,15 +44,14 @@ public final class DefaultStepRunner implements StepRunner {
     try {
       executionResult = step.execute(context);
     } catch (IOException | RuntimeException e) {
-      throw StepFailedException.createForFailingStepWithException(step, context, e, buildTarget);
+      throw StepFailedException.createForFailingStepWithException(step, context, e);
     } finally {
       StepEvent.Finished finished = StepEvent.finished(started, executionResult.getExitCode());
       LOG.verbose(finished.toString());
       context.getBuckEventBus().post(finished);
     }
     if (!executionResult.isSuccess()) {
-      throw StepFailedException.createForFailingStepWithExitCode(
-          step, context, executionResult, buildTarget);
+      throw StepFailedException.createForFailingStepWithExitCode(step, context, executionResult);
     }
   }
 }

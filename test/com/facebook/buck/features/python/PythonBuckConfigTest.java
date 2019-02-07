@@ -27,7 +27,7 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -51,7 +51,7 @@ public class PythonBuckConfigTest {
   @Rule public TemporaryPaths temporaryFolder2 = new TemporaryPaths();
 
   @Before
-  public void setUp() throws Exception {}
+  public void setUp() {}
 
   @Test
   public void testPathToPexExecuterUsesConfigSetting() throws IOException {

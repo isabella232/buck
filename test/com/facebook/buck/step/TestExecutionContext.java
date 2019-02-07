@@ -20,15 +20,15 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.util.HashMap;
@@ -57,7 +57,7 @@ public class TestExecutionContext {
         .setConsole(new TestConsole())
         .setBuckEventBus(BuckEventBusForTests.newInstance())
         .setPlatform(Platform.detect())
-        .setEnvironment(ImmutableMap.copyOf(System.getenv()))
+        .setEnvironment(EnvVariablesProvider.getSystemEnv())
         .setJavaPackageFinder(new FakeJavaPackageFinder())
         .setClassLoaderCache(testClassLoaderCache)
         .setExecutors(executors)
