@@ -182,7 +182,7 @@ public class SignedJarBuilder {
         String name = entry.getName();
 
         // do not take directories or anything inside a potential META-INF folder.
-        if (entry.isDirectory() || name.startsWith("META-INF/")) {
+        if (entry.isDirectory() || checkIfMetaInfServiceFile(name)) {
           continue;
         }
 
@@ -208,6 +208,10 @@ public class SignedJarBuilder {
     } finally {
       zis.close();
     }
+  }
+
+  private boolean checkIfMetaInfServiceFile(String filePath) {
+    return filePath.startsWith("META-INF/") && !filePath.startsWith("META-INF/services");
   }
 
   /**
