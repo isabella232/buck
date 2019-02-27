@@ -665,7 +665,6 @@ public final class ApkBuilder implements IArchiveBuilder {
     return !folderName.equalsIgnoreCase("CVS") &&
         !folderName.equalsIgnoreCase(".svn") &&
         !folderName.equalsIgnoreCase("SCCS") &&
-        !folderName.equalsIgnoreCase("META-INF") &&
         !folderName.startsWith("_");
   }
 
