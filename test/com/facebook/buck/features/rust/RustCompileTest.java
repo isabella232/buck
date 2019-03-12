@@ -16,11 +16,13 @@
 
 package com.facebook.buck.features.rust;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -34,9 +36,9 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -78,6 +80,22 @@ public class RustCompileTest {
             "//:myname",
             ImmutableSortedSet.of(FakeSourcePath.of("main.rs"), FakeSourcePath.of("myname.rs")));
     linkable.getCrateRoot();
+  }
+
+  @Test
+  public void flavorToRustTriple() {
+    assertEquals(
+        "aarch64-apple-ios",
+        RustCompileUtils.targetTripleForFlavor(InternalFlavor.of("iphoneos-arm64")));
+    assertEquals(
+        "armv7-apple-ios",
+        RustCompileUtils.targetTripleForFlavor(InternalFlavor.of("iphoneos-armv7")));
+    assertEquals(
+        "x86_64-apple-ios",
+        RustCompileUtils.targetTripleForFlavor(InternalFlavor.of("iphonesimulator-x86_64")));
+    assertEquals(
+        "i386-apple-ios",
+        RustCompileUtils.targetTripleForFlavor(InternalFlavor.of("iphonesimulator-i386")));
   }
 
   private static Tool fakeTool() {

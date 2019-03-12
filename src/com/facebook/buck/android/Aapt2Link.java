@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -27,11 +28,11 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
@@ -169,6 +170,7 @@ public class Aapt2Link extends AbstractBuildRule {
 
     steps.add(
         new Aapt2LinkStep(
+            context.getSourcePathResolver(),
             getProjectFilesystem().resolve(linkTreePath),
             symlinkPaths.build(),
             dependencyResourceApks
@@ -233,12 +235,15 @@ public class Aapt2Link extends AbstractBuildRule {
   class Aapt2LinkStep extends ShellStep {
     private final List<Path> compiledResourcePaths;
     private final List<Path> compiledResourceApkPaths;
+    private final SourcePathResolver pathResolver;
 
     Aapt2LinkStep(
+        SourcePathResolver pathResolver,
         Path workingDirectory,
         List<Path> compiledResourcePaths,
         List<Path> compiledResourceApkPaths) {
       super(workingDirectory);
+      this.pathResolver = pathResolver;
       this.compiledResourcePaths = compiledResourcePaths;
       this.compiledResourceApkPaths = compiledResourceApkPaths;
     }
@@ -251,8 +256,9 @@ public class Aapt2Link extends AbstractBuildRule {
     @Override
     protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
+      builder.addAll(
+          androidPlatformTarget.getAapt2Executable().get().getCommandPrefix(pathResolver));
 
-      builder.add(androidPlatformTarget.getAapt2Executable().toString());
       builder.add("link");
       if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
         builder.add("-v");

@@ -16,9 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.immutables.BuckStyleStep;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -43,8 +43,7 @@ abstract class AbstractDiffAbisStep implements Step {
   protected abstract JavaBuckConfig.SourceAbiVerificationMode getVerificationMode();
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     Path classAbiPath = getClassAbiPath();
     Path sourceAbiPath = getSourceAbiPath();
 

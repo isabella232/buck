@@ -16,18 +16,17 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.pipeline.RulePipelineState;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
@@ -38,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -116,7 +116,7 @@ public class JavacPipelineState implements RulePipelineState {
           ImmutableList.copyOf(
               javacOptions
                   .getAnnotationProcessingParams()
-                  .getAnnotationProcessors()
+                  .getModernProcessors()
                   .stream()
                   .map(properties -> properties.getJavacPluginJsr199Fields(resolver, filesystem))
                   .collect(Collectors.toList()));
@@ -148,11 +148,11 @@ public class JavacPipelineState implements RulePipelineState {
   }
 
   public String getStdoutContents() {
-    return Preconditions.checkNotNull(stdout).getContentsAsString(Charsets.UTF_8);
+    return Objects.requireNonNull(stdout).getContentsAsString(Charsets.UTF_8);
   }
 
   public String getStderrContents() {
-    return Preconditions.checkNotNull(stderr).getContentsAsString(Charsets.UTF_8);
+    return Objects.requireNonNull(stderr).getContentsAsString(Charsets.UTF_8);
   }
 
   @Override

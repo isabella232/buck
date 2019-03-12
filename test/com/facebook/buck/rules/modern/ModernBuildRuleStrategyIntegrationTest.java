@@ -22,8 +22,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
@@ -38,10 +40,10 @@ import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.modern.builders.grpc.server.GrpcServer;
-import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
+import com.facebook.buck.remoteexecution.config.RemoteExecutionType;
+import com.facebook.buck.remoteexecution.grpc.server.GrpcServer;
+import com.facebook.buck.rules.modern.config.ModernBuildRuleBuildStrategy;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -55,6 +57,8 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.net.ServerSocket;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Objects;
@@ -69,35 +73,44 @@ import org.junit.runners.Parameterized;
 
 @RunWith(Parameterized.class)
 public class ModernBuildRuleStrategyIntegrationTest {
-  // By default, the tests will start up a remote execution service and connect to that. This value
-  // can be changed to connect to a different service.
-  private static final int REMOTE_PORT = ModernBuildRuleConfig.DEFAULT_REMOTE_PORT;
-
   private String simpleTarget = "//:simple";
   private String failingTarget = "//:failing";
   private String failingStepTarget = "//:failing_step";
   private String largeDynamicTarget = "//:large_dynamic";
   private String hugeDynamicTarget = "//:huge_dynamic";
-  private String duplicateOutputsTarget = "//:duplicate_outputs";
+  private String duplicateOutputFilesTarget = "//:duplicate_output_files";
+  private String duplicateOutputDirsTarget = "//:duplicate_output_dirs";
   private String checkSerializationTarget = "//:check_serialization";
 
-  @Parameterized.Parameters(name = "{0}")
+  @Parameterized.Parameters(name = "{0}.{1}")
   public static Collection<Object[]> data() {
-    ImmutableList.Builder<Object[]> dataBuilder = ImmutableList.builder();
-    for (ModernBuildRuleConfig.Strategy strategy : ModernBuildRuleConfig.Strategy.values()) {
-      if (strategy.equals(ModernBuildRuleConfig.Strategy.THRIFT_REMOTE)) {
+    return ImmutableList.<Object[]>builder()
+        .add(new Object[] {ModernBuildRuleBuildStrategy.NONE, RemoteExecutionType.NONE})
+        .add(
+            new Object[] {ModernBuildRuleBuildStrategy.DEBUG_RECONSTRUCT, RemoteExecutionType.NONE})
+        .add(
+            new Object[] {ModernBuildRuleBuildStrategy.DEBUG_PASSTHROUGH, RemoteExecutionType.NONE})
+        // Remote execution strategies.
+        .add(new Object[] {ModernBuildRuleBuildStrategy.REMOTE, RemoteExecutionType.GRPC})
+        .add(new Object[] {ModernBuildRuleBuildStrategy.HYBRID_LOCAL, RemoteExecutionType.GRPC})
         // TODO(shivanker): We don't have a dummy implementation for Thrift in this repository.
         // Probably add this in the future to be able to have unit tests.
-        continue;
-      }
-      dataBuilder.add(new Object[] {strategy});
-    }
-    return dataBuilder.build();
+        // .add(new Object[] {ModernBuildRuleBuildStrategy.REMOTE, RemoteExecutionType.THRIFT})
+        .add(
+            new Object[] {
+              ModernBuildRuleBuildStrategy.REMOTE, RemoteExecutionType.DEBUG_GRPC_IN_PROCESS
+            })
+        .add(
+            new Object[] {
+              ModernBuildRuleBuildStrategy.REMOTE, RemoteExecutionType.DEBUG_GRPC_LOCAL
+            })
+        .build();
   }
 
   @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
 
-  private final ModernBuildRuleConfig.Strategy strategy;
+  private final ModernBuildRuleBuildStrategy strategy;
+  private final RemoteExecutionType executionType;
   private Optional<GrpcServer> server = Optional.empty();
   private ProjectWorkspace workspace;
   private ProjectFilesystem filesystem;
@@ -273,18 +286,17 @@ public class ModernBuildRuleStrategyIntegrationTest {
         return ImmutableList.of(
             new AbstractExecutionStep("throwing_step") {
               @Override
-              public StepExecutionResult execute(ExecutionContext context)
-                  throws IOException, InterruptedException {
-                throw new RuntimeException(FAILING_STEP_MESSAGE);
+              public StepExecutionResult execute(ExecutionContext context) {
+                throw new HumanReadableException(FAILING_STEP_MESSAGE);
               }
             });
       }
-      throw new RuntimeException(FAILING_RULE_MESSAGE);
+      throw new HumanReadableException(FAILING_RULE_MESSAGE);
     }
   }
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     // MBR strategies use a ContentAddressedStorage that doesn't work correctly on Windows.
     assumeFalse(Platform.detect().equals(Platform.WINDOWS));
     workspace =
@@ -306,13 +318,41 @@ public class ModernBuildRuleStrategyIntegrationTest {
                     knownConfigurationDescriptions));
     workspace.setUp();
     workspace.addBuckConfigLocalOption("modern_build_rule", "strategy", strategy.toString());
+    workspace.addBuckConfigLocalOption("remoteexecution", "type", executionType.toString());
+
+    int remotePort = -1;
+
+    if (executionType == RemoteExecutionType.GRPC) {
+      // TODO(cjhopman): newer versions of grpc can find us a port.
+      for (int i = 0; i < 100; i++) {
+        if (server.isPresent()) {
+          break;
+        }
+        try (ServerSocket socket = new ServerSocket(0)) {
+          remotePort = socket.getLocalPort();
+        }
+        try {
+          server = Optional.of(new GrpcServer(remotePort));
+        } catch (Exception e) { // NOPMD
+        }
+      }
+      Preconditions.checkState(server.isPresent());
+    }
+
     workspace.addBuckConfigLocalOption(
-        "modern_build_rule", "remote_port", Integer.toString(REMOTE_PORT));
+        "remoteexecution", "remote_port", Integer.toString(remotePort));
+    workspace.addBuckConfigLocalOption("remoteexecution", "insecure", "yes");
+    workspace.addBuckConfigLocalOption("remoteexecution", "cas_port", Integer.toString(remotePort));
+    workspace.addBuckConfigLocalOption("remoteexecution", "cas_insecure", "yes");
 
     filesystem = TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath());
 
-    if (strategy == ModernBuildRuleConfig.Strategy.GRPC_REMOTE) {
-      server = Optional.of(new GrpcServer(ModernBuildRuleConfig.DEFAULT_REMOTE_PORT));
+    if (strategy == ModernBuildRuleBuildStrategy.HYBRID_LOCAL) {
+      workspace.addBuckConfigLocalOption(
+          "modern_build_rule#remote", "strategy", ModernBuildRuleBuildStrategy.REMOTE.toString());
+      workspace.addBuckConfigLocalOption("modern_build_rule", "local_jobs", "0");
+      workspace.addBuckConfigLocalOption("modern_build_rule", "delegate_jobs", "1");
+      workspace.addBuckConfigLocalOption("modern_build_rule", "delegate", "remote");
     }
   }
 
@@ -323,8 +363,10 @@ public class ModernBuildRuleStrategyIntegrationTest {
     }
   }
 
-  public ModernBuildRuleStrategyIntegrationTest(ModernBuildRuleConfig.Strategy strategy) {
+  public ModernBuildRuleStrategyIntegrationTest(
+      ModernBuildRuleBuildStrategy strategy, RemoteExecutionType executionType) {
     this.strategy = strategy;
+    this.executionType = executionType;
   }
 
   @Test
@@ -347,7 +389,9 @@ public class ModernBuildRuleStrategyIntegrationTest {
 
   @Value.Immutable
   @BuckStyleImmutable
-  interface AbstractDuplicateOutputsArg extends CommonDescriptionArg {}
+  interface AbstractDuplicateOutputsArg extends CommonDescriptionArg {
+    boolean getOutputsAreDirectories();
+  }
 
   private static class DuplicateOutputsDescription
       implements DescriptionWithTargetGraph<DuplicateOutputsArg> {
@@ -365,7 +409,8 @@ public class ModernBuildRuleStrategyIntegrationTest {
       return new DuplicateOutputsRule(
           buildTarget,
           context.getProjectFilesystem(),
-          new SourcePathRuleFinder(context.getActionGraphBuilder()));
+          new SourcePathRuleFinder(context.getActionGraphBuilder()),
+          args.getOutputsAreDirectories());
     }
   }
 
@@ -373,10 +418,15 @@ public class ModernBuildRuleStrategyIntegrationTest {
       implements Buildable {
     @AddToRuleKey final OutputPath output1;
     @AddToRuleKey final OutputPath output2;
+    @AddToRuleKey final boolean outputsAreDirectories;
 
     DuplicateOutputsRule(
-        BuildTarget buildTarget, ProjectFilesystem filesystem, SourcePathRuleFinder finder) {
+        BuildTarget buildTarget,
+        ProjectFilesystem filesystem,
+        SourcePathRuleFinder finder,
+        boolean outputsAreDirectories) {
       super(buildTarget, filesystem, finder, DuplicateOutputsRule.class);
+      this.outputsAreDirectories = outputsAreDirectories;
       this.output1 = new OutputPath("output1");
       this.output2 = new OutputPath("output2");
     }
@@ -389,13 +439,20 @@ public class ModernBuildRuleStrategyIntegrationTest {
         BuildCellRelativePathFactory buildCellPathFactory) {
       return ImmutableList.of(
           new AbstractExecutionStep("blah") {
-            @Override
-            public StepExecutionResult execute(ExecutionContext context)
-                throws IOException, InterruptedException {
+            public void writeOutput(OutputPath path) throws IOException {
               String data = "data";
-              filesystem.writeContentsToPath(data, outputPathResolver.resolvePath(output1));
+              Path resolved = outputPathResolver.resolvePath(path);
+              if (outputsAreDirectories) {
+                filesystem.mkdirs(resolved);
+                resolved = resolved.resolve("data");
+              }
+              filesystem.writeContentsToPath(data, resolved);
+            }
 
-              filesystem.writeContentsToPath(data, outputPathResolver.resolvePath(output2));
+            @Override
+            public StepExecutionResult execute(ExecutionContext context) throws IOException {
+              writeOutput(output1);
+              writeOutput(output2);
               return StepExecutionResults.SUCCESS;
             }
           });
@@ -403,8 +460,14 @@ public class ModernBuildRuleStrategyIntegrationTest {
   }
 
   @Test
-  public void testBuildRuleWithDuplicateOutputs() throws Exception {
-    ProcessResult result = workspace.runBuckBuild(duplicateOutputsTarget);
+  public void testBuildRuleWithDuplicateOutputFiles() throws Exception {
+    ProcessResult result = workspace.runBuckBuild(duplicateOutputFilesTarget);
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testBuildRuleWithDuplicateOutputDirs() throws Exception {
+    ProcessResult result = workspace.runBuckBuild(duplicateOutputDirsTarget);
     result.assertSuccess();
   }
 

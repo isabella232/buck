@@ -26,7 +26,9 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.FileHashCacheEvent;
+import com.facebook.buck.event.listener.devspeed.DevspeedBuildListenerFactory;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.watchman.Watchman;
@@ -44,6 +46,7 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.WatchedFileHashCache;
+import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +59,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Supplier;
 
 /**
  * Daemon used to monitor the file system and cache build rules between Main() method invocations is
@@ -77,6 +81,9 @@ final class Daemon implements Closeable {
   private final RuleKeyCacheRecycler<RuleKey> defaultRuleKeyFactoryCacheRecycler;
   private final ImmutableMap<Path, WatchmanCursor> cursor;
   private final KnownRuleTypesProvider knownRuleTypesProvider;
+  private final Clock clock;
+  private final long startTime;
+  private final Optional<DevspeedBuildListenerFactory> devspeedBuildListenerFactory;
 
   private final BackgroundTaskManager bgTaskManager;
 
@@ -84,7 +91,9 @@ final class Daemon implements Closeable {
       Cell rootCell,
       KnownRuleTypesProvider knownRuleTypesProvider,
       Watchman watchman,
-      Optional<WebServer> webServerToReuse) {
+      Optional<WebServer> webServerToReuse,
+      Clock clock,
+      Supplier<Optional<DevspeedBuildListenerFactory>> devspeedBuildListenerFactorySupplier) {
     this.rootCell = rootCell;
     this.fileEventBus = new EventBus("file-change-events");
 
@@ -112,11 +121,7 @@ final class Daemon implements Closeable {
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
-    this.daemonicParserState =
-        new DaemonicParserState(
-            typeCoercerFactory,
-            parserConfig.getNumParsingThreads(),
-            parserConfig.shouldIgnoreEnvironmentVariablesChanges());
+    this.daemonicParserState = new DaemonicParserState(parserConfig.getNumParsingThreads());
 
     // Build the the rule key cache recycler.
     this.defaultRuleKeyFactoryCacheRecycler =
@@ -144,12 +149,21 @@ final class Daemon implements Closeable {
     LOG.debug("Using Watchman Cursor: %s", cursor);
     persistentWorkerPools = new ConcurrentHashMap<>();
 
-    // todo(sch): have this read off config's flush_events
-    this.bgTaskManager = new AsyncBackgroundTaskManager(true);
+    this.bgTaskManager =
+        new AsyncBackgroundTaskManager(rootCell.getBuckConfig().getFlushEventsBeforeExit());
+    this.clock = clock;
+    this.startTime = clock.currentTimeMillis();
+
+    // Create this last so that it won't leak if something else throws in the constructor
+    this.devspeedBuildListenerFactory = devspeedBuildListenerFactorySupplier.get();
   }
 
   Cell getRootCell() {
     return rootCell;
+  }
+
+  Optional<BuckEventListener> getDevspeedDaemonListener() {
+    return devspeedBuildListenerFactory.map(DevspeedBuildListenerFactory::newBuildListener);
   }
 
   private static Optional<WebServer> createWebServer(
@@ -298,6 +312,7 @@ final class Daemon implements Closeable {
     bgTaskManager.shutdownNow();
     shutdownPersistentWorkerPools();
     shutdownWebServer();
+    devspeedBuildListenerFactory.ifPresent(DevspeedBuildListenerFactory::close);
   }
 
   private void shutdownPersistentWorkerPools() {
@@ -318,5 +333,10 @@ final class Daemon implements Closeable {
         LOG.error(e);
       }
     }
+  }
+
+  /** @return the length of time in millis since this daemon was started */
+  public long getUptime() {
+    return clock.currentTimeMillis() - startTime;
   }
 }

@@ -17,9 +17,9 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.apple.clang.HeaderMap;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -55,8 +55,7 @@ class HeaderMapStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     LOG.debug("Writing header map with %d entries to %s", entries.size(), output);
     HeaderMap.Builder builder = HeaderMap.builder();
     for (Map.Entry<Path, Path> entry : entries.entrySet()) {

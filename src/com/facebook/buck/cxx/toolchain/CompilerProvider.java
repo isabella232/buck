@@ -24,30 +24,59 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 public class CompilerProvider extends CxxToolProvider<Compiler> {
+  private final boolean preferDependencyTree;
 
-  public CompilerProvider(ToolProvider toolProvider, Type type) {
-    super(toolProvider, type);
+  public CompilerProvider(ToolProvider toolProvider, Type type, boolean preferDependencyTree) {
+    this(toolProvider, type, preferDependencyTree, false);
   }
 
-  public CompilerProvider(Supplier<PathSourcePath> path, Optional<Type> type) {
-    super(path, type);
+  public CompilerProvider(
+      ToolProvider toolProvider,
+      Type type,
+      boolean preferDependencyTree,
+      boolean useUnixPathSeparator) {
+    super(toolProvider, type, useUnixPathSeparator);
+    this.preferDependencyTree = preferDependencyTree;
   }
 
-  public CompilerProvider(PathSourcePath path, Optional<Type> type) {
-    super(Suppliers.ofInstance(path), type);
+  public CompilerProvider(
+      Supplier<PathSourcePath> path, Optional<Type> type, boolean preferDependencyTree) {
+    this(path, type, preferDependencyTree, false);
+  }
+
+  public CompilerProvider(
+      Supplier<PathSourcePath> path,
+      Optional<Type> type,
+      boolean preferDependencyTree,
+      boolean useUnixPathSeparator) {
+    super(path, type, useUnixPathSeparator);
+    this.preferDependencyTree = preferDependencyTree;
+  }
+
+  public CompilerProvider(PathSourcePath path, Optional<Type> type, boolean preferDependencyTree) {
+    this(path, type, preferDependencyTree, false);
+  }
+
+  public CompilerProvider(
+      PathSourcePath path,
+      Optional<Type> type,
+      boolean preferDependencyTree,
+      boolean useUnixPathSeparator) {
+    super(Suppliers.ofInstance(path), type, useUnixPathSeparator);
+    this.preferDependencyTree = preferDependencyTree;
   }
 
   @Override
   protected Compiler build(CxxToolProvider.Type type, Tool tool) {
     switch (type) {
       case CLANG:
-        return new ClangCompiler(tool);
+        return new ClangCompiler(tool, preferDependencyTree, getUseUnixPathSeparator());
       case CLANG_CL:
         return new ClangClCompiler(tool);
       case CLANG_WINDOWS:
-        return new ClangWindowsCompiler(tool);
+        return new ClangWindowsCompiler(tool, preferDependencyTree);
       case GCC:
-        return new GccCompiler(tool);
+        return new GccCompiler(tool, preferDependencyTree);
       case WINDOWS:
         return new WindowsCompiler(tool);
       case WINDOWS_ML64:

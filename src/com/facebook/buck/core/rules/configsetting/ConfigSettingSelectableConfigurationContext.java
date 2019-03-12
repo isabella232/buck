@@ -17,10 +17,16 @@
 package com.facebook.buck.core.rules.configsetting;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.platform.ConstraintResolver;
+import com.facebook.buck.core.model.platform.Platform;
 import com.facebook.buck.core.select.SelectableConfigurationContext;
 
 /** {@link SelectableConfigurationContext} for {@link ConfigSettingSelectable}. */
 public interface ConfigSettingSelectableConfigurationContext
     extends SelectableConfigurationContext {
   BuckConfig getBuckConfig();
+
+  ConstraintResolver getConstraintResolver();
+
+  Platform getTargetPlatform();
 }

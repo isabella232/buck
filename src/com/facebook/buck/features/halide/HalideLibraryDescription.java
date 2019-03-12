@@ -16,7 +16,9 @@
 
 package com.facebook.buck.features.halide;
 
+import com.facebook.buck.apple.AppleCustomLinkingDepsDescription;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -42,7 +44,7 @@ import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxBinary;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
-import com.facebook.buck.cxx.CxxFlags.TranslateMacrosAppendableFunction;
+import com.facebook.buck.cxx.CxxFlags.TranslateMacrosFunction;
 import com.facebook.buck.cxx.CxxLinkAndCompileRules;
 import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxSource;
@@ -57,7 +59,7 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
+import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +73,9 @@ import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
 public class HalideLibraryDescription
-    implements DescriptionWithTargetGraph<HalideLibraryDescriptionArg>, Flavored {
+    implements DescriptionWithTargetGraph<HalideLibraryDescriptionArg>,
+        Flavored,
+        AppleCustomLinkingDepsDescription {
 
   public static final Flavor HALIDE_COMPILER_FLAVOR = InternalFlavor.of("halide-compiler");
   public static final Flavor HALIDE_COMPILE_FLAVOR = InternalFlavor.of("halide-compile");
@@ -226,7 +230,6 @@ public class HalideLibraryDescription
         graphBuilder,
         ruleFinder,
         platform,
-        cxxBuckConfig.getArchiveContents(),
         CxxDescriptionEnhancer.getStaticLibraryPath(
             projectFilesystem,
             buildTarget,
@@ -246,8 +249,8 @@ public class HalideLibraryDescription
   private Optional<ImmutableList<String>> expandInvocationFlags(
       Optional<ImmutableList<String>> optionalFlags, CxxPlatform platform) {
     if (optionalFlags.isPresent()) {
-      RuleKeyAppendableFunction<String, String> macroMapper =
-          new TranslateMacrosAppendableFunction(
+      AddsToRuleKeyFunction<String, String> macroMapper =
+          new TranslateMacrosFunction(
               ImmutableSortedMap.copyOf(platform.getFlagMacros()), platform);
       ImmutableList<String> flags = optionalFlags.get();
       ImmutableList.Builder<String> builder = ImmutableList.builder();
@@ -366,6 +369,11 @@ public class HalideLibraryDescription
   private CxxPlatformsProvider getCxxPlatformsProvider() {
     return toolchainProvider.getByName(
         CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildTarget> getCustomLinkingDeps(CommonDescriptionArg args) {
+    return ((HalideLibraryDescriptionArg) args).getDeps();
   }
 
   @BuckStyleImmutable

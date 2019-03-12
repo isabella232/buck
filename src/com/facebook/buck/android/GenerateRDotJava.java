@@ -89,27 +89,17 @@ public class GenerateRDotJava extends AbstractBuildRule {
   @Override
   public SortedSet<BuildRule> getBuildDeps() {
     ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
-    builder
-        .addAll(
-            resourcesProviders
-                .stream()
-                .filter(provider -> provider.getOverrideSymbolsPath().isPresent())
-                .flatMap(
-                    provider ->
-                        ruleFinder
-                            .filterBuildRuleInputs(provider.getOverrideSymbolsPath().get())
-                            .stream())
-                .collect(ImmutableList.toImmutableList()))
-        .addAll(
-            resourcesProviders
-                .stream()
-                .filter(provider -> provider.getResourceFilterRule().isPresent())
-                .map(provider -> provider.getResourceFilterRule().get())
-                .collect(ImmutableList.toImmutableList()))
-        .addAll(allResourceDeps);
-    pathToRDotTxtFiles
-        .stream()
-        .forEach(pathToRDotTxt -> builder.addAll(ruleFinder.filterBuildRuleInputs(pathToRDotTxt)));
+
+    resourcesProviders.forEach(
+        provider -> {
+          provider
+              .getOverrideSymbolsPath()
+              .ifPresent(path -> builder.addAll(ruleFinder.filterBuildRuleInputs(path)));
+          provider.getResourceFilterRule().ifPresent(builder::add);
+        });
+    builder.addAll(allResourceDeps);
+    pathToRDotTxtFiles.forEach(
+        pathToRDotTxt -> builder.addAll(ruleFinder.filterBuildRuleInputs(pathToRDotTxt)));
     duplicateResourceWhitelistPath.ifPresent(
         p -> builder.addAll(ruleFinder.filterBuildRuleInputs(p)));
     return builder.build();

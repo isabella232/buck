@@ -42,15 +42,16 @@ import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
+import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.util.EventInterval;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestStatusMessage;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
@@ -58,9 +59,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
-import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.text.DateFormat;
@@ -72,15 +72,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -105,11 +103,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       threadsToRunningTestSummaryEvent;
   private final ConcurrentMap<Long, Optional<? extends TestStatusMessageEvent>>
       threadsToRunningTestStatusMessageEvent;
-  private final ConcurrentMap<Long, Optional<? extends LeafEvent>> threadsToRunningStep;
-
-  private final ConcurrentLinkedQueue<ConsoleEvent> logEvents;
-
-  private final ScheduledExecutorService renderScheduler;
+  private final ConcurrentMap<Long, ConcurrentLinkedDeque<LeafEvent>> threadsToRunningStep;
 
   private final TestResultFormatter testFormatter;
 
@@ -135,8 +129,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private final int threadLineLimitOnError;
   private final boolean shouldAlwaysSortThreadsByTime;
   private final long buildRuleMinimumDurationMillis;
-
-  private int lastNumLinesPrinted;
 
   private Optional<String> parsingStatus = Optional.empty();
   // Save if Watchman reported zero file changes in case we receive an ActionGraphProvider hit. This
@@ -166,10 +158,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private final Optional<String> buildIdLine;
   private final Optional<String> buildDetailsLine;
+  private final ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders;
+
+  private final RenderingConsole renderingConsole;
 
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
-      Console console,
+      RenderingConsole renderingConsole,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
@@ -178,10 +173,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       TimeZone timeZone,
       BuildId buildId,
       boolean printBuildId,
-      Optional<String> buildDetailsTemplate) {
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     this(
         config,
-        console,
+        renderingConsole,
         clock,
         summaryVerbosity,
         executionEnvironment,
@@ -194,13 +190,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         true,
         buildId,
         printBuildId,
-        buildDetailsTemplate);
+        buildDetailsTemplate,
+        additionalConsoleLineProviders);
   }
 
   @VisibleForTesting
   public SuperConsoleEventBusListener(
       SuperConsoleConfig config,
-      Console console,
+      RenderingConsole renderingConsole,
       Clock clock,
       TestResultSummaryVerbosity summaryVerbosity,
       ExecutionEnvironment executionEnvironment,
@@ -213,15 +210,17 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       boolean hideEmptyDownload,
       BuildId buildId,
       boolean printBuildId,
-      Optional<String> buildDetailsTemplate) {
+      Optional<String> buildDetailsTemplate,
+      ImmutableList<AdditionalConsoleLineProvider> additionalConsoleLineProviders) {
     super(
-        console,
+        renderingConsole,
         clock,
         locale,
         executionEnvironment,
         false,
         config.getNumberOfSlowRulesToShow(),
         config.shouldShowSlowRulesInConsole());
+    this.additionalConsoleLineProviders = additionalConsoleLineProviders;
     this.locale = locale;
     this.formatTimeFunction = this::formatElapsedTime;
     this.threadsToRunningTestSummaryEvent =
@@ -230,16 +229,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
     this.threadsToRunningStep = new ConcurrentHashMap<>(executionEnvironment.getAvailableCores());
 
-    this.logEvents = new ConcurrentLinkedQueue<>();
-
-    this.renderScheduler =
-        Executors.newScheduledThreadPool(
-            1,
-            new ThreadFactoryBuilder().setNameFormat(getClass().getSimpleName() + "-%d").build());
     this.testFormatter =
         new TestResultFormatter(
-            console.getAnsi(),
-            console.getVerbosity(),
+            renderingConsole.getAnsi(),
+            renderingConsole.getVerbosity(),
             summaryVerbosity,
             locale,
             Optional.of(testLogPath));
@@ -287,104 +280,9 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     this.buildDetailsLine =
         buildDetailsTemplate.map(
             template -> AbstractConsoleEventBusListener.getBuildDetailsLine(buildId, template));
-  }
-
-  /** Schedules a runnable that updates the console output at a fixed interval. */
-  public void startRenderScheduler(long renderInterval, TimeUnit timeUnit) {
-    LOG.debug("Starting render scheduler (interval %d ms)", timeUnit.toMillis(renderInterval));
-    renderScheduler.scheduleAtFixedRate(
-        () -> {
-          try {
-            SuperConsoleEventBusListener.this.render();
-          } catch (Error | RuntimeException e) {
-            LOG.error(e, "Rendering exception");
-            throw e;
-          }
-        }, /* initialDelay */
-        renderInterval, /* period */
-        renderInterval,
-        timeUnit);
-  }
-
-  /** Shuts down the thread pool and cancels the fixed interval runnable. */
-  private synchronized void stopRenderScheduler() {
-    LOG.debug("Stopping render scheduler");
-    renderScheduler.shutdownNow();
-  }
-
-  @VisibleForTesting
-  synchronized void render() {
-    LOG.verbose("Rendering");
-    int previousNumLinesPrinted = lastNumLinesPrinted;
-    ImmutableList<String> lines = createRenderLinesAtTime(clock.currentTimeMillis());
-    ImmutableList<String> logLines = createLogRenderLines();
-    lastNumLinesPrinted = lines.size();
-
-    // Synchronize on the DirtyPrintStreamDecorator to prevent interlacing of output.
-    // We don't log immediately so we avoid locking the console handler to avoid deadlocks.
-    boolean stderrDirty;
-    boolean stdoutDirty;
-    synchronized (console.getStdErr()) {
-      synchronized (console.getStdOut()) {
-        // If another source has written to stderr, stop rendering with the SuperConsole.
-        // We need to do this to keep our updates consistent. We don't do this with stdout
-        // because we don't use it directly except in a couple of cases, where the
-        // synchronization in DirtyPrintStreamDecorator should be sufficient
-        stderrDirty = console.getStdErr().isDirty();
-        stdoutDirty = console.getStdOut().isDirty();
-        if (stderrDirty || stdoutDirty) {
-          stopRenderScheduler();
-        } else if (previousNumLinesPrinted != 0 || !lines.isEmpty() || !logLines.isEmpty()) {
-          String fullFrame = renderFullFrame(logLines, lines, previousNumLinesPrinted);
-          console.getStdErr().getRawStream().print(fullFrame);
-        }
-      }
-    }
-    if (stderrDirty) {
-      LOG.debug("Stopping console output (stderr was dirty).");
-    }
-  }
-
-  private String renderFullFrame(
-      ImmutableList<String> logLines, ImmutableList<String> lines, int previousNumLinesPrinted) {
-    int currentNumLines = lines.size();
-
-    Iterable<String> renderedLines =
-        Iterables.concat(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle(ansi.clearLine()),
-                logLines,
-                Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator())),
-            ansi.asNoWrap(
-                MoreIterables.zipAndConcat(
-                    Iterables.cycle(ansi.clearLine()),
-                    lines,
-                    Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator()))));
-
-    // Number of lines remaining to clear because of old output once we displayed
-    // the new output.
-    int remainingLinesToClear =
-        previousNumLinesPrinted > currentNumLines ? previousNumLinesPrinted - currentNumLines : 0;
-
-    StringBuilder fullFrame = new StringBuilder();
-    // We move the cursor back to the top.
-    for (int i = 0; i < previousNumLinesPrinted; i++) {
-      fullFrame.append(ansi.cursorPreviousLine(1));
-    }
-    // We display the new output.
-    for (String part : renderedLines) {
-      fullFrame.append(part);
-    }
-    // We clear the remaining lines of the old output.
-    for (int i = 0; i < remainingLinesToClear; i++) {
-      fullFrame.append(ansi.clearLine());
-      fullFrame.append(System.lineSeparator());
-    }
-    // We move the cursor at the end of the new output.
-    for (int i = 0; i < remainingLinesToClear; i++) {
-      fullFrame.append(ansi.cursorPreviousLine(1));
-    }
-    return fullFrame.toString();
+    this.renderingConsole = renderingConsole;
+    this.renderingConsole.registerDelegate(this::createRenderLinesAtTime);
+    this.renderingConsole.startRenderScheduler();
   }
 
   /**
@@ -400,7 +298,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       lines.add(buildIdLine.get());
     }
 
-    logEventPair(
+    logEventInterval(
         "Processing filesystem changes",
         Optional.empty(),
         currentTimeMillis,
@@ -411,29 +309,27 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         Optional.of(this.minimumDurationMillisecondsToShowWatchman),
         lines);
 
-    long parseTime =
-        logEventPair(
+    boolean parseFinished =
+        addLineFromEvents(
             "Parsing buck files",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
             buckFilesParsingEvents.values(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowParse),
             lines);
 
-    long actionGraphTime =
-        logEventPair(
+    boolean actionGraphFinished =
+        addLineFromEvents(
             "Creating action graph",
             /* suffix */ Optional.empty(),
             currentTimeMillis,
-            /* offsetMs */ 0L,
             actionGraphEvents.values(),
             getEstimatedProgressOfParsingBuckFiles(),
             Optional.of(this.minimumDurationMillisecondsToShowActionGraph),
             lines);
 
-    logEventPair(
+    logEventInterval(
         "Generating project",
         Optional.empty(),
         currentTimeMillis,
@@ -445,9 +341,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         lines);
 
     // If parsing has not finished, then there is no build rule information to print yet.
-    if (buildStarted == null
-        || parseTime == UNFINISHED_EVENT_PAIR
-        || actionGraphTime == UNFINISHED_EVENT_PAIR) {
+    if (buildStarted == null || !parseFinished || !actionGraphFinished) {
       return lines.build();
     }
 
@@ -470,7 +364,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
           .getMessage()
           .ifPresent(msg -> lines.add(ansi.asInformationText(msg)));
       long distBuildMs =
-          logEventPair(
+          logEventInterval(
               "Distributed Build",
               getOptionalDistBuildLineSuffix(),
               currentTimeMillis,
@@ -493,6 +387,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       }
     }
 
+    for (AdditionalConsoleLineProvider provider : additionalConsoleLineProviders) {
+      lines.addAll(provider.createConsoleLinesAtTime(currentTimeMillis));
+    }
+
     if (networkStatsKeeper.getRemoteDownloadedArtifactsCount() > 0 || !this.hideEmptyDownload) {
       lines.add(getNetworkStatsLine(buildFinished));
     }
@@ -503,16 +401,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     long buildStartedTime = buildStarted.getTimestamp();
     long buildFinishedTime =
         buildFinished != null ? buildFinished.getTimestamp() : currentTimeMillis;
-    Collection<EventPair> filteredBuckFilesParsingEvents =
+    Collection<EventInterval> filteredBuckFilesParsingEvents =
         getEventsBetween(buildStartedTime, buildFinishedTime, buckFilesParsingEvents.values());
-    Collection<EventPair> filteredActionGraphEvents =
+    Collection<EventInterval> filteredActionGraphEvents =
         getEventsBetween(buildStartedTime, buildFinishedTime, actionGraphEvents.values());
     long offsetMs =
-        getTotalCompletedTimeFromEventPairs(filteredBuckFilesParsingEvents)
-            + getTotalCompletedTimeFromEventPairs(filteredActionGraphEvents);
+        getTotalCompletedTimeFromEventIntervals(filteredBuckFilesParsingEvents)
+            + getTotalCompletedTimeFromEventIntervals(filteredActionGraphEvents);
 
     long totalBuildMs =
-        logEventPair(
+        logEventInterval(
             localBuildLinePrefix,
             getOptionalBuildLineSuffix(),
             currentTimeMillis,
@@ -534,13 +432,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               currentTimeMillis,
               outputMaxColumns,
               buildRuleMinimumDurationMillis,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
 
     long testRunTime =
-        logEventPair(
+        logEventInterval(
             "Testing",
             renderTestSuffix(),
             currentTimeMillis,
@@ -560,12 +458,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
               outputMaxColumns,
               threadsToRunningTestSummaryEvent,
               threadsToRunningTestStatusMessageEvent,
-              threadsToRunningStep,
+              getCurrentThreadsToStep(),
               buildRuleThreadTracker);
       renderLines(renderer, lines, maxThreadLines, shouldAlwaysSortThreadsByTime);
     }
 
-    logEventPair(
+    logEventInterval(
         "Installing",
         /* suffix */ Optional.empty(),
         currentTimeMillis,
@@ -581,6 +479,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     maybePrintBuildDetails(lines);
 
     return lines.build();
+  }
+
+  private Map<Long, Optional<? extends LeafEvent>> getCurrentThreadsToStep() {
+    return Maps.transformValues(
+        threadsToRunningStep, list -> Optional.ofNullable(Objects.requireNonNull(list).peekLast()));
   }
 
   private void maybePrintBuildDetails(Builder<String> lines) {
@@ -684,22 +587,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     return Strings.isNullOrEmpty(parseLine) ? Optional.empty() : Optional.of(parseLine);
   }
 
-  /** Adds log messages for rendering. */
-  @VisibleForTesting
-  ImmutableList<String> createLogRenderLines() {
-    ImmutableList.Builder<String> logEventLinesBuilder = ImmutableList.builder();
-    ConsoleEvent logEvent;
-    while ((logEvent = logEvents.poll()) != null) {
-      formatConsoleEvent(logEvent, logEventLinesBuilder);
-      if (logEvent.getLevel().equals(Level.WARNING)) {
-        anyWarningsPrinted.set(true);
-      } else if (logEvent.getLevel().equals(Level.SEVERE)) {
-        anyErrorsPrinted.set(true);
-      }
-    }
-    return logEventLinesBuilder.build();
-  }
-
   /**
    * Render lines using the provided {@param renderer}.
    *
@@ -773,34 +660,49 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void stepStarted(StepEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
+  }
+
+  private void runningStepStarted(LeafEvent started) {
+    Objects.requireNonNull(started, "event was null.");
+    Objects.requireNonNull(
+            Objects.requireNonNull(threadsToRunningStep, "map was null.")
+                .computeIfAbsent(started.getThreadId(), ignored -> new ConcurrentLinkedDeque<>()),
+            "value was null.")
+        .add(started);
   }
 
   @Subscribe
   public void stepFinished(StepEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
+  }
+
+  private void runningStepFinished(long threadId) {
+    Objects.requireNonNull(threadsToRunningStep, "map was null.")
+        .computeIfAbsent(threadId, ignored -> new ConcurrentLinkedDeque<>())
+        .pollLast();
   }
 
   // TODO(cjhopman): We should introduce a simple LeafEvent-like thing that everything that logs
   // step-like things can subscribe to.
   @Subscribe
   public void simpleLeafEventStarted(LeafEvents.SimpleLeafEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void simpleLeafEventFinished(LeafEvents.SimpleLeafEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
   public void ruleKeyCalculationStarted(RuleKeyCalculationEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void ruleKeyCalculationFinished(RuleKeyCalculationEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Override
@@ -841,25 +743,25 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void artifactCacheStarted(ArtifactCacheEvent.Started started) {
     if (started.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+      runningStepStarted(started);
     }
   }
 
   @Subscribe
   public void artifactCacheFinished(ArtifactCacheEvent.Finished finished) {
     if (finished.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {
-      threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+      runningStepFinished(finished.getThreadId());
     }
   }
 
   @Subscribe
   public void artifactCompressionStarted(ArtifactCompressionEvent.Started started) {
-    threadsToRunningStep.put(started.getThreadId(), Optional.of(started));
+    runningStepStarted(started);
   }
 
   @Subscribe
   public void artifactCompressionFinished(ArtifactCompressionEvent.Finished finished) {
-    threadsToRunningStep.put(finished.getThreadId(), Optional.empty());
+    runningStepFinished(finished.getThreadId());
   }
 
   @Subscribe
@@ -898,11 +800,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       testReportBuilder.addAll(builder.build());
       testOutput = String.join(System.lineSeparator(), testReportBuilder.build());
     }
-    // We're about to write to stdout, so make sure we render the final frame before we do.
-    render();
-    synchronized (console.getStdOut()) {
-      console.getStdOut().println(testOutput);
-    }
+    renderingConsole.printToStdOut(testOutput);
   }
 
   @Subscribe
@@ -939,7 +837,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         numFailingTests.incrementAndGet();
         // We don't use TestResultFormatter.reportResultSummary() here since that also
         // includes the stack trace and stdout/stderr.
-        logEvents.add(
+        logEvent(
             ConsoleEvent.severe(
                 String.format(
                     locale,
@@ -969,7 +867,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     if (console.getVerbosity().isSilent() && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
-    logEvents.add(event);
+    logEventDirectly(event);
+  }
+
+  private void logEventDirectly(ConsoleEvent logEvent) {
+    renderingConsole.logLines(formatConsoleEvent(logEvent));
+    if (logEvent.getLevel().equals(Level.WARNING)) {
+      anyWarningsPrinted.set(true);
+    } else if (logEvent.getLevel().equals(Level.SEVERE)) {
+      anyErrorsPrinted.set(true);
+    }
   }
 
   @Subscribe
@@ -981,12 +888,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Subscribe
   public void forceRender(@SuppressWarnings("unused") FlushConsoleEvent event) {
-    render();
+    renderingConsole.render();
   }
 
   @Override
   public void printSevereWarningDirectly(String line) {
-    logEvents.add(ConsoleEvent.severe(line));
+    logEventDirectly(ConsoleEvent.severe(line));
   }
 
   private void printInfoDirectlyOnce(String line) {
@@ -994,7 +901,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       return;
     }
     if (!actionGraphCacheMessage.contains(line)) {
-      logEvents.add(ConsoleEvent.info(line));
+      logEventDirectly(ConsoleEvent.info(line));
       actionGraphCacheMessage.add(line);
     }
   }
@@ -1085,8 +992,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Override
   public synchronized void close() throws IOException {
     super.close();
-    stopRenderScheduler();
-    render(); // Ensure final frame is rendered.
+    renderingConsole.close();
   }
 
   @Override

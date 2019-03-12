@@ -27,6 +27,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -36,6 +37,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -57,6 +59,7 @@ import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
@@ -64,7 +67,6 @@ import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,9 +74,11 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.io.Resources;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -151,7 +155,7 @@ public class PythonTestDescription
       ImmutableSet<String> testModules) {
 
     // Modify the build rule params to change the target, type, and remove all deps.
-    buildTarget.checkUnflavored();
+    buildTarget.assertUnflavored();
     BuildTarget newBuildTarget = buildTarget.withAppendedFlavors(InternalFlavor.of("test_module"));
 
     String contents = getTestModulesListContents(testModules);
@@ -215,7 +219,7 @@ public class PythonTestDescription
         graphBuilder.computeIfAbsent(
             baseTarget.withFlavors(InternalFlavor.of("python-test-main")),
             target -> new PythonTestMainRule(target, filesystem));
-    return Preconditions.checkNotNull(testMainRule.getSourcePathToOutput());
+    return Objects.requireNonNull(testMainRule.getSourcePathToOutput());
   }
 
   @Override
@@ -323,6 +327,7 @@ public class PythonTestDescription
             .concat(args.getNeededCoverage().stream().map(NeededCoverageSpec::getBuildTarget))
             .map(graphBuilder::getRule)
             .collect(ImmutableList.toImmutableList());
+
     CellPathResolver cellRoots = context.getCellPathResolver();
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
@@ -351,7 +356,7 @@ public class PythonTestDescription
             args.getPreloadDeps());
 
     // Build the PEX using a python binary rule with the minimum dependencies.
-    buildTarget.checkUnflavored();
+    buildTarget.assertUnflavored();
     PythonBinary binary =
         binaryDescription.createPackageRule(
             buildTarget.withAppendedFlavors(BINARY_FLAVOR),
@@ -411,6 +416,21 @@ public class PythonTestDescription
             ImmutableMap.copyOf(
                 Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder)));
 
+    // Additional CXX Targets used to generate CXX coverage.
+    ImmutableSet<UnflavoredBuildTarget> additionalCoverageTargets =
+        RichStream.from(args.getAdditionalCoverageTargets())
+            .map(target -> target.getUnflavoredBuildTarget())
+            .collect(ImmutableSet.toImmutableSet());
+    ImmutableSortedSet<SourcePath> additionalCoverageSourcePaths =
+        additionalCoverageTargets.isEmpty()
+            ? ImmutableSortedSet.of()
+            : binary
+                .getRuntimeDeps(ruleFinder)
+                .filter(
+                    target -> additionalCoverageTargets.contains(target.getUnflavoredBuildTarget()))
+                .map(target -> DefaultBuildTargetSourcePath.of(target))
+                .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+
     // Generate and return the python test rule, which depends on the python binary rule above.
     return PythonTest.from(
         buildTarget,
@@ -421,9 +441,14 @@ public class PythonTestDescription
         binary,
         args.getLabels(),
         neededCoverageBuilder.build(),
+        additionalCoverageSourcePaths,
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                cxxBuckConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
         args.getContacts());
   }
 
@@ -473,5 +498,12 @@ public class PythonTestDescription
     ImmutableList<String> getBuildArgs();
 
     ImmutableMap<String, StringWithMacros> getEnv();
+
+    // Addidtional CxxLibrary Targets for coverage check
+    // When we use python to drive cxx modules (loaded as foo.so), we would like
+    // to collect code coverage of foo.so as well. In this case, we to path
+    // targets that builds foo.so so that buck can resolve its binary path and
+    // export the downstream testing framework to consume
+    ImmutableSet<BuildTarget> getAdditionalCoverageTargets();
   }
 }

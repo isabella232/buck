@@ -16,7 +16,6 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
@@ -29,11 +28,8 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.graph.Dot;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -41,7 +37,6 @@ import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
@@ -50,6 +45,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import javax.annotation.Nullable;
@@ -86,25 +82,11 @@ public class AuditClasspathCommand extends AbstractCommand {
     return arguments;
   }
 
-  public ImmutableList<String> getArgumentsFormattedAsBuildTargets(BuckConfig buckConfig) {
-    return getCommandLineBuildTargetNormalizer(buckConfig).normalizeAll(getArguments());
-  }
-
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
     // BuildRules for the specified BuildTargetPaths.
-    ImmutableSet<BuildTarget> targets =
-        getArgumentsFormattedAsBuildTargets(params.getBuckConfig())
-            .stream()
-            .map(
-                input ->
-                    BuildTargetParser.INSTANCE.parse(
-                        input,
-                        BuildTargetPatternParser.fullyQualified(),
-                        params.getCell().getCellPathResolver()))
-            .collect(ImmutableSet.toImmutableSet());
+    ImmutableSet<BuildTarget> targets = convertArgumentsToBuildTargets(params, getArguments());
 
     if (targets.isEmpty()) {
       throw new CommandLineException("must specify at least one build target");
@@ -173,7 +155,7 @@ public class AuditClasspathCommand extends AbstractCommand {
     }
 
     ActionGraphBuilder graphBuilder =
-        Preconditions.checkNotNull(
+        Objects.requireNonNull(
                 new ActionGraphProvider(
                         params.getBuckEventBus(),
                         ActionGraphFactory.create(
@@ -192,7 +174,7 @@ public class AuditClasspathCommand extends AbstractCommand {
     SortedSet<Path> classpathEntries = new TreeSet<>();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = Preconditions.checkNotNull(graphBuilder.requireRule(target));
+      BuildRule rule = Objects.requireNonNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries != null) {
         classpathEntries.addAll(
@@ -222,7 +204,7 @@ public class AuditClasspathCommand extends AbstractCommand {
     }
 
     ActionGraphBuilder graphBuilder =
-        Preconditions.checkNotNull(
+        Objects.requireNonNull(
                 new ActionGraphProvider(
                         params.getBuckEventBus(),
                         ActionGraphFactory.create(
@@ -241,7 +223,7 @@ public class AuditClasspathCommand extends AbstractCommand {
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = Preconditions.checkNotNull(graphBuilder.requireRule(target));
+      BuildRule rule = Objects.requireNonNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries == null) {
         continue;

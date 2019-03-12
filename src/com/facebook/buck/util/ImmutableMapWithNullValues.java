@@ -16,6 +16,7 @@
 
 package com.facebook.buck.util;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -52,6 +53,7 @@ public final class ImmutableMapWithNullValues<K, V> extends AbstractMap<K, V> {
 
   private final int hashCode;
 
+  @JsonCreator
   private ImmutableMapWithNullValues(Map<K, Object> delegate) {
     this.delegate = delegate;
     this.hashCode = computeHashCode();
@@ -127,11 +129,7 @@ public final class ImmutableMapWithNullValues<K, V> extends AbstractMap<K, V> {
       @SuppressWarnings("unchecked")
       public Entry<K, V> next() {
         Entry<K, Object> e = iteratorDelegate.next();
-        Entry<K, V> result =
-            e.getValue() == NULL
-                ? new AbstractMap.SimpleEntry<>(e.getKey(), null)
-                : (Map.Entry<K, V>) e;
-        return result;
+        return e.getValue() == NULL ? new SimpleEntry<>(e.getKey(), null) : (Entry<K, V>) e;
       }
     }
 

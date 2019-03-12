@@ -137,6 +137,18 @@ public class AppleDescriptions {
         buildTarget, pathResolver, headerPathPrefix, arg.getExportedHeaders());
   }
 
+  /** @returns Apple headers converted to public cxx headers */
+  public static ImmutableSortedMap<String, SourcePath> convertHeadersToPublicCxxHeaders(
+      BuildTarget buildTarget,
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      SourceSortedSet sourceSet) {
+    // The exported headers in the populated cxx constructor arg will contain exported headers from
+    // the apple constructor arg with the public include style.
+    return AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+        buildTarget, pathResolver, headerPathPrefix, sourceSet);
+  }
+
   public static ImmutableSortedMap<String, SourcePath> convertAppleHeadersToPrivateCxxHeaders(
       BuildTarget buildTarget,
       Function<SourcePath, Path> pathResolver,
@@ -158,6 +170,42 @@ public class AppleDescriptions {
                             .stream(),
                         AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
                                 buildTarget, pathResolver, headerPathPrefix, arg.getHeaders())
+                            .entrySet()
+                            .stream())
+                    .reduce(Stream::concat)
+                    .orElse(Stream.empty())
+                    .distinct() // allow duplicate entries as long as they map to the same path
+                    .collect(
+                        ImmutableSortedMap.toImmutableSortedMap(
+                            Ordering.natural(), Map.Entry::getKey, Map.Entry::getValue)));
+
+    return headersMapBuilder.build();
+  }
+
+  /** @returns Apple headers converted to private cxx headers */
+  public static ImmutableSortedMap<String, SourcePath> convertHeadersToPrivateCxxHeaders(
+      BuildTarget buildTarget,
+      Function<SourcePath, Path> pathResolver,
+      Path headerPathPrefix,
+      SourceSortedSet privateSourceSet,
+      SourceSortedSet publicSourceSet) {
+    // The private headers should contain exported headers with the private include style and
+    // private
+    // headers with both styles.
+    ImmutableSortedMap.Builder<String, SourcePath> headersMapBuilder =
+        ImmutableSortedMap.<String, SourcePath>naturalOrder()
+            .putAll(
+                Stream.of(
+                        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                                buildTarget, pathResolver, privateSourceSet)
+                            .entrySet()
+                            .stream(),
+                        AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
+                                buildTarget, pathResolver, publicSourceSet)
+                            .entrySet()
+                            .stream(),
+                        AppleDescriptions.parseAppleHeadersForUseFromOtherTargets(
+                                buildTarget, pathResolver, headerPathPrefix, privateSourceSet)
                             .entrySet()
                             .stream())
                     .reduce(Stream::concat)
@@ -494,7 +542,8 @@ public class AppleDescriptions {
       HasAppleDebugSymbolDeps unstrippedBinaryRule,
       AppleDebugFormat debugFormat,
       CxxPlatformsProvider cxxPlatformsProvider,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms,
+      boolean shouldCacheStrips) {
     // Target used as the base target of AppleDebuggableBinary.
 
     BuildTarget baseTarget = unstrippedBinaryRule.getBuildTarget();
@@ -510,7 +559,8 @@ public class AppleDescriptions {
                 graphBuilder,
                 unstrippedBinaryRule,
                 cxxPlatformsProvider,
-                appleCxxPlatforms);
+                appleCxxPlatforms,
+                shouldCacheStrips);
         return AppleDebuggableBinary.createWithDsym(
             projectFilesystem, baseTarget, strippedBinaryRule, dsym);
       case NONE:
@@ -526,7 +576,8 @@ public class AppleDescriptions {
       ActionGraphBuilder graphBuilder,
       HasAppleDebugSymbolDeps unstrippedBinaryRule,
       CxxPlatformsProvider cxxPlatformsProvider,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatforms,
+      boolean isCacheable) {
     return (AppleDsym)
         graphBuilder.computeIfAbsent(
             buildTarget
@@ -554,7 +605,8 @@ public class AppleDescriptions {
                       .getAppleDebugSymbolDeps()
                       .map(BuildRule::getSourcePathToOutput)
                       .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
-                  AppleDsym.getDsymOutputPath(dsymBuildTarget, projectFilesystem));
+                  AppleDsym.getDsymOutputPath(dsymBuildTarget, projectFilesystem),
+                  isCacheable);
             });
   }
 
@@ -586,8 +638,10 @@ public class AppleDescriptions {
       ImmutableList<String> codesignFlags,
       Optional<String> codesignAdhocIdentity,
       Optional<Boolean> ibtoolModuleFlag,
+      Optional<ImmutableList<String>> ibtoolFlags,
       Duration codesignTimeout,
-      boolean copySwiftStdlibToFrameworks) {
+      boolean copySwiftStdlibToFrameworks,
+      boolean cacheStrips) {
     AppleCxxPlatform appleCxxPlatform =
         ApplePlatforms.getAppleCxxPlatformForBuildTarget(
             cxxPlatformsProvider,
@@ -742,13 +796,16 @@ public class AppleDescriptions {
               (HasAppleDebugSymbolDeps) unstrippedBinaryRule,
               debugFormat,
               cxxPlatformsProvider,
-              appleCxxPlatforms);
+              appleCxxPlatforms,
+              cacheStrips);
       targetDebuggableBinaryRule = debuggableBinary;
       appleDsym = debuggableBinary.getAppleDsym();
     } else {
       targetDebuggableBinaryRule = unstrippedBinaryRule;
       appleDsym = Optional.empty();
     }
+
+    ImmutableList<String> ibtoolFlagsUnwrapped = ibtoolFlags.orElse(ImmutableList.of());
 
     ImmutableSet<BuildRule> extraBinaries =
         collectFirstLevelExtraBinariesFromDeps(
@@ -814,6 +871,7 @@ public class AppleDescriptions {
         codesignFlags,
         codesignAdhocIdentity,
         ibtoolModuleFlag,
+        ibtoolFlagsUnwrapped,
         codesignTimeout,
         copySwiftStdlibToFrameworks);
   }

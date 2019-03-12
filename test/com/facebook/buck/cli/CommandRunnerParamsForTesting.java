@@ -26,6 +26,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
@@ -38,19 +39,23 @@ import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
+import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.TestParserFactory;
+import com.facebook.buck.remoteexecution.MetadataProviderFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.NoOpCacheStatsTracker;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
@@ -85,6 +90,11 @@ public class CommandRunnerParamsForTesting {
   /** Utility class: do not instantiate. */
   private CommandRunnerParamsForTesting() {}
 
+  private static ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
+      getManifestSupplier() {
+    return ThrowingCloseableMemoizedSupplier.of(() -> null, ManifestService::close);
+  }
+
   public static CommandRunnerParams createCommandRunnerParamsForTesting(
       Console console,
       Cell cell,
@@ -110,6 +120,7 @@ public class CommandRunnerParamsForTesting {
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
+        new ParsingUnconfiguredBuildTargetFactory(),
         TestParserFactory.create(cell.getBuckConfig(), knownRuleTypesProvider),
         eventBus,
         platform,
@@ -139,7 +150,9 @@ public class CommandRunnerParamsForTesting {
         new ExecutableFinder(),
         pluginManager,
         TestBuckModuleManagerFactory.create(pluginManager),
-        Main.getForkJoinPoolSupplier(config));
+        Main.getForkJoinPoolSupplier(config),
+        MetadataProviderFactory.emptyMetadataProvider(),
+        getManifestSupplier());
   }
 
   public static Builder builder() {
@@ -153,12 +166,12 @@ public class CommandRunnerParamsForTesting {
     private BuckConfig config = FakeBuckConfig.builder().build();
     private BuckEventBus eventBus = BuckEventBusForTests.newInstance();
     private Platform platform = Platform.detect();
-    private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
+    private ImmutableMap<String, String> environment = EnvVariablesProvider.getSystemEnv();
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private Optional<WebServer> webServer = Optional.empty();
     @Nullable private ToolchainProvider toolchainProvider = null;
 
-    public CommandRunnerParams build() throws IOException, InterruptedException {
+    public CommandRunnerParams build() {
       TestCellBuilder cellBuilder = new TestCellBuilder();
       if (toolchainProvider != null) {
         cellBuilder.setToolchainProvider(toolchainProvider);

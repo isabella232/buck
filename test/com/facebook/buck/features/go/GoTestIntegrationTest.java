@@ -21,7 +21,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -40,7 +39,7 @@ public class GoTestIntegrationTest {
   public ProjectWorkspace workspace;
 
   @Before
-  public void ensureGoIsAvailable() throws IOException, InterruptedException {
+  public void ensureGoIsAvailable() throws IOException {
     GoAssumptions.assumeGoCompilerAvailable();
   }
 
@@ -115,9 +114,10 @@ public class GoTestIntegrationTest {
         workspace.resolve("testdata/input"));
   }
 
-  @Test(expected = HumanReadableException.class)
+  @Test
   public void testGoInternalTestInTestList() throws IOException {
-    workspace.runBuckCommand("test", "//:test-success-bad");
+    ProcessResult processResult = workspace.runBuckCommand("test", "//:test-success-bad");
+    processResult.assertFailure();
   }
 
   @Test
@@ -182,6 +182,22 @@ public class GoTestIntegrationTest {
   @Test
   public void testFuncWithPrefixTest() throws IOException {
     ProcessResult result = workspace.runBuckCommand("test", "//:test-scores");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testNonprintableCharacterInResult() throws IOException {
+    ProcessResult result = workspace.runBuckCommand("test", "//testOutput:all_tests");
+    assertThat(
+        "`buck test` should print out the error message",
+        result.getStderr(),
+        containsString("is not printable"));
+    assertFalse(result.getStderr().contains("MalformedInputException"));
+  }
+
+  @Test
+  public void testGoTestWithEnv() throws IOException {
+    ProcessResult result = workspace.runBuckCommand("test", "//:test-with-env");
     result.assertSuccess();
   }
 

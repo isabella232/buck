@@ -17,10 +17,10 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
-import java.util.Optional;
 import java.util.stream.StreamSupport;
 import org.immutables.value.Value;
 
@@ -30,14 +30,14 @@ import org.immutables.value.Value;
 abstract class AbstractBuildTargetSpec implements TargetNodeSpec {
 
   @Value.Parameter
-  public abstract BuildTarget getBuildTarget();
+  public abstract UnconfiguredBuildTarget getUnconfiguredBuildTarget();
 
   @Override
   @Value.Parameter
   public abstract BuildFileSpec getBuildFileSpec();
 
-  public static BuildTargetSpec from(BuildTarget target) {
-    return BuildTargetSpec.of(target, BuildFileSpec.fromBuildTarget(target));
+  public static BuildTargetSpec from(UnconfiguredBuildTarget target) {
+    return BuildTargetSpec.of(target, BuildFileSpec.fromUnconfiguredBuildTarget(target));
   }
 
   @Override
@@ -46,21 +46,26 @@ abstract class AbstractBuildTargetSpec implements TargetNodeSpec {
   }
 
   @Override
-  public ImmutableMap<BuildTarget, Optional<TargetNode<?>>> filter(Iterable<TargetNode<?>> nodes) {
-    Optional<TargetNode<?>> firstMatchingNode =
+  public ImmutableMap<BuildTarget, TargetNode<?>> filter(Iterable<TargetNode<?>> nodes) {
+    TargetNode<?> firstMatchingNode =
         StreamSupport.stream(nodes.spliterator(), false)
             .filter(
                 input ->
                     input
                         .getBuildTarget()
                         .getUnflavoredBuildTarget()
-                        .equals(getBuildTarget().getUnflavoredBuildTarget()))
-            .findFirst();
-    return ImmutableMap.of(getBuildTarget(), firstMatchingNode);
+                        .equals(getUnconfiguredBuildTarget().getUnflavoredBuildTarget()))
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Cannot find target node for build target "
+                            + getUnconfiguredBuildTarget()));
+    return ImmutableMap.of(firstMatchingNode.getBuildTarget(), firstMatchingNode);
   }
 
   @Override
   public String toString() {
-    return getBuildTarget().getFullyQualifiedName();
+    return getUnconfiguredBuildTarget().getFullyQualifiedName();
   }
 }

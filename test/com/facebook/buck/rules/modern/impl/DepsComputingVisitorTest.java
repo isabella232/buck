@@ -31,12 +31,12 @@ import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.InputRuleResolver;
 import com.google.common.collect.ImmutableList;
@@ -96,19 +96,19 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void pattern() throws Exception {
+  public void pattern() {
     apply(new WithPattern());
   }
 
   @Override
   @Test
-  public void anEnum() throws Exception {
+  public void anEnum() {
     apply(new WithEnum());
   }
 
   @Override
   @Test
-  public void nonHashableSourcePathContainer() throws Exception {
+  public void nonHashableSourcePathContainer() {
     WithNonHashableSourcePathContainer value = new WithNonHashableSourcePathContainer();
     expect(inputRuleResolver.resolve(value.container.getSourcePath())).andReturn(Optional.empty());
     apply(value);
@@ -116,7 +116,7 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void map() throws Exception {
+  public void map() {
     WithMap value = new WithMap();
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty()).times(2);
     apply(value);
@@ -124,7 +124,7 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void sortedMap() throws Exception {
+  public void sortedMap() {
     WithSortedMap value = new WithSortedMap();
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty()).times(2);
     apply(value);
@@ -132,47 +132,47 @@ public class DepsComputingVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
-  public void supplier() throws Exception {
+  public void supplier() {
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty());
     apply(new WithSupplier());
   }
 
   @Override
   @Test
-  public void nullable() throws Exception {
+  public void nullable() {
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty());
     apply(new WithNullable());
   }
 
   @Override
   @Test
-  public void either() throws Exception {
+  public void either() {
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty());
     apply(new WithEither());
   }
 
   @Override
   @Test
-  public void excluded() throws Exception {
+  public void excluded() {
     apply(new WithExcluded());
   }
 
   @Override
   @Test
-  public void immutables() throws Exception {
+  public void immutables() {
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty()).times(4);
     apply(new WithImmutables());
   }
 
   @Override
   @Test
-  public void stringified() throws Exception {
+  public void stringified() {
     apply(new WithStringified());
   }
 
   @Override
   @Test
-  public void wildcards() throws Exception {
+  public void wildcards() {
     expect(inputRuleResolver.resolve(anyObject())).andReturn(Optional.empty());
     apply(new WithWildcards());
   }

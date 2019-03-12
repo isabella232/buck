@@ -76,7 +76,7 @@ public class ThriftArtifactCacheTest {
   @Rule public TemporaryPaths tempPaths = new TemporaryPaths();
 
   @Test
-  public void testFetchResponseWithoutPayloadInfo() throws IOException, InterruptedException {
+  public void testFetchResponseWithoutPayloadInfo() throws IOException {
     ArtifactMetadata metadata = new ArtifactMetadata();
     metadata.addToRuleKeys(new RuleKey().setHashString("012345"));
     testWithMetadataAndPayloadInfo(metadata, false);
@@ -106,8 +106,7 @@ public class ThriftArtifactCacheTest {
     testWithMetadata(null);
   }
 
-  private void testWithMetadata(@Nullable ArtifactMetadata artifactMetadata)
-      throws IOException, InterruptedException {
+  private void testWithMetadata(@Nullable ArtifactMetadata artifactMetadata) throws IOException {
     testWithMetadataAndPayloadInfo(artifactMetadata, true);
   }
 
@@ -138,7 +137,16 @@ public class ThriftArtifactCacheTest {
             .build();
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            false,
+            "test://",
+            "hostname")) {
       Path artifactPath = tempPaths.newFile().toAbsolutePath();
       CacheResult result =
           Futures.getUnchecked(
@@ -223,7 +231,7 @@ public class ThriftArtifactCacheTest {
     }
 
     @Override
-    public void close() throws IOException {}
+    public void close() {}
   }
 
   @Test
@@ -325,7 +333,16 @@ public class ThriftArtifactCacheTest {
     responseRef.set(response);
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            false,
+            "test://",
+            "hostname")) {
       MultiFetchResult result = cache.multiFetchImpl(requests);
       assertEquals(4, result.getResults().size());
       assertEquals(CacheResultType.MISS, result.getResults().get(0).getCacheResult().getType());
@@ -401,7 +418,16 @@ public class ThriftArtifactCacheTest {
     responseRef.set(response);
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 1, 1)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            1,
+            1,
+            false,
+            "test://",
+            "hostname")) {
       MultiContainsResult result = cache.multiContainsImpl(ruleKeys);
       assertEquals(4, result.getCacheResults().size());
       assertEquals(CacheResultType.MISS, result.getCacheResults().get(key0).getType());
@@ -426,7 +452,7 @@ public class ThriftArtifactCacheTest {
   }
 
   @Test
-  public void testDelete() throws Exception {
+  public void testDelete() {
     HttpService storeClient = new TestHttpService(this::makeSuccessfulDeleteResponse);
     TestHttpService fetchClient = new TestHttpService();
     ProjectFilesystem filesystem =
@@ -450,7 +476,16 @@ public class ThriftArtifactCacheTest {
             .build();
 
     try (ThriftArtifactCache cache =
-        new ThriftArtifactCache(networkArgs, "/nice_as_well", false, new BuildId("aabb"), 0, 0)) {
+        new ThriftArtifactCache(
+            networkArgs,
+            "/nice_as_well",
+            false,
+            new BuildId("aabb"),
+            0,
+            0,
+            false,
+            "test://",
+            "hostname")) {
       CacheDeleteResult result =
           Futures.getUnchecked(
               cache.deleteAsync(

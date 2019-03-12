@@ -26,6 +26,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -56,9 +57,9 @@ import com.facebook.buck.testutil.OptionalMatchers;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.NaiveVersionSelector;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.VersionPropagatorBuilder;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -108,7 +109,7 @@ public class CxxGenruleDescriptionTest {
       CxxGenruleBuilder builder =
           new CxxGenruleBuilder(
                   BuildTargetFactory.newInstance(
-                      "//:rule#" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()))
+                      "//:rule#" + CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR))
               .setOut("out")
               .setCmd(
                   StringWithMacrosUtils.format(
@@ -203,11 +204,13 @@ public class CxxGenruleDescriptionTest {
     TargetGraph graph =
         TargetGraphFactory.newInstance(dep.build(), versionedDep.build(), genruleBuilder.build());
     TargetGraphAndBuildTargets transformed =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
             POOL,
-            new DefaultTypeCoercerFactory());
+            new DefaultTypeCoercerFactory(),
+            new ParsingUnconfiguredBuildTargetFactory(),
+            20);
     CxxGenruleDescriptionArg arg =
         extractArg(
             transformed.getTargetGraph().get(genruleBuilder.getTarget()),
@@ -238,11 +241,13 @@ public class CxxGenruleDescriptionTest {
         TargetGraphFactory.newInstance(
             transitiveDep.build(), versionedDep.build(), dep.build(), genruleBuilder.build());
     TargetGraphAndBuildTargets transformed =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
             POOL,
-            new DefaultTypeCoercerFactory());
+            new DefaultTypeCoercerFactory(),
+            new ParsingUnconfiguredBuildTargetFactory(),
+            20);
     CxxGenruleDescriptionArg arg =
         extractArg(
             transformed.getTargetGraph().get(genruleBuilder.getTarget()),

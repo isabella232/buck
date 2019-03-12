@@ -23,14 +23,12 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
-import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -49,6 +47,7 @@ import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -60,42 +59,23 @@ import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionUniverse;
 import com.facebook.buck.versions.VersionUniverseVersionSelector;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 import java.io.File;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class CxxBinaryDescriptionTest {
-
-  //  private TargetGraph prepopulateWithSandbox(BuildTarget libTarget) {
-  //      return TargetGraph.EMPTY;
-  //  }
-
-  private TargetNode<CxxBinaryDescriptionArg> mkSandboxNode(BuildTarget libTarget) {
-    Optional<Map.Entry<Flavor, CxxLibraryDescription.Type>> type =
-        CxxLibraryDescription.getLibType(libTarget);
-    Set<Flavor> flavors = Sets.newHashSet(libTarget.getFlavors());
-    if (type.isPresent()) {
-      flavors.remove(type.get().getKey());
-    }
-    BuildTarget target = ImmutableBuildTarget.of(libTarget.getUnflavoredBuildTarget(), flavors);
-    return new CxxBinaryBuilder(target).build();
-  }
 
   @Test
   public void createBuildRule() {
@@ -301,8 +281,7 @@ public class CxxBinaryDescriptionTest {
                 new PatternMatchedCollection.Builder<ImmutableList<StringWithMacros>>()
                     .add(
                         Pattern.compile(
-                            Pattern.quote(
-                                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString())),
+                            Pattern.quote(CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString())),
                         ImmutableList.of(
                             StringWithMacrosUtils.format(
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
@@ -388,11 +367,11 @@ public class CxxBinaryDescriptionTest {
     binaryBuilder.setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.c"))));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
-    BuildRule resultRule = binaryBuilder.build(graphBuilder, filesystem, targetGraph);
+    CxxBinary resultRule = binaryBuilder.build(graphBuilder, filesystem, targetGraph);
     assertThat(resultRule, Matchers.instanceOf(CxxBinary.class));
-    assertThat(((CxxBinary) resultRule).getLinkRule(), Matchers.instanceOf(CxxStrip.class));
+    assertThat(resultRule.getLinkRule(), Matchers.instanceOf(CxxStrip.class));
 
-    CxxStrip strip = (CxxStrip) ((CxxBinary) resultRule).getLinkRule();
+    CxxStrip strip = (CxxStrip) resultRule.getLinkRule();
     assertThat(strip.getStripStyle(), equalTo(StripStyle.ALL_SYMBOLS));
   }
 
@@ -442,13 +421,15 @@ public class CxxBinaryDescriptionTest {
         VersionUniverse.of(ImmutableMap.of(depBuilder.getTarget(), Version.of("2.0")));
 
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(builder.getTarget())),
                 new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     assertThat(
@@ -464,7 +445,7 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));
@@ -488,7 +469,7 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));
@@ -514,7 +495,7 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));

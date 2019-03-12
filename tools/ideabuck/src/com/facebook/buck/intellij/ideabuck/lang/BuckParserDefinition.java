@@ -45,18 +45,22 @@ public class BuckParserDefinition implements ParserDefinition {
     return new FlexAdapter(new _BuckLexer((Reader) null));
   }
 
+  @Override
   public TokenSet getWhitespaceTokens() {
     return WHITE_SPACES;
   }
 
+  @Override
   public TokenSet getCommentTokens() {
     return COMMENTS;
   }
 
+  @Override
   public TokenSet getStringLiteralElements() {
     return TokenSet.EMPTY;
   }
 
+  @Override
   public PsiParser createParser(final Project project) {
     return new BuckParser();
   }
@@ -66,15 +70,24 @@ public class BuckParserDefinition implements ParserDefinition {
     return FILE;
   }
 
+  @Override
   public PsiFile createFile(FileViewProvider viewProvider) {
     return new BuckFile(viewProvider);
   }
 
+  @Override
   public ParserDefinition.SpaceRequirements spaceExistanceTypeBetweenTokens(
       ASTNode left, ASTNode right) {
+    if (left.getElementType().equals(BuckTypes.LINE_COMMENT)) {
+      return SpaceRequirements.MUST_LINE_BREAK;
+    }
+    if (right.getElementType().equals(BuckTypes.COMPOUND_STATEMENT)) {
+      return SpaceRequirements.MUST_LINE_BREAK;
+    }
     return SpaceRequirements.MAY;
   }
 
+  @Override
   public PsiElement createElement(ASTNode node) {
     return BuckTypes.Factory.createElement(node);
   }
