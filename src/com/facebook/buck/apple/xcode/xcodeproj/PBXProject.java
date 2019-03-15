@@ -25,17 +25,23 @@ import java.util.List;
 /** The root object representing the project itself. */
 public class PBXProject extends PBXContainer {
   private String name;
+  private final String organizationName;
   private final PBXGroup mainGroup;
   private final List<PBXTarget> targets;
   private final XCConfigurationList buildConfigurationList;
   private final String compatibilityVersion;
 
   public PBXProject(String name) {
+    this(name, "Airbnb", "Xcode 3.2");
+  }
+
+  public PBXProject(String name, String organizationName, String compatibilityVersion) {
     this.name = name;
+    this.organizationName = organizationName;
     this.mainGroup = new PBXGroup("mainGroup", null, PBXReference.SourceTree.GROUP);
     this.targets = new ArrayList<>();
     this.buildConfigurationList = new XCConfigurationList();
-    this.compatibilityVersion = "Xcode 3.2";
+    this.compatibilityVersion = compatibilityVersion;
   }
 
   public String getName() {
@@ -85,6 +91,7 @@ public class PBXProject extends PBXContainer {
 
     NSDictionary d = new NSDictionary();
     d.put("LastUpgradeCheck", "9999");
+    d.put("ORGANIZATIONNAME", organizationName);
 
     s.addField("attributes", d);
   }
