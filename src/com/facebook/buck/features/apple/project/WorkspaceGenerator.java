@@ -269,7 +269,7 @@ class WorkspaceGenerator {
             + "<plist version=\"1.0\">\n"
             + "<dict>\n"
             + "\t<key>BuildSystemType</key>\n"
-            + "\t<string>Original</string>"
+            + "\t<string>Original</string>\n"
             + "\t<key>IDEWorkspaceSharedSettings_AutocreateContextsIfNeeded</key>\n"
             + "\t<false/>\n"
             + "</dict>\n"
