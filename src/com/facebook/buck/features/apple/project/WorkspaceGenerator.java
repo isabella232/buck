@@ -268,6 +268,8 @@ class WorkspaceGenerator {
             + " \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
             + "<plist version=\"1.0\">\n"
             + "<dict>\n"
+            + "\t<key>BuildSystemType</key>\n"
+            + "\t<string>Original</string>"
             + "\t<key>IDEWorkspaceSharedSettings_AutocreateContextsIfNeeded</key>\n"
             + "\t<false/>\n"
             + "</dict>\n"
