@@ -16,6 +16,8 @@
 
 package com.facebook.buck.core.graph.transformation;
 
+import com.facebook.buck.core.graph.transformation.model.ComputeKey;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import java.util.Optional;
 
 /**

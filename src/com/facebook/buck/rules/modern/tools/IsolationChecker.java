@@ -92,9 +92,7 @@ public class IsolationChecker {
     this.pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     this.rootCellPath = cellResolver.getCellPathOrThrow(Optional.empty());
     this.cellMap =
-        cellResolver
-            .getKnownRoots()
-            .stream()
+        cellResolver.getKnownRoots().stream()
             .collect(ImmutableMap.toImmutableMap(root -> root, cellResolver::getCanonicalCellName));
     this.reporter = reporter;
   }
@@ -193,7 +191,7 @@ public class IsolationChecker {
 
       if (valueTypeInfo instanceof ExcludedValueTypeInfo) {
         throw new HumanReadableException(
-            "Can't serialize excluded field %s with type %s (instance type %s)",
+            "Can't serialize excluded field [%s] with type [%s] (instance type [%s])",
             field.getName(),
             field.getGenericType(),
             value == null ? "<null>" : value.getClass().getName());

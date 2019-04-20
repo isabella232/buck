@@ -25,6 +25,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
@@ -40,6 +41,7 @@ import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
@@ -95,6 +97,7 @@ public class BuckQueryEnvironmentTest {
 
   @Before
   public void setUp() throws IOException {
+    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     eventBus = BuckEventBusForTests.newInstance();
     capturingConsoleEventListener = new CapturingConsoleEventListener();
     eventBus.register(capturingConsoleEventListener);
@@ -125,28 +128,30 @@ public class BuckQueryEnvironmentTest {
             getManifestSupplier(),
             new FakeFileHashCache(ImmutableMap.of()),
             new ParsingUnconfiguredBuildTargetFactory());
-    Parser parser = TestParserFactory.create(cell.getBuckConfig(), perBuildStateFactory, eventBus);
+    Parser parser = TestParserFactory.create(cell, perBuildStateFactory, eventBus);
     parserState =
         perBuildStateFactory.create(
+            ParsingContext.builder(cell, executor)
+                .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+                .build(),
             parser.getPermState(),
-            executor,
-            cell,
-            ImmutableList.of(),
-            /* enableProfiling */ false,
-            SpeculativeParsing.ENABLED);
+            ImmutableList.of());
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
-            cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false, false);
-    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser, parserState);
-    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
+            cell,
+            FakeBuckConfig.builder().build(),
+            parser,
+            ParsingContext.builder(cell, executor).build(),
+            EmptyTargetConfiguration.INSTANCE);
+    OwnersReport.Builder ownersReportBuilder =
+        OwnersReport.builder(cell, parser, parserState, EmptyTargetConfiguration.INSTANCE);
     buckQueryEnvironment =
         BuckQueryEnvironment.from(
             cell,
             ownersReportBuilder,
             parser,
             parserState,
-            executor,
             targetPatternEvaluator,
             eventBus,
             TYPE_COERCER_FACTORY);

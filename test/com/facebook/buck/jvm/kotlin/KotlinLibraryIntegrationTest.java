@@ -40,9 +40,12 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 public class KotlinLibraryIntegrationTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+
+  @Rule public Timeout timeout = Timeout.seconds(180);
 
   private ProjectWorkspace workspace;
 
@@ -167,6 +170,13 @@ public class KotlinLibraryIntegrationTest {
   @Test
   public void shouldCompileKotlinSrcZip() throws Exception {
     ProcessResult buildResult = workspace.runBuckCommand("build", "//com/example/zip:zip");
+    buildResult.assertSuccess("Build should have succeeded.");
+  }
+
+  @Test
+  public void shouldPassApoptionsToKapt() throws Exception {
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//com/example/ap/kapt-apoptions:kotlin");
     buildResult.assertSuccess("Build should have succeeded.");
   }
 }

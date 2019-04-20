@@ -201,7 +201,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 params.getBuckModuleManager(),
                 params.getPluginManager(),
                 params.getProjectFilesystemFactory(),
-                params.getUnconfiguredBuildTargetFactory());
+                params.getUnconfiguredBuildTargetFactory(),
+                params.getTargetConfigurationSupplier());
         timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_STATE_LOADING_TIME);
 
         DistBuildConfig distBuildConfig = new DistBuildConfig(state.getRootCell().getBuckConfig());
@@ -269,7 +270,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                     getCoordinatorBuildRuleEventsPublisher(),
                     getMinionBuildProgressTracker(),
                     ruleKeyCacheScope,
-                    params.getUnconfiguredBuildTargetFactory());
+                    params.getUnconfiguredBuildTargetFactory(),
+                    params.getTargetConfigurationSerializer());
 
             distBuildExecutor.onBuildSlavePreparationCompleted(
                 () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));

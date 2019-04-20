@@ -21,6 +21,7 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.ExcludeFromRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
@@ -37,7 +38,10 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.rules.modern.DefaultFieldInputs;
+import com.facebook.buck.rules.modern.CustomFieldInputs;
+import com.facebook.buck.rules.modern.CustomFieldSerialization;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.rules.modern.impl.ModernBuildableSupport;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,6 +54,7 @@ import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
@@ -98,11 +103,14 @@ public class JarBuildStepsFactory
   }
 
   private static class DependencyInfoHolder implements AddsToRuleKey, HasCustomDepsLogic {
-    // Adding this to the rulekey is slow for large projects and the abiClasspath already reflects
-    // all
-    // the inputs.
-    // TODO(cjhopman): Improve rulekey calculation so we don't need such micro-optimizations.
-    @CustomFieldBehavior({DefaultFieldSerialization.class, DefaultFieldInputs.class})
+    // TODO(cjhopman): This is pretty much all due to these things caching all AddsToRuleKey things,
+    // but we don't want that for these things because nobody else uses them. We should improve the
+    // rulekey and similar stuff to better handle this.
+    @CustomFieldBehavior(InfosBehavior.class)
+    @ExcludeFromRuleKey(
+        "Adding this to the rulekey is slow for large projects and the abiClasspath already "
+            + " reflects all the inputs. For the same reason, we need to do custom inputs"
+            + " derivation and custom serialization.")
     private final ImmutableList<JavaDependencyInfo> infos;
 
     public DependencyInfoHolder(ImmutableList<JavaDependencyInfo> infos) {
@@ -122,17 +130,55 @@ public class JarBuildStepsFactory
 
     public ZipArchiveDependencySupplier getAbiClasspath() {
       return new ZipArchiveDependencySupplier(
-          this.infos
-              .stream()
+          this.infos.stream()
               .map(i -> i.abiJar)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
     }
 
     public ImmutableSortedSet<SourcePath> getCompileTimeClasspathSourcePaths() {
-      return infos
-          .stream()
+      return infos.stream()
           .map(info -> info.compileTimeJar)
           .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    }
+
+    private static class InfosBehavior
+        implements CustomFieldSerialization<ImmutableList<JavaDependencyInfo>>,
+            CustomFieldInputs<ImmutableList<JavaDependencyInfo>> {
+
+      @Override
+      public <E extends Exception> void serialize(
+          ImmutableList<JavaDependencyInfo> value, ValueVisitor<E> serializer) throws E {
+        serializer.visitInteger(value.size());
+        for (JavaDependencyInfo info : value) {
+          serializer.visitSourcePath(info.compileTimeJar);
+          serializer.visitSourcePath(info.abiJar);
+          serializer.visitBoolean(info.isRequiredForSourceOnlyAbi);
+        }
+      }
+
+      @Override
+      public <E extends Exception> ImmutableList<JavaDependencyInfo> deserialize(
+          ValueCreator<E> deserializer) throws E {
+        int size = deserializer.createInteger();
+        ImmutableList.Builder<JavaDependencyInfo> infos =
+            ImmutableList.builderWithExpectedSize(size);
+        for (int i = 0; i < size; i++) {
+          SourcePath compileTimeJar = deserializer.createSourcePath();
+          SourcePath abiJar = deserializer.createSourcePath();
+          boolean isRequiredForSourceOnlyAbi = deserializer.createBoolean();
+          infos.add(new JavaDependencyInfo(compileTimeJar, abiJar, isRequiredForSourceOnlyAbi));
+        }
+        return infos.build();
+      }
+
+      @Override
+      public void getInputs(
+          ImmutableList<JavaDependencyInfo> value, Consumer<SourcePath> consumer) {
+        for (JavaDependencyInfo info : value) {
+          consumer.accept(info.abiJar);
+          consumer.accept(info.compileTimeJar);
+        }
+      }
     }
   }
 

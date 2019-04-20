@@ -18,6 +18,9 @@ package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.DefaultTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
@@ -30,6 +33,7 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
+import com.facebook.buck.rules.modern.impl.UnconfiguredBuildTargetTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ExcludedValueTypeInfo;
 import com.facebook.buck.util.RichStream;
@@ -94,9 +98,7 @@ public class Serializer {
     this.delegate = delegate;
     this.rootCellPath = cellResolver.getCellPathOrThrow(Optional.empty());
     this.cellMap =
-        cellResolver
-            .getKnownRoots()
-            .stream()
+        cellResolver.getKnownRoots().stream()
             .collect(ImmutableMap.toImmutableMap(root -> root, cellResolver::getCanonicalCellName));
   }
 
@@ -118,6 +120,34 @@ public class Serializer {
     if (cache.containsKey(instance)) {
       return Objects.requireNonNull(cache.get(instance));
     }
+
+    Visitor visitor = reserialize(instance, classInfo);
+
+    return Objects.requireNonNull(
+        cache.computeIfAbsent(
+            instance,
+            ignored -> {
+              byte[] data = visitor.byteStream.toByteArray();
+              ImmutableList<HashCode> children =
+                  visitor.children.build().distinct().collect(ImmutableList.toImmutableList());
+              return data.length < MAX_INLINE_LENGTH && children.isEmpty()
+                  ? Either.ofRight(data)
+                  : Either.ofLeft(delegate.registerNewValue(instance, data, children));
+            }));
+  }
+
+  /**
+   * Returns the serialized bytes of the instance. This is useful if the caller has lost the value
+   * recorded in a previous serialize call.
+   */
+  public <T extends AddsToRuleKey> byte[] reserialize(T instance) throws IOException {
+    ClassInfo<T> classInfo = DefaultClassInfoFactory.forInstance(instance);
+    // TODO(cjhopman): Return children too?
+    return reserialize(instance, classInfo).byteStream.toByteArray();
+  }
+
+  private <T extends AddsToRuleKey> Visitor reserialize(T instance, ClassInfo<T> classInfo)
+      throws IOException {
     Visitor visitor = new Visitor(instance.getClass());
 
     Optional<CustomClassBehaviorTag> serializerTag =
@@ -130,23 +160,7 @@ public class Serializer {
     } else {
       classInfo.visit(instance, visitor);
     }
-
-    return Objects.requireNonNull(
-        cache.computeIfAbsent(
-            instance,
-            ignored -> {
-              byte[] data = visitor.byteStream.toByteArray();
-              ImmutableList<HashCode> children =
-                  visitor.children.build().distinct().collect(ImmutableList.toImmutableList());
-              return data.length < MAX_INLINE_LENGTH && children.isEmpty()
-                  ? Either.ofRight(data)
-                  : Either.ofLeft(registerNewValue(instance, data, children));
-            }));
-  }
-
-  private <T extends AddsToRuleKey> HashCode registerNewValue(
-      T instance, byte[] data, ImmutableList<HashCode> children) {
-    return delegate.registerNewValue(instance, data, children);
+    return visitor;
   }
 
   private class Visitor implements ValueVisitor<IOException> {
@@ -385,6 +399,19 @@ public class Serializer {
       this.stream.writeBoolean(value != null);
       if (value != null) {
         inner.visit(value, this);
+      }
+    }
+
+    @Override
+    public void visitTargetConfiguration(TargetConfiguration value) throws IOException {
+      if (value instanceof EmptyTargetConfiguration) {
+        stream.writeBoolean(true);
+      } else if (value instanceof DefaultTargetConfiguration) {
+        stream.writeBoolean(false);
+        UnconfiguredBuildTargetTypeInfo.INSTANCE.visit(
+            ((DefaultTargetConfiguration) value).getTargetPlatform(), this);
+      } else {
+        throw new IllegalArgumentException("Cannot serialize target configuration: " + value);
       }
     }
   }

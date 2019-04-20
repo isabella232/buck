@@ -23,6 +23,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -34,6 +35,7 @@ import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
@@ -124,21 +126,27 @@ public class QueryCommandTest {
                 new FakeFileHashCache(ImmutableMap.of()),
                 new ParsingUnconfiguredBuildTargetFactory())
             .create(
+                ParsingContext.builder(cell, executorService)
+                    .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+                    .build(),
                 params.getParser().getPermState(),
-                executorService,
-                cell,
-                ImmutableList.of(),
-                false,
-                SpeculativeParsing.ENABLED);
+                ImmutableList.of());
     env =
         new FakeBuckQueryEnvironment(
             cell,
-            OwnersReport.builder(params.getCell(), params.getParser(), perBuildState),
+            OwnersReport.builder(
+                params.getCell(),
+                params.getParser(),
+                perBuildState,
+                EmptyTargetConfiguration.INSTANCE),
             params.getParser(),
             perBuildState,
-            executorService,
             new TargetPatternEvaluator(
-                params.getCell(), params.getBuckConfig(), params.getParser(), false, false),
+                params.getCell(),
+                params.getBuckConfig(),
+                params.getParser(),
+                ParsingContext.builder(params.getCell(), executorService).build(),
+                EmptyTargetConfiguration.INSTANCE),
             eventBus,
             typeCoercerFactory);
   }
@@ -149,7 +157,6 @@ public class QueryCommandTest {
         Builder ownersReportBuilder,
         Parser parser,
         PerBuildState parserState,
-        ListeningExecutorService executor,
         TargetPatternEvaluator targetPatternEvaluator,
         BuckEventBus eventBus,
         TypeCoercerFactory typeCoercerFactory) {
@@ -158,7 +165,6 @@ public class QueryCommandTest {
           ownersReportBuilder,
           parser,
           parserState,
-          executor,
           targetPatternEvaluator,
           eventBus,
           typeCoercerFactory);

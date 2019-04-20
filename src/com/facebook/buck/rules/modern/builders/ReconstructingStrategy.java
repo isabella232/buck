@@ -32,7 +32,6 @@ import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
-import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -124,17 +123,13 @@ class ReconstructingStrategy extends AbstractModernBuildRuleStrategy {
                               }
                             }));
 
-                    StepRunner stepRunner = new DefaultStepRunner();
                     for (Step step :
                         ModernBuildRule.stepsForBuildable(
                             strategyContext.getBuildRuleBuildContext(),
                             reconstructed,
                             rule.getProjectFilesystem(),
                             rule.getBuildTarget())) {
-                      stepRunner.runStepForBuildTarget(
-                          strategyContext.getExecutionContext(),
-                          step,
-                          Optional.of(rule.getBuildTarget()));
+                      StepRunner.runStep(strategyContext.getExecutionContext(), step);
                     }
                     converted.recordOutputs(strategyContext.getBuildableContext());
                   } catch (IOException | StepFailedException | InterruptedException e) {
@@ -142,7 +137,8 @@ class ReconstructingStrategy extends AbstractModernBuildRuleStrategy {
                   }
 
                   return Optional.of(
-                      strategyContext.createBuildResult(BuildRuleSuccessType.BUILT_LOCALLY));
+                      strategyContext.createBuildResult(
+                          BuildRuleSuccessType.BUILT_LOCALLY, Optional.of("reconstructed")));
                 });
     return StrategyBuildResult.nonCancellable(buildResult);
   }

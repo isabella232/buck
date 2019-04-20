@@ -24,6 +24,7 @@ import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildT
 import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.query.NoopQueryEvaluator;
+import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
@@ -64,10 +65,12 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
             cellNames,
             UNCONFIGURED_BUILD_TARGET_FACTORY,
             target.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            target.getTargetConfiguration());
     try {
-      QueryExpression parsedExp = QueryExpression.parse(queryExpression, env);
-      Set<QueryTarget> queryTargets = new NoopQueryEvaluator().eval(parsedExp, env);
+      QueryExpression<QueryBuildTarget> parsedExp = QueryExpression.parse(queryExpression, env);
+      Set<QueryTarget> queryTargets =
+          new NoopQueryEvaluator<QueryBuildTarget>().eval(parsedExp, env);
       return queryTargets.stream();
     } catch (QueryException e) {
       throw new MacroException("Error parsing/executing query from macro", e);

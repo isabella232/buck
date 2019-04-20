@@ -26,6 +26,7 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -572,9 +573,7 @@ class NativeLibraryMergeEnhancer {
       }
     }
     // Sort here to ensure consistent ordering, because the build target depends on the order.
-    return structuralDeps
-        .keySet()
-        .stream()
+    return structuralDeps.keySet().stream()
         .sorted(Comparator.comparing(MergedLibNativeLinkable::getBuildTarget))
         .collect(ImmutableList.toImmutableList());
   }
@@ -860,7 +859,8 @@ class NativeLibraryMergeEnhancer {
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
-        ActionGraphBuilder graphBuilder) {
+        ActionGraphBuilder graphBuilder,
+        TargetConfiguration targetConfiguration) {
 
       // This path gets taken for a force-static library.
       if (type == Linker.LinkableDepType.STATIC_PIC) {
@@ -868,7 +868,10 @@ class NativeLibraryMergeEnhancer {
         for (NativeLinkable linkable : constituents.getLinkables()) {
           builder.add(
               linkable.getNativeLinkableInput(
-                  cxxPlatform, Linker.LinkableDepType.STATIC_PIC, graphBuilder));
+                  cxxPlatform,
+                  Linker.LinkableDepType.STATIC_PIC,
+                  graphBuilder,
+                  targetConfiguration));
         }
         return NativeLinkableInput.concat(builder.build());
       }
@@ -915,9 +918,10 @@ class NativeLibraryMergeEnhancer {
     private NativeLinkableInput getImmediateNativeLinkableInput(
         CxxPlatform cxxPlatform,
         ActionGraphBuilder graphBuilder,
+        TargetConfiguration targetConfiguration,
         SourcePathResolver pathResolver,
         SourcePathRuleFinder ruleFinder) {
-      Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
+      Linker linker = cxxPlatform.getLd().resolve(graphBuilder, targetConfiguration);
       ImmutableList.Builder<NativeLinkableInput> builder = ImmutableList.builder();
       ImmutableList<NativeLinkable> usingGlue = ImmutableList.of();
       if (glueLinkable.isPresent() && constituents.isActuallyMerged()) {
@@ -935,7 +939,10 @@ class NativeLibraryMergeEnhancer {
           // Otherwise, just get the static pic output.
           NativeLinkableInput staticPic =
               linkable.getNativeLinkableInput(
-                  cxxPlatform, Linker.LinkableDepType.STATIC_PIC, graphBuilder);
+                  cxxPlatform,
+                  Linker.LinkableDepType.STATIC_PIC,
+                  graphBuilder,
+                  targetConfiguration);
           builder.add(
               staticPic.withArgs(
                   FluentIterable.from(staticPic.getArgs())
@@ -946,7 +953,7 @@ class NativeLibraryMergeEnhancer {
     }
 
     @Override
-    public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
       // If we have any non-static constituents, our preferred linkage is shared
       // (because stuff in Android is shared by default).  That's the common case.
       // If *all* of our constituents are force_static=True, we will also be preferred static.
@@ -954,7 +961,7 @@ class NativeLibraryMergeEnhancer {
       // It's also possible that multiple force_static libs could be merged,
       // but that has no effect.
       for (NativeLinkable linkable : constituents.getLinkables()) {
-        if (linkable.getPreferredLinkage(cxxPlatform, graphBuilder) != Linkage.STATIC) {
+        if (linkable.getPreferredLinkage(cxxPlatform) != Linkage.STATIC) {
           return Linkage.SHARED;
         }
       }
@@ -965,7 +972,7 @@ class NativeLibraryMergeEnhancer {
     @Override
     public ImmutableMap<String, SourcePath> getSharedLibraries(
         CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
-      if (getPreferredLinkage(cxxPlatform, graphBuilder) == Linkage.STATIC) {
+      if (getPreferredLinkage(cxxPlatform) == Linkage.STATIC) {
         return ImmutableMap.of();
       }
 
@@ -1009,7 +1016,11 @@ class NativeLibraryMergeEnhancer {
                       ImmutableSet.of(),
                       ImmutableSet.of(),
                       getImmediateNativeLinkableInput(
-                          cxxPlatform, graphBuilder, pathResolver, ruleFinder),
+                          cxxPlatform,
+                          graphBuilder,
+                          target.getTargetConfiguration(),
+                          pathResolver,
+                          ruleFinder),
                       constituents.isActuallyMerged()
                           ? symbolsToLocalize.map(SymbolLocalizingPostprocessor::new)
                           : Optional.empty(),

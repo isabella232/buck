@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules.modern.builders;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellConfig;
@@ -24,6 +25,7 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.module.impl.BuckModuleJarHashProvider;
 import com.facebook.buck.core.module.impl.DefaultBuckModuleManager;
@@ -54,9 +56,9 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.rules.modern.Deserializer;
 import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.ModernBuildRule;
-import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
+import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -76,6 +78,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -161,7 +164,11 @@ public abstract class IsolatedBuildableBuilder {
 
     ToolchainProviderFactory toolchainProviderFactory =
         new DefaultToolchainProviderFactory(
-            pluginManager, clientEnvironment, processExecutor, executableFinder);
+            pluginManager,
+            clientEnvironment,
+            processExecutor,
+            executableFinder,
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     CellProvider cellProvider =
         LocalCellProviderFactory.create(
@@ -231,7 +238,8 @@ public abstract class IsolatedBuildableBuilder {
             .setBuildCellRootPath(canonicalProjectRoot)
             .setEventBus(eventBus)
             .setJavaPackageFinder(javaPackageFinder)
-            .setShouldDeleteTemporaries(buckConfig.getShouldDeleteTemporaries())
+            .setShouldDeleteTemporaries(
+                buckConfig.getView(BuildBuckConfig.class).getShouldDeleteTemporaries())
             .build();
 
     this.toolchainProviderFunction =
@@ -254,7 +262,7 @@ public abstract class IsolatedBuildableBuilder {
                   fs.getRootPath().toString(), configuredPaths.getProjectRootDir());
 
               if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
-                  && buckConfig.getBuckOutCompatLink()
+                  && buckConfig.getView(BuildBuckConfig.class).getBuckOutCompatLink()
                   && Platform.detect() != Platform.WINDOWS) {
                 BuckPaths unconfiguredPaths =
                     configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
@@ -263,10 +271,19 @@ public abstract class IsolatedBuildableBuilder {
                         unconfiguredPaths.getGenDir(), configuredPaths.getGenDir(),
                         unconfiguredPaths.getScratchDir(), configuredPaths.getScratchDir());
                 for (Map.Entry<Path, Path> entry : paths.entrySet()) {
-                  filesystem.createSymLink(
-                      entry.getKey(),
-                      entry.getKey().getParent().relativize(entry.getValue()),
-                      /* force */ false);
+                  try {
+                    filesystem.createSymLink(
+                        entry.getKey(),
+                        entry.getKey().getParent().relativize(entry.getValue()),
+                        /* force */ false);
+                  } catch (FileAlreadyExistsException e) {
+                    // Verify that the symlink is valid then continue gracefully
+                    if (!filesystem
+                        .readSymLink(entry.getKey())
+                        .equals(entry.getKey().getParent().relativize(entry.getValue()))) {
+                      throw e;
+                    }
+                  }
                 }
               }
             });
@@ -291,8 +308,7 @@ public abstract class IsolatedBuildableBuilder {
     BuildableAndTarget reconstructed;
     try (Scope ignored = LeafEvents.scope(eventBus, "deserializing")) {
       reconstructed =
-          deserializer.deserialize(
-              getProvider(dataRoot.resolve(hash.toString())), BuildableAndTarget.class);
+          deserializer.deserialize(getProvider(dataRoot, hash), BuildableAndTarget.class);
     }
 
     try (Scope ignored = LeafEvents.scope(eventBus, "steps")) {
@@ -319,8 +335,7 @@ public abstract class IsolatedBuildableBuilder {
       for (Step step :
           ModernBuildRule.stepsForBuildable(
               buildContext, reconstructed.buildable, filesystem, reconstructed.target)) {
-        new DefaultStepRunner()
-            .runStepForBuildTarget(executionContext, step, Optional.of(reconstructed.target));
+        StepRunner.runStep(executionContext, step);
       }
 
       LOG.info(
@@ -331,14 +346,16 @@ public abstract class IsolatedBuildableBuilder {
     }
   }
 
-  private DataProvider getProvider(Path dir) {
+  // TODO(cjhopman): The layout of this directory is just determined by what
+  // ModernBuildRuleRemoteExecutionHelper does. We should extract these to a single place.
+  private DataProvider getProvider(Path dir, HashCode hash) {
     Preconditions.checkState(Files.exists(dir), "Dir [%s] does not exist.", dir.toAbsolutePath());
 
     return new DataProvider() {
       @Override
       public InputStream getData() {
         try {
-          Path path = dir.resolve("__value__");
+          Path path = dir.resolve(hash.toString()).resolve("__value__");
           return new BufferedInputStream(new FileInputStream(path.toFile()));
         } catch (FileNotFoundException e) {
           throw new RuntimeException(e);
@@ -347,7 +364,7 @@ public abstract class IsolatedBuildableBuilder {
 
       @Override
       public DataProvider getChild(HashCode hash) {
-        return getProvider(dir.resolve(hash.toString()));
+        return getProvider(dir, hash);
       }
     };
   }

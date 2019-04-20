@@ -40,6 +40,7 @@ import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.BuildRule;
@@ -53,7 +54,6 @@ import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.hasher.StringRuleKeyHasher;
-import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.collect.SortedSets;
 import com.facebook.buck.util.concurrent.MoreFutures;
@@ -123,7 +123,6 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
   private final CachingBuildEngineDelegate cachingBuildEngineDelegate;
 
   private final WeightedListeningExecutorService service;
-  private final StepRunner stepRunner;
   private final BuildType buildMode;
   private final MetadataStorage metadataStorage;
   private final DepFiles depFiles;
@@ -131,6 +130,7 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
   private final BuildRuleResolver resolver;
   private final SourcePathRuleFinder ruleFinder;
   private final SourcePathResolver pathResolver;
+  private final TargetConfigurationSerializer targetConfigurationSerializer;
   private final Optional<Long> artifactCacheSizeLimit;
   private final FileHashCache fileHashCache;
   @VisibleForTesting final RuleKeyFactories ruleKeyFactories;
@@ -157,7 +157,6 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
       CachingBuildEngineDelegate cachingBuildEngineDelegate,
       Optional<BuildRuleStrategy> customBuildRuleStrategy,
       WeightedListeningExecutorService service,
-      StepRunner stepRunner,
       BuildType buildMode,
       MetadataStorage metadataStorage,
       DepFiles depFiles,
@@ -166,6 +165,7 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
+      TargetConfigurationSerializer targetConfigurationSerializer,
       BuildInfoStoreManager buildInfoStoreManager,
       ResourceAwareSchedulingInfo resourceAwareSchedulingInfo,
       boolean consoleLogBuildFailuresInline,
@@ -176,7 +176,6 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
         cachingBuildEngineDelegate,
         customBuildRuleStrategy,
         service,
-        stepRunner,
         buildMode,
         metadataStorage,
         depFiles,
@@ -186,6 +185,7 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
         buildInfoStoreManager,
         ruleFinder,
         pathResolver,
+        targetConfigurationSerializer,
         ruleKeyFactories,
         remoteBuildRuleCompletionWaiter,
         resourceAwareSchedulingInfo,
@@ -208,7 +208,6 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
       CachingBuildEngineDelegate cachingBuildEngineDelegate,
       Optional<BuildRuleStrategy> customBuildRuleStrategy,
       WeightedListeningExecutorService service,
-      StepRunner stepRunner,
       BuildType buildMode,
       MetadataStorage metadataStorage,
       DepFiles depFiles,
@@ -218,6 +217,7 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
       BuildInfoStoreManager buildInfoStoreManager,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
+      TargetConfigurationSerializer targetConfigurationSerializer,
       RuleKeyFactories ruleKeyFactories,
       RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter,
       ResourceAwareSchedulingInfo resourceAwareSchedulingInfo,
@@ -229,7 +229,6 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
 
     this.manifestService = manifestService;
     this.service = service;
-    this.stepRunner = stepRunner;
     this.buildMode = buildMode;
     this.metadataStorage = metadataStorage;
     this.depFiles = depFiles;
@@ -238,6 +237,7 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
     this.resolver = resolver;
     this.ruleFinder = ruleFinder;
     this.pathResolver = pathResolver;
+    this.targetConfigurationSerializer = targetConfigurationSerializer;
 
     this.fileHashCache = cachingBuildEngineDelegate.getFileHashCache();
     this.ruleKeyFactories = ruleKeyFactories;
@@ -522,10 +522,10 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
             maxDepFileCacheEntries,
             metadataStorage,
             pathResolver,
+            targetConfigurationSerializer,
             resourceAwareSchedulingInfo,
             ruleKeyFactories,
             service,
-            stepRunner,
             this.ruleDeps,
             rule,
             buildContext,

@@ -28,6 +28,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
@@ -59,6 +60,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
@@ -155,7 +157,8 @@ public class DistBuildStateTest {
             moduleManager,
             pluginManager,
             new DefaultProjectFilesystemFactory(),
-            unconfiguredBuildTargetFactory);
+            unconfiguredBuildTargetFactory,
+            () -> EmptyTargetConfiguration.INSTANCE);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(cells.get(0).getBuckConfig(), Matchers.equalTo(buckConfig));
@@ -223,7 +226,8 @@ public class DistBuildStateTest {
             moduleManager,
             pluginManager,
             new DefaultProjectFilesystemFactory(),
-            unconfiguredBuildTargetFactory);
+            unconfiguredBuildTargetFactory,
+            () -> EmptyTargetConfiguration.INSTANCE);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
 
     assertThat(cells, Matchers.aMapWithSize(1));
@@ -240,14 +244,13 @@ public class DistBuildStateTest {
     Cell cell = projectWorkspace.asCell();
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
-    BuckConfig buckConfig = cell.getBuckConfig();
     setUp();
-    Parser parser = TestParserFactory.create(buckConfig);
+    Parser parser = TestParserFactory.create(cell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            cell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    cell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib1"),
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib2"),
@@ -277,24 +280,22 @@ public class DistBuildStateTest {
             moduleManager,
             pluginManager,
             new DefaultProjectFilesystemFactory(),
-            unconfiguredBuildTargetFactory);
+            unconfiguredBuildTargetFactory,
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
     TargetGraph reconstructedGraph =
         distributedBuildState.createTargetGraph(targetGraphCodec).getTargetGraph();
     assertEquals(
-        reconstructedGraph
-            .getNodes()
-            .stream()
+        reconstructedGraph.getNodes().stream()
             .map(
                 targetNode ->
                     TargetNodes.castArg(targetNode, JavaLibraryDescriptionArg.class).get())
             .sorted()
             .map(targetNode -> targetNode.getConstructorArg().getSrcs())
             .collect(Collectors.toList()),
-        Lists.newArrayList("A.java", "B.java", "C.java")
-            .stream()
+        Lists.newArrayList("A.java", "B.java", "C.java").stream()
             .map(f -> reconstructedCellFilesystem.getPath(f))
             .map(p -> PathSourcePath.of(reconstructedCellFilesystem, p))
             .map(ImmutableSortedSet::of)
@@ -365,7 +366,8 @@ public class DistBuildStateTest {
             moduleManager,
             pluginManager,
             new DefaultProjectFilesystemFactory(),
-            unconfiguredBuildTargetFactory);
+            unconfiguredBuildTargetFactory,
+            () -> EmptyTargetConfiguration.INSTANCE);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));
 
@@ -413,8 +415,11 @@ public class DistBuildStateTest {
               return parser
                   .get()
                   .getTargetNodeRawAttributes(
-                      cell.getCell(input.getBuildTarget()),
-                      MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
+                      ParsingContext.builder(
+                              cell.getCell(input.getBuildTarget()),
+                              MoreExecutors.listeningDecorator(
+                                  MoreExecutors.newDirectExecutorService()))
+                          .build(),
                       input);
             } catch (BuildFileParseException e) {
               throw new RuntimeException(e);
@@ -424,8 +429,7 @@ public class DistBuildStateTest {
       nodeToRawNode = ignored -> ImmutableMap.of();
     }
 
-    TypeCoercerFactory typeCoercerFactory =
-        new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
+    TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =

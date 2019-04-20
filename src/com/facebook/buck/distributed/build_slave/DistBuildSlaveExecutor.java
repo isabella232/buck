@@ -296,17 +296,15 @@ public class DistBuildSlaveExecutor {
                 new NoOpRemoteBuildRuleCompletionWaiter(),
                 args.getMetadataProvider(),
                 args.getUnconfiguredBuildTargetFactory(),
-                EmptyTargetConfiguration.INSTANCE),
+                EmptyTargetConfiguration.INSTANCE,
+                args.getTargetConfigurationSerializer()),
         args.getExecutorService());
   }
 
   private List<BuildTarget> getTopLevelTargetsToBuild() {
     UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
         args.getUnconfiguredBuildTargetFactory();
-    return args.getState()
-        .getRemoteState()
-        .getTopLevelTargets()
-        .stream()
+    return args.getState().getRemoteState().getTopLevelTargets().stream()
         .map(
             target ->
                 unconfiguredBuildTargetFactory.create(

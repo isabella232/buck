@@ -215,6 +215,16 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testCxxTest() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_with_cxx_test");
+  }
+
+  @Test
+  public void testAggregatingCxxTest() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("aggregation_with_cxx_test");
+  }
+
+  @Test
   public void testSavingGeneratedFilesList() throws InterruptedException, IOException {
     runBuckProjectAndVerify(
         "save_generated_files_list",
@@ -593,6 +603,43 @@ public class ProjectIntegrationTest {
     Node doc2 = XmlDomParser.parse(primary.getFileContents(libImlPath));
     // Assert that the library URL is outside the project root
     assertThat(doc2, Matchers.hasXPath(urlXpath, Matchers.startsWith("jar://$PROJECT_DIR$/..")));
+  }
+
+  @Test
+  public void testGeneratingModulesInMultiCells() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+
+    ProjectWorkspace primary =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "modules_in_multi_cells/primary", temporaryFolder.newFolder("primary"));
+    primary.setUp();
+
+    ProjectWorkspace secondary =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "modules_in_multi_cells/secondary", temporaryFolder.newFolder("secondary"));
+    secondary.setUp();
+
+    TestDataHelper.overrideBuckconfig(
+        primary,
+        ImmutableMap.of(
+            "repositories",
+            ImmutableMap.of("secondary", secondary.getPath(".").normalize().toString())));
+
+    String target = "//java/com/sample/app:app";
+    ProcessResult result =
+        primary.runBuckCommand(
+            "project",
+            "--config",
+            "intellij.multi_cell_module_support=true",
+            "--config",
+            "intellij.keep_module_files_in_module_dirs=true",
+            "--intellij-aggregation-mode=None",
+            "--ide",
+            "intellij",
+            target);
+    result.assertSuccess();
+    primary.verify();
+    secondary.verify();
   }
 
   private ProcessResult runBuckProjectAndVerify(String folderWithTestData, String... commandArgs)

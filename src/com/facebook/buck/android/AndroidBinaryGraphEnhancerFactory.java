@@ -111,7 +111,8 @@ public class AndroidBinaryGraphEnhancerFactory {
     NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs =
         NonPredexedDexBuildableArgs.builder()
             .setProguardAgentPath(proGuardConfig.getProguardAgentPath())
-            .setProguardJarOverride(proGuardConfig.getProguardJarOverride())
+            .setProguardJarOverride(
+                proGuardConfig.getProguardJarOverride(buildTarget.getTargetConfiguration()))
             .setProguardMaxHeapSize(proGuardConfig.getProguardMaxHeapSize())
             .setSdkProguardConfig(androidSdkProguardConfig)
             .setPreprocessJavaClassesBash(
@@ -124,7 +125,9 @@ public class AndroidBinaryGraphEnhancerFactory {
             .setOptimizationPasses(args.getOptimizationPasses())
             .setProguardJvmArgs(args.getProguardJvmArgs())
             .setSkipProguard(args.isSkipProguard())
-            .setJavaRuntimeLauncher(javaOptions.getJavaRuntimeLauncher(graphBuilder))
+            .setJavaRuntimeLauncher(
+                javaOptions.getJavaRuntimeLauncher(
+                    graphBuilder, buildTarget.getTargetConfiguration()))
             .setProguardConfigPath(args.getProguardConfig())
             .setShouldProguard(shouldProguard)
             .build();
@@ -155,6 +158,10 @@ public class AndroidBinaryGraphEnhancerFactory {
         dexSplitMode,
         args.getNoDx(),
         /* resourcesToExclude */ ImmutableSet.of(),
+        /* nativeLibsToExclude */ ImmutableSet.of(),
+        /* nativeLinkablesToExclude */ ImmutableSet.of(),
+        /* nativeLibAssetsToExclude */ ImmutableSet.of(),
+        /* nativeLinkableAssetsToExclude */ ImmutableSet.of(),
         args.isSkipCrunchPngs(),
         args.isIncludesVectorDrawables(),
         args.isNoAutoVersionResources(),

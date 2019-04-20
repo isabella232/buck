@@ -144,7 +144,7 @@ public class CxxLuaExtensionDescription
         ImmutableList.<CxxPreprocessorInput>builder()
             .add(
                 luaPlatform
-                    .getLuaCxxLibrary(graphBuilder)
+                    .getLuaCxxLibrary(graphBuilder, buildTarget.getTargetConfiguration())
                     .getCxxPreprocessorInput(cxxPlatform, graphBuilder))
             .addAll(
                 CxxDescriptionEnhancer.collectCxxPreprocessorInput(
@@ -167,7 +167,9 @@ public class CxxLuaExtensionDescription
                     ImmutableSet.of(),
                     CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                         cxxPlatform, graphBuilder, deps),
-                    args.getRawHeaders()))
+                    args.getRawHeaders(),
+                    args.getIncludeDirectories(),
+                    projectFilesystem))
             .build();
 
     // Generate rule to build the object files.
@@ -243,7 +245,10 @@ public class CxxLuaExtensionDescription
         CxxLinkOptions.of(),
         RichStream.from(args.getCxxDeps().get(graphBuilder, cxxPlatform))
             .filter(NativeLinkable.class)
-            .concat(Stream.of(luaPlatform.getLuaCxxLibrary(graphBuilder)))
+            .concat(
+                Stream.of(
+                    luaPlatform.getLuaCxxLibrary(
+                        graphBuilder, buildTarget.getTargetConfiguration())))
             .toImmutableList(),
         args.getCxxRuntimeType(),
         Optional.empty(),
@@ -344,7 +349,7 @@ public class CxxLuaExtensionDescription
       }
 
       @Override
-      public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+      public Optional<Path> getNativeLinkTargetOutputPath() {
         return Optional.empty();
       }
     };
@@ -365,7 +370,8 @@ public class CxxLuaExtensionDescription
 
       // Get any parse time deps from the C/C++ platforms.
       targetGraphOnlyDepsBuilder.addAll(
-          CxxPlatforms.getParseTimeDeps(luaPlatform.getCxxPlatform()));
+          CxxPlatforms.getParseTimeDeps(
+              buildTarget.getTargetConfiguration(), luaPlatform.getCxxPlatform()));
     }
   }
 

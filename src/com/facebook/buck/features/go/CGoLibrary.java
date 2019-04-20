@@ -216,9 +216,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
     // filter out compiled object only for the sources we are interested in
     ImmutableList<String> linkableObjectFiles =
         Stream.concat(
-                cxxSourcesFromArg
-                    .build()
-                    .stream()
+                cxxSourcesFromArg.build().stream()
                     .map(x -> pathResolver.getAbsolutePath(x).getFileName().toString()),
                 ImmutableList.of(".cgo2.c", "_cgo_export.c").stream())
             .collect(ImmutableList.toImmutableList());
@@ -230,9 +228,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
         ImmutableList.<Arg>builder()
             .addAll(StringArg.from("-r", "-nostdlib"))
             .addAll(
-                cgoBin
-                    .getArgs()
-                    .stream()
+                cgoBin.getArgs().stream()
                     .filter(FileListableLinkerInputArg.class::isInstance)
                     .map(FileListableLinkerInputArg.class::cast)
                     .filter(
@@ -258,7 +254,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
                         graphBuilder,
                         ruleFinder,
                         target,
-                        BuildTargetPaths.getGenPath(projectFilesystem, target, "%s/_all"),
+                        BuildTargetPaths.getGenPath(projectFilesystem, target, "%s/_all.o"),
                         ImmutableMap.of(),
                         cxxArgs, // collection of selected object files
                         args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
@@ -323,8 +319,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
 
     // scan CxxDeps for headers and add them to allHeaders
     HashMap<Path, SourcePath> cxxDepsHeaders = new HashMap<Path, SourcePath>();
-    cxxPreprocessorInputs
-        .stream()
+    cxxPreprocessorInputs.stream()
         .flatMap(input -> input.getIncludes().stream())
         .filter(header -> header instanceof CxxSymlinkTreeHeaders)
         .flatMap(header -> ((CxxSymlinkTreeHeaders) header).getNameToPathMap().entrySet().stream())
@@ -403,6 +398,7 @@ public class CGoLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
             args.getPlatformLinkerFlags(),
             Optional.empty(),
             args.getRawHeaders(),
+            args.getIncludeDirectories(),
             Optional.empty());
 
     return cxxLinkAndCompileRules.getCxxLink();

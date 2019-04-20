@@ -27,7 +27,7 @@ import static org.junit.Assume.assumeTrue;
 import com.dd.plist.BinaryPropertyListParser;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
-import com.facebook.buck.cli.Main;
+import com.facebook.buck.cli.MainRunner;
 import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
@@ -39,7 +39,10 @@ import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.module.impl.BuckModuleJarHashProvider;
+import com.facebook.buck.core.module.impl.DefaultBuckModuleManager;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
@@ -59,7 +62,6 @@ import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.testutil.AbstractWorkspace;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ErrorLogger;
@@ -80,7 +82,6 @@ import com.facebook.buck.util.trace.ChromeTraceParser.ChromeTraceEventMatcher;
 import com.facebook.nailgun.NGContext;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -145,7 +146,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
   private final boolean addBuckRepoCell;
   private final ProcessExecutor processExecutor;
   @Nullable private ProjectFilesystemAndConfig projectFilesystemAndConfig;
-  @Nullable private Main.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory;
+  @Nullable private MainRunner.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory;
 
   private static class ProjectFilesystemAndConfig {
 
@@ -201,6 +202,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
     Path bucklibRoot = createBucklibRoot();
     createSymlinkToBuckTestRepository(bucklibRoot);
     saveBucklibConfig(bucklibRoot);
+    createWatchmanConfig(bucklibRoot);
     return bucklibRoot;
   }
 
@@ -252,10 +254,15 @@ public class ProjectWorkspace extends AbstractWorkspace {
   }
 
   public ProcessResult runBuckBuild(String... args) throws IOException {
+    return runBuckBuild(Optional.empty(), args);
+  }
+
+  public ProcessResult runBuckBuild(Optional<NGContext> context, String... args)
+      throws IOException {
     String[] totalArgs = new String[args.length + 1];
     totalArgs[0] = "build";
     System.arraycopy(args, 0, totalArgs, 1, args.length);
-    return runBuckCommand(totalArgs);
+    return runBuckCommand(context, totalArgs);
   }
 
   public ProcessResult runBuckTest(String... args) throws IOException {
@@ -312,9 +319,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
   public ImmutableMap<String, Path> buildMultipleAndReturnOutputs(String... args)
       throws IOException {
-    return buildMultipleAndReturnStringOutputs(args)
-        .entrySet()
-        .stream()
+    return buildMultipleAndReturnStringOutputs(args).entrySet().stream()
         .collect(
             ImmutableMap.toImmutableMap(
                 entry -> entry.getKey(), entry -> getPath(entry.getValue())));
@@ -336,9 +341,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
   public ImmutableMap<String, Path> buildMultipleAndReturnRelativeOutputs(String... args)
       throws IOException {
-    return buildMultipleAndReturnStringOutputs(args)
-        .entrySet()
-        .stream()
+    return buildMultipleAndReturnStringOutputs(args).entrySet().stream()
         .collect(
             ImmutableMap.toImmutableMap(
                 entry -> entry.getKey(), entry -> Paths.get(entry.getValue())));
@@ -411,6 +414,12 @@ public class ProjectWorkspace extends AbstractWorkspace {
         destPath, Optional.empty(), ImmutableMap.of(), args);
   }
 
+  public ProcessResult runBuckCommand(Optional<NGContext> context, String... args)
+      throws IOException {
+    return runBuckCommandWithEnvironmentOverridesAndContext(
+        destPath, context, ImmutableMap.of(), args);
+  }
+
   @Override
   public ProcessResult runBuckCommand(ImmutableMap<String, String> environment, String... args)
       throws IOException {
@@ -443,45 +452,30 @@ public class ProjectWorkspace extends AbstractWorkspace {
   }
 
   public ProcessResult runBuckdCommand(NGContext context, String... args) throws IOException {
-    return runBuckdCommand(destPath, context, new CapturingPrintStream(), args);
+    return runBuckdCommand(destPath, context, args);
   }
 
   public ProcessResult runBuckdCommand(Path repoRoot, NGContext context, String... args)
-      throws IOException {
-    return runBuckdCommand(repoRoot, context, new CapturingPrintStream(), args);
-  }
-
-  public ProcessResult runBuckdCommand(
-      Path repoRoot, NGContext context, CapturingPrintStream stderr, String... args)
       throws IOException {
     assumeTrue(
         "watchman must exist to run buckd",
         new ExecutableFinder(Platform.detect())
             .getOptionalExecutable(Paths.get("watchman"), EnvVariablesProvider.getSystemEnv())
             .isPresent());
+
+    ImmutableMap<String, String> clientEnv = ImmutableMap.copyOf((Map) context.getEnv());
     return runBuckCommandWithEnvironmentOverridesAndContext(
-        repoRoot, Optional.of(context), ImmutableMap.of(), stderr, args);
+        repoRoot, Optional.of(context), clientEnv, args);
   }
 
   public ProcessResult runBuckCommandWithEnvironmentOverridesAndContext(
       Path repoRoot,
       Optional<NGContext> context,
       ImmutableMap<String, String> environmentOverrides,
-      String... args)
-      throws IOException {
-    return runBuckCommandWithEnvironmentOverridesAndContext(
-        repoRoot, context, environmentOverrides, new CapturingPrintStream(), args);
-  }
-
-  public ProcessResult runBuckCommandWithEnvironmentOverridesAndContext(
-      Path repoRoot,
-      Optional<NGContext> context,
-      ImmutableMap<String, String> environmentOverrides,
-      CapturingPrintStream stderr,
       String... args) {
     try {
       assertTrue("setUp() must be run before this method is invoked", isSetUp);
-      CapturingPrintStream stdout = new CapturingPrintStream();
+      TestConsole testConsole = new TestConsole();
       InputStream stdin = new ByteArrayInputStream("".getBytes());
 
       // Construct a limited view of the parent environment for the child.
@@ -518,12 +512,35 @@ public class ProjectWorkspace extends AbstractWorkspace {
         }
       }
       envBuilder.putAll(environmentOverrides);
-      ImmutableMap<String, String> sanizitedEnv = ImmutableMap.copyOf(envBuilder);
 
-      Main main =
+      ImmutableMap<String, String> sanizitedEnv = ImmutableMap.copyOf(envBuilder);
+      Platform platform = Platform.detect();
+
+      PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+      DefaultBuckModuleManager moduleManager =
+          new DefaultBuckModuleManager(pluginManager, new BuckModuleJarHashProvider());
+
+      MainRunner main =
           knownRuleTypesFactoryFactory == null
-              ? new Main(stdout, stderr, stdin, context)
-              : new Main(stdout, stderr, stdin, knownRuleTypesFactoryFactory, context);
+              ? new MainRunner(
+                  testConsole,
+                  stdin,
+                  new BuildId(),
+                  sanizitedEnv,
+                  platform,
+                  pluginManager,
+                  moduleManager,
+                  context)
+              : new MainRunner(
+                  testConsole,
+                  stdin,
+                  knownRuleTypesFactoryFactory,
+                  new BuildId(),
+                  sanizitedEnv,
+                  platform,
+                  pluginManager,
+                  moduleManager,
+                  context);
       ExitCode exitCode;
 
       // TODO (buck_team): this code repeats the one in Main and thus wants generalization
@@ -555,22 +572,20 @@ public class ProjectWorkspace extends AbstractWorkspace {
       try {
         exitCode =
             main.runMainWithExitCode(
-                new BuildId(),
                 repoRoot,
-                sanizitedEnv,
                 CommandMode.TEST,
                 WatchmanWatcher.FreshInstanceAction.NONE,
                 System.nanoTime(),
                 ImmutableList.copyOf(args));
       } catch (InterruptedException e) {
-        e.printStackTrace(stderr);
+        e.printStackTrace(testConsole.getStdErr());
         exitCode = ExitCode.BUILD_ERROR;
         Threads.interruptCurrentThread();
       } catch (CommandLineException e) {
-        stderr.println(e.getMessage());
+        testConsole.getStdErr().println(e.getMessage());
         exitCode = ExitCode.COMMANDLINE_ERROR;
       } catch (BuildFileParseException e) {
-        stderr.println(e.getHumanReadableErrorMessage());
+        testConsole.getStdErr().println(e.getHumanReadableErrorMessage());
         exitCode = ExitCode.PARSE_ERROR;
       } catch (Throwable t) {
         logger.logException(t);
@@ -579,8 +594,8 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
       return new ProcessResult(
           exitCode,
-          stdout.getContentsAsString(Charsets.UTF_8),
-          stderr.getContentsAsString(Charsets.UTF_8) + errorMessage.toString());
+          testConsole.getTextWrittenToStdOut(),
+          testConsole.getTextWrittenToStdErr() + errorMessage.toString());
     } finally {
       if (JavaVersion.getMajorVersion() < 9) {
         // javac has a global cache of zip/jar file content listings. It determines the validity of
@@ -638,7 +653,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
   }
 
   public void setKnownRuleTypesFactoryFactory(
-      @Nullable Main.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory) {
+      @Nullable MainRunner.KnownRuleTypesFactoryFactory knownRuleTypesFactoryFactory) {
     this.knownRuleTypesFactoryFactory = knownRuleTypesFactoryFactory;
   }
 
@@ -678,7 +693,12 @@ public class ProjectWorkspace extends AbstractWorkspace {
     ExecutableFinder executableFinder = new ExecutableFinder();
 
     ToolchainProviderFactory toolchainProviderFactory =
-        new DefaultToolchainProviderFactory(pluginManager, env, processExecutor, executableFinder);
+        new DefaultToolchainProviderFactory(
+            pluginManager,
+            env,
+            processExecutor,
+            executableFinder,
+            () -> EmptyTargetConfiguration.INSTANCE);
 
     return LocalCellProviderFactory.create(
             filesystem,

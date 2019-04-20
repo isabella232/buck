@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -131,8 +132,13 @@ public class EndToEndWorkspace extends AbstractWorkspace implements TestRule {
   private ImmutableMap<String, String> overrideSystemEnvironment(
       boolean buckdEnabled, ImmutableMap<String, String> environmentOverrides) {
     ImmutableMap.Builder<String, String> environmentBuilder = ImmutableMap.builder();
+
+    // Ensure that we make it look like we're not running from within buck. This is fine since
+    // we're running in a completely different directory. Also make sure that NO_BUCKD is only
+    // set if buckdEnabled is false
+    ImmutableSet<String> keysToRemove = ImmutableSet.of("BUCK_ROOT_BUILD_ID", "NO_BUCKD");
     for (Map.Entry<String, String> entry : EnvVariablesProvider.getSystemEnv().entrySet()) {
-      if ("NO_BUCKD".equals(entry.getKey())) {
+      if (keysToRemove.contains(entry.getKey())) {
         continue;
       }
       environmentBuilder.put(entry.getKey(), entry.getValue());
@@ -373,8 +379,13 @@ public class EndToEndWorkspace extends AbstractWorkspace implements TestRule {
             /* stdin */ Optional.empty(),
             timeoutMS,
             /* timeoutHandler */ Optional.empty());
+    ExitCode exitCode =
+        Arrays.stream(ExitCode.values())
+            .filter(e -> e.getCode() == result.getExitCode())
+            .findAny()
+            .orElse(ExitCode.BUILD_ERROR);
     return new ProcessResult(
-        ExitCode.map(result.getExitCode()),
+        exitCode,
         result.getStdout().orElse(""),
         result.getStderr().orElse(""),
         result.isTimedOut());

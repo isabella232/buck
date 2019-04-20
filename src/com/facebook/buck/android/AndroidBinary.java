@@ -44,6 +44,7 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathDeps;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
@@ -81,6 +82,7 @@ import java.util.stream.Stream;
 public class AndroidBinary extends AbstractBuildRule
     implements SupportsInputBasedRuleKey,
         HasDeclaredAndExtraDeps,
+        HasClasspathDeps,
         HasClasspathEntries,
         HasRuntimeDeps,
         HasInstallableApk,
@@ -223,6 +225,7 @@ public class AndroidBinary extends AbstractBuildRule
             resourceFilesInfo,
             apkModules,
             enhancementResult.getModuleResourceApkPaths(),
+            Optional.empty(),
             true);
     this.exopackageInfo = exopackageInfo;
 
@@ -365,9 +368,7 @@ public class AndroidBinary extends AbstractBuildRule
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return JavaLibraryClasspathProvider.getClasspathDeps(
-        enhancementResult
-            .getClasspathEntriesToDex()
-            .stream()
+        enhancementResult.getClasspathEntriesToDex().stream()
             .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
             .collect(ImmutableSet.toImmutableSet()));
   }
@@ -388,5 +389,10 @@ public class AndroidBinary extends AbstractBuildRule
     return RichStream.from(moduleVerification)
         .map(BuildRule::getBuildTarget)
         .concat(HasInstallableApkSupport.getRuntimeDepsForInstallableApk(this, ruleFinder));
+  }
+
+  @Override
+  public Set<BuildRule> getDepsForTransitiveClasspathEntries() {
+    return ImmutableSortedSet.copyOf(getTransitiveClasspathDeps());
   }
 }

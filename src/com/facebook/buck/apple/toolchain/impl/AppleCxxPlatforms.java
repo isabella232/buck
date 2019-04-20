@@ -33,6 +33,7 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.VersionedTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.log.Logger;
@@ -41,12 +42,12 @@ import com.facebook.buck.cxx.toolchain.ArchiverProvider;
 import com.facebook.buck.cxx.toolchain.BsdArchiver;
 import com.facebook.buck.cxx.toolchain.CompilerProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
-import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.toolchain.PrefixMapDebugPathSanitizer;
@@ -64,13 +65,13 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Map;
@@ -226,9 +227,7 @@ public class AppleCxxPlatforms {
     versions.add(targetSdk.getVersion());
 
     ImmutableList<String> toolchainVersions =
-        targetSdk
-            .getToolchains()
-            .stream()
+        targetSdk.getToolchains().stream()
             .map(AppleToolchain::getVersion)
             .flatMap(Optionals::toStream)
             .collect(ImmutableList.toImmutableList());
@@ -279,6 +278,15 @@ public class AppleCxxPlatforms {
         getXcodeTool(
             filesystem, toolSearchPaths, xcodeToolFinder, appleConfig, "dsymutil", version);
 
+    // We are seeing a stack overflow in dsymutil during (fat) LTO
+    // builds. Upstream dsymutil was patched to avoid recursion in the
+    // offending path in https://reviews.llvm.org/D48899, and
+    // https://reviews.llvm.org/D45172 mentioned that there is much
+    // more stack space available when single threaded.
+    if (appleConfig.shouldWorkAroundDsymutilLTOStackOverflowBug()) {
+      dsymutil = new CommandTool.Builder(dsymutil).addArg("-num-threads=1").build();
+    }
+
     Tool lipo =
         getXcodeTool(filesystem, toolSearchPaths, xcodeToolFinder, appleConfig, "lipo", version);
 
@@ -309,19 +317,15 @@ public class AppleCxxPlatforms {
 
     // https://github.com/facebook/buck/pull/1168: add the root cell's absolute path to the quote
     // include path, and also force it to be sanitized by all user rule keys.
-    sanitizerPaths.put(filesystem.getRootPath(), ".");
-    cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
+    if (appleConfig.addCellPathToIquotePath()) {
+      sanitizerPaths.put(filesystem.getRootPath(), ".");
+      cflagsBuilder.add("-iquote", filesystem.getRootPath().toString());
+    }
 
     DebugPathSanitizer compilerDebugPathSanitizer =
         new PrefixMapDebugPathSanitizer(
             DebugPathSanitizer.getPaddedDir(
                 ".", config.getDebugPathSanitizerLimit(), File.separatorChar),
-            sanitizerPaths.build());
-    DebugPathSanitizer assemblerDebugPathSanitizer =
-        new MungingDebugPathSanitizer(
-            config.getDebugPathSanitizerLimit(),
-            File.separatorChar,
-            Paths.get("."),
             sanitizerPaths.build());
 
     ImmutableList<String> cflags = cflagsBuilder.build();
@@ -370,25 +374,31 @@ public class AppleCxxPlatforms {
     }
 
     PreprocessorProvider aspp =
-        new PreprocessorProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG, ToolType.ASPP);
     CompilerProvider as =
         new CompilerProvider(
             new ConstantToolProvider(clangPath),
             CxxToolProvider.Type.CLANG,
+            ToolType.AS,
             config.getUseDetailedUntrackedHeaderMessages());
     PreprocessorProvider cpp =
-        new PreprocessorProvider(new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangPath), CxxToolProvider.Type.CLANG, ToolType.CPP);
     CompilerProvider cc =
         new CompilerProvider(
             new ConstantToolProvider(clangPath),
             CxxToolProvider.Type.CLANG,
+            ToolType.CC,
             config.getUseDetailedUntrackedHeaderMessages());
     PreprocessorProvider cxxpp =
-        new PreprocessorProvider(new ConstantToolProvider(clangXxPath), CxxToolProvider.Type.CLANG);
+        new PreprocessorProvider(
+            new ConstantToolProvider(clangXxPath), CxxToolProvider.Type.CLANG, ToolType.CXXPP);
     CompilerProvider cxx =
         new CompilerProvider(
             new ConstantToolProvider(clangXxPath),
             CxxToolProvider.Type.CLANG,
+            ToolType.CXX,
             config.getUseDetailedUntrackedHeaderMessages());
     ImmutableList.Builder<String> whitelistBuilder = ImmutableList.builder();
     whitelistBuilder.add("^" + Pattern.quote(sdkPaths.getSdkPath().toString()) + "\\/.*");
@@ -425,6 +435,7 @@ public class AppleCxxPlatforms {
                 new ConstantToolProvider(clangXxPath),
                 config.shouldCacheLinks()),
             ImmutableList.<String>builder().addAll(cflags).addAll(ldflagsBuilder.build()).build(),
+            ImmutableMultimap.of(),
             strip,
             ArchiverProvider.from(new BsdArchiver(ar)),
             ArchiveContents.NORMAL,
@@ -441,10 +452,11 @@ public class AppleCxxPlatforms {
             "a",
             "o",
             compilerDebugPathSanitizer,
-            assemblerDebugPathSanitizer,
             macros,
             Optional.empty(),
             headerVerification,
+            config.getPublicHeadersSymlinksEnabled(),
+            config.getPrivateHeadersSymlinksEnabled(),
             PicType.PIC);
 
     ApplePlatform applePlatform = targetSdk.getApplePlatform();

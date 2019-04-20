@@ -49,12 +49,12 @@ import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PicType;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
@@ -205,7 +205,9 @@ public class CxxPythonExtensionDescription
             ImmutableList.of(headerSymlinkTree),
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, deps),
-            args.getRawHeaders());
+            args.getRawHeaders(),
+            args.getIncludeDirectories(),
+            projectFilesystem);
 
     // Generate rule to build the object files.
     ImmutableMultimap<CxxSource.Type, Arg> compilerFlags =
@@ -263,7 +265,12 @@ public class CxxPythonExtensionDescription
         StringArg.from(
             Linkers.iXlinker(
                 "-rpath",
-                String.format("%s/", cxxPlatform.getLd().resolve(graphBuilder).libOrigin()))));
+                String.format(
+                    "%s/",
+                    cxxPlatform
+                        .getLd()
+                        .resolve(graphBuilder, target.getTargetConfiguration())
+                        .libOrigin()))));
 
     // Add object files into the args.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> picObjects =
@@ -405,7 +412,7 @@ public class CxxPythonExtensionDescription
     Optional<Type> type = LIBRARY_TYPE.getValue(buildTarget);
     if (type.isPresent()) {
 
-      FlavorDomain<CxxPlatform> cxxPlatforms = getCxxPlatforms();
+      FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms = getCxxPlatforms();
       FlavorDomain<PythonPlatform> pythonPlatforms = getPythonPlatforms();
 
       // If we *are* building a specific type of this lib, call into the type specific rule builder
@@ -418,7 +425,7 @@ public class CxxPythonExtensionDescription
               graphBuilderLocal,
               cellRoots,
               pythonPlatforms.getRequiredValue(buildTarget),
-              cxxPlatforms.getRequiredValue(buildTarget),
+              cxxPlatforms.getRequiredValue(buildTarget).resolve(graphBuilderLocal),
               args);
         case COMPILATION_DATABASE:
           // so for the moment, when we get a target whose flavor is just #compilation-database
@@ -449,7 +456,7 @@ public class CxxPythonExtensionDescription
               graphBuilderLocal,
               cellRoots,
               pythonPlatforms.getRequiredValue(target),
-              cxxPlatforms.getRequiredValue(target),
+              cxxPlatforms.getRequiredValue(target).resolve(graphBuilderLocal),
               args);
       }
     }
@@ -547,7 +554,7 @@ public class CxxPythonExtensionDescription
           }
 
           @Override
-          public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+          public Optional<Path> getNativeLinkTargetOutputPath() {
             return Optional.empty();
           }
         };
@@ -568,8 +575,10 @@ public class CxxPythonExtensionDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Get any parse time deps from the C/C++ platforms.
-    extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatforms().getValues(buildTarget)));
+    getCxxPlatforms()
+        .getValues(buildTarget)
+        .forEach(
+            p -> extraDepsBuilder.addAll(p.getParseTimeDeps(buildTarget.getTargetConfiguration())));
 
     for (PythonPlatform pythonPlatform : getPythonPlatforms().getValues()) {
       Optionals.addIfPresent(pythonPlatform.getCxxLibrary(), extraDepsBuilder);
@@ -587,16 +596,16 @@ public class CxxPythonExtensionDescription
         .getPythonPlatforms();
   }
 
-  private CxxPlatform getDefaultCxxPlatform() {
+  private UnresolvedCxxPlatform getDefaultCxxPlatform() {
     return toolchainProvider
         .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-        .getDefaultCxxPlatform();
+        .getDefaultUnresolvedCxxPlatform();
   }
 
-  private FlavorDomain<CxxPlatform> getCxxPlatforms() {
+  private FlavorDomain<UnresolvedCxxPlatform> getCxxPlatforms() {
     return toolchainProvider
         .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-        .getCxxPlatforms();
+        .getUnresolvedCxxPlatforms();
   }
 
   @BuckStyleImmutable

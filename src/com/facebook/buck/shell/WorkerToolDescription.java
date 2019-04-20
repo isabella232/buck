@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -92,9 +93,7 @@ public class WorkerToolDescription implements DescriptionWithTargetGraph<WorkerT
     }
 
     builder.addInputs(
-        params
-            .getBuildDeps()
-            .stream()
+        params.getBuildDeps().stream()
             .map(BuildRule::getSourcePathToOutput)
             .filter(Objects::nonNull)
             .collect(ImmutableList.toImmutableList()));
@@ -141,14 +140,20 @@ public class WorkerToolDescription implements DescriptionWithTargetGraph<WorkerT
           percent > 0, "max_workers_per_thread_percent must be greater than 0.");
       Preconditions.checkArgument(
           percent <= 100, "max_workers_per_thread_percent must not be greater than 100.");
-      maxWorkers = (int) Math.max(1, percent / 100.0 * buckConfig.getNumThreads());
+      maxWorkers =
+          (int)
+              Math.max(
+                  1, percent / 100.0 * buckConfig.getView(BuildBuckConfig.class).getNumThreads());
     } else {
       // negative or zero: unlimited number of worker processes
-      maxWorkers = args.getMaxWorkers().map(x -> x < 1 ? buckConfig.getNumThreads() : x).orElse(1);
+      maxWorkers =
+          args.getMaxWorkers()
+              .map(x -> x < 1 ? buckConfig.getView(BuildBuckConfig.class).getNumThreads() : x)
+              .orElse(1);
     }
 
     CommandTool tool = builder.build();
-    return new DefaultWorkerTool(
+    return new DefaultWorkerToolRule(
         buildTarget,
         context.getProjectFilesystem(),
         new SourcePathRuleFinder(graphBuilder),

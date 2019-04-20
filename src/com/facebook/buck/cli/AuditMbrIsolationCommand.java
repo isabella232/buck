@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
@@ -28,6 +29,7 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.modern.tools.IsolationChecker;
 import com.facebook.buck.rules.modern.tools.IsolationChecker.FailureReporter;
@@ -83,9 +85,9 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             params
                 .getParser()
                 .buildTargetGraph(
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    pool.getListeningExecutorService(),
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     targets);
       } catch (BuildFileParseException e) {
         params
@@ -93,7 +95,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
         return ExitCode.PARSE_ERROR;
       }
-      if (params.getBuckConfig().getBuildVersions()) {
+      if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
         targetGraph =
             toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
                 .getTargetGraph();
@@ -106,10 +108,13 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
                           ActionGraphFactory.create(
                               params.getBuckEventBus(),
                               params.getCell().getCellProvider(),
-                              params.getPoolSupplier(),
+                              params.getExecutors(),
                               params.getBuckConfig()),
                           new ActionGraphCache(
-                              params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                              params
+                                  .getBuckConfig()
+                                  .getView(BuildBuckConfig.class)
+                                  .getMaxActionGraphCacheEntries()),
                           params.getRuleKeyConfiguration(),
                           params.getBuckConfig())
                       .getFreshActionGraph(targetGraph))
@@ -152,10 +157,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
 
   private static List<Entry<String, Collection<String>>> asSortedEntries(
       Multimap<String, String> failure) {
-    return failure
-        .asMap()
-        .entrySet()
-        .stream()
+    return failure.asMap().entrySet().stream()
         .sorted(Comparator.comparing(e -> -e.getValue().size()))
         .collect(Collectors.toList());
   }
@@ -247,9 +249,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
         builder.addLine("There's no failures for rules migrated to ModernBuildRule.");
       } else {
         for (Map.Entry<String, Multimap<String, String>> failure :
-            failuresByRuleType
-                .entrySet()
-                .stream()
+            failuresByRuleType.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> -entry.getValue().size()))
                 .collect(Collectors.toList())) {
           builder.addLine(
@@ -277,9 +277,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
         builder.addLine("Didn't find any references to absolute paths.");
       } else {
         for (Map.Entry<String, Multimap<String, String>> requiredPath :
-            absolutePathsRequired
-                .entrySet()
-                .stream()
+            absolutePathsRequired.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> -entry.getValue().size()))
                 .collect(Collectors.toList())) {
           builder.addLine(

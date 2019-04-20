@@ -186,11 +186,6 @@ public class RustCompileTest {
       }
 
       @Override
-      public boolean hasFilePathSizeLimitations() {
-        return false;
-      }
-
-      @Override
       public SharedLibraryLoadingType getSharedLibraryLoadingType() {
         return SharedLibraryLoadingType.RPATH;
       }
@@ -208,6 +203,11 @@ public class RustCompileTest {
       @Override
       public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
         return ImmutableMap.of();
+      }
+
+      @Override
+      public boolean getUseUnixPathSeparator() {
+        return false;
       }
     };
   }

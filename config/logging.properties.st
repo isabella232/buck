@@ -1,7 +1,5 @@
 # java.util.logging.LogManager configuration properties for Buck
 #
-# Also see logging.test.properties, which controls logging in unit tests.
-#
 # See http://docs.oracle.com/javase/7/docs/api/java/util/logging/LogManager.html
 # for docs on the keys and values in this file.
 
@@ -88,13 +86,13 @@ java.util.logging.FileHandler.encoding=UTF-8
 
 # Use a circular buffer to store high granularity logging in memory, only interesting if we hit
 # an error.
-com.facebook.buck.log.memory.MemoryHandler.level=SEVERE
+com.facebook.buck.log.memory.MemoryHandler.level=WARNING
 
 # Define the buffer size.
-com.facebook.buck.log.memory.MemoryHandler.size=10
+com.facebook.buck.log.memory.MemoryHandler.size=1
 
 # Define the push level.
-com.facebook.buck.log.memory.MemoryHandler.push=SEVERE
+com.facebook.buck.log.memory.MemoryHandler.push=WARNING
 
 
 # Max size in bytes all logs will take.

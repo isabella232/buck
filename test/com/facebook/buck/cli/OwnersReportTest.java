@@ -26,6 +26,7 @@ import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -39,6 +40,7 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.TestPerBuildStateFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
@@ -254,12 +256,13 @@ public class OwnersReportTest {
     String input = "java/some_file";
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
-    Parser parser = TestParserFactory.create(cell.getBuckConfig());
+    Parser parser = TestParserFactory.create(cell);
     OwnersReport report =
         OwnersReport.builder(
                 cell,
-                TestParserFactory.create(cell.getBuckConfig()),
-                TestPerBuildStateFactory.create(parser, cell))
+                TestParserFactory.create(cell),
+                TestPerBuildStateFactory.create(parser, cell),
+                EmptyTargetConfiguration.INSTANCE)
             .build(getBuildFileTrees(cell), ImmutableSet.of(input));
 
     assertEquals(1, report.nonExistentInputs.size());
@@ -267,14 +270,13 @@ public class OwnersReportTest {
   }
 
   private ImmutableMap<Cell, BuildFileTree> getBuildFileTrees(Cell rootCell) {
-    return rootCell
-        .getAllCells()
-        .stream()
+    return rootCell.getAllCells().stream()
         .collect(
             ImmutableMap.toImmutableMap(
                 Function.identity(),
                 cell ->
                     new FilesystemBackedBuildFileTree(
-                        cell.getFilesystem(), cell.getBuildFileName())));
+                        cell.getFilesystem(),
+                        cell.getBuckConfigView(ParserConfig.class).getBuildFileName())));
   }
 }

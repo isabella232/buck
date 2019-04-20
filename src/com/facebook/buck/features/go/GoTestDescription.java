@@ -27,7 +27,6 @@ import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
@@ -160,7 +159,18 @@ public class GoTestDescription
       Path packageName) {
     Tool testMainGenerator =
         GoDescriptors.getTestMainGenerator(
-            goBuckConfig, platform, buildTarget, projectFilesystem, params, graphBuilder);
+            goBuckConfig,
+            // Since TestMainGenRule produces a go binary that is later exec'd
+            // to produce a go test, we want it to use the platform of the
+            // current machine, not whatever was specified in the rule or config.
+            // That way, tests can be generated properly on this machine.
+            platform
+                .withGoOs(AbstractGoPlatformFactory.getDefaultOs())
+                .withGoArch(AbstractGoPlatformFactory.getDefaultArch()),
+            buildTarget,
+            projectFilesystem,
+            params,
+            graphBuilder);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
@@ -188,7 +198,8 @@ public class GoTestDescription
       BuildTarget buildTarget,
       BuildRuleParams params,
       GoTestDescriptionArg args) {
-    GoPlatform platform = getGoPlatform(buildTarget, args);
+    GoPlatform platform =
+        GoDescriptors.getPlatformForRule(getGoToolchain(), this.goBuckConfig, buildTarget, args);
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
@@ -438,10 +449,7 @@ public class GoTestDescription
                   .addAll(args.getAssemblerFlags())
                   .build(),
               platform,
-              testTargetParams
-                  .getDeclaredDeps()
-                  .get()
-                  .stream()
+              testTargetParams.getDeclaredDeps().get().stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
               ImmutableList.of(),
@@ -459,10 +467,7 @@ public class GoTestDescription
               args.getCompilerFlags(),
               args.getAssemblerFlags(),
               platform,
-              params
-                  .getDeclaredDeps()
-                  .get()
-                  .stream()
+              params.getDeclaredDeps().get().stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
               ImmutableList.of(),
@@ -480,24 +485,16 @@ public class GoTestDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ platform parse time deps.
+    GoPlatform platform =
+        GoDescriptors.getPlatformForRule(
+            getGoToolchain(), this.goBuckConfig, buildTarget, constructorArg);
     targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getGoPlatform(buildTarget, constructorArg).getCxxPlatform()));
+        CxxPlatforms.getParseTimeDeps(
+            buildTarget.getTargetConfiguration(), platform.getCxxPlatform()));
   }
 
   private GoToolchain getGoToolchain() {
     return toolchainProvider.getByName(GoToolchain.DEFAULT_NAME, GoToolchain.class);
-  }
-
-  private GoPlatform getGoPlatform(BuildTarget target, AbstractGoTestDescriptionArg arg) {
-    GoToolchain toolchain = getGoToolchain();
-    FlavorDomain<GoPlatform> platforms = toolchain.getPlatformFlavorDomain();
-    return platforms
-        .getValue(target)
-        .orElseGet(
-            () ->
-                arg.getPlatform()
-                    .map(platforms::getValue)
-                    .orElseGet(toolchain::getDefaultPlatform));
   }
 
   @BuckStyleImmutable

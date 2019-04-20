@@ -48,7 +48,7 @@ import java.util.function.Consumer;
 /**
  * A specialization of {@link Linker} containing information specific to the Darwin implementation.
  */
-public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap, HasThinLTO {
+public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap, HasLTO {
 
   private final boolean cacheLinks;
 
@@ -88,11 +88,17 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   @Override
   public Iterable<Arg> thinLTO(Path output) {
     return StringArg.from(
-        "-flto=thin", "-Xlinker", "-object_path_lto", "-Xlinker", thinLTOPath(output).toString());
+        "-flto=thin", "-Xlinker", "-object_path_lto", "-Xlinker", ltoPath(output).toString());
   }
 
   @Override
-  public Path thinLTOPath(Path output) {
+  public Iterable<Arg> fatLTO(Path output) {
+    return StringArg.from(
+        "-flto", "-Xlinker", "-object_path_lto", "-Xlinker", ltoPath(output).toString());
+  }
+
+  @Override
+  public Path ltoPath(Path output) {
     return Paths.get(output + "-lto");
   }
 
@@ -162,11 +168,6 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   }
 
   @Override
-  public boolean hasFilePathSizeLimitations() {
-    return false;
-  }
-
-  @Override
   public SharedLibraryLoadingType getSharedLibraryLoadingType() {
     return SharedLibraryLoadingType.RPATH;
   }
@@ -174,6 +175,11 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   @Override
   public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean getUseUnixPathSeparator() {
+    return true;
   }
 
   /**

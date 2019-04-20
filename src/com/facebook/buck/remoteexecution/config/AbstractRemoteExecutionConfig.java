@@ -18,15 +18,23 @@ package com.facebook.buck.remoteexecution.config;
 
 import static com.facebook.buck.rules.modern.config.ModernBuildRuleBuildStrategy.REMOTE;
 
+import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.remoteexecution.proto.RESessionID;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleBuildStrategy;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 /** Config object for the [remoteexecution] section of .buckconfig. */
@@ -45,6 +53,10 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
   public static final int DEFAULT_REMOTE_CONCURRENT_PENDING_UPLOADS = 100;
   public static final int DEFAULT_REMOTE_CONCURRENT_EXECUTIONS = 80;
   public static final int DEFAULT_REMOTE_CONCURRENT_RESULT_HANDLING = 6;
+  public static final boolean DEFAULT_IS_LOCAL_FALLBACK_ENABLED = false;
+
+  private static final String CONFIG_CERT = "cert";
+  private static final String CONFIG_KEY = "key";
 
   /**
    * Limit on the number of outstanding execution requests. This is probably the value that's most
@@ -60,6 +72,10 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
    * which is currently a blocking operation.
    */
   public static final String CONCURRENT_RESULT_HANDLING_KEY = "concurrent_result_handling";
+  /** Whether failed remote executions are retried locally. */
+  public static final String IS_LOCAL_FALLBACK_ENABLED_KEY = "is_local_fallback_enabled";
+  /** The maximum size of inputs allowed on remote execution, if unset, no maximum. */
+  public static final String MAX_INPUT_SIZE_BYTES = "max_input_size_bytes";
   /**
    * Number of threads for the strategy to do its work. This doesn't need to be a lot, but should
    * probably be greater than concurrent_result_handling below.
@@ -84,6 +100,12 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
    * logging.
    */
   public static final String RE_SESSION_LABEL_KEY = "re_session_label";
+
+  /** Worker requirements filename */
+  public static final String WORKER_REQUIREMENTS_FILENAME = "worker_requirements_filename";
+
+  // Should ree try to reschedule OOMed action on a larger worker
+  public static final String TRY_LARGER_WORKER_ON_OOM = "try_larger_worker_on_oom";
 
   public String getRemoteHost() {
     return getValueWithFallback("remote_host").orElse("localhost");
@@ -111,22 +133,32 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
 
   /** client TLS certificate file in PEM format */
   public Optional<Path> getCertFile() {
-    return getFileOption("cert");
+    return getPathWithEnv(CONFIG_CERT);
   }
 
   /** client TLS private key in PEM format */
   public Optional<Path> getKeyFile() {
-    return getFileOption("key");
+    return getPathWithEnv(CONFIG_KEY);
   }
 
   /** file containing all TLS authorities to verify server certificate with (PEM format) */
-  public Optional<Path> getCAsFile() {
-    return getFileOption("ca");
+  public Optional<Path> getCertificateAuthoritiesFile() {
+    return getPathWithEnv("ca");
   }
 
-  public String getDebugURLFormatString() {
+  private String getDebugURLFormatString() {
     return getValueWithFallback(DEBUG_FORMAT_STRING_URL_KEY)
         .orElse(FORMAT_SESSION_ID_VARIABLE_STRING);
+  }
+
+  public String getDebugURLString(RESessionID reSessionID) {
+    String formatDebugSessionIDString = getDebugURLFormatString();
+    return formatDebugSessionIDString.replace(
+        FORMAT_SESSION_ID_VARIABLE_STRING, reSessionID.getId());
+  }
+
+  public boolean isDebug() {
+    return getDelegate().getBooleanValue(SECTION, "debug", false);
   }
 
   @Value.Derived
@@ -155,6 +187,20 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
         getDelegate()
             .getInteger(SECTION, CONCURRENT_RESULT_HANDLING_KEY)
             .orElse(DEFAULT_REMOTE_CONCURRENT_RESULT_HANDLING);
+
+    boolean isLocalFallbackEnabled =
+        getDelegate()
+            .getBooleanValue(
+                SECTION, IS_LOCAL_FALLBACK_ENABLED_KEY, DEFAULT_IS_LOCAL_FALLBACK_ENABLED);
+    OptionalInt maxInputSizeBytes = getDelegate().getInteger(SECTION, MAX_INPUT_SIZE_BYTES);
+
+    String workerRequirementsFilename =
+        getDelegate()
+            .getValue(SECTION, WORKER_REQUIREMENTS_FILENAME)
+            .orElse("re_worker_requirements");
+
+    boolean tryLargerWorkerOnOom =
+        getDelegate().getBoolean(SECTION, TRY_LARGER_WORKER_ON_OOM).orElse(false);
 
     // Some of these values are also limited by other ones (e.g. synchronous work is limited by the
     // number of threads). We detect some of these cases and log an error to the user to help them
@@ -217,6 +263,26 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
       public int getMaxConcurrentResultHandling() {
         return concurrentResultHandling;
       }
+
+      @Override
+      public boolean isLocalFallbackEnabled() {
+        return isLocalFallbackEnabled;
+      }
+
+      @Override
+      public OptionalInt maxInputSizeBytes() {
+        return maxInputSizeBytes;
+      }
+
+      @Override
+      public String getWorkerRequirementsFilename() {
+        return workerRequirementsFilename;
+      }
+
+      @Override
+      public boolean tryLargerWorkerOnOom() {
+        return tryLargerWorkerOnOom;
+      }
     };
   }
 
@@ -277,16 +343,54 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
     return value;
   }
 
-  public Optional<Path> getFileOption(String key) {
-    return getDelegate().getValue(SECTION, key).map(Paths::get);
-  }
-
-  /** Whether SuperConsole output of Remote Execution information is enabled. */
-  public boolean isSuperConsoleEnabled() {
+  /** Whether Console output of Remote Execution information is enabled. */
+  public boolean isConsoleEnabled() {
     return getType() != RemoteExecutionType.NONE;
   }
 
   public String getReSessionLabel() {
     return getDelegate().getValue(SECTION, RE_SESSION_LABEL_KEY).orElse("");
+  }
+
+  public void validateCertificatesOrThrow() {
+    List<String> errors = Lists.newArrayList();
+    if (!getInsecure() || !getCasInsecure()) {
+      getErrorOnInvalidFile(CONFIG_CERT, getCertFile()).ifPresent(errorMsg -> errors.add(errorMsg));
+      getErrorOnInvalidFile(CONFIG_KEY, getKeyFile()).ifPresent(errorMsg -> errors.add(errorMsg));
+    }
+
+    if (getCertificateAuthoritiesFile().isPresent()) {
+      Path caFile = getCertificateAuthoritiesFile().get();
+      if (!Files.exists(caFile)) {
+        errors.add(
+            String.format(
+                "Config [%s.ca] points to file [%s] that does not exist.", SECTION, caFile));
+      }
+    }
+
+    if (!errors.isEmpty()) {
+      throw new HumanReadableException(Joiner.on("\n").join(errors));
+    }
+  }
+
+  private Optional<String> getErrorOnInvalidFile(String configName, Optional<Path> certPath) {
+    if (!certPath.isPresent()) {
+      return Optional.of(
+          String.format("Config [%s.%s] must point to a file.", SECTION, configName));
+    }
+
+    if (!Files.exists(certPath.get())) {
+      return Optional.of(
+          String.format(
+              "Config [%s.%s] points to a file [%s] that does not exist.",
+              SECTION, configName, certPath.get()));
+    }
+
+    return Optional.empty();
+  }
+
+  private Optional<Path> getPathWithEnv(String field) {
+    return ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(getDelegate(), SECTION, field)
+        .map(Paths::get);
   }
 }

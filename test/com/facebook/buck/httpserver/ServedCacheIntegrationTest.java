@@ -29,9 +29,15 @@ import com.facebook.buck.artifact_cache.ClientCertificateHandler;
 import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
 import com.facebook.buck.artifact_cache.TestArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.BuckConfigTestUtils;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -43,7 +49,7 @@ import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemDelegate;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.TaskManagerScope;
+import com.facebook.buck.support.bgtasks.TaskManagerCommandScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.environment.Architecture;
@@ -62,6 +68,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Before;
@@ -77,6 +84,9 @@ public class ServedCacheIntegrationTest {
   private static final BuildId BUILD_ID = new BuildId("test");
 
   private ProjectFilesystem projectFilesystem;
+  private Function<String, UnconfiguredBuildTargetView> unconfiguredBuildTargetFactory;
+  private CellPathResolver cellPathResolver;
+  private TargetConfigurationSerializer targetConfigurationSerializer;
   private WebServer webServer = null;
   private BuckEventBus buckEventBus;
   private ArtifactCache dirCache;
@@ -87,7 +97,7 @@ public class ServedCacheIntegrationTest {
       MoreExecutors.newDirectExecutorService();
 
   private BackgroundTaskManager bgTaskManager;
-  private TaskManagerScope managerScope;
+  private TaskManagerCommandScope managerScope;
 
   @Before
   public void setUp() throws Exception {
@@ -102,6 +112,13 @@ public class ServedCacheIntegrationTest {
 
     bgTaskManager = new TestBackgroundTaskManager();
     managerScope = bgTaskManager.getNewScope(BUILD_ID);
+
+    cellPathResolver = TestCellPathResolver.get(projectFilesystem);
+    ParsingUnconfiguredBuildTargetFactory parsingUnconfiguredBuildTargetFactory =
+        new ParsingUnconfiguredBuildTargetFactory();
+    unconfiguredBuildTargetFactory =
+        target -> parsingUnconfiguredBuildTargetFactory.create(cellPathResolver, target);
+    targetConfigurationSerializer = TargetConfigurationSerializerForTests.create(cellPathResolver);
   }
 
   @After
@@ -374,6 +391,8 @@ public class ServedCacheIntegrationTest {
                 "dir = test-cache",
                 "serve_local_cache = true",
                 "served_local_cache_mode = readwrite"),
+            unconfiguredBuildTargetFactory,
+            targetConfigurationSerializer,
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
@@ -412,6 +431,8 @@ public class ServedCacheIntegrationTest {
                 "dir = test-cache",
                 "serve_local_cache = true",
                 "served_local_cache_mode = readwrite"),
+            unconfiguredBuildTargetFactory,
+            targetConfigurationSerializer,
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
@@ -450,6 +471,8 @@ public class ServedCacheIntegrationTest {
                 "dir = test-cache",
                 "serve_local_cache = true",
                 "served_local_cache_mode = readonly"),
+            unconfiguredBuildTargetFactory,
+            targetConfigurationSerializer,
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
@@ -485,6 +508,8 @@ public class ServedCacheIntegrationTest {
                 "dir = test-cache",
                 "serve_local_cache = true",
                 "served_local_cache_mode = readonly"),
+            unconfiguredBuildTargetFactory,
+            targetConfigurationSerializer,
             projectFilesystem));
 
     ArtifactCache serverBackedCache =
@@ -532,10 +557,12 @@ public class ServedCacheIntegrationTest {
     return cacheResult.getType().isSuccess();
   }
 
-  private ArtifactCache createArtifactCache(ArtifactCacheBuckConfig buckConfig) throws IOException {
+  private ArtifactCache createArtifactCache(ArtifactCacheBuckConfig buckConfig) {
     return new ArtifactCaches(
             buckConfig,
             buckEventBus,
+            unconfiguredBuildTargetFactory,
+            TargetConfigurationSerializerForTests.create(cellPathResolver),
             projectFilesystem,
             Optional.empty(),
             DIRECT_EXECUTOR_SERVICE,

@@ -37,7 +37,11 @@ import com.facebook.buck.artifact_cache.thrift.FetchResult;
 import com.facebook.buck.artifact_cache.thrift.FetchResultType;
 import com.facebook.buck.artifact_cache.thrift.PayloadInfo;
 import com.facebook.buck.artifact_cache.thrift.RuleKey;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -119,6 +123,7 @@ public class ThriftArtifactCacheTest {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tempPaths.getRoot());
     ListeningExecutorService service = MoreExecutors.newDirectExecutorService();
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     NetworkCacheArgs networkArgs =
         NetworkCacheArgs.builder()
             .setCacheName("default_cache_name")
@@ -126,6 +131,11 @@ public class ThriftArtifactCacheTest {
             .setCacheReadMode(CacheReadMode.READONLY)
             .setCacheMode(ArtifactCacheMode.thrift_over_http)
             .setScheduleType("default_schedule_type")
+            .setTargetConfigurationSerializer(
+                TargetConfigurationSerializerForTests.create(cellPathResolver))
+            .setUnconfiguredBuildTargetFactory(
+                target ->
+                    new ParsingUnconfiguredBuildTargetFactory().create(cellPathResolver, target))
             .setProjectFilesystem(filesystem)
             .setFetchClient(fetchClient)
             .setStoreClient(storeClient)
@@ -248,6 +258,7 @@ public class ThriftArtifactCacheTest {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tempPaths.getRoot());
     ListeningExecutorService service = MoreExecutors.newDirectExecutorService();
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     NetworkCacheArgs networkArgs =
         NetworkCacheArgs.builder()
             .setCacheName("default_cache_name")
@@ -255,6 +266,11 @@ public class ThriftArtifactCacheTest {
             .setCacheReadMode(CacheReadMode.READONLY)
             .setCacheMode(ArtifactCacheMode.thrift_over_http)
             .setScheduleType("default_schedule_type")
+            .setTargetConfigurationSerializer(
+                TargetConfigurationSerializerForTests.create(cellPathResolver))
+            .setUnconfiguredBuildTargetFactory(
+                target ->
+                    new ParsingUnconfiguredBuildTargetFactory().create(cellPathResolver, target))
             .setProjectFilesystem(filesystem)
             .setFetchClient(fetchClient)
             .setStoreClient(storeClient)
@@ -371,6 +387,7 @@ public class ThriftArtifactCacheTest {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tempPaths.getRoot());
     ListeningExecutorService service = MoreExecutors.newDirectExecutorService();
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     NetworkCacheArgs networkArgs =
         NetworkCacheArgs.builder()
             .setCacheName("default_cache_name")
@@ -378,6 +395,11 @@ public class ThriftArtifactCacheTest {
             .setCacheReadMode(CacheReadMode.READONLY)
             .setCacheMode(ArtifactCacheMode.thrift_over_http)
             .setScheduleType("default_schedule_type")
+            .setTargetConfigurationSerializer(
+                TargetConfigurationSerializerForTests.create(cellPathResolver))
+            .setUnconfiguredBuildTargetFactory(
+                target ->
+                    new ParsingUnconfiguredBuildTargetFactory().create(cellPathResolver, target))
             .setProjectFilesystem(filesystem)
             .setFetchClient(fetchClient)
             .setStoreClient(storeClient)
@@ -458,6 +480,7 @@ public class ThriftArtifactCacheTest {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tempPaths.getRoot());
     ListeningExecutorService service = MoreExecutors.newDirectExecutorService();
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(filesystem);
     NetworkCacheArgs networkArgs =
         NetworkCacheArgs.builder()
             .setCacheName("default_cache_name")
@@ -465,6 +488,11 @@ public class ThriftArtifactCacheTest {
             .setCacheReadMode(CacheReadMode.READWRITE)
             .setCacheMode(ArtifactCacheMode.thrift_over_http)
             .setScheduleType("default_schedule_type")
+            .setTargetConfigurationSerializer(
+                TargetConfigurationSerializerForTests.create(cellPathResolver))
+            .setUnconfiguredBuildTargetFactory(
+                target ->
+                    new ParsingUnconfiguredBuildTargetFactory().create(cellPathResolver, target))
             .setProjectFilesystem(filesystem)
             .setFetchClient(fetchClient)
             .setStoreClient(storeClient)

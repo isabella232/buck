@@ -219,6 +219,7 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
               SynchronizedToolProvider.getSystemToolClassLoader(),
               ImmutableList.copyOf(kotlinHomeLibraries.stream().map(PATH_TO_URL).iterator()));
 
+
       return classLoader.loadClass(COMPILER_CLASS).newInstance();
     } catch (Exception ex) {
       throw new RuntimeException(ex);

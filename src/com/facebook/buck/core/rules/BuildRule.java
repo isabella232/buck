@@ -19,10 +19,10 @@ package com.facebook.buck.core.rules;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AllowsNonAnnotatedFields;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.step.Step;
@@ -38,7 +38,9 @@ import javax.annotation.Nullable;
     fieldVisibility = JsonAutoDetect.Visibility.NONE,
     getterVisibility = JsonAutoDetect.Visibility.NONE,
     setterVisibility = JsonAutoDetect.Visibility.NONE)
-public interface BuildRule extends Comparable<BuildRule> {
+public interface BuildRule extends Comparable<BuildRule>, AllowsNonAnnotatedFields {
+  // We allow non-@AddToRuleKey annotated fields in BuildRule because they are so extensively used
+  // for non-action-y things (like Provider-type things).
 
   BuildTarget getBuildTarget();
 
@@ -123,10 +125,7 @@ public interface BuildRule extends Comparable<BuildRule> {
    * to be cached, it must update its BuildRuleResolver when a new action graph is constructed to
    * avoid leaking the entire action graph it was originally associated with.
    */
-  void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver);
+  void updateBuildRuleResolver(BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder);
 
   /**
    * @return true if this rule, and all rules which that depend on it, should be built locally i.e.

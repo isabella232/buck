@@ -16,9 +16,11 @@
 
 package com.facebook.buck.parser;
 
+import com.facebook.buck.command.config.ConfigIgnoredByDaemon;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.exceptions.config.ErrorHandlingBuckConfig;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
@@ -158,7 +160,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
             .setPythonModuleSearchPath(pythonModuleSearchPath)
             .setAllowEmptyGlobs(parserConfig.getAllowEmptyGlobs())
             .setIgnorePaths(cell.getFilesystem().getIgnorePaths())
-            .setBuildFileName(cell.getBuildFileName())
+            .setBuildFileName(cell.getBuckConfigView(ParserConfig.class).getBuildFileName())
             .setDefaultIncludes(parserConfig.getDefaultIncludes())
             .setDescriptions(knownRuleTypesProvider.get(cell).getDescriptions())
             .setUseWatchmanGlob(useWatchmanGlob)
@@ -166,7 +168,8 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
             .setWatchmanUseGlobGenerator(watchmanUseGlobGenerator)
             .setWatchman(watchman)
             .setWatchmanQueryTimeoutMs(parserConfig.getWatchmanQueryTimeoutMs())
-            .setRawConfig(cell.getBuckConfig().getRawConfigForParser())
+            .setRawConfig(
+                cell.getBuckConfig().getView(ConfigIgnoredByDaemon.class).getRawConfigForParser())
             .setBuildFileImportWhitelist(parserConfig.getBuildFileImportWhitelist())
             .setDisableImplicitNativeRules(parserConfig.getDisableImplicitNativeRules())
             .setWarnAboutDeprecatedSyntax(parserConfig.isWarnAboutDeprecatedSyntax())
@@ -300,7 +303,10 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
     HumanReadableExceptionAugmentor augmentor;
     try {
       augmentor =
-          new HumanReadableExceptionAugmentor(cell.getBuckConfig().getErrorMessageAugmentations());
+          new HumanReadableExceptionAugmentor(
+              cell.getBuckConfig()
+                  .getView(ErrorHandlingBuckConfig.class)
+                  .getErrorMessageAugmentations());
     } catch (HumanReadableException e) {
       eventBus.post(ConsoleEvent.warning(e.getHumanReadableErrorMessage()));
       augmentor = new HumanReadableExceptionAugmentor(ImmutableMap.of());
@@ -329,6 +335,9 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       // fine to call this multiple times.
       // Note, that this method should be called after parser is created, to give a chance for all
       // static initializers that register SkylarkSignature to run.
+      // See {@link AbstractBuckGlobals} where we force some initializers to run, as they are buried
+      // behind a few layers of abstraction, and it's hard to ensure that we actually have loaded
+      // the class first.
       Runtime.getBuiltinRegistry().freeze();
 
       return skylarkParser;

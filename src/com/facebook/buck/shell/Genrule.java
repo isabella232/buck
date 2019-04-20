@@ -233,8 +233,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       SourcePathResolver pathResolver, Builder<String, String> environmentVariablesBuilder) {
     environmentVariablesBuilder.put(
         "SRCS",
-        srcs.getPaths()
-            .stream()
+        srcs.getPaths().stream()
             .map(pathResolver::getAbsolutePath)
             .map(Object::toString)
             .collect(Collectors.joining(this.environmentExpansionSeparator)));
@@ -339,8 +338,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     SandboxProperties.Builder builder = SandboxProperties.builder();
     return builder
         .addAllAllowedToReadPaths(
-            srcs.getPaths()
-                .stream()
+            srcs.getPaths().stream()
                 .map(sourcePathResolver::getAbsolutePath)
                 .map(Object::toString)
                 .collect(Collectors.toList()))
@@ -387,12 +385,13 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private WorkerShellStep createWorkerShellStep(BuildContext context) {
+    ProjectFilesystem filesystem = getProjectFilesystem();
     return new WorkerShellStep(
         getBuildTarget(),
-        convertToWorkerJobParams(context.getSourcePathResolver(), cmd),
-        convertToWorkerJobParams(context.getSourcePathResolver(), bash),
-        convertToWorkerJobParams(context.getSourcePathResolver(), cmdExe),
-        new WorkerProcessPoolFactory(getProjectFilesystem())) {
+        convertToWorkerJobParams(filesystem, context.getSourcePathResolver(), cmd),
+        convertToWorkerJobParams(filesystem, context.getSourcePathResolver(), bash),
+        convertToWorkerJobParams(filesystem, context.getSourcePathResolver(), cmdExe),
+        new WorkerProcessPoolFactory(filesystem)) {
       @Override
       protected ImmutableMap<String, String> getEnvironmentVariables() {
         Builder<String, String> envVarBuilder = ImmutableMap.builder();
@@ -403,14 +402,14 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private static Optional<WorkerJobParams> convertToWorkerJobParams(
-      SourcePathResolver resolver, Optional<Arg> arg) {
+      ProjectFilesystem filesystem, SourcePathResolver resolver, Optional<Arg> arg) {
     return arg.map(
         arg1 -> {
           WorkerMacroArg workerMacroArg = (WorkerMacroArg) arg1;
           return WorkerJobParams.of(
               workerMacroArg.getJobArgs(resolver),
               WorkerProcessParams.of(
-                  workerMacroArg.getTempDir(),
+                  workerMacroArg.getTempDir(filesystem),
                   workerMacroArg.getStartupCommand(),
                   workerMacroArg.getEnvironment(),
                   workerMacroArg.getMaxWorkers(),
@@ -573,9 +572,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {
     this.buildRuleResolver = ruleResolver;
   }
 }

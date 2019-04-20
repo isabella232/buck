@@ -107,7 +107,9 @@ public class DaemonicParserState {
     public Optional<T> lookupComputedNode(Cell cell, BuildTarget target, BuckEventBus eventBus)
         throws BuildTargetException {
       invalidateIfProjectBuildFileParserStateChanged(cell);
-      Path buildFile = cell.getAbsolutePathToBuildFileUnsafe(target);
+      Path buildFile =
+          cell.getBuckConfigView(ParserConfig.class)
+              .getAbsolutePathToBuildFileUnsafe(cell, target.getUnconfiguredBuildTargetView());
       invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile, eventBus);
 
       DaemonicCellState.Cache<T> state = getCache(cell);
@@ -129,7 +131,9 @@ public class DaemonicParserState {
           "Unexpected invalidation due to build file parser state change for %s %s",
           cell.getRoot(),
           target);
-      Path buildFile = cell.getAbsolutePathToBuildFileUnsafe(target);
+      Path buildFile =
+          cell.getBuckConfigView(ParserConfig.class)
+              .getAbsolutePathToBuildFileUnsafe(cell, target.getUnconfiguredBuildTargetView());
       Preconditions.checkState(
           !invalidateIfBuckConfigOrEnvHasChanged(cell, buildFile, eventBus),
           "Unexpected invalidation due to config/env change for %s %s",
@@ -298,7 +302,8 @@ public class DaemonicParserState {
                   @Override
                   public BuildFileTree load(Cell cell) {
                     return new FilesystemBackedBuildFileTree(
-                        cell.getFilesystem(), cell.getBuildFileName());
+                        cell.getFilesystem(),
+                        cell.getBuckConfigView(ParserConfig.class).getBuildFileName());
                   }
                 });
     this.cachedIncludes = new ConcurrentHashMap<>();
@@ -381,7 +386,7 @@ public class DaemonicParserState {
             Cell cell = state.getCell();
             BuildFileTree buildFiles = buildFileTrees.get(cell);
 
-            if (fullPath.endsWith(cell.getBuildFileName())) {
+            if (fullPath.endsWith(cell.getBuckConfigView(ParserConfig.class).getBuildFileName())) {
               LOG.debug(
                   "Build file %s changed, invalidating build file tree for cell %s",
                   fullPath, cell);
@@ -445,7 +450,7 @@ public class DaemonicParserState {
 
     // If we're *not* enforcing package boundary checks, it's possible for multiple ancestor
     // packages to reference the same file
-    if (!cell.isEnforcingBuckPackageBoundaries(path)) {
+    if (!cell.getBuckConfigView(ParserConfig.class).isEnforcingBuckPackageBoundaries(path)) {
       while (packageBuildFile.isPresent() && packageBuildFile.get().getParent() != null) {
         packageBuildFile =
             buildFiles.getBasePathOfAncestorTarget(packageBuildFile.get().getParent());
@@ -471,7 +476,8 @@ public class DaemonicParserState {
     }
     // Invalidate all the packages we found.
     for (Path buildFile : packageBuildFiles) {
-      invalidatePath(state, buildFile.resolve(cell.getBuildFileName()));
+      invalidatePath(
+          state, buildFile.resolve(cell.getBuckConfigView(ParserConfig.class).getBuildFileName()));
     }
   }
 
@@ -518,7 +524,7 @@ public class DaemonicParserState {
       if (envDiff.isPresent()) {
         hasInvalidated = true;
         MapDifference<String, String> diff = envDiff.get();
-        LOG.warn("Invalidating cache on environment change (%s)", diff);
+        LOG.info("Invalidating cache on environment change (%s)", diff);
         Set<String> environmentChanges = new HashSet<>();
         environmentChanges.addAll(diff.entriesOnlyOnLeft().keySet());
         environmentChanges.addAll(diff.entriesOnlyOnRight().keySet());

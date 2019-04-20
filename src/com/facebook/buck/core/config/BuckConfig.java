@@ -16,53 +16,38 @@
 
 package com.facebook.buck.core.config;
 
-import static java.lang.Integer.parseInt;
-
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
-import com.facebook.buck.core.model.UnconfiguredBuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.infer.annotation.PropagatesNullable;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /** Structured representation of data read from a {@code .buckconfig} file. */
 public class BuckConfig {
-
-  private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
-
-  private static final ImmutableMap<String, ImmutableSet<String>> IGNORE_FIELDS_FOR_DAEMON_RESTART;
 
   private final Architecture architecture;
 
@@ -77,43 +62,9 @@ public class BuckConfig {
   private final ConfigViewCache<BuckConfig> viewCache =
       new ConfigViewCache<>(this, BuckConfig.class);
 
-  private final Function<String, UnconfiguredBuildTarget> buildTargetParser;
+  private final Function<String, UnconfiguredBuildTargetView> buildTargetParser;
 
   private final int hashCode;
-
-  static {
-    ImmutableMap.Builder<String, ImmutableSet<String>> ignoreFieldsForDaemonRestartBuilder =
-        ImmutableMap.builder();
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "apple", ImmutableSet.of("generate_header_symlink_tree_only"));
-    ignoreFieldsForDaemonRestartBuilder.put("build", ImmutableSet.of("threads"));
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "cache",
-        ImmutableSet.of("dir", "dir_mode", "http_mode", "http_url", "mode", "slb_server_pool"));
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "client", ImmutableSet.of("id", "skip-action-graph-cache"));
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "log",
-        ImmutableSet.of(
-            "chrome_trace_generation",
-            "compress_traces",
-            "max_traces",
-            "public_announcements",
-            "log_build_id_to_console_enabled",
-            "build_details_template"));
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "project", ImmutableSet.of("ide_prompt", "ide_force_kill"));
-    ignoreFieldsForDaemonRestartBuilder.put(
-        "ui",
-        ImmutableSet.of(
-            "superconsole",
-            "thread_line_limit",
-            "thread_line_output_max_columns",
-            "warn_on_config_file_overrides",
-            "warn_on_config_file_overrides_ignored_files"));
-    ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
-    IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
-  }
 
   public BuckConfig(
       Config config,
@@ -121,7 +72,7 @@ public class BuckConfig {
       Architecture architecture,
       Platform platform,
       ImmutableMap<String, String> environment,
-      Function<String, UnconfiguredBuildTarget> buildTargetParser) {
+      Function<String, UnconfiguredBuildTargetView> buildTargetParser) {
     this.config = config;
     this.projectFilesystem = projectFilesystem;
     this.architecture = architecture;
@@ -135,7 +86,7 @@ public class BuckConfig {
 
   /** Returns a clone of the current config with a the argument CellPathResolver. */
   public BuckConfig withBuildTargetParser(
-      Function<String, UnconfiguredBuildTarget> buildTargetParser) {
+      Function<String, UnconfiguredBuildTargetView> buildTargetParser) {
     return new BuckConfig(
         config, projectFilesystem, architecture, platform, environment, buildTargetParser);
   }
@@ -161,10 +112,6 @@ public class BuckConfig {
     } else {
       return ImmutableMap.of();
     }
-  }
-
-  public ImmutableList<String> getMessageOfTheDay() {
-    return getListWithoutComments("project", "motd");
   }
 
   public ImmutableList<String> getListWithoutComments(String section, String field) {
@@ -204,32 +151,25 @@ public class BuckConfig {
     return Optional.of(paths.collect(ImmutableList.toImmutableList()));
   }
 
+  public UnconfiguredBuildTargetView getUnconfiguredBuildTargetForFullyQualifiedTarget(
+      String target) {
+    return buildTargetParser.apply(target);
+  }
+
   public BuildTarget getBuildTargetForFullyQualifiedTarget(
       String target, TargetConfiguration targetConfiguration) {
     return buildTargetParser.apply(target).configure(targetConfiguration);
   }
 
-  public ImmutableList<BuildTarget> getBuildTargetList(
+  public ImmutableList<BuildTarget> getFullyQualifiedBuildTargets(
       String section, String key, TargetConfiguration targetConfiguration) {
-    ImmutableList<String> targetsToForce = getListWithoutComments(section, key);
-    if (targetsToForce.isEmpty()) {
+    ImmutableList<String> buildTargets = getListWithoutComments(section, key);
+    if (buildTargets.isEmpty()) {
       return ImmutableList.of();
     }
-    // TODO(cjhopman): Should this be moved to AliasConfig? It depends on that. Should AliasConfig
-    // expose this logic here as a separate function?
-    ImmutableList.Builder<BuildTarget> targets = new ImmutableList.Builder<>();
-    for (String targetOrAlias : targetsToForce) {
-      Set<String> expandedAlias =
-          getView(AliasConfig.class).getBuildTargetForAliasAsString(targetOrAlias);
-      if (expandedAlias.isEmpty()) {
-        targets.add(getBuildTargetForFullyQualifiedTarget(targetOrAlias, targetConfiguration));
-      } else {
-        for (String target : expandedAlias) {
-          targets.add(getBuildTargetForFullyQualifiedTarget(target, targetConfiguration));
-        }
-      }
-    }
-    return targets.build();
+    return buildTargets.stream()
+        .map(buildTarget -> getBuildTargetForFullyQualifiedTarget(buildTarget, targetConfiguration))
+        .collect(ImmutableList.toImmutableList());
   }
 
   /** @return the parsed BuildTarget in the given section and field, if set. */
@@ -252,12 +192,24 @@ public class BuckConfig {
    */
   public Optional<BuildTarget> getMaybeBuildTarget(
       String section, String field, TargetConfiguration targetConfiguration) {
+    return getMaybeUnconfiguredBuildTarget(section, field)
+        .map(target -> target.configure(targetConfiguration));
+  }
+
+  /**
+   * @return the parsed UnconfiguredBuildTargetView in the given section and field, if set and a
+   *     valid build target.
+   *     <p>This is useful if you use getTool to get the target, if any, but allow filesystem
+   *     references.
+   */
+  public Optional<UnconfiguredBuildTargetView> getMaybeUnconfiguredBuildTarget(
+      String section, String field) {
     Optional<String> value = getValue(section, field);
     if (!value.isPresent()) {
       return Optional.empty();
     }
     try {
-      return Optional.of(getBuildTargetForFullyQualifiedTarget(value.get(), targetConfiguration));
+      return Optional.of(getUnconfiguredBuildTargetForFullyQualifiedTarget(value.get()));
     } catch (BuildTargetParseException e) {
       return Optional.empty();
     }
@@ -315,10 +267,6 @@ public class BuckConfig {
     return PathSourcePath.of(projectFilesystem, checkPathExists(path.toString(), errorMessage));
   }
 
-  public boolean getFlushEventsBeforeExit() {
-    return getBooleanValue("daemon", "flush_events_before_exit", false);
-  }
-
   public Path resolvePathThatMayBeOutsideTheProjectFilesystem(@PropagatesNullable Path path) {
     if (path == null) {
       return path;
@@ -345,27 +293,6 @@ public class BuckConfig {
 
   public Platform getPlatform() {
     return platform;
-  }
-
-  public int getMaxActionGraphCacheEntries() {
-    return getInteger("cache", "max_action_graph_cache_entries").orElse(1);
-  }
-
-  public Optional<String> getRepository() {
-    return config.get("cache", "repository");
-  }
-
-  /**
-   * Whether Buck should use Buck binary hash or git commit id as the core key in all rule keys.
-   *
-   * <p>The binary hash reflects the code that can affect the content of artifacts.
-   *
-   * <p>By default git commit id is used as the core key.
-   *
-   * @return <code>True</code> if binary hash should be used as the core key
-   */
-  public boolean useBuckBinaryHash() {
-    return getBooleanValue("cache", "use_buck_binary_hash", false);
   }
 
   public boolean hasUserDefinedValue(String sectionName, String propertyName) {
@@ -424,9 +351,7 @@ public class BuckConfig {
   /** Returns the probabilities for each group in an experiment. */
   public <T extends Enum<T>> Map<T, Double> getExperimentGroups(
       String section, String field, Class<T> enumClass) {
-    return getMap(section, field)
-        .entrySet()
-        .stream()
+    return getMap(section, field).entrySet().stream()
         .collect(
             ImmutableMap.toImmutableMap(
                 x -> Enum.valueOf(enumClass, x.getKey().toUpperCase(Locale.ROOT)),
@@ -439,12 +364,6 @@ public class BuckConfig {
           String.format(".buckconfig: %s:%s must be set", section, field));
     }
     return value.get();
-  }
-
-  // This is a hack. A cleaner approach would be to expose a narrow view of the config to any code
-  // that affects the state cached by the Daemon.
-  public boolean equalsForDaemonRestart(BuckConfig other) {
-    return this.config.equalsIgnoring(other.config, IGNORE_FIELDS_FOR_DAEMON_RESTART);
   }
 
   @Override
@@ -472,23 +391,6 @@ public class BuckConfig {
     return environment;
   }
 
-  public String[] getEnv(String propertyName, String separator) {
-    String value = getEnvironment().get(propertyName);
-    if (value == null) {
-      value = "";
-    }
-    return value.split(separator);
-  }
-  /** @return the local cache directory */
-  public String getLocalCacheDirectory(String dirCacheName) {
-    return getValue(dirCacheName, "dir")
-        .orElse(projectFilesystem.getBuckPaths().getCacheDir().toString());
-  }
-
-  public int getKeySeed() {
-    return parseInt(getValue("cache", "key_seed").orElse("0"));
-  }
-
   /** @return the path for the given section and property. */
   public Optional<Path> getPath(String sectionName, String name) {
     return getPath(sectionName, name, true);
@@ -497,119 +399,6 @@ public class BuckConfig {
   public Path getRequiredPath(String section, String field) {
     Optional<Path> path = getPath(section, field);
     return getOrThrow(section, field, path);
-  }
-
-  /** @return the number of threads Buck should use. */
-  public int getNumThreads() {
-    return getNumThreads(getDefaultMaximumNumberOfThreads());
-  }
-
-  /** @return the number of threads to be used for the scheduled executor thread pool. */
-  public int getNumThreadsForSchedulerPool() {
-    return config.getLong("build", "scheduler_threads").orElse((long) 2).intValue();
-  }
-
-  /** @return the maximum size of files input based rule keys will be willing to hash. */
-  public long getBuildInputRuleKeyFileSizeLimit() {
-    return config.getLong("build", "input_rule_key_file_size_limit").orElse(Long.MAX_VALUE);
-  }
-
-  public int getDefaultMaximumNumberOfThreads() {
-    return getDefaultMaximumNumberOfThreads(Runtime.getRuntime().availableProcessors());
-  }
-
-  @VisibleForTesting
-  int getDefaultMaximumNumberOfThreads(int detectedProcessorCount) {
-    double ratio = config.getFloat("build", "thread_core_ratio").orElse(DEFAULT_THREAD_CORE_RATIO);
-    if (ratio <= 0.0F) {
-      throw new HumanReadableException(
-          "thread_core_ratio must be greater than zero (was " + ratio + ")");
-    }
-
-    int scaledValue = (int) Math.ceil(ratio * detectedProcessorCount);
-
-    int threadLimit = detectedProcessorCount;
-
-    Optional<Long> reservedCores = getNumberOfReservedCores();
-    if (reservedCores.isPresent()) {
-      threadLimit -= reservedCores.get();
-    }
-
-    if (scaledValue > threadLimit) {
-      scaledValue = threadLimit;
-    }
-
-    Optional<Long> minThreads = getThreadCoreRatioMinThreads();
-    if (minThreads.isPresent()) {
-      scaledValue = Math.max(scaledValue, minThreads.get().intValue());
-    }
-
-    Optional<Long> maxThreads = getThreadCoreRatioMaxThreads();
-    if (maxThreads.isPresent()) {
-      long maxThreadsValue = maxThreads.get();
-
-      if (minThreads.isPresent() && minThreads.get() > maxThreadsValue) {
-        throw new HumanReadableException(
-            "thread_core_ratio_max_cores must be larger than thread_core_ratio_min_cores");
-      }
-
-      if (maxThreadsValue > threadLimit) {
-        throw new HumanReadableException(
-            "thread_core_ratio_max_cores is larger than thread_core_ratio_reserved_cores allows");
-      }
-
-      scaledValue = Math.min(scaledValue, (int) maxThreadsValue);
-    }
-
-    if (scaledValue <= 0) {
-      throw new HumanReadableException(
-          "Configuration resulted in an invalid number of build threads (" + scaledValue + ").");
-    }
-
-    return scaledValue;
-  }
-
-  private Optional<Long> getNumberOfReservedCores() {
-    Optional<Long> reservedCores = config.getLong("build", "thread_core_ratio_reserved_cores");
-    if (reservedCores.isPresent() && reservedCores.get() < 0) {
-      throw new HumanReadableException("thread_core_ratio_reserved_cores must be larger than zero");
-    }
-    return reservedCores;
-  }
-
-  private Optional<Long> getThreadCoreRatioMaxThreads() {
-    Optional<Long> maxThreads = config.getLong("build", "thread_core_ratio_max_threads");
-    if (maxThreads.isPresent() && maxThreads.get() < 0) {
-      throw new HumanReadableException("thread_core_ratio_max_threads must be larger than zero");
-    }
-    return maxThreads;
-  }
-
-  private Optional<Long> getThreadCoreRatioMinThreads() {
-    Optional<Long> minThreads = config.getLong("build", "thread_core_ratio_min_threads");
-    if (minThreads.isPresent() && minThreads.get() <= 0) {
-      throw new HumanReadableException("thread_core_ratio_min_threads must be larger than zero");
-    }
-    return minThreads;
-  }
-
-  /**
-   * @return the number of threads Buck should use or the specified defaultValue if it is not set.
-   */
-  public int getNumThreads(int defaultValue) {
-    return config.getLong("build", "threads").orElse((long) defaultValue).intValue();
-  }
-
-  public Optional<ImmutableList<String>> getAllowedJavaSpecificationVersions() {
-    return getOptionalListWithoutComments("project", "allowed_java_specification_versions");
-  }
-
-  public long getCountersFirstFlushIntervalMillis() {
-    return config.getLong("counters", "first_flush_interval_millis").orElse(5000L);
-  }
-
-  public long getCountersFlushIntervalMillis() {
-    return config.getLong("counters", "flush_interval_millis").orElse(30000L);
   }
 
   public Optional<Path> getPath(String sectionName, String name, boolean isCellRootRelative) {
@@ -658,150 +447,11 @@ public class BuckConfig {
     return config.getSectionToEntries().keySet();
   }
 
-  public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForParser() {
-    ImmutableMap<String, ImmutableMap<String, String>> rawSections = config.getSectionToEntries();
-
-    // If the raw config doesn't have sections which have ignored fields, then just return it as-is.
-    ImmutableSet<String> sectionsWithIgnoredFields = IGNORE_FIELDS_FOR_DAEMON_RESTART.keySet();
-    if (Sets.intersection(rawSections.keySet(), sectionsWithIgnoredFields).isEmpty()) {
-      return rawSections;
-    }
-
-    // Otherwise, iterate through the config to do finer-grain filtering.
-    ImmutableMap.Builder<String, ImmutableMap<String, String>> filtered = ImmutableMap.builder();
-    for (Map.Entry<String, ImmutableMap<String, String>> sectionEnt : rawSections.entrySet()) {
-      String sectionName = sectionEnt.getKey();
-
-      // If this section doesn't have a corresponding ignored section, then just add it as-is.
-      if (!sectionsWithIgnoredFields.contains(sectionName)) {
-        filtered.put(sectionEnt);
-        continue;
-      }
-
-      // If none of this section's entries are ignored, then add it as-is.
-      ImmutableMap<String, String> fields = sectionEnt.getValue();
-      ImmutableSet<String> ignoredFieldNames =
-          IGNORE_FIELDS_FOR_DAEMON_RESTART.getOrDefault(sectionName, ImmutableSet.of());
-      if (Sets.intersection(fields.keySet(), ignoredFieldNames).isEmpty()) {
-        filtered.put(sectionEnt);
-        continue;
-      }
-
-      // Otherwise, filter out the ignored fields.
-      ImmutableMap<String, String> remainingKeys =
-          ImmutableMap.copyOf(Maps.filterKeys(fields, Predicates.not(ignoredFieldNames::contains)));
-
-      if (!remainingKeys.isEmpty()) {
-        filtered.put(sectionName, remainingKeys);
-      }
-    }
-
-    return filtered.build();
-  }
-
-  /**
-   * @return whether to symlink the default output location (`buck-out`) to the user-provided
-   *     override for compatibility.
-   */
-  public boolean getBuckOutCompatLink() {
-    return getBooleanValue("project", "buck_out_compat_link", false);
-  }
-
-  /** @return whether to enabled versions on build/test command. */
-  public boolean getBuildVersions() {
-    return getBooleanValue("build", "versions", false);
-  }
-
-  /** @return whether to enabled versions on targets command. */
-  public boolean getTargetsVersions() {
-    return getBooleanValue("targets", "versions", false);
-  }
-
-  /** @return whether to enable caching of rule key calculations between builds. */
-  public boolean getRuleKeyCaching() {
-    return getBooleanValue("build", "rule_key_caching", false);
-  }
-
-  public ImmutableList<String> getCleanAdditionalPaths() {
-    return getListWithoutComments("clean", "additional_paths");
-  }
-
-  public ImmutableList<String> getCleanExcludedCaches() {
-    return getListWithoutComments("clean", "excluded_dir_caches");
-  }
-
-  /** @return whether to enable new file hash cache engine. */
-  public FileHashCacheMode getFileHashCacheMode() {
-    return getEnum("build", "file_hash_cache_mode", FileHashCacheMode.class)
-        .orElse(FileHashCacheMode.DEFAULT);
-  }
-
   public Config getConfig() {
     return config;
   }
 
-  public boolean isLogBuildIdToConsoleEnabled() {
-    return getBooleanValue("log", "log_build_id_to_console_enabled", false);
-  }
-
-  /** Whether to create symlinks of build output in buck-out/last. */
-  public boolean createBuildOutputSymLinksEnabled() {
-    return getBooleanValue("build", "create_build_output_symlinks_enabled", false);
-  }
-
-  public boolean isEmbeddedCellBuckOutEnabled() {
-    return getBooleanValue("project", "embedded_cell_buck_out_enabled", false);
-  }
-
-  public Optional<String> getPathToBuildPrehookScript() {
-    return getValue("build", "prehook_script");
-  }
-
-  /** List of error message replacements to make things more friendly for humans */
-  public Map<Pattern, String> getErrorMessageAugmentations() throws HumanReadableException {
-    return config
-        .getMap("ui", "error_message_augmentations")
-        .entrySet()
-        .stream()
-        .collect(
-            ImmutableMap.toImmutableMap(
-                e -> {
-                  try {
-                    return Pattern.compile(e.getKey(), Pattern.MULTILINE | Pattern.DOTALL);
-                  } catch (Exception ex) {
-                    throw new HumanReadableException(
-                        "Could not parse regular expression %s from buckconfig: %s",
-                        e.getKey(), ex.getMessage());
-                  }
-                },
-                Entry::getValue));
-  }
-
-  /**
-   * Whether to delete temporary files generated to run a build rule immediately after the rule is
-   * run.
-   */
-  public boolean getShouldDeleteTemporaries() {
-    return config.getBooleanValue("build", "delete_temporaries", false);
-  }
-
-  public Optional<String> getBuildDetailsTemplate() {
-    return config.get("log", "build_details_template");
-  }
-
   public ProjectFilesystem getFilesystem() {
     return projectFilesystem;
-  }
-
-  public boolean getWarnOnConfigFileOverrides() {
-    return config.getBooleanValue("ui", "warn_on_config_file_overrides", true);
-  }
-
-  public ImmutableSet<Path> getWarnOnConfigFileOverridesIgnoredFiles() {
-    return config
-        .getListWithoutComments("ui", "warn_on_config_file_overrides_ignored_files", ',')
-        .stream()
-        .map(Paths::get)
-        .collect(ImmutableSet.toImmutableSet());
   }
 }

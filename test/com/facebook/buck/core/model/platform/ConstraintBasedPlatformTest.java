@@ -19,7 +19,7 @@ package com.facebook.buck.core.model.platform;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetFactoryForTests;
 import com.google.common.collect.ImmutableSet;
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,24 +28,24 @@ import org.junit.Test;
 public class ConstraintBasedPlatformTest {
 
   private final ConstraintSetting cs1 =
-      ConstraintSetting.of(BuildTargetFactory.newInstance("//cs:cs1"));
+      ConstraintSetting.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs1"));
   private final ConstraintValue cs1v1 =
-      ConstraintValue.of(BuildTargetFactory.newInstance("//cs:cs1v1"), cs1);
+      ConstraintValue.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs1v1"), cs1);
 
   private final ConstraintSetting cs2 =
-      ConstraintSetting.of(BuildTargetFactory.newInstance("//cs:cs2"));
+      ConstraintSetting.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs2"));
   private final ConstraintValue cs2v1 =
-      ConstraintValue.of(BuildTargetFactory.newInstance("//cs:cs2v1"), cs2);
+      ConstraintValue.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs2v1"), cs2);
 
   private final ConstraintSetting cs3 =
-      ConstraintSetting.of(BuildTargetFactory.newInstance("//cs:cs3"));
+      ConstraintSetting.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs3"));
   private final ConstraintValue cs3v1 =
-      ConstraintValue.of(BuildTargetFactory.newInstance("//cs:cs3v1"), cs3);
+      ConstraintValue.of(UnconfiguredBuildTargetFactoryForTests.newInstance("//cs:cs3v1"), cs3);
 
   @Test
   public void testMatchesAllReturnsTrueForSubsetOfConstraints() {
     ConstraintBasedPlatform platform =
-        new ConstraintBasedPlatform(ImmutableSet.of(cs1v1, cs2v1, cs3v1));
+        new ConstraintBasedPlatform("", ImmutableSet.of(cs1v1, cs2v1, cs3v1));
 
     assertTrue(platform.matchesAll(Arrays.asList(cs1v1, cs2v1)));
   }
@@ -53,7 +53,7 @@ public class ConstraintBasedPlatformTest {
   @Test
   public void testMatchesAllReturnsTrueForAllOfConstraints() {
     ConstraintBasedPlatform platform =
-        new ConstraintBasedPlatform(ImmutableSet.of(cs1v1, cs2v1, cs3v1));
+        new ConstraintBasedPlatform("", ImmutableSet.of(cs1v1, cs2v1, cs3v1));
 
     assertTrue(platform.matchesAll(Arrays.asList(cs1v1, cs2v1, cs3v1)));
   }
@@ -61,14 +61,15 @@ public class ConstraintBasedPlatformTest {
   @Test
   public void testMatchesAllReturnsTrueForEmptyConstraints() {
     ConstraintBasedPlatform platform =
-        new ConstraintBasedPlatform(ImmutableSet.of(cs1v1, cs2v1, cs3v1));
+        new ConstraintBasedPlatform("", ImmutableSet.of(cs1v1, cs2v1, cs3v1));
 
     assertTrue(platform.matchesAll(Collections.emptyList()));
   }
 
   @Test
   public void testMatchesAllReturnsFalseForUnknownConstraints() {
-    ConstraintBasedPlatform platform = new ConstraintBasedPlatform(ImmutableSet.of(cs1v1, cs2v1));
+    ConstraintBasedPlatform platform =
+        new ConstraintBasedPlatform("", ImmutableSet.of(cs1v1, cs2v1));
 
     assertFalse(platform.matchesAll(Arrays.asList(cs1v1, cs2v1, cs3v1)));
   }

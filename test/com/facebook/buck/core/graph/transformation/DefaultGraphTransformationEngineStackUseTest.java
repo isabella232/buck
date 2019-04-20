@@ -23,7 +23,6 @@ import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwar
 import com.google.common.collect.ImmutableList;
 import com.google.common.graph.GraphBuilder;
 import com.google.common.graph.MutableGraph;
-import java.util.concurrent.ForkJoinPool;
 import org.junit.Test;
 
 public class DefaultGraphTransformationEngineStackUseTest {
@@ -44,9 +43,9 @@ public class DefaultGraphTransformationEngineStackUseTest {
         ImmutableLongNode.of(18003000), // arithmetic series from 1 to 6000
         // https://www.wolframalpha.com/input/?i=sum+from+1+to+6000
         new DefaultGraphTransformationEngine(
-                ImmutableList.of(new GraphTransformationStage<>(transformer)),
+                ImmutableList.of(new GraphComputationStage<>(transformer)),
                 graph.nodes().size(),
-                DefaultDepsAwareExecutor.from(new ForkJoinPool(1)))
+                DefaultDepsAwareExecutor.of(1))
             .computeUnchecked(ImmutableLongNode.of(1)));
   }
 }

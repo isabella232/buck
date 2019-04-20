@@ -23,6 +23,7 @@ import com.facebook.buck.core.description.arg.HasDefaultPlatform;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -104,13 +105,15 @@ public class RustCompileUtils {
       ImmutableList<String> extraLinkerFlags,
       Iterable<Arg> linkerInputs,
       CrateType crateType,
+      Optional<String> edition,
       LinkableDepType depType,
       boolean rpath,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
       boolean forceRlib,
       boolean preferStatic,
-      Iterable<BuildRule> ruledeps) {
+      Iterable<BuildRule> ruledeps,
+      Optional<String> incremental) {
     CxxPlatform cxxPlatform = rustPlatform.getCxxPlatform();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
 
@@ -118,7 +121,7 @@ public class RustCompileUtils {
 
     if (crateType == CrateType.CDYLIB) {
       String soname = filename.get();
-      Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
+      Linker linker = cxxPlatform.getLd().resolve(graphBuilder, target.getTargetConfiguration());
       linkerArgs.addAll(StringArg.from(linker.soname(soname)));
     }
 
@@ -162,6 +165,24 @@ public class RustCompileUtils {
         .flatMap(x -> x)
         .map(StringArg::of)
         .forEach(args::add);
+
+    if (edition.isPresent()) {
+      args.add(StringArg.of(String.format("--edition=%s", edition.get())));
+    }
+
+    if (incremental.isPresent()) {
+      Path path =
+          projectFilesystem
+              .getBuckPaths()
+              .getTmpDir()
+              .resolve("rust-incremental")
+              .resolve(incremental.get());
+
+      for (Flavor f : target.getFlavors()) {
+        path = path.resolve(f.getName());
+      }
+      args.add(StringArg.of(String.format("-Cincremental=%s", path)));
+    }
 
     LinkableDepType rustDepType;
     // If we're building a CDYLIB then our Rust dependencies need to be static
@@ -217,6 +238,7 @@ public class RustCompileUtils {
           NativeLinkables.getTransitiveNativeLinkableInput(
                   cxxPlatform,
                   graphBuilder,
+                  target.getTargetConfiguration(),
                   ruledeps,
                   depType,
                   r ->
@@ -246,8 +268,8 @@ public class RustCompileUtils {
         projectFilesystem,
         params,
         filename,
-        rustPlatform.getRustCompiler().resolve(graphBuilder),
-        rustPlatform.getLinkerProvider().resolve(graphBuilder),
+        rustPlatform.getRustCompiler().resolve(graphBuilder, target.getTargetConfiguration()),
+        rustPlatform.getLinkerProvider().resolve(graphBuilder, target.getTargetConfiguration()),
         args.build(),
         depArgs.build(),
         linkerArgs.build(),
@@ -269,12 +291,14 @@ public class RustCompileUtils {
       Iterable<Arg> linkerInputs,
       String crateName,
       CrateType crateType,
+      Optional<String> edition,
       LinkableDepType depType,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
       boolean forceRlib,
       boolean preferStatic,
-      Iterable<BuildRule> deps) {
+      Iterable<BuildRule> deps,
+      Optional<String> incremental) {
     return (RustCompileRule)
         graphBuilder.computeIfAbsent(
             getCompileBuildTarget(buildTarget, rustPlatform.getCxxPlatform(), crateType),
@@ -292,13 +316,15 @@ public class RustCompileUtils {
                     extraLinkerFlags,
                     linkerInputs,
                     crateType,
+                    edition,
                     depType,
                     true,
                     sources,
                     rootModule,
                     forceRlib,
                     preferStatic,
-                    deps));
+                    deps,
+                    incremental));
   }
 
   public static Linker.LinkableDepType getLinkStyle(
@@ -335,17 +361,19 @@ public class RustCompileUtils {
                 .orElseGet(rustToolchain::getDefaultRustPlatform));
   }
 
-  static Iterable<BuildTarget> getPlatformParseTimeDeps(RustPlatform rustPlatform) {
+  static Iterable<BuildTarget> getPlatformParseTimeDeps(
+      TargetConfiguration targetConfiguration, RustPlatform rustPlatform) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
-    deps.addAll(rustPlatform.getRustCompiler().getParseTimeDeps());
-    rustPlatform.getLinker().ifPresent(l -> deps.addAll(l.getParseTimeDeps()));
-    deps.addAll(CxxPlatforms.getParseTimeDeps(rustPlatform.getCxxPlatform()));
+    deps.addAll(rustPlatform.getRustCompiler().getParseTimeDeps(targetConfiguration));
+    rustPlatform.getLinker().ifPresent(l -> deps.addAll(l.getParseTimeDeps(targetConfiguration)));
+    deps.addAll(CxxPlatforms.getParseTimeDeps(targetConfiguration, rustPlatform.getCxxPlatform()));
     return deps.build();
   }
 
   public static Iterable<BuildTarget> getPlatformParseTimeDeps(
       RustToolchain rustToolchain, BuildTarget buildTarget, HasDefaultPlatform hasDefaultPlatform) {
     return getPlatformParseTimeDeps(
+        buildTarget.getTargetConfiguration(),
         getRustPlatform(rustToolchain, buildTarget, hasDefaultPlatform));
   }
 
@@ -357,6 +385,7 @@ public class RustCompileUtils {
       RustBuckConfig rustBuckConfig,
       RustPlatform rustPlatform,
       Optional<String> crateName,
+      Optional<String> edition,
       ImmutableSortedSet<String> features,
       Iterator<String> rustcFlags,
       Iterator<String> linkerFlags,
@@ -443,7 +472,10 @@ public class RustCompileUtils {
               "-rpath",
               String.format(
                   "%s/%s",
-                  cxxPlatform.getLd().resolve(graphBuilder).origin(),
+                  cxxPlatform
+                      .getLd()
+                      .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                      .origin(),
                   absBinaryDir.relativize(sharedLibraries.getRoot()).toString())));
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
@@ -477,13 +509,15 @@ public class RustCompileUtils {
                         linkerArgs.build(),
                         /* linkerInputs */ ImmutableList.of(),
                         crateType,
+                        edition,
                         linkStyle,
                         rpath,
                         rootModuleAndSources.getSecond(),
                         rootModuleAndSources.getFirst(),
                         forceRlib,
                         preferStatic,
-                        deps));
+                        deps,
+                        rustBuckConfig.getIncremental(rustPlatform.getFlavor().getName())));
 
     // Add the binary as the first argument.
     executableBuilder.addArg(SourcePathArg.of(buildRule.getSourcePathToOutput()));

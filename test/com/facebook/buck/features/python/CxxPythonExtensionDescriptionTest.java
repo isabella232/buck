@@ -23,6 +23,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -86,21 +87,24 @@ public class CxxPythonExtensionDescriptionTest {
   private static PythonPlatform createPyDefaultPlatform() {
     return new TestPythonPlatform(
         InternalFlavor.of("py-default"),
-        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
         Optional.empty());
   }
 
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py2"),
-        new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+        new PythonEnvironment(
+            Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
   private static PythonPlatform createPy3Platform(Optional<BuildTarget> cxxLibrary) {
     return new TestPythonPlatform(
         InternalFlavor.of("py3"),
-        new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+        new PythonEnvironment(
+            Paths.get("python3"), PythonVersion.of("CPython", "3.5"), PythonBuckConfig.SECTION),
         cxxLibrary);
   }
 
@@ -182,7 +186,10 @@ public class CxxPythonExtensionDescriptionTest {
 
     NativeLinkableInput depInput =
         dep.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED, graphBuilder);
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            Linker.LinkableDepType.SHARED,
+            graphBuilder,
+            EmptyTargetConfiguration.INSTANCE);
 
     // Verify that the shared library dep propagated to the link rule.
     extension.getPythonPackageComponents(PY2, CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder);

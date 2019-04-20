@@ -19,11 +19,14 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
@@ -64,11 +67,14 @@ import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import javax.annotation.Nullable;
 import org.pf4j.PluginManager;
 
@@ -111,6 +117,12 @@ public class CommandRunnerParamsForTesting {
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
 
+    ImmutableMap<ExecutorPool, ListeningExecutorService> executors =
+        ImmutableMap.of(
+            ExecutorPool.PROJECT,
+            MoreExecutors.newDirectExecutorService(),
+            ExecutorPool.GRAPH_CPU,
+            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()));
     return CommandRunnerParams.of(
         console,
         new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
@@ -121,7 +133,9 @@ public class CommandRunnerParamsForTesting {
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
         new ParsingUnconfiguredBuildTargetFactory(),
-        TestParserFactory.create(cell.getBuckConfig(), knownRuleTypesProvider),
+        () -> EmptyTargetConfiguration.INSTANCE,
+        TargetConfigurationSerializerForTests.create(cell.getCellPathResolver()),
+        TestParserFactory.create(cell, knownRuleTypesProvider),
         eventBus,
         platform,
         environment,
@@ -130,15 +144,15 @@ public class CommandRunnerParamsForTesting {
         new VersionControlStatsGenerator(new NoOpCmdLineInterface(), Optional.empty()),
         Optional.empty(),
         webServer,
-        Optional.empty(),
+        Maps.newConcurrentMap(),
         config,
         new StackedFileHashCache(ImmutableList.of()),
-        ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
+        executors,
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
         new ActionGraphProviderBuilder()
-            .withMaxEntries(config.getMaxActionGraphCacheEntries())
-            .withPoolSupplier(Main.getForkJoinPoolSupplier(config))
+            .withMaxEntries(config.getView(BuildBuckConfig.class).getMaxActionGraphCacheEntries())
+            .withPoolSupplier(executors)
             .build(),
         knownRuleTypesProvider,
         new BuildInfoStoreManager(),
@@ -150,7 +164,7 @@ public class CommandRunnerParamsForTesting {
         new ExecutableFinder(),
         pluginManager,
         TestBuckModuleManagerFactory.create(pluginManager),
-        Main.getForkJoinPoolSupplier(config),
+        MainRunner.getForkJoinPoolSupplier(config),
         MetadataProviderFactory.emptyMetadataProvider(),
         getManifestSupplier());
   }

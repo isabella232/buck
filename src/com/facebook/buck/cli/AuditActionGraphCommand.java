@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -85,15 +86,17 @@ public class AuditActionGraphCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphWithoutConfigurationTargets(
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  pool.getListeningExecutorService(),
+                  createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                      .withApplyDefaultFlavorsMode(
+                          params
+                              .getBuckConfig()
+                              .getView(ParserConfig.class)
+                              .getDefaultFlavorsMode()),
                   parseArgumentsAsTargetNodeSpecs(
-                      params.getCell().getCellPathResolver(), params.getBuckConfig(), targetSpecs),
-                  getExcludeIncompatibleTargets(),
-                  params.getBuckConfig().getView(ParserConfig.class).getDefaultFlavorsMode());
+                      params.getCell(), params.getBuckConfig(), targetSpecs),
+                  params.getTargetConfiguration());
       TargetGraphAndBuildTargets targetGraphAndBuildTargets =
-          params.getBuckConfig().getBuildVersions()
+          params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()
               ? toVersionedTargetGraph(params, unversionedTargetGraphAndBuildTargets)
               : unversionedTargetGraphAndBuildTargets;
 

@@ -88,11 +88,11 @@ public class CxxRawHeadersIntegrationTest {
 
     runCommand("build", "//depfiles1:test").assertSuccess();
     compileTarget1 = cxxSourceRuleFactory1.createCompileBuildTarget(source);
-    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget1.toString());
+    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget1);
 
     compileTarget2 = cxxSourceRuleFactory2.createCompileBuildTarget(source);
     runCommand("build", "//depfiles2/test:test").assertSuccess();
-    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget2.toString());
+    workspace.getBuildLog().assertTargetBuiltLocally(compileTarget2);
   }
 
   @Test
@@ -227,6 +227,15 @@ public class CxxRawHeadersIntegrationTest {
     assertThat(
         processResult.getStderr(),
         containsString("Cannot use `headers` and `raw_headers` in the same rule"));
+  }
+
+  @Test
+  public void includeDirectories() throws IOException {
+    runCommand("build", "//app:app1").assertSuccess();
+    runCommand("build", "//app:app2").assertSuccess();
+    runCommand("build", "//app:app3").assertSuccess();
+    runCommand("build", "//app:app4").assertSuccess();
+    runCommand("build", "//app:app5").assertSuccess();
   }
 
   private ProcessResult runCommand(String... args) throws IOException {

@@ -216,13 +216,14 @@ public class HaskellGhciDescription
 
       // We link C/C++ libraries whole...
       if (nativeLinkable instanceof CxxLibrary) {
-        NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform);
         nativeLinkableInputs.add(
             nativeLinkable.getNativeLinkableInput(
                 cxxPlatform,
                 NativeLinkables.getLinkStyle(link, Linker.LinkableDepType.STATIC_PIC),
                 true,
-                graphBuilder));
+                graphBuilder,
+                baseTarget.getTargetConfiguration()));
         LOG.verbose(
             "%s: linking C/C++ library %s whole into omnibus",
             baseTarget, nativeLinkable.getBuildTarget());
@@ -233,7 +234,11 @@ public class HaskellGhciDescription
       if (nativeLinkable instanceof PrebuiltCxxLibrary) {
         nativeLinkableInputs.add(
             NativeLinkables.getNativeLinkableInput(
-                cxxPlatform, Linker.LinkableDepType.STATIC_PIC, nativeLinkable, graphBuilder));
+                cxxPlatform,
+                Linker.LinkableDepType.STATIC_PIC,
+                nativeLinkable,
+                graphBuilder,
+                baseTarget.getTargetConfiguration()));
         LOG.verbose(
             "%s: linking prebuilt C/C++ library %s into omnibus",
             baseTarget, nativeLinkable.getBuildTarget());
@@ -252,7 +257,11 @@ public class HaskellGhciDescription
     for (NativeLinkable linkable : depLinkables) {
       nativeLinkableInputs.add(
           NativeLinkables.getNativeLinkableInput(
-              cxxPlatform, LinkableDepType.SHARED, linkable, graphBuilder));
+              cxxPlatform,
+              LinkableDepType.SHARED,
+              linkable,
+              graphBuilder,
+              baseTarget.getTargetConfiguration()));
     }
 
     return NativeLinkableInput.concat(nativeLinkableInputs);
@@ -358,7 +367,9 @@ public class HaskellGhciDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
+        buildTarget.getTargetConfiguration(),
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)),
+        targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()

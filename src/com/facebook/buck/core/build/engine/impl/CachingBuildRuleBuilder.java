@@ -56,7 +56,7 @@ import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
@@ -99,6 +99,7 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
@@ -132,10 +133,10 @@ class CachingBuildRuleBuilder {
   private final boolean consoleLogBuildFailuresInline;
   private final FileHashCache fileHashCache;
   private final SourcePathResolver pathResolver;
+  private final TargetConfigurationSerializer targetConfigurationSerializer;
   private final ResourceAwareSchedulingInfo resourceAwareSchedulingInfo;
   private final RuleKeyFactories ruleKeyFactories;
   private final WeightedListeningExecutorService service;
-  private final StepRunner stepRunner;
   private final BuildRule rule;
   private final ExecutionContext executionContext;
   private final OnDiskBuildInfo onDiskBuildInfo;
@@ -203,10 +204,10 @@ class CachingBuildRuleBuilder {
       long maxDepFileCacheEntries,
       MetadataStorage metadataStorage,
       SourcePathResolver pathResolver,
+      TargetConfigurationSerializer targetConfigurationSerializer,
       ResourceAwareSchedulingInfo resourceAwareSchedulingInfo,
       RuleKeyFactories ruleKeyFactories,
       WeightedListeningExecutorService service,
-      StepRunner stepRunner,
       RuleDepsCache ruleDeps,
       BuildRule rule,
       BuildEngineBuildContext buildContext,
@@ -223,10 +224,10 @@ class CachingBuildRuleBuilder {
     this.consoleLogBuildFailuresInline = consoleLogBuildFailuresInline;
     this.fileHashCache = fileHashCache;
     this.pathResolver = pathResolver;
+    this.targetConfigurationSerializer = targetConfigurationSerializer;
     this.resourceAwareSchedulingInfo = resourceAwareSchedulingInfo;
     this.ruleKeyFactories = ruleKeyFactories;
     this.service = service;
-    this.stepRunner = stepRunner;
     this.rule = rule;
     this.executionContext = executionContext;
     this.onDiskBuildInfo = onDiskBuildInfo;
@@ -326,11 +327,17 @@ class CachingBuildRuleBuilder {
   }
 
   private BuildResult success(BuildRuleSuccessType successType, CacheResult cacheResult) {
+    return success(successType, cacheResult, Optional.empty());
+  }
+
+  private BuildResult success(
+      BuildRuleSuccessType successType, CacheResult cacheResult, Optional<String> strategyResult) {
     return buildResultBuilder()
         .setStatus(BuildRuleStatus.SUCCESS)
         .setSuccessOptional(successType)
         .setCacheResult(cacheResult)
         .setUploadCompleteFuture(uploadCompleteFuture)
+        .setStrategyResult(strategyResult)
         .build();
   }
 
@@ -684,8 +691,7 @@ class CachingBuildRuleBuilder {
       // TODO(#9117006): We don't support a way to serlialize `SourcePath`s to the cache,
       // so need to use DependencyFileEntry's instead and recover them on deserialization.
       ImmutableList<String> inputStrings =
-          inputs
-              .stream()
+          inputs.stream()
               .map(inputString -> DependencyFileEntry.fromSourcePath(inputString, pathResolver))
               .map(ObjectMappers.toJsonFunction())
               .collect(ImmutableList.toImmutableList());
@@ -703,26 +709,29 @@ class CachingBuildRuleBuilder {
         // Push an updated manifest to the cache.
         if (manifestRuleKeyManager.useManifestCaching()) {
           // TODO(cjhopman): This should be able to use manifestKeySupplier.
-          Optional<RuleKeyAndInputs> manifestKey = calculateManifestKey(eventBus);
-          if (manifestKey.isPresent()) {
-            getBuildInfoRecorder()
-                .addBuildMetadata(
-                    BuildInfo.MetadataKey.MANIFEST_KEY, manifestKey.get().getRuleKey().toString());
+          try (Scope ignored = LeafEvents.scope(eventBus, "updating_and_storing_manifest")) {
+            Optional<RuleKeyAndInputs> manifestKey = calculateManifestKey(eventBus);
+            if (manifestKey.isPresent()) {
+              getBuildInfoRecorder()
+                  .addBuildMetadata(
+                      BuildInfo.MetadataKey.MANIFEST_KEY,
+                      manifestKey.get().getRuleKey().toString());
 
-            long buildTimeMs =
-                buildTimestampsMillis == null
-                    ? -1
-                    : buildTimestampsMillis.getSecond() - buildTimestampsMillis.getFirst();
+              long buildTimeMs =
+                  buildTimestampsMillis == null
+                      ? -1
+                      : buildTimestampsMillis.getSecond() - buildTimestampsMillis.getFirst();
 
-            ManifestStoreResult manifestStoreResult =
-                manifestRuleKeyManager.updateAndStoreManifest(
-                    depFileRuleKeyAndInputs.get().getRuleKey(),
-                    depFileRuleKeyAndInputs.get().getInputs(),
-                    manifestKey.get(),
-                    buildTimeMs);
-            this.buildRuleScopeManager.setManifestStoreResult(manifestStoreResult);
-            if (manifestStoreResult.getStoreFuture().isPresent()) {
-              uploadCompleteFuture = manifestStoreResult.getStoreFuture().get();
+              ManifestStoreResult manifestStoreResult =
+                  manifestRuleKeyManager.updateAndStoreManifest(
+                      depFileRuleKeyAndInputs.get().getRuleKey(),
+                      depFileRuleKeyAndInputs.get().getInputs(),
+                      manifestKey.get(),
+                      buildTimeMs);
+              this.buildRuleScopeManager.setManifestStoreResult(manifestStoreResult);
+              if (manifestStoreResult.getStoreFuture().isPresent()) {
+                uploadCompleteFuture = manifestStoreResult.getStoreFuture().get();
+              }
             }
           }
         }
@@ -737,11 +746,14 @@ class CachingBuildRuleBuilder {
     getBuildInfoRecorder()
         .addBuildMetadata(BuildInfo.MetadataKey.TARGET, rule.getBuildTarget().toString());
     getBuildInfoRecorder()
+        .addBuildMetadata(
+            BuildInfo.MetadataKey.CONFIGURATION,
+            targetConfigurationSerializer.serialize(
+                rule.getBuildTarget().getTargetConfiguration()));
+    getBuildInfoRecorder()
         .addMetadata(
             BuildInfo.MetadataKey.RECORDED_PATHS,
-            getBuildInfoRecorder()
-                .getRecordedPaths()
-                .stream()
+            getBuildInfoRecorder().getRecordedPaths().stream()
                 .map(Object::toString)
                 .collect(ImmutableList.toImmutableList()));
     if (success.shouldWriteRecordedMetadataToDiskAfterBuilding()) {
@@ -754,7 +766,9 @@ class CachingBuildRuleBuilder {
     }
 
     if (shouldWriteOutputHashes(outputSize.get())) {
-      onDiskBuildInfo.writeOutputHashes(fileHashCache);
+      try (Scope ignored = LeafEvents.scope(eventBus, "computing_output_hashes")) {
+        onDiskBuildInfo.writeOutputHashes(fileHashCache);
+      }
     }
   }
 
@@ -793,17 +807,18 @@ class CachingBuildRuleBuilder {
 
         // Try get the output size.
         Optional<String> outputSizeString = onDiskBuildInfo.getValue(MetadataKey.OUTPUT_SIZE);
-        if (outputSizeString.isPresent()) {
-          outputSize = Optional.of(Long.parseLong(outputSizeString.get()));
-        }
+        Verify.verify(
+            outputSizeString.isPresent(), "OUTPUT_SIZE should always be computed and present.");
+        outputSize = Optional.of(Long.parseLong(outputSizeString.get()));
 
         // All rules should have output_size/output_hash in their artifact metadata.
-        if (success.shouldUploadResultingArtifact()
-            && outputSize.isPresent()
-            && shouldWriteOutputHashes(outputSize.get())) {
-          String hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH).get();
-          outputHash = Optional.of(HashCode.fromString(hashString));
+        Optional<String> hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH);
+        if (!hashString.isPresent() && !shouldWriteOutputHashes(outputSize.get())) {
+          // OUTPUT_HASH should only be missing if we exceed the hash size limit.
+          LOG.warn("OUTPUT_HASH is unexpectedly missing for %s.", rule.getFullyQualifiedName());
         }
+
+        outputHash = hashString.map(HashCode::fromString);
 
         // Determine if this is rule is cacheable.
         if (outputSize.isPresent()) {
@@ -859,8 +874,9 @@ class CachingBuildRuleBuilder {
           }
 
           @Override
-          public BuildResult createBuildResult(BuildRuleSuccessType successType) {
-            return success(successType, cacheResult);
+          public BuildResult createBuildResult(
+              BuildRuleSuccessType successType, Optional<String> strategyResult) {
+            return success(successType, cacheResult, strategyResult);
           }
 
           @Override
@@ -932,7 +948,8 @@ class CachingBuildRuleBuilder {
                 success(
                     BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED,
                     result.getRuleCacheResult().get()));
-          });
+          },
+          MoreExecutors.directExecutor());
     }
   }
 
@@ -955,7 +972,8 @@ class CachingBuildRuleBuilder {
                   inputRuleKeyCacheCheckTimestampsMillis =
                       new Pair<>(start, System.currentTimeMillis());
                   return success(result.getFirst(), result.getSecond());
-                }));
+                }),
+        MoreExecutors.directExecutor());
   }
 
   private ListenableFuture<BuildResult> buildOrFetchFromCache() {
@@ -988,7 +1006,8 @@ class CachingBuildRuleBuilder {
               cacheResult.getType().verifyValidFinalType();
               rulekeyCacheResult.set(cacheResult);
               return getBuildResultForRuleKeyCacheResult(cacheResult);
-            });
+            },
+            MoreExecutors.directExecutor());
 
     // 3. Before unlocking dependencies, ensure build rule hasn't started remotely.
     buildResultFuture =
@@ -1087,7 +1106,7 @@ class CachingBuildRuleBuilder {
     }
 
     // Unwrap the result.
-    return Futures.transform(buildResultFuture, Optional::get);
+    return Futures.transform(buildResultFuture, Optional::get, MoreExecutors.directExecutor());
   }
 
   private boolean shouldKeepGoing() {
@@ -1117,7 +1136,8 @@ class CachingBuildRuleBuilder {
               cacheResult -> {
                 rulekeyCacheResult.set(cacheResult);
                 return getBuildResultForRuleKeyCacheResult(cacheResult);
-              });
+              },
+              MoreExecutors.directExecutor());
         });
   }
 
@@ -1174,7 +1194,8 @@ class CachingBuildRuleBuilder {
               new Pair<>(cacheRequestTimestampMillis, System.currentTimeMillis());
           eventBus.post(new RuleKeyCacheResultEvent(ruleKeyCacheResult, cacheHitExpected));
           return cacheResult;
-        });
+        },
+        MoreExecutors.directExecutor());
   }
 
   private Optional<BuildResult> getBuildResultForRuleKeyCacheResult(CacheResult cacheResult) {
@@ -1252,9 +1273,8 @@ class CachingBuildRuleBuilder {
 
     LOG.debug("Running post-build steps for %s", rule);
 
-    Optional<BuildTarget> optionalTarget = Optional.of(rule.getBuildTarget());
     for (Step step : postBuildSteps) {
-      stepRunner.runStepForBuildTarget(
+      StepRunner.runStep(
           executionContext.withProcessExecutor(
               new ContextualProcessExecutor(
                   executionContext.getProcessExecutor(),
@@ -1263,8 +1283,7 @@ class CachingBuildRuleBuilder {
                       rule.getType(),
                       CachingBuildEngine.STEP_TYPE_CONTEXT_KEY,
                       CachingBuildEngine.StepType.POST_BUILD_STEP.toString()))),
-          step,
-          optionalTarget);
+          step);
 
       // Check for interruptions that may have been ignored by step.
       if (Thread.interrupted()) {
@@ -1408,8 +1427,7 @@ class CachingBuildRuleBuilder {
           LOG.debug("Building locally: %s", rule);
           // Attempt to get an approximation of how long it takes to actually run the command.
           long start = System.nanoTime();
-          executeCommands(
-              ruleExecutionContext, buildRuleBuildContext, buildableContext, stepRunner);
+          executeCommands(ruleExecutionContext, buildRuleBuildContext, buildableContext);
           long end = System.nanoTime();
           LOG.debug(
               "Build completed: %s %s (%dns)",
@@ -1427,8 +1445,7 @@ class CachingBuildRuleBuilder {
     private void executeCommands(
         ExecutionContext executionContext,
         BuildContext buildRuleBuildContext,
-        BuildableContext buildableContext,
-        StepRunner stepRunner)
+        BuildableContext buildableContext)
         throws StepFailedException, InterruptedException {
       // Get and run all of the commands.
       List<? extends Step> steps;
@@ -1444,9 +1461,8 @@ class CachingBuildRuleBuilder {
         }
       }
 
-      Optional<BuildTarget> optionalTarget = Optional.of(rule.getBuildTarget());
       for (Step step : steps) {
-        stepRunner.runStepForBuildTarget(executionContext, step, optionalTarget);
+        StepRunner.runStep(executionContext, step);
         // Check for interruptions that may have been ignored by step.
         if (Thread.interrupted()) {
           Thread.currentThread().interrupt();

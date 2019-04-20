@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
@@ -30,6 +31,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -99,9 +101,9 @@ public class AuditClasspathCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraph(
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  pool.getListeningExecutorService(),
+                  createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                      .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                      .withExcludeUnsupportedTargets(false),
                   targets);
     } catch (BuildFileParseException e) {
       params
@@ -148,7 +150,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
       throws InterruptedException, VersionException {
 
-    if (params.getBuckConfig().getBuildVersions()) {
+    if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
       targetGraph =
           toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
               .getTargetGraph();
@@ -161,10 +163,13 @@ public class AuditClasspathCommand extends AbstractCommand {
                         ActionGraphFactory.create(
                             params.getBuckEventBus(),
                             params.getCell().getCellProvider(),
-                            params.getPoolSupplier(),
+                            params.getExecutors(),
                             params.getBuckConfig()),
                         new ActionGraphCache(
-                            params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                            params
+                                .getBuckConfig()
+                                .getView(BuildBuckConfig.class)
+                                .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
                     .getFreshActionGraph(targetGraph))
@@ -197,7 +202,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
       throws IOException, InterruptedException, VersionException {
 
-    if (params.getBuckConfig().getBuildVersions()) {
+    if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
       targetGraph =
           toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
               .getTargetGraph();
@@ -210,10 +215,13 @@ public class AuditClasspathCommand extends AbstractCommand {
                         ActionGraphFactory.create(
                             params.getBuckEventBus(),
                             params.getCell().getCellProvider(),
-                            params.getPoolSupplier(),
+                            params.getExecutors(),
                             params.getBuckConfig()),
                         new ActionGraphCache(
-                            params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                            params
+                                .getBuckConfig()
+                                .getView(BuildBuckConfig.class)
+                                .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
                     .getFreshActionGraph(targetGraph))
@@ -230,9 +238,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       }
       targetClasspaths.putAll(
           target.getFullyQualifiedName(),
-          hasClasspathEntries
-              .getTransitiveClasspaths()
-              .stream()
+          hasClasspathEntries.getTransitiveClasspaths().stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
               .collect(ImmutableList.toImmutableList()));

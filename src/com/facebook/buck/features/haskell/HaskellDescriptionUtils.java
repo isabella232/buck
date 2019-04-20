@@ -20,6 +20,7 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -181,8 +182,9 @@ public class HaskellDescriptionUtils {
         projectFilesystem,
         baseParams,
         ruleFinder,
-        platform.getCompiler().resolve(graphBuilder),
+        platform.getCompiler().resolve(graphBuilder, target.getTargetConfiguration()),
         platform.getHaskellVersion(),
+        platform.shouldUseArgsfile(),
         compileFlags,
         ppFlags,
         cxxPlatform,
@@ -194,7 +196,8 @@ public class HaskellDescriptionUtils {
         exposedPackages,
         packages,
         sources,
-        CxxSourceTypes.getPreprocessor(cxxPlatform, CxxSource.Type.C).resolve(graphBuilder));
+        CxxSourceTypes.getPreprocessor(cxxPlatform, CxxSource.Type.C)
+            .resolve(graphBuilder, target.getTargetConfiguration()));
   }
 
   protected static BuildTarget getCompileBuildTarget(
@@ -271,7 +274,7 @@ public class HaskellDescriptionUtils {
       Optional<String> soname,
       boolean hsProfile) {
 
-    Tool linker = platform.getLinker().resolve(graphBuilder);
+    Tool linker = platform.getLinker().resolve(graphBuilder, target.getTargetConfiguration());
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
@@ -288,7 +291,11 @@ public class HaskellDescriptionUtils {
                   StringArg.from(
                       MoreIterables.zipAndConcat(
                           Iterables.cycle("-optl"),
-                          platform.getCxxPlatform().getLd().resolve(graphBuilder).soname(name)))));
+                          platform
+                              .getCxxPlatform()
+                              .getLd()
+                              .resolve(graphBuilder, target.getTargetConfiguration())
+                              .soname(name)))));
     }
 
     // Add in extra flags passed into this function.
@@ -300,14 +307,14 @@ public class HaskellDescriptionUtils {
     for (NativeLinkable nativeLinkable :
         NativeLinkables.getNativeLinkables(
             platform.getCxxPlatform(), graphBuilder, deps, depType)) {
-      NativeLinkable.Linkage link =
-          nativeLinkable.getPreferredLinkage(platform.getCxxPlatform(), graphBuilder);
+      NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(platform.getCxxPlatform());
       NativeLinkableInput input =
           nativeLinkable.getNativeLinkableInput(
               platform.getCxxPlatform(),
               NativeLinkables.getLinkStyle(link, depType),
               linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
-              graphBuilder);
+              graphBuilder,
+              target.getTargetConfiguration());
       linkerArgsBuilder.addAll(input.getArgs());
     }
 
@@ -355,7 +362,7 @@ public class HaskellDescriptionUtils {
                 graphBuilder,
                 ruleFinder,
                 platform.getCxxPlatform(),
-                BuildTargetPaths.getGenPath(projectFilesystem, emptyArchiveTarget, "%s/libempty.a"),
+                "libempty.a",
                 emptyCompiledModule.getObjects(),
                 /* cacheable */ true));
     argsBuilder.add(SourcePathArg.of(emptyArchive.getSourcePathToOutput()));
@@ -382,25 +389,29 @@ public class HaskellDescriptionUtils {
             outputPath,
             args,
             linkerArgs,
-            platform.shouldCacheLinks()));
+            platform.shouldCacheLinks(),
+            platform.shouldUseArgsfile()));
   }
 
   /** Accumulate parse-time deps needed by Haskell descriptions in depsBuilder. */
   public static void getParseTimeDeps(
-      Iterable<HaskellPlatform> platforms, ImmutableCollection.Builder<BuildTarget> depsBuilder) {
+      TargetConfiguration targetConfiguration,
+      Iterable<HaskellPlatform> platforms,
+      ImmutableCollection.Builder<BuildTarget> depsBuilder) {
     RichStream.from(platforms)
         .forEach(
             platform -> {
 
               // Since this description generates haskell link/compile/package rules, make sure the
               // parser includes deps for these tools.
-              depsBuilder.addAll(platform.getCompiler().getParseTimeDeps());
-              depsBuilder.addAll(platform.getLinker().getParseTimeDeps());
-              depsBuilder.addAll(platform.getPackager().getParseTimeDeps());
+              depsBuilder.addAll(platform.getCompiler().getParseTimeDeps(targetConfiguration));
+              depsBuilder.addAll(platform.getLinker().getParseTimeDeps(targetConfiguration));
+              depsBuilder.addAll(platform.getPackager().getParseTimeDeps(targetConfiguration));
 
               // We use the C/C++ linker's Linker object to find out how to pass in the soname, so
               // just add all C/C++ platform parse time deps.
-              depsBuilder.addAll(CxxPlatforms.getParseTimeDeps(platform.getCxxPlatform()));
+              depsBuilder.addAll(
+                  CxxPlatforms.getParseTimeDeps(targetConfiguration, platform.getCxxPlatform()));
             });
   }
 
@@ -505,7 +516,11 @@ public class HaskellDescriptionUtils {
                 "-rpath",
                 String.format(
                     "%s/%s",
-                    platform.getCxxPlatform().getLd().resolve(graphBuilder).origin(),
+                    platform
+                        .getCxxPlatform()
+                        .getLd()
+                        .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                        .origin(),
                     symlinkRelDir.toString()))));
 
     // Construct the omnibus shared library.
@@ -528,27 +543,21 @@ public class HaskellDescriptionUtils {
     ImmutableMap<BuildTarget, NativeLinkable> transitiveDeps =
         NativeLinkables.getTransitiveNativeLinkables(
             platform.getCxxPlatform(), graphBuilder, omnibusSpec.getDeps().values());
-    transitiveDeps
-        .values()
-        .stream()
+    transitiveDeps.values().stream()
         // Skip statically linked libraries.
-        .filter(
-            l -> l.getPreferredLinkage(platform.getCxxPlatform(), graphBuilder) != Linkage.STATIC)
+        .filter(l -> l.getPreferredLinkage(platform.getCxxPlatform()) != Linkage.STATIC)
         .forEach(l -> sharedLibsBuilder.add(platform.getCxxPlatform(), l, graphBuilder));
     ImmutableSortedMap<String, SourcePath> sharedLibs = sharedLibsBuilder.build();
 
     // Build up a set of all transitive preload libs, which are the ones that have been "excluded"
     // from the omnibus link.  These are the ones we need to LD_PRELOAD.
     SharedLibrariesBuilder preloadLibsBuilder = new SharedLibrariesBuilder();
-    omnibusSpec
-        .getExcludedTransitiveDeps()
-        .values()
-        .stream()
+    omnibusSpec.getExcludedTransitiveDeps().values().stream()
         // Don't include shared libs for static libraries -- except for preload roots, which we
         // always link dynamically.
         .filter(
             l ->
-                l.getPreferredLinkage(platform.getCxxPlatform(), graphBuilder) != Linkage.STATIC
+                l.getPreferredLinkage(platform.getCxxPlatform()) != Linkage.STATIC
                     || omnibusSpec.getExcludedRoots().containsKey(l.getBuildTarget()))
         .forEach(l -> preloadLibsBuilder.add(platform.getCxxPlatform(), l, graphBuilder));
     ImmutableSortedMap<String, SourcePath> preloadLibs = preloadLibsBuilder.build();

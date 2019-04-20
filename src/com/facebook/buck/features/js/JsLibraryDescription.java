@@ -27,7 +27,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -46,6 +46,7 @@ import com.facebook.buck.rules.macros.MacroContainer;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
+import com.facebook.buck.shell.ProvidesWorkerTool;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
@@ -119,7 +120,8 @@ public class JsLibraryDescription
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
     BuildTarget workerTarget = args.getWorker();
-    WorkerTool worker = graphBuilder.getRuleWithType(workerTarget, WorkerTool.class);
+    WorkerTool worker =
+        graphBuilder.getRuleWithType(workerTarget, ProvidesWorkerTool.class).getWorkerTool();
 
     // this params object is used as base for the JsLibrary build rule, but also for all dynamically
     // created JsFile rules.
@@ -134,10 +136,7 @@ public class JsLibraryDescription
             .map(macroTargets -> isWorker.or(macroTargets::contains))
             .orElse(isWorker);
     ImmutableSortedSet<BuildRule> workerAndMacrosExtraDeps =
-        params
-            .getExtraDeps()
-            .get()
-            .stream()
+        params.getExtraDeps().get().stream()
             .filter(x -> extraDepsFilter.test(x.getBuildTarget()))
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     BuildRuleParams baseParams =
@@ -167,9 +166,7 @@ public class JsLibraryDescription
       // all targets that don't refer to a JsLibrary rule.
       // That prevents users from having to wrap every query into "kind(js_library, ...)".
       Stream<BuildTarget> queryDeps =
-          args.getDepsQuery()
-              .map(Query::getResolvedQuery)
-              .orElseGet(ImmutableSortedSet::of)
+          args.getDepsQuery().map(Query::getResolvedQuery).orElseGet(ImmutableSortedSet::of)
               .stream()
               .filter(target -> JsUtil.isJsLibraryTarget(target, context.getTargetGraph()));
       Stream<BuildTarget> declaredDeps = args.getDeps().stream();
@@ -266,8 +263,7 @@ public class JsLibraryDescription
           baseTarget.withAppendedFlavors(JsFlavors.LIBRARY_FILES),
           projectFileSystem,
           baseParams.copyAppendingExtraDeps(jsFileRules),
-          jsFileRules
-              .stream()
+          jsFileRules.stream()
               .map(JsFile::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
@@ -315,8 +311,7 @@ public class JsLibraryDescription
           baseParams.copyAppendingExtraDeps(
               Iterables.concat(ImmutableList.of(filesRule), libraryDependencies)),
           graphBuilder.getRuleWithType(filesTarget, JsLibrary.Files.class).getSourcePathToOutput(),
-          libraryDependencies
-              .stream()
+          libraryDependencies.stream()
               .map(JsLibrary::getSourcePathToOutput)
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
           worker);
@@ -435,7 +430,7 @@ public class JsLibraryDescription
       ProjectFilesystem projectFilesystem,
       SourcePathResolver sourcePathResolver,
       CellPathResolver cellPathResolver,
-      UnflavoredBuildTarget target) {
+      UnflavoredBuildTargetView target) {
     Path cellPath = cellPathResolver.getCellPathOrThrow(target);
     Path directoryOfBuildFile = cellPath.resolve(target.getBasePath());
     Path transplantTo = MorePaths.normalize(directoryOfBuildFile.resolve(basePath));

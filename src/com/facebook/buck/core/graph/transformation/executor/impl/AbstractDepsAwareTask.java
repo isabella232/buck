@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 abstract class AbstractDepsAwareTask<T, TaskType extends AbstractDepsAwareTask<T, TaskType>>
     extends DepsAwareTask<T, TaskType> {
 
-  private final AtomicReference<TaskStatus> status =
+  protected final AtomicReference<TaskStatus> status =
       new AtomicReference<>(TaskStatus.NOT_SCHEDULED);
 
   AbstractDepsAwareTask(Callable<T> callable, DepsSupplier<TaskType> depsSupplier) {
@@ -46,8 +46,11 @@ abstract class AbstractDepsAwareTask<T, TaskType extends AbstractDepsAwareTask<T
     try {
       Preconditions.checkState(status.get() == TaskStatus.STARTED);
       result.complete(getCallable().call());
-    } catch (Exception e) {
+    } catch (Throwable e) {
       result.completeExceptionally(e);
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
     } finally {
 
       Verify.verify(compareAndSetStatus(TaskStatus.STARTED, TaskStatus.DONE));

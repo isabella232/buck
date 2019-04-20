@@ -141,8 +141,7 @@ public class Omnibus {
               Linker.LinkableDepType.SHARED)) {
         Linker.LinkableDepType linkStyle =
             NativeLinkables.getLinkStyle(
-                dep.getPreferredLinkage(cxxPlatform, actionGraphBuilder),
-                Linker.LinkableDepType.SHARED);
+                dep.getPreferredLinkage(cxxPlatform), Linker.LinkableDepType.SHARED);
         Preconditions.checkState(linkStyle != Linker.LinkableDepType.STATIC);
 
         // We only consider deps which aren't *only* statically linked.
@@ -173,7 +172,7 @@ public class Omnibus {
                 getDeps(nativeLinkable, cxxPlatform, actionGraphBuilder),
                 NativeLinkable::getBuildTarget);
         nativeLinkables.putAll(deps);
-        if (!nativeLinkable.supportsOmnibusLinking(cxxPlatform, actionGraphBuilder)) {
+        if (!nativeLinkable.supportsOmnibusLinking(cxxPlatform)) {
           excluded.add(target);
         }
         return deps.keySet();
@@ -229,9 +228,7 @@ public class Omnibus {
         .graph(graph)
         .roots(roots)
         .body(
-            graph
-                .getNodes()
-                .stream()
+            graph.getNodes().stream()
                 .filter(n -> !roots.containsKey(n))
                 .collect(ImmutableMap.toImmutableMap(k -> k, Functions.forMap(nativeLinkables))))
         .deps(Maps.asMap(deps, Functions.forMap(nativeLinkables)))
@@ -283,7 +280,6 @@ public class Omnibus {
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec,
       SourcePath omnibus,
       NativeLinkTarget root,
@@ -292,17 +288,22 @@ public class Omnibus {
 
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
 
-    // Add any extra flags to the link.
-    argsBuilder.addAll(extraLdflags);
-
     // Since the dummy omnibus library doesn't actually contain any symbols, make sure the linker
     // won't drop its runtime reference to it.
     argsBuilder.addAll(
-        StringArg.from(cxxPlatform.getLd().resolve(graphBuilder).getNoAsNeededSharedLibsFlags()));
+        StringArg.from(
+            cxxPlatform
+                .getLd()
+                .resolve(graphBuilder, target.getTargetConfiguration())
+                .getNoAsNeededSharedLibsFlags()));
 
     // Since we're linking against a dummy libomnibus, ignore undefined symbols.
     argsBuilder.addAll(
-        StringArg.from(cxxPlatform.getLd().resolve(graphBuilder).getIgnoreUndefinedSymbolsFlags()));
+        StringArg.from(
+            cxxPlatform
+                .getLd()
+                .resolve(graphBuilder, target.getTargetConfiguration())
+                .getIgnoreUndefinedSymbolsFlags()));
 
     // Add the args for the root link target first.
     NativeLinkableInput input =
@@ -324,14 +325,16 @@ public class Omnibus {
       BuildTarget linkableTarget = nativeLinkable.getBuildTarget();
       Linker.LinkableDepType linkStyle =
           NativeLinkables.getLinkStyle(
-              nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder),
-              Linker.LinkableDepType.SHARED);
+              nativeLinkable.getPreferredLinkage(cxxPlatform), Linker.LinkableDepType.SHARED);
 
       // If this dep needs to be linked statically, then we always link it directly.
       if (linkStyle != Linker.LinkableDepType.SHARED) {
         Preconditions.checkState(linkStyle == Linker.LinkableDepType.STATIC_PIC);
         argsBuilder.addAll(
-            nativeLinkable.getNativeLinkableInput(cxxPlatform, linkStyle, graphBuilder).getArgs());
+            nativeLinkable
+                .getNativeLinkableInput(
+                    cxxPlatform, linkStyle, graphBuilder, target.getTargetConfiguration())
+                .getArgs());
         continue;
       }
 
@@ -358,7 +361,10 @@ public class Omnibus {
       // normally.
       Preconditions.checkState(spec.getExcluded().containsKey(linkableTarget));
       argsBuilder.addAll(
-          nativeLinkable.getNativeLinkableInput(cxxPlatform, linkStyle, graphBuilder).getArgs());
+          nativeLinkable
+              .getNativeLinkableInput(
+                  cxxPlatform, linkStyle, graphBuilder, target.getTargetConfiguration())
+              .getArgs());
     }
 
     // Create the root library rule using the arguments assembled above.
@@ -437,7 +443,6 @@ public class Omnibus {
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec,
       SourcePath omnibus,
       NativeLinkTarget root) {
@@ -449,12 +454,11 @@ public class Omnibus {
         ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
-        extraLdflags,
         spec,
         omnibus,
         root,
         root.getBuildTarget(),
-        root.getNativeLinkTargetOutputPath(cxxPlatform));
+        root.getNativeLinkTargetOutputPath());
   }
 
   private static OmnibusRoot createDummyRoot(
@@ -465,7 +469,6 @@ public class Omnibus {
       SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      ImmutableList<? extends Arg> extraLdflags,
       OmnibusSpec spec,
       SourcePath omnibus,
       NativeLinkTarget root) {
@@ -477,7 +480,6 @@ public class Omnibus {
         ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
-        extraLdflags,
         spec,
         omnibus,
         root,
@@ -506,7 +508,7 @@ public class Omnibus {
                 linkerInputs);
     return cxxPlatform
         .getLd()
-        .resolve(graphBuilder)
+        .resolve(graphBuilder, buildTarget.getTargetConfiguration())
         .createUndefinedSymbolsLinkerArgs(
             projectFilesystem,
             params,
@@ -582,7 +584,11 @@ public class Omnibus {
       NativeLinkable nativeLinkable = Objects.requireNonNull(spec.getBody().get(target));
       NativeLinkableInput input =
           NativeLinkables.getNativeLinkableInput(
-              cxxPlatform, Linker.LinkableDepType.STATIC_PIC, nativeLinkable, graphBuilder);
+              cxxPlatform,
+              Linker.LinkableDepType.STATIC_PIC,
+              nativeLinkable,
+              graphBuilder,
+              buildTarget.getTargetConfiguration());
       argsBuilder.addAll(input.getArgs());
     }
 
@@ -594,7 +600,11 @@ public class Omnibus {
     for (NativeLinkable nativeLinkable : deps) {
       NativeLinkableInput input =
           NativeLinkables.getNativeLinkableInput(
-              cxxPlatform, Linker.LinkableDepType.SHARED, nativeLinkable, graphBuilder);
+              cxxPlatform,
+              Linker.LinkableDepType.SHARED,
+              nativeLinkable,
+              graphBuilder,
+              buildTarget.getTargetConfiguration());
       argsBuilder.addAll(input.getArgs());
     }
 
@@ -679,7 +689,6 @@ public class Omnibus {
             ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
-            ImmutableList.of(),
             spec,
             dummyOmnibus,
             target);
@@ -693,7 +702,6 @@ public class Omnibus {
                 ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
-                ImmutableList.of(),
                 spec,
                 dummyOmnibus,
                 target);
@@ -733,7 +741,6 @@ public class Omnibus {
                 ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
-                ImmutableList.of(),
                 spec,
                 realOmnibus.orElse(dummyOmnibus),
                 target);
@@ -745,8 +752,7 @@ public class Omnibus {
     // static libraries.
     for (NativeLinkable nativeLinkable : spec.getExcluded().values()) {
       if (spec.getExcludedRoots().contains(nativeLinkable.getBuildTarget())
-          || nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder)
-              != NativeLinkable.Linkage.STATIC) {
+          || nativeLinkable.getPreferredLinkage(cxxPlatform) != NativeLinkable.Linkage.STATIC) {
         for (Map.Entry<String, SourcePath> ent :
             nativeLinkable.getSharedLibraries(cxxPlatform, graphBuilder).entrySet()) {
           libs.addLibraries(OmnibusLibrary.of(ent.getKey(), ent.getValue()));

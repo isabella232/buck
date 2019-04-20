@@ -24,12 +24,15 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
@@ -67,6 +70,7 @@ import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -309,7 +313,9 @@ public class CleanCommandTest {
         new SingletonArtifactCacheFactory(new NoopArtifactCache()),
         typeCoercerFactory,
         new ParsingUnconfiguredBuildTargetFactory(),
-        TestParserFactory.create(buckConfig, knownRuleTypesProvider),
+        () -> EmptyTargetConfiguration.INSTANCE,
+        TargetConfigurationSerializerForTests.create(cell.getCellPathResolver()),
+        TestParserFactory.create(cell, knownRuleTypesProvider),
         BuckEventBusForTests.newInstance(),
         Platform.detect(),
         EnvVariablesProvider.getSystemEnv(),
@@ -318,15 +324,15 @@ public class CleanCommandTest {
         new VersionControlStatsGenerator(new NoOpCmdLineInterface(), Optional.empty()),
         Optional.empty(),
         Optional.empty(),
-        Optional.empty(),
+        Maps.newConcurrentMap(),
         buckConfig,
         new StackedFileHashCache(ImmutableList.of()),
         ImmutableMap.of(),
         new FakeExecutor(),
         CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION,
         new ActionGraphProviderBuilder()
-            .withMaxEntries(buckConfig.getMaxActionGraphCacheEntries())
-            .withPoolSupplier(Main.getForkJoinPoolSupplier(buckConfig))
+            .withMaxEntries(
+                buckConfig.getView(BuildBuckConfig.class).getMaxActionGraphCacheEntries())
             .build(),
         knownRuleTypesProvider,
         new BuildInfoStoreManager(),
@@ -338,7 +344,7 @@ public class CleanCommandTest {
         executableFinder,
         pluginManager,
         TestBuckModuleManagerFactory.create(pluginManager),
-        Main.getForkJoinPoolSupplier(buckConfig),
+        MainRunner.getForkJoinPoolSupplier(buckConfig),
         MetadataProviderFactory.emptyMetadataProvider(),
         getManifestSupplier());
   }

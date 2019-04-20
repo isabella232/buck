@@ -48,4 +48,3 @@ java -cp $CLASSPATH \
   com.facebook.buck.rules.modern.builders.OutOfProcessIsolatedBuilder \
   $BUCK_ISOLATED_ROOT $1 $2
 )
-

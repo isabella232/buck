@@ -16,6 +16,7 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
@@ -31,6 +32,7 @@ import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
@@ -52,7 +54,6 @@ import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
-import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
@@ -86,6 +87,7 @@ public class LocalBuildExecutor implements BuildExecutor {
   private final MetadataProvider metadataProvider;
   private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
   private final TargetConfiguration targetConfiguration;
+  private final TargetConfigurationSerializer targetConfigurationSerializer;
 
   private final CachingBuildEngine cachingBuildEngine;
   private final Build build;
@@ -107,7 +109,8 @@ public class LocalBuildExecutor implements BuildExecutor {
       RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter,
       MetadataProvider metadataProvider,
       UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
-      TargetConfiguration targetConfiguration) {
+      TargetConfiguration targetConfiguration,
+      TargetConfigurationSerializer targetConfigurationSerializer) {
     this.actionGraphAndBuilder = actionGraphAndBuilder;
     this.executorService = executorService;
     this.args = args;
@@ -119,6 +122,7 @@ public class LocalBuildExecutor implements BuildExecutor {
     this.metadataProvider = metadataProvider;
     this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
     this.targetConfiguration = targetConfiguration;
+    this.targetConfigurationSerializer = targetConfigurationSerializer;
 
     // Init resources.
     this.cachingBuildEngine = createCachingBuildEngine();
@@ -237,7 +241,6 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getBuckEventBus(),
             metadataProvider),
         executorService,
-        new DefaultStepRunner(),
         buildEngineMode.orElse(engineConfig.getBuildEngineMode()),
         engineConfig.getBuildMetadataStorage(),
         engineConfig.getBuildDepFiles(),
@@ -246,6 +249,7 @@ public class LocalBuildExecutor implements BuildExecutor {
         actionGraphAndBuilder.getActionGraphBuilder(),
         sourcePathRuleFinder,
         DefaultSourcePathResolver.from(sourcePathRuleFinder),
+        targetConfigurationSerializer,
         args.getBuildInfoStoreManager(),
         engineConfig.getResourceAwareSchedulingInfo(),
         engineConfig.getConsoleLogBuildRuleFailuresInline(),
@@ -253,7 +257,7 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getRuleKeyConfiguration(),
             cachingBuildEngineDelegate.getFileHashCache(),
             actionGraphAndBuilder.getActionGraphBuilder(),
-            args.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+            args.getBuckConfig().getView(BuildBuckConfig.class).getBuildInputRuleKeyFileSizeLimit(),
             ruleKeyCacheScope.getCache(),
             ruleKeyLogger),
         remoteBuildRuleCompletionWaiter,

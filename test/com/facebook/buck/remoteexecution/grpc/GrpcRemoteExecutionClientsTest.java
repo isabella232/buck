@@ -27,11 +27,12 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.remoteexecution.MetadataProviderFactory;
 import com.facebook.buck.remoteexecution.RemoteExecutionClients;
-import com.facebook.buck.remoteexecution.RemoteExecutionService.ExecutionResult;
+import com.facebook.buck.remoteexecution.RemoteExecutionServiceClient.ExecutionResult;
 import com.facebook.buck.remoteexecution.UploadDataSupplier;
 import com.facebook.buck.remoteexecution.interfaces.Protocol;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.facebook.buck.remoteexecution.util.LocalContentAddressedStorage;
+import com.facebook.buck.remoteexecution.util.OutputsMaterializer.FilesystemFileMaterializer;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.Charsets;
@@ -54,9 +55,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -140,7 +139,10 @@ public class GrpcRemoteExecutionClientsTest {
     ExecutionResult executionResult =
         clients
             .getRemoteExecutionService()
-            .execute(clients.getProtocol().computeDigest("".getBytes(Charsets.UTF_8)))
+            .execute(
+                clients.getProtocol().computeDigest("".getBytes(Charsets.UTF_8)),
+                "",
+                MetadataProviderFactory.emptyMetadataProvider())
             .get();
 
     assertEquals(0, executionResult.getExitCode());
@@ -157,26 +159,31 @@ public class GrpcRemoteExecutionClientsTest {
     Files.createDirectories(workDir);
     LocalContentAddressedStorage storage =
         new LocalContentAddressedStorage(cacheDir, new GrpcProtocol());
-    services.add(new LocalBackedCasImpl(storage));
-    services.add(new LocalBackedByteStreamImpl(storage));
+    services.add(new LocalBackedCasServer(storage));
+    services.add(new LocalBackedByteStreamServer(storage));
 
     setupServer();
 
-    Map<Digest, UploadDataSupplier> requiredData = new HashMap<>();
+    List<UploadDataSupplier> requiredData = new ArrayList<>();
 
     String data1 = "data1";
     Digest digest1 = protocol.computeDigest(data1.getBytes(Charsets.UTF_8));
-    requiredData.put(digest1, () -> new ByteArrayInputStream(data1.getBytes(Charsets.UTF_8)));
+    requiredData.add(
+        UploadDataSupplier.of(
+            digest1, () -> new ByteArrayInputStream(data1.getBytes(Charsets.UTF_8))));
 
     String data2 = "data2";
     Digest digest2 = protocol.computeDigest(data2.getBytes(Charsets.UTF_8));
-    requiredData.put(digest2, () -> new ByteArrayInputStream(data2.getBytes(Charsets.UTF_8)));
+    requiredData.add(
+        UploadDataSupplier.of(
+            digest2, () -> new ByteArrayInputStream(data2.getBytes(Charsets.UTF_8))));
 
-    clients.getContentAddressedStorage().addMissing(ImmutableMap.copyOf(requiredData)).get();
+    clients.getContentAddressedStorage().addMissing(requiredData).get();
 
     clients
         .getContentAddressedStorage()
-        .materializeOutputs(ImmutableList.of(), ImmutableList.of(), workDir)
+        .materializeOutputs(
+            ImmutableList.of(), ImmutableList.of(), new FilesystemFileMaterializer(workDir))
         .get();
 
     assertEquals(ImmutableMap.of(), getDirectoryContents(workDir));
@@ -190,7 +197,7 @@ public class GrpcRemoteExecutionClientsTest {
             ImmutableList.of(
                 protocol.newOutputFile(out1, digest1, false),
                 protocol.newOutputFile(out2, digest2, false)),
-            workDir)
+            new FilesystemFileMaterializer(workDir))
         .get();
 
     assertEquals(ImmutableMap.of(out1, data1, out2, data2), getDirectoryContents(workDir));

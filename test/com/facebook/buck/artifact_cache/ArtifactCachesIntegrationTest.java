@@ -20,8 +20,13 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.thrift.BuckCacheFetchResponse;
 import com.facebook.buck.artifact_cache.thrift.BuckCacheResponse;
 import com.facebook.buck.artifact_cache.thrift.BuckCacheStoreResponse;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.TargetConfigurationSerializerForTests;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -31,7 +36,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.slb.ThriftUtil;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.TaskManagerScope;
+import com.facebook.buck.support.bgtasks.TaskManagerCommandScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.HttpdForTests;
@@ -204,7 +209,7 @@ public class ArtifactCachesIntegrationTest {
   @Rule public TemporaryPaths tempDir = new TemporaryPaths();
 
   private BackgroundTaskManager bgTaskManager;
-  private TaskManagerScope managerScope;
+  private TaskManagerCommandScope managerScope;
   private Path clientCertPath;
   private Path clientKeyPath;
   private Path serverCertPath;
@@ -416,9 +421,14 @@ public class ArtifactCachesIntegrationTest {
       BuckEventBus buckEventBus,
       ProjectFilesystem projectFilesystem,
       ArtifactCacheBuckConfig cacheConfig) {
+    CellPathResolver cellPathResolver = TestCellPathResolver.get(projectFilesystem);
+    UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
+        new ParsingUnconfiguredBuildTargetFactory();
     return new ArtifactCaches(
         cacheConfig,
         buckEventBus,
+        target -> unconfiguredBuildTargetFactory.create(cellPathResolver, target),
+        TargetConfigurationSerializerForTests.create(cellPathResolver),
         projectFilesystem,
         Optional.empty(),
         MoreExecutors.newDirectExecutorService(),
@@ -437,9 +447,13 @@ public class ArtifactCachesIntegrationTest {
    */
   private ClientCertificateHandler createClientCertificateHandler(
       Path clientKeyPath, Path clientCertPath, Path caCertPath) throws IOException {
-    X509Certificate certificate = ClientCertificateHandler.parseCertificate(clientCertPath);
-    X509Certificate caCertificate = ClientCertificateHandler.parseCertificate(caCertPath);
-    PrivateKey privateKey = ClientCertificateHandler.parsePrivateKey(clientKeyPath, certificate);
+    X509Certificate certificate =
+        ClientCertificateHandler.parseCertificate(Optional.of(clientCertPath), true).get();
+    X509Certificate caCertificate =
+        ClientCertificateHandler.parseCertificate(Optional.of(caCertPath), true).get();
+    PrivateKey privateKey =
+        ClientCertificateHandler.parsePrivateKey(Optional.of(clientKeyPath), certificate, true)
+            .get();
 
     HeldCertificate cert =
         new HeldCertificate(new KeyPair(certificate.getPublicKey(), privateKey), certificate);

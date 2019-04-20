@@ -19,6 +19,7 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
@@ -42,6 +43,7 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.cxx.toolchain.Compiler;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.DefaultCompiler;
 import com.facebook.buck.cxx.toolchain.GccCompiler;
@@ -127,6 +129,8 @@ public class CxxPreprocessAndCompileTest {
                   PathSourcePath.of(
                       projectFilesystem,
                       PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))),
+          ToolType.CXX,
+          false,
           false);
   private Preprocessor PREPROCESSOR_WITH_COLOR_SUPPORT =
       new PreprocessorWithColorSupport(
@@ -216,6 +220,7 @@ public class CxxPreprocessAndCompileTest {
                                     projectFilesystem,
                                     PathNormalizer.toWindowsPathIfNeeded(
                                         Paths.get("/root/different")))),
+                            ToolType.CXX,
                             false),
                         DEFAULT_TOOL_FLAGS,
                         DEFAULT_USE_ARG_FILE),
@@ -423,14 +428,11 @@ public class CxxPreprocessAndCompileTest {
             projectFilesystem,
             ruleFinder,
             new CompilerDelegate(
-                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                DEFAULT_COMPILER,
-                flags,
-                DEFAULT_USE_ARG_FILE),
+                NoopDebugPathSanitizer.INSTANCE, DEFAULT_COMPILER, flags, DEFAULT_USE_ARG_FILE),
             outputName,
             FakeSourcePath.of(input.toString()),
             DEFAULT_INPUT_TYPE,
-            CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
+            NoopDebugPathSanitizer.INSTANCE);
 
     ImmutableList<String> expectedCompileCommand =
         ImmutableList.<String>builder()
@@ -498,7 +500,8 @@ public class CxxPreprocessAndCompileTest {
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
     assertThat(
         cxxPreprocess.getInputsAfterBuildingLocally(context, cellPathResolver),
-        hasItem(preprocessor));
+        not(hasItem(preprocessor)));
+    assertFalse(cxxPreprocess.getCoveredByDepFilePredicate(pathResolver).test(preprocessor));
 
     CxxPreprocessAndCompile cxxCompile =
         CxxPreprocessAndCompile.compile(
@@ -507,7 +510,7 @@ public class CxxPreprocessAndCompileTest {
             ruleFinder,
             new CompilerDelegate(
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                new GccCompiler(compilerTool, false),
+                new GccCompiler(compilerTool, ToolType.CXX, false),
                 CxxToolFlags.of(),
                 DEFAULT_USE_ARG_FILE),
             DEFAULT_OUTPUT,
@@ -515,7 +518,9 @@ public class CxxPreprocessAndCompileTest {
             DEFAULT_INPUT_TYPE,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
     assertThat(
-        cxxCompile.getInputsAfterBuildingLocally(context, cellPathResolver), hasItem(compiler));
+        cxxCompile.getInputsAfterBuildingLocally(context, cellPathResolver),
+        not(hasItem(compiler)));
+    assertFalse(cxxCompile.getCoveredByDepFilePredicate(pathResolver).test(compiler));
   }
 
   @Test
@@ -634,21 +639,21 @@ public class CxxPreprocessAndCompileTest {
             projectFilesystem,
             ruleFinder,
             new CompilerDelegate(
-                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
+                NoopDebugPathSanitizer.INSTANCE,
                 new GccCompiler(
                     new HashedFileTool(
                         () ->
                             PathSourcePath.of(
                                 projectFilesystem,
                                 PathNormalizer.toWindowsPathIfNeeded(Paths.get("/root/compiler")))),
-                    false,
-                    true),
+                    ToolType.CXX,
+                    false),
                 flags,
                 DEFAULT_USE_ARG_FILE),
             outputName,
             FakeSourcePath.of(input.toString()),
             DEFAULT_INPUT_TYPE,
-            CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER);
+            NoopDebugPathSanitizer.INSTANCE);
 
     ImmutableList<String> expectedCompileCommand =
         ImmutableList.<String>builder()

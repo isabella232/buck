@@ -181,8 +181,7 @@ public class HaskellBinaryDescription
         args.getDepsQuery()
             .map(
                 query ->
-                    Objects.requireNonNull(query.getResolvedQuery())
-                        .stream()
+                    Objects.requireNonNull(query.getResolvedQuery()).stream()
                         .map(graphBuilder::getRule)
                         .filter(NativeLinkable.class::isInstance))
             .orElse(Stream.of())
@@ -230,7 +229,11 @@ public class HaskellBinaryDescription
                       "-rpath",
                       String.format(
                           "%s/%s",
-                          platform.getCxxPlatform().getLd().resolve(graphBuilder).origin(),
+                          platform
+                              .getCxxPlatform()
+                              .getLd()
+                              .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                              .origin(),
                           absBinaryDir.relativize(sharedLibraries.getRoot()).toString())))));
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
@@ -319,7 +322,9 @@ public class HaskellBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
+        buildTarget.getTargetConfiguration(),
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)),
+        targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()

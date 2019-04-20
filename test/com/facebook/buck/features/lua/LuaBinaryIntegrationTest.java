@@ -24,6 +24,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -116,7 +117,7 @@ public class LuaBinaryIntegrationTest {
                     .addAll(
                         cxxPlatform
                             .getCc()
-                            .resolve(resolver)
+                            .resolve(resolver, EmptyTargetConfiguration.INSTANCE)
                             .getCommandPrefix(
                                 DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))))
                     .add("-includelua.h", "-E", "-")
@@ -145,7 +146,9 @@ public class LuaBinaryIntegrationTest {
         ".buckconfig");
     LuaPlatform platform =
         getLuaBuckConfig()
-            .getPlatform(CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(DefaultCxxPlatforms.FLAVOR));
+            .getPlatform(
+                EmptyTargetConfiguration.INSTANCE,
+                CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(DefaultCxxPlatforms.FLAVOR));
     assertThat(platform.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
     assertThat(platform.getNativeLinkStrategy(), Matchers.equalTo(nativeLinkStrategy));
   }

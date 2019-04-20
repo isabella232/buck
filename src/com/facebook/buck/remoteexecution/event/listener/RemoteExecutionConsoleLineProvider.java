@@ -17,10 +17,10 @@
 package com.facebook.buck.remoteexecution.event.listener;
 
 import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
-import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
+import com.facebook.buck.remoteexecution.event.LocalFallbackStats;
 import com.facebook.buck.remoteexecution.event.RemoteExecutionActionEvent;
 import com.facebook.buck.remoteexecution.event.RemoteExecutionActionEvent.State;
-import com.facebook.buck.remoteexecution.proto.RemoteExecutionMetadata;
+import com.facebook.buck.remoteexecution.event.RemoteExecutionStatsProvider;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -28,23 +28,20 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 /** Provides output lines to the console about the current state of Remote Execution. */
 public class RemoteExecutionConsoleLineProvider implements AdditionalConsoleLineProvider {
 
   private final RemoteExecutionStatsProvider statsProvider;
-  private final String formatIdVariableString;
-  private final String formatDebugSessionIDString;
-  private final String reSessionID;
+  private final String sessionIdInfo;
+  private final boolean isDebug;
 
   public RemoteExecutionConsoleLineProvider(
-      RemoteExecutionStatsProvider statsProvider,
-      RemoteExecutionConfig remoteExecutionConfig,
-      RemoteExecutionMetadata remoteExecutionMetadata) {
+      RemoteExecutionStatsProvider statsProvider, String sessionIdInfo, boolean isDebug) {
     this.statsProvider = statsProvider;
-    this.formatIdVariableString = RemoteExecutionConfig.FORMAT_SESSION_ID_VARIABLE_STRING;
-    this.formatDebugSessionIDString = remoteExecutionConfig.getDebugURLFormatString();
-    this.reSessionID = remoteExecutionMetadata.getReSessionId().getId();
+    this.sessionIdInfo = sessionIdInfo;
+    this.isDebug = isDebug;
   }
 
   @Override
@@ -55,27 +52,47 @@ public class RemoteExecutionConsoleLineProvider implements AdditionalConsoleLine
     if (!hasFirstRemoteActionStarted(actionsPerState)) {
       return lines.build();
     }
+    if (isDebug) {
+      String metadataLine = String.format("[RE] Metadata: Session ID=[%s]", sessionIdInfo);
+      lines.add(metadataLine);
 
-    String sessionIdFormatted =
-        formatDebugSessionIDString.replace(formatIdVariableString, reSessionID);
-    String metadataLine = String.format("[RE] Metadata: Session ID=[%s]", sessionIdFormatted);
-    lines.add(metadataLine);
+      String actionsLine =
+          String.format(
+              "[RE] Actions: Local=%d Remote=[%s]",
+              getLocallyBuiltRules(statsProvider.getTotalRulesBuilt(), actionsPerState),
+              getStatesString(actionsPerState));
+      lines.add(actionsLine);
 
-    String actionsLine =
-        String.format(
-            "[RE] Actions: Local=%d Remote=[%s]",
-            getLocallyBuiltRules(statsProvider.getTotalRulesBuilt(), actionsPerState),
-            getStatesString(actionsPerState));
-    lines.add(actionsLine);
-
-    String casLine =
-        String.format(
-            "[RE] CAS: Upl=[Count:%d Size=%s] Dwl=[Count:%d Size=%s]",
-            statsProvider.getCasUploads(),
-            prettyPrintSize(statsProvider.getCasUploadSizeBytes()),
-            statsProvider.getCasDownloads(),
-            prettyPrintSize(statsProvider.getCasDownloadSizeBytes()));
-    lines.add(casLine);
+      String casLine =
+          String.format(
+              "[RE] CAS: Upl=[Count:%d Size=%s] Dwl=[Count:%d Size=%s]",
+              statsProvider.getCasUploads(),
+              prettyPrintSize(statsProvider.getCasUploadSizeBytes()),
+              statsProvider.getCasDownloads(),
+              prettyPrintSize(statsProvider.getCasDownloadSizeBytes()));
+      lines.add(casLine);
+    } else if (statsProvider.getRemoteCpuTimeMs() > 0) {
+      long remoteMs = statsProvider.getRemoteCpuTimeMs();
+      long minutes = TimeUnit.MILLISECONDS.toMinutes(remoteMs);
+      lines.add(
+          String.format(
+              "Building with Remote Execution [RE]. Used %d:%02d minutes of distributed CPU time.",
+              minutes,
+              TimeUnit.MILLISECONDS.toSeconds(remoteMs) - TimeUnit.MINUTES.toSeconds(minutes)));
+    }
+    LocalFallbackStats localFallbackStats = statsProvider.getLocalFallbackStats();
+    if (localFallbackStats.getLocallyExecutedRules() > 0) {
+      float percentageRetry =
+          (100f * localFallbackStats.getLocallyExecutedRules())
+              / localFallbackStats.getTotalExecutedRules();
+      lines.add(
+          String.format(
+              "[RE] Some actions failed remotely, retrying locally. LocalFallback: [fallback_rate=%.2f%% remote=%d local=%d]",
+              percentageRetry,
+              localFallbackStats.getTotalExecutedRules()
+                  - localFallbackStats.getLocallyExecutedRules(),
+              localFallbackStats.getLocallySuccessfulRules()));
+    }
 
     return lines.build();
   }

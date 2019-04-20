@@ -25,6 +25,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -41,6 +42,7 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.cxx.CxxBinaryBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
@@ -216,12 +218,18 @@ public class PythonTestDescriptionTest {
     PythonPlatform platform1 =
         new TestPythonPlatform(
             InternalFlavor.of("pyPlat1"),
-            new PythonEnvironment(Paths.get("python2.6"), PythonVersion.of("CPython", "2.6")),
+            new PythonEnvironment(
+                Paths.get("python2.6"),
+                PythonVersion.of("CPython", "2.6"),
+                PythonBuckConfig.SECTION),
             Optional.empty());
     PythonPlatform platform2 =
         new TestPythonPlatform(
             InternalFlavor.of("pyPlat2"),
-            new PythonEnvironment(Paths.get("python2.7"), PythonVersion.of("CPython", "2.7")),
+            new PythonEnvironment(
+                Paths.get("python2.7"),
+                PythonVersion.of("CPython", "2.7"),
+                PythonBuckConfig.SECTION),
             Optional.empty());
     PythonTestBuilder builder =
         PythonTestBuilder.create(
@@ -344,7 +352,8 @@ public class PythonTestDescriptionTest {
     PythonBuckConfig config =
         new PythonBuckConfig(FakeBuckConfig.builder().build()) {
           @Override
-          public Optional<BuildTarget> getPexExecutorTarget() {
+          public Optional<BuildTarget> getPexExecutorTarget(
+              TargetConfiguration targetConfiguration) {
             return Optional.of(pexBuilder);
           }
         };
@@ -505,14 +514,14 @@ public class PythonTestDescriptionTest {
         new PythonLibraryBuilder(
                 BuildTargetFactory.newInstance("//:libA"),
                 PythonTestUtils.PYTHON_PLATFORMS,
-                cxxPlatforms)
+                cxxPlatforms.map(StaticUnresolvedCxxPlatform::new))
             .setSrcs(SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(libASrc)));
     SourcePath libBSrc = FakeSourcePath.of("libB.py");
     PythonLibraryBuilder libraryBBuilder =
         new PythonLibraryBuilder(
                 BuildTargetFactory.newInstance("//:libB"),
                 PythonTestUtils.PYTHON_PLATFORMS,
-                cxxPlatforms)
+                cxxPlatforms.map(StaticUnresolvedCxxPlatform::new))
             .setSrcs(SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(libBSrc)));
     PythonTestBuilder binaryBuilder =
         PythonTestBuilder.create(
@@ -520,8 +529,8 @@ public class PythonTestDescriptionTest {
                 PythonTestUtils.PYTHON_CONFIG,
                 new ExecutableFinder(),
                 PythonTestUtils.PYTHON_PLATFORMS,
-                CxxPlatformUtils.DEFAULT_PLATFORM,
-                cxxPlatforms)
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+                cxxPlatforms.map(StaticUnresolvedCxxPlatform::new))
             .setCxxPlatform(platformA.getFlavor())
             .setPlatformDeps(
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()

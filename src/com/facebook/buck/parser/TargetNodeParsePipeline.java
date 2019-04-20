@@ -19,7 +19,8 @@ package com.facebook.buck.parser;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.EmptyTargetConfiguration;
-import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
@@ -32,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +52,7 @@ import javax.annotation.concurrent.ThreadSafe;
  * duplicated (the **JobsCache variables) are used to make sure we don't schedule the same work more
  * than once), however it's possible for multiple read-only commands to duplicate work.
  */
+// TODO: remove after migration to configurable attributes
 @ThreadSafe
 public class TargetNodeParsePipeline
     extends ConvertingPipeline<Map<String, Object>, TargetNode<?>> {
@@ -93,9 +96,14 @@ public class TargetNodeParsePipeline
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, Map<String, Object> from) {
-    return ImmutableUnconfiguredBuildTarget.of(
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      Map<String, Object> from) {
+    return ImmutableUnconfiguredBuildTargetView.of(
             UnflavoredBuildTargetFactory.createFromRawNode(root, cellName, from, buildFile))
+        // This pipeline doesn't support configured targets, explicitly erase this information
         .configure(EmptyTargetConfiguration.INSTANCE);
   }
 
@@ -110,7 +118,8 @@ public class TargetNodeParsePipeline
     TargetNode<?> targetNode =
         delegate.createTargetNode(
             cell,
-            cell.getAbsolutePathToBuildFile(buildTarget),
+            cell.getBuckConfigView(ParserConfig.class)
+                .getAbsolutePathToBuildFile(cell, buildTarget.getUnconfiguredBuildTargetView()),
             buildTarget,
             rawNode,
             perfEventScopeFunction);
@@ -141,12 +150,14 @@ public class TargetNodeParsePipeline
       Cell cell, Path buildFile) throws BuildTargetException {
     return Futures.transform(
         buildFileRawNodeParsePipeline.getAllNodesJob(cell, buildFile),
-        map -> ImmutableList.copyOf(map.getTargets().values()));
+        map -> ImmutableList.copyOf(map.getTargets().values()),
+        MoreExecutors.directExecutor());
   }
 
   @Override
   protected ListenableFuture<Map<String, Object>> getItemToConvert(
       Cell cell, BuildTarget buildTarget) throws BuildTargetException {
-    return buildTargetRawNodeParsePipeline.getNodeJob(cell, buildTarget);
+    return buildTargetRawNodeParsePipeline.getNodeJob(
+        cell, buildTarget.getUnconfiguredBuildTargetView());
   }
 }

@@ -132,10 +132,7 @@ public class AndroidAarDescription
     /* assemble dirs */
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
-            buildTarget,
-            /* buildTargetsToExcludeFromDex */ ImmutableSet.of(),
-            /* resourcesToExclude */ ImmutableSet.of(),
-            apkModuleGraph);
+            buildTarget, /* buildTargetsToExcludeFromDex */ ImmutableSet.of(), apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(originalBuildRuleParams.getBuildDeps()),
         graphBuilder);
@@ -152,10 +149,7 @@ public class AndroidAarDescription
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleAssetsDirectories));
 
     ImmutableCollection<SourcePath> resDirectories =
-        packageableCollection
-            .getResourceDetails()
-            .values()
-            .stream()
+        packageableCollection.getResourceDetails().values().stream()
             .flatMap(resourceDetails -> resourceDetails.getResourceDirectories().stream())
             .collect(ImmutableList.toImmutableList());
     MergeAndroidResourceSources assembleResourceDirectories =
@@ -227,8 +221,7 @@ public class AndroidAarDescription
       buildConfigRules.forEach(graphBuilder::addToIndex);
       aarExtraDepsBuilder.addAll(buildConfigRules);
       classpathToIncludeInAar.addAll(
-          buildConfigRules
-              .stream()
+          buildConfigRules.stream()
               .map(BuildRule::getSourcePathToOutput)
               .collect(Collectors.toList()));
     }
@@ -241,7 +234,6 @@ public class AndroidAarDescription
             graphBuilder,
             buildTarget,
             projectFilesystem,
-            originalBuildRuleParams,
             ImmutableSet.of(),
             cxxBuckConfig,
             /* nativeLibraryMergeMap */ Optional.empty(),

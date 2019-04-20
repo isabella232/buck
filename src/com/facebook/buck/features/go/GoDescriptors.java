@@ -19,7 +19,9 @@ package com.facebook.buck.features.go;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -172,8 +174,7 @@ abstract class GoDescriptors {
         getPackageImportMap(
             goBuckConfig.getVendorPaths(),
             buildTarget.getBasePath(),
-            linkables
-                .stream()
+            linkables.stream()
                 .flatMap(input -> input.getGoLinkInput().keySet().stream())
                 .collect(ImmutableList.toImmutableList())),
         srcs,
@@ -181,6 +182,7 @@ abstract class GoDescriptors {
         ImmutableList.copyOf(compilerFlags),
         ImmutableList.copyOf(assemblerFlags),
         platform,
+        goBuckConfig.getGensymabis(),
         extraAsmOutputsBuilder.build(),
         goListTypes);
   }
@@ -212,6 +214,33 @@ abstract class GoDescriptors {
     return ImmutableMap.copyOf(importMapBuilder);
   }
 
+  static GoPlatform getPlatformForRule(
+      GoToolchain toolchain, GoBuckConfig buckConfig, BuildTarget target, HasGoLinkable arg) {
+    FlavorDomain<GoPlatform> platforms = toolchain.getPlatformFlavorDomain();
+
+    // Check target-defined platform first.
+    Optional<GoPlatform> platform = platforms.getValue(target);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Now try the default Go toolchain platform. This shouldn't be defined
+    // normally.
+    platform = buckConfig.getDefaultPlatform().map(InternalFlavor::of).map(platforms::getValue);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Next is the platform from the arg.
+    platform = arg.getPlatform().map(platforms::getValue);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Finally, the default overall toolchain platform.
+    return toolchain.getDefaultPlatform();
+  }
+
   static Iterable<BuildRule> getCgoLinkableDeps(Iterable<BuildRule> deps) {
     ImmutableSet.Builder<BuildRule> linkables = ImmutableSet.builder();
     new AbstractBreadthFirstTraversal<BuildRule>(deps) {
@@ -230,6 +259,7 @@ abstract class GoDescriptors {
 
   static ImmutableList<Arg> getCxxLinkerArgs(
       ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration,
       CxxPlatform cxxPlatform,
       Iterable<BuildRule> linkables,
       Linker.LinkableDepType linkStyle,
@@ -242,7 +272,12 @@ abstract class GoDescriptors {
 
     NativeLinkableInput linkableInput =
         NativeLinkables.getTransitiveNativeLinkableInput(
-            cxxPlatform, graphBuilder, linkables, linkStyle, r -> Optional.empty());
+            cxxPlatform,
+            graphBuilder,
+            targetConfiguration,
+            linkables,
+            linkStyle,
+            r -> Optional.empty());
 
     // skip setting any arg if no linkable inputs are present
     if (linkableInput.getArgs().isEmpty() && Iterables.size(externalLinkerFlags) == 0) {
@@ -293,10 +328,7 @@ abstract class GoDescriptors {
             compilerFlags,
             assemblerFlags,
             platform,
-            params
-                .getDeclaredDeps()
-                .get()
-                .stream()
+            params.getDeclaredDeps().get().stream()
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableList.toImmutableList()),
             ImmutableList.of(),
@@ -317,10 +349,7 @@ abstract class GoDescriptors {
                 buildTarget,
                 graphBuilder,
                 platform,
-                params
-                    .getDeclaredDeps()
-                    .get()
-                    .stream()
+                params.getDeclaredDeps().get().stream()
                     .map(BuildRule::getBuildTarget)
                     .collect(ImmutableList.toImmutableList()),
                 /* includeSelf */ false));
@@ -360,13 +389,18 @@ abstract class GoDescriptors {
               "-rpath",
               String.format(
                   "%s/%s",
-                  platform.getCxxPlatform().getLd().resolve(graphBuilder).origin(),
+                  platform
+                      .getCxxPlatform()
+                      .getLd()
+                      .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                      .origin(),
                   absBinaryDir.relativize(sharedLibraries.getRoot()).toString())));
     }
 
     ImmutableList<Arg> cxxLinkerArgs =
         getCxxLinkerArgs(
             graphBuilder,
+            buildTarget.getTargetConfiguration(),
             platform.getCxxPlatform(),
             cgoLinkables,
             linkStyle,
@@ -391,7 +425,11 @@ abstract class GoDescriptors {
                   : GoLinkStep.LinkMode.INTERNAL);
     }
 
-    Linker cxxLinker = platform.getCxxPlatform().getLd().resolve(graphBuilder);
+    Linker cxxLinker =
+        platform
+            .getCxxPlatform()
+            .getLd()
+            .resolve(graphBuilder, buildTarget.getTargetConfiguration());
     return new GoBinary(
         buildTarget,
         projectFilesystem,
@@ -422,7 +460,7 @@ abstract class GoDescriptors {
       BuildRuleParams sourceParams,
       ActionGraphBuilder graphBuilder) {
 
-    Optional<Tool> configTool = goBuckConfig.getGoTestMainGenerator(graphBuilder);
+    Optional<Tool> configTool = platform.getTestMainGen();
     if (configTool.isPresent()) {
       return configTool.get();
     }
@@ -542,8 +580,7 @@ abstract class GoDescriptors {
     ImmutableMap<Path, SourcePath> treeMap;
     try {
       treeMap =
-          linkables
-              .stream()
+          linkables.stream()
               .flatMap(linkable -> linkable.getGoLinkInput().entrySet().stream())
               .collect(
                   ImmutableMap.toImmutableMap(

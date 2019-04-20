@@ -24,6 +24,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -31,6 +32,8 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
+import com.facebook.buck.cxx.toolchain.CxxToolProvider.Type;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -55,26 +58,17 @@ public class CxxPlatformsTest {
     ImmutableMap<String, ImmutableMap<String, String>> sections =
         ImmutableMap.of("cxx", ImmutableMap.of("default_platform", "borland_cxx_452"));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CompilerProvider compiler =
-        new CompilerProvider(
-            Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC),
-            false);
-    PreprocessorProvider preprocessor =
-        new PreprocessorProvider(
-            Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC));
     HashedFileTool borland =
         new HashedFileTool(PathSourcePath.of(filesystem, Paths.get("borland")));
     CxxPlatform borlandCxx452Platform =
         CxxPlatform.builder()
             .setFlavor(InternalFlavor.of("borland_cxx_452"))
-            .setAs(compiler)
-            .setAspp(preprocessor)
-            .setCc(compiler)
-            .setCpp(preprocessor)
-            .setCxx(compiler)
-            .setCxxpp(preprocessor)
+            .setAs(createCompilerProvider(filesystem, ToolType.AS))
+            .setAspp(createPreprocessorProvider(filesystem, ToolType.ASPP))
+            .setCc(createCompilerProvider(filesystem, ToolType.CC))
+            .setCpp(createPreprocessorProvider(filesystem, ToolType.CPP))
+            .setCxx(createCompilerProvider(filesystem, ToolType.CXX))
+            .setCxxpp(createPreprocessorProvider(filesystem, ToolType.CXXPP))
             .setLd(
                 new DefaultLinkerProvider(
                     LinkerProvider.Type.GNU, new ConstantToolProvider(borland), true))
@@ -87,7 +81,6 @@ public class CxxPlatformsTest {
             .setStaticLibraryExtension("a")
             .setObjectFileExtension("so")
             .setCompilerDebugPathSanitizer(CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER)
-            .setAssemblerDebugPathSanitizer(CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER)
             .setHeaderVerification(CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification())
             .setPublicHeadersSymlinksEnabled(true)
             .setPrivateHeadersSymlinksEnabled(true)
@@ -97,10 +90,38 @@ public class CxxPlatformsTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     assertThat(
         CxxPlatforms.getConfigDefaultCxxPlatform(
-            new CxxBuckConfig(buckConfig),
-            ImmutableMap.of(borlandCxx452Platform.getFlavor(), borlandCxx452Platform),
-            CxxPlatformUtils.DEFAULT_PLATFORM),
+                new CxxBuckConfig(buckConfig),
+                ImmutableMap.of(
+                    borlandCxx452Platform.getFlavor(),
+                    new StaticUnresolvedCxxPlatform(borlandCxx452Platform)),
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM)
+            .resolve(new TestActionGraphBuilder()),
         equalTo(borlandCxx452Platform));
+  }
+
+  private PreprocessorProvider createPreprocessorProvider(
+      ProjectFilesystem filesystem, ToolType toolType) {
+    return new PreprocessorProvider(
+        new ConstantToolProvider(
+            new HashedFileTool(
+                Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))))),
+        Optional.of(Type.GCC)
+            .orElseGet(
+                () ->
+                    CxxToolTypeInferer.getTypeFromPath(
+                        Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland")))
+                            .get())),
+        toolType);
+  }
+
+  private CompilerProvider createCompilerProvider(ProjectFilesystem filesystem, ToolType toolType) {
+    return new CompilerProvider(
+        new ConstantToolProvider(
+            new HashedFileTool(
+                Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))))),
+        () -> Optional.of(Type.GCC).get(),
+        toolType,
+        false);
   }
 
   @Test
@@ -110,8 +131,10 @@ public class CxxPlatformsTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     assertThat(
         CxxPlatforms.getConfigDefaultCxxPlatform(
-            new CxxBuckConfig(buckConfig), ImmutableMap.of(), CxxPlatformUtils.DEFAULT_PLATFORM),
-        equalTo(CxxPlatformUtils.DEFAULT_PLATFORM));
+            new CxxBuckConfig(buckConfig),
+            ImmutableMap.of(),
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM),
+        equalTo(CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM));
   }
 
   public LinkerProvider getPlatformLinker(LinkerProvider.Type linkerType) {
@@ -183,7 +206,9 @@ public class CxxPlatformsTest {
                 .build());
 
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
-    return CxxPlatformUtils.build(buckConfig).getAr().resolve(ruleResolver);
+    return CxxPlatformUtils.build(buckConfig)
+        .getAr()
+        .resolve(ruleResolver, EmptyTargetConfiguration.INSTANCE);
   }
 
   @Test
@@ -205,7 +230,7 @@ public class CxxPlatformsTest {
   @Test
   public void sharedLibraryExtensionOverride() {
     Flavor flavor = InternalFlavor.of("custom");
-    String extension = ".foo";
+    String extension = "foo";
     ImmutableMap<String, ImmutableMap<String, String>> sections =
         ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("shared_library_extension", extension));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
@@ -217,6 +242,74 @@ public class CxxPlatformsTest {
                 InternalFlavor.of("custom"))
             .getSharedLibraryExtension(),
         equalTo(extension));
+  }
+
+  @Test
+  public void staticLibraryExtensionOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    String extension = "foo";
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("static_library_extension", extension));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertThat(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getStaticLibraryExtension(),
+        equalTo(extension));
+  }
+
+  @Test
+  public void objectFileExtensionOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    String extension = "bar";
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("object_file_extension", extension));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertThat(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getObjectFileExtension(),
+        equalTo(extension));
+  }
+
+  @Test
+  public void binaryExtensionOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    String extension = "bar";
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("binary_extension", extension));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertThat(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getBinaryExtension(),
+        equalTo(Optional.of(extension)));
+  }
+
+  @Test
+  public void binaryExtensionEmptyOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    String extension = "";
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("binary_extension", extension));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertThat(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getBinaryExtension(),
+        equalTo(Optional.empty()));
   }
 
   @Test

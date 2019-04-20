@@ -44,7 +44,8 @@ public class RedexArgsHelper {
       return Optional.empty();
     }
 
-    Tool redexBinary = androidBuckConfig.getRedexTool(graphBuilder);
+    Tool redexBinary =
+        androidBuckConfig.getRedexTool(graphBuilder, buildTarget.getTargetConfiguration());
 
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
@@ -53,8 +54,7 @@ public class RedexArgsHelper {
             .setExpanders(MacroExpandersForAndroidRules.MACRO_EXPANDERS)
             .build();
     List<Arg> redexExtraArgsList =
-        redexExtraArgs
-            .stream()
+        redexExtraArgs.stream()
             .map(x -> macrosConverter.convert(x, graphBuilder))
             .collect(Collectors.toList());
 

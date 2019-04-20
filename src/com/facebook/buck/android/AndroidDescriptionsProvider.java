@@ -70,8 +70,8 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
         new AndroidBuildConfigDescription(toolchainProvider),
         new AndroidBundleDescription(
             javaConfig,
-            androidBuckConfig,
             proGuardConfig,
+            androidBuckConfig,
             config,
             cxxBuckConfig,
             dxConfig,
@@ -87,7 +87,8 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
         new RobolectricTestDescription(
             toolchainProvider, javaConfig, defaultAndroidCompilerFactory),
         new PrebuiltNativeLibraryDescription(),
-        new NdkLibraryDescription(),
+        new NdkLibraryDescription(toolchainProvider),
+        new NdkToolchainDescription(),
         new GenAidlDescription(),
         new ApkGenruleDescription(toolchainProvider, sandboxExecutionStrategy));
   }

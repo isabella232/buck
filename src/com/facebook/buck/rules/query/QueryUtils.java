@@ -27,7 +27,6 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.Threads;
@@ -113,17 +112,14 @@ public final class QueryUtils {
             cellRoots,
             UNCONFIGURED_BUILD_TARGET_FACTORY,
             target.getBaseName(),
-            declaredDeps);
+            declaredDeps,
+            target.getTargetConfiguration());
     try {
-      QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
-      Set<QueryTarget> queryTargets = cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
-      return queryTargets
-          .stream()
-          .map(
-              queryTarget -> {
-                Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-                return ((QueryBuildTarget) queryTarget).getBuildTarget();
-              })
+      QueryExpression<QueryBuildTarget> parsedExp = QueryExpression.parse(query.getQuery(), env);
+      Set<QueryBuildTarget> queryTargets =
+          cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
+      return queryTargets.stream()
+          .map(queryTarget -> queryTarget.getBuildTarget())
           .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     } catch (QueryException e) {
       if (e.getCause() instanceof InterruptedException) {
@@ -143,11 +139,10 @@ public final class QueryUtils {
             cellPathResolver,
             UNCONFIGURED_BUILD_TARGET_FACTORY,
             targetBaseName,
-            ImmutableSet.of());
-    QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
-    return parsedExp
-        .getTargets(env)
-        .stream()
+            ImmutableSet.of(),
+            query.getTargetConfiguration());
+    QueryExpression<QueryBuildTarget> parsedExp = QueryExpression.parse(query.getQuery(), env);
+    return parsedExp.getTargets(env).stream()
         .map(
             queryTarget -> {
               Preconditions.checkState(queryTarget instanceof QueryBuildTarget);

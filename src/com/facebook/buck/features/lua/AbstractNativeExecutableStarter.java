@@ -193,7 +193,9 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
         getNativeStarterLibrary().isPresent()
             ? getActionGraphBuilder()
                 .getRuleWithType(getNativeStarterLibrary().get(), AbstractCxxLibrary.class)
-            : getLuaPlatform().getLuaCxxLibrary(getActionGraphBuilder()));
+            : getLuaPlatform()
+                .getLuaCxxLibrary(
+                    getActionGraphBuilder(), getBaseTarget().getTargetConfiguration()));
   }
 
   private NativeLinkableInput getNativeLinkableInput() {
@@ -237,7 +239,9 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
                             getLuaPlatform()
                                 .getCxxPlatform()
                                 .getLd()
-                                .resolve(getActionGraphBuilder())
+                                .resolve(
+                                    getActionGraphBuilder(),
+                                    getBaseTarget().getTargetConfiguration())
                                 .origin(),
                             getRelativeNativeLibsDir().get().toString())))
                 : ImmutableList.of())
@@ -302,7 +306,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
   }
 
   @Override
-  public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+  public Optional<Path> getNativeLinkTargetOutputPath() {
     return Optional.of(getOutput());
   }
 }

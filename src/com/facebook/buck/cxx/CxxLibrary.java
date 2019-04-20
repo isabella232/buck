@@ -20,6 +20,7 @@ import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -45,7 +46,6 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.concurrent.Parallelizer;
 import com.facebook.buck.util.function.QuadFunction;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
@@ -117,7 +117,6 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Parallelizer preprocessorInputCacheParallelizer,
       CxxDeps deps,
       CxxDeps exportedDeps,
       Predicate<CxxPlatform> headerOnly,
@@ -163,8 +162,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     this.reexportAllHeaderDependencies = reexportAllHeaderDependencies;
     this.supportsOmnibusLinking = supportsOmnibusLinking;
     this.delegate = delegate;
-    this.transitiveCxxPreprocessorInputCache =
-        new TransitiveCxxPreprocessorInputCache(this, preprocessorInputCacheParallelizer);
+    this.transitiveCxxPreprocessorInputCache = new TransitiveCxxPreprocessorInputCache(this);
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
@@ -353,7 +351,8 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
         if (linkWhole || forceLinkWhole) {
           SourcePathResolver pathResolver =
               DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-          Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
+          Linker linker =
+              cxxPlatform.getLd().resolve(graphBuilder, getBuildTarget().getTargetConfiguration());
           linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg(), pathResolver));
         } else {
           Arg libraryArg = archive.toArg();
@@ -395,7 +394,8 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     NativeLinkableCacheKey key =
         NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
     try {
@@ -412,8 +412,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return linkage;
   }
 
@@ -488,12 +487,12 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+  public Optional<Path> getNativeLinkTargetOutputPath() {
     return Optional.empty();
   }
 
   @Override
-  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
     return supportsOmnibusLinking;
   }
 

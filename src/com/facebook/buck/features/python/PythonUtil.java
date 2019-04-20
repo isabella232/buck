@@ -84,14 +84,10 @@ public class PythonUtil {
     return RichStream.<BuildTarget>empty()
         .concat(deps.stream())
         .concat(
-            platformDeps
-                .getMatchingValues(pythonPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .concat(
-            platformDeps
-                .getMatchingValues(cxxPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(cxxPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .toImmutableList();
   }
@@ -320,8 +316,7 @@ public class PythonUtil {
               graphBuilder,
               Iterables.concat(nativeLinkableRoots.values(), extensionNativeDeps.values()));
       for (NativeLinkable nativeLinkable : nativeLinkables.values()) {
-        NativeLinkable.Linkage linkage =
-            nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
+        NativeLinkable.Linkage linkage = nativeLinkable.getPreferredLinkage(cxxPlatform);
         if (nativeLinkableRoots.containsKey(nativeLinkable.getBuildTarget())
             || linkage != NativeLinkable.Linkage.STATIC) {
           ImmutableMap<String, SourcePath> libs =

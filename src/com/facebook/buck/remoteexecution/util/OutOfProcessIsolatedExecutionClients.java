@@ -16,19 +16,20 @@
 
 package com.facebook.buck.remoteexecution.util;
 
+import build.bazel.remote.execution.v2.ExecutedActionMetadata;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.remoteexecution.ContentAddressedStorage;
+import com.facebook.buck.remoteexecution.ContentAddressedStorageClient;
 import com.facebook.buck.remoteexecution.RemoteExecutionClients;
-import com.facebook.buck.remoteexecution.RemoteExecutionService;
-import com.facebook.buck.remoteexecution.RemoteExecutionService.ExecutionResult;
+import com.facebook.buck.remoteexecution.RemoteExecutionServiceClient;
+import com.facebook.buck.remoteexecution.RemoteExecutionServiceClient.ExecutionResult;
 import com.facebook.buck.remoteexecution.interfaces.Protocol;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.Action;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.Command;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.OutputDirectory;
 import com.facebook.buck.remoteexecution.interfaces.Protocol.OutputFile;
-import com.facebook.buck.remoteexecution.proto.RemoteExecutionMetadata;
 import com.facebook.buck.util.NamedTemporaryDirectory;
 import com.facebook.buck.util.Scope;
 import com.google.common.collect.ImmutableList;
@@ -45,7 +46,7 @@ public class OutOfProcessIsolatedExecutionClients implements RemoteExecutionClie
   private final Protocol protocol;
   private final NamedTemporaryDirectory workDir;
   private final LocalContentAddressedStorage storage;
-  private final RemoteExecutionService executionService;
+  private final RemoteExecutionServiceClient executionService;
 
   /**
    * Returns a RemoteExecution implementation that uses a local CAS and a separate local temporary
@@ -63,7 +64,7 @@ public class OutOfProcessIsolatedExecutionClients implements RemoteExecutionClie
         new LocalContentAddressedStorage(workDir.getPath().resolve("__cache__"), protocol);
     this.protocol = protocol;
     this.executionService =
-        (actionDigest) -> {
+        (actionDigest, ruleName, metadataProvider) -> {
           Action action = storage.materializeAction(actionDigest);
 
           Path buildDir = workDir.getPath().resolve(action.getInputRootDigest().getHash());
@@ -84,9 +85,7 @@ public class OutOfProcessIsolatedExecutionClients implements RemoteExecutionClie
                     .runAction(
                         command.getCommand(),
                         command.getEnvironment(),
-                        command
-                            .getOutputDirectories()
-                            .stream()
+                        command.getOutputDirectories().stream()
                             .map(Paths::get)
                             .collect(ImmutableSet.toImmutableSet()),
                         buildDir);
@@ -111,13 +110,23 @@ public class OutOfProcessIsolatedExecutionClients implements RemoteExecutionClie
                   }
 
                   @Override
+                  public Optional<String> getStdout() {
+                    return Optional.of(actionResult.stdout);
+                  }
+
+                  @Override
                   public Optional<String> getStderr() {
                     return Optional.of(actionResult.stderr);
                   }
 
                   @Override
-                  public RemoteExecutionMetadata getMetadata() {
-                    return RemoteExecutionMetadata.getDefaultInstance();
+                  public Digest getActionResultDigest() {
+                    return protocol.newDigest("", 0);
+                  }
+
+                  @Override
+                  public ExecutedActionMetadata getActionMetadata() {
+                    return ExecutedActionMetadata.getDefaultInstance();
                   }
                 });
           }
@@ -125,12 +134,12 @@ public class OutOfProcessIsolatedExecutionClients implements RemoteExecutionClie
   }
 
   @Override
-  public RemoteExecutionService getRemoteExecutionService() {
+  public RemoteExecutionServiceClient getRemoteExecutionService() {
     return executionService;
   }
 
   @Override
-  public ContentAddressedStorage getContentAddressedStorage() {
+  public ContentAddressedStorageClient getContentAddressedStorage() {
     return storage;
   }
 

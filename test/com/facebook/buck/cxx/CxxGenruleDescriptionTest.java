@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -34,7 +35,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.macros.CcFlagsMacro;
@@ -66,7 +67,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -75,7 +75,7 @@ import org.junit.Test;
 
 public class CxxGenruleDescriptionTest {
 
-  private static final ForkJoinPool POOL = new ForkJoinPool(1);
+  private static final int NUMBER_OF_THREADS = 1;
 
   @Test
   public void toolPlatformParseTimeDeps() {
@@ -88,7 +88,8 @@ public class CxxGenruleDescriptionTest {
           ImmutableSet.copyOf(builder.findImplicitDeps()),
           Matchers.equalTo(
               ImmutableSet.copyOf(
-                  CxxPlatforms.getParseTimeDeps(CxxPlatformUtils.DEFAULT_PLATFORM))));
+                  CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.getParseTimeDeps(
+                      EmptyTargetConfiguration.INSTANCE))));
     }
   }
 
@@ -144,7 +145,9 @@ public class CxxGenruleDescriptionTest {
         new CxxGenruleBuilder(
                 BuildTargetFactory.newInstance("//:rule#" + cxxPlatform.getFlavor()),
                 new FlavorDomain<>(
-                    "C/C++ Platform", ImmutableMap.of(cxxPlatform.getFlavor(), cxxPlatform)))
+                    "C/C++ Platform",
+                    ImmutableMap.of(
+                        cxxPlatform.getFlavor(), new StaticUnresolvedCxxPlatform(cxxPlatform))))
             .setOut("out")
             .setCmd(
                 StringWithMacrosUtils.format(
@@ -172,7 +175,9 @@ public class CxxGenruleDescriptionTest {
         new CxxGenruleBuilder(
                 BuildTargetFactory.newInstance("//:rule#" + cxxPlatform.getFlavor()),
                 new FlavorDomain<>(
-                    "C/C++ Platform", ImmutableMap.of(cxxPlatform.getFlavor(), cxxPlatform)))
+                    "C/C++ Platform",
+                    ImmutableMap.of(
+                        cxxPlatform.getFlavor(), new StaticUnresolvedCxxPlatform(cxxPlatform))))
             .setOut("out")
             .setCmd(StringWithMacrosUtils.format("%s %s", CcFlagsMacro.of(), CxxFlagsMacro.of()));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
@@ -207,7 +212,7 @@ public class CxxGenruleDescriptionTest {
         ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
-            POOL,
+            NUMBER_OF_THREADS,
             new DefaultTypeCoercerFactory(),
             new ParsingUnconfiguredBuildTargetFactory(),
             20);
@@ -244,7 +249,7 @@ public class CxxGenruleDescriptionTest {
         ParallelVersionedTargetGraphBuilder.transform(
             new NaiveVersionSelector(),
             TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(genruleBuilder.getTarget())),
-            POOL,
+            NUMBER_OF_THREADS,
             new DefaultTypeCoercerFactory(),
             new ParsingUnconfiguredBuildTargetFactory(),
             20);

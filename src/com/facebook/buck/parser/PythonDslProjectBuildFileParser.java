@@ -32,6 +32,7 @@ import com.facebook.buck.json.BuildFileParseExceptionStackTraceEntry;
 import com.facebook.buck.json.BuildFilePythonResult;
 import com.facebook.buck.json.BuildFileSyntaxError;
 import com.facebook.buck.parser.api.BuildFileManifest;
+import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.parser.events.ParseBuckProfilerReportEvent;
@@ -164,9 +165,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
                     new BufferedOutputStream(Files.newOutputStream(ignorePathsJson1))) {
                   ObjectMappers.WRITER.writeValue(
                       output,
-                      options
-                          .getIgnorePaths()
-                          .stream()
+                      options.getIgnorePaths().stream()
                           .map(PathMatcher::getPathOrGlob)
                           .collect(ImmutableList.toImmutableList()));
                 }
@@ -443,7 +442,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       if (values.isEmpty()) {
         // in case Python process cannot send values due to serialization issues, it will send an
         // empty list
-        return BuildFileManifest.of(
+        return ImmutableBuildFileManifest.of(
             ImmutableMap.of(),
             ImmutableSortedSet.of(),
             ImmutableMap.of(),
@@ -470,7 +469,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   @SuppressWarnings("unchecked")
   private BuildFileManifest toBuildFileManifest(ImmutableList<Map<String, Object>> values) {
-    return BuildFileManifest.of(
+    return ImmutableBuildFileManifest.of(
         indexTargetsByName(values.subList(0, values.size() - 3).asList()),
         ImmutableSortedSet.copyOf(
             Objects.requireNonNull(
@@ -538,7 +537,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       List<Object> items = (List<Object>) Objects.requireNonNull(attributeValue.get("items"));
       ImmutableList<Object> convertedElements = convertToSelectableAttributesIfNeeded(items);
       return ImmutableListWithSelects.of(
-          convertedElements, getType(Iterables.getOnlyElement(convertedElements)));
+          convertedElements, getType(Iterables.getLast(convertedElements)));
     }
   }
 

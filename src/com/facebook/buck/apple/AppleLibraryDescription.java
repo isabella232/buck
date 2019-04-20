@@ -76,6 +76,7 @@ import com.facebook.buck.cxx.toolchain.HeaderSymlinkTreeWithModuleMap;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -88,6 +89,7 @@ import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
@@ -115,7 +117,8 @@ public class AppleLibraryDescription
             AppleLibraryDescription.AbstractAppleLibraryDescriptionArg>,
         ImplicitFlavorsInferringDescription,
         MetadataProvidingDescription<AppleLibraryDescriptionArg>,
-        CxxLibraryDescriptionDelegate {
+        CxxLibraryDescriptionDelegate,
+        VersionPropagator<AppleLibraryDescriptionArg> {
 
   @SuppressWarnings("PMD") // PMD doesn't understand method references
   private static final Set<Flavor> SUPPORTED_FLAVORS =
@@ -245,8 +248,7 @@ public class AppleLibraryDescription
 
     // Drop StripStyle because it's overridden by AppleDebugFormat
     result =
-        result
-            .stream()
+        result.stream()
             .filter(domain -> !domain.equals(StripStyle.FLAVOR_DOMAIN))
             .collect(ImmutableSet.toImmutableSet());
 
@@ -272,14 +274,18 @@ public class AppleLibraryDescription
     Optional<Map.Entry<Flavor, Type>> maybeType = LIBRARY_TYPE.getFlavorAndValue(buildTarget);
     return maybeType.flatMap(
         type -> {
-          FlavorDomain<CxxPlatform> cxxPlatforms = getCxxPlatformsProvider().getCxxPlatforms();
+          FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+              getCxxPlatformsProvider().getUnresolvedCxxPlatforms();
           if (type.getValue().equals(Type.SWIFT_UNDERLYING_MODULE)) {
             return Optional.of(
                 createUnderlyingModuleSymlinkTreeBuildRule(
                     buildTarget, projectFilesystem, graphBuilder, args));
           } else if (type.getValue().equals(Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER)) {
             CxxPlatform cxxPlatform =
-                cxxPlatforms.getValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+                cxxPlatforms
+                    .getValue(buildTarget)
+                    .orElseThrow(IllegalArgumentException::new)
+                    .resolve(graphBuilder);
 
             return Optional.of(
                 AppleLibraryDescriptionSwiftEnhancer.createObjCGeneratedHeaderBuildRule(
@@ -291,7 +297,10 @@ public class AppleLibraryDescription
                     HeaderVisibility.PUBLIC));
           } else if (type.getValue().equals(Type.SWIFT_OBJC_GENERATED_HEADER)) {
             CxxPlatform cxxPlatform =
-                cxxPlatforms.getValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+                cxxPlatforms
+                    .getValue(buildTarget)
+                    .orElseThrow(IllegalArgumentException::new)
+                    .resolve(graphBuilder);
 
             return Optional.of(
                 AppleLibraryDescriptionSwiftEnhancer.createObjCGeneratedHeaderBuildRule(
@@ -303,7 +312,10 @@ public class AppleLibraryDescription
                     HeaderVisibility.PRIVATE));
           } else if (type.getValue().equals(Type.SWIFT_COMPILE)) {
             CxxPlatform cxxPlatform =
-                cxxPlatforms.getValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+                cxxPlatforms
+                    .getValue(buildTarget)
+                    .orElseThrow(IllegalArgumentException::new)
+                    .resolve(graphBuilder);
 
             // TODO(mgd): Must handle 'default' platform
             AppleCxxPlatform applePlatform =
@@ -488,17 +500,21 @@ public class AppleLibraryDescription
     }
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor();
 
     // If we built a multiarch binary, we can just use the strip tool from any platform.
     // We pick the platform in this odd way due to FlavorDomain's restriction of allowing only one
     // matching flavor in the build target.
     CxxPlatform representativePlatform =
-        cxxPlatforms.getValue(
-            Iterables.getFirst(
-                Sets.intersection(cxxPlatforms.getFlavors(), unstrippedBuildTarget.getFlavors()),
-                defaultCxxFlavor));
+        cxxPlatforms
+            .getValue(
+                Iterables.getFirst(
+                    Sets.intersection(
+                        cxxPlatforms.getFlavors(), unstrippedBuildTarget.getFlavors()),
+                    defaultCxxFlavor))
+            .resolve(graphBuilder);
 
     BuildTarget strippedBuildTarget =
         CxxStrip.restoreStripStyleFlavorInTarget(unstrippedBuildTarget, flavoredStripStyle);
@@ -627,8 +643,8 @@ public class AppleLibraryDescription
       unstrippedTarget = unstrippedTarget.withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     }
 
-    Optional<CxxPlatform> platform =
-        getCxxPlatformsProvider().getCxxPlatforms().getValue(buildTarget);
+    Optional<UnresolvedCxxPlatform> platform =
+        getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getValue(buildTarget);
     Optional<Type> libType = LIBRARY_TYPE.getValue(buildTarget);
     Optional<HeaderMode> headerMode = CxxLibraryDescription.HEADER_MODE.getValue(buildTarget);
     if (platform.isPresent()
@@ -637,7 +653,11 @@ public class AppleLibraryDescription
         && headerMode.isPresent()
         && headerMode.get().equals(HeaderMode.SYMLINK_TREE_WITH_MODULEMAP)) {
       return createExportedModuleSymlinkTreeBuildRule(
-          buildTarget, context.getProjectFilesystem(), graphBuilder, platform.get(), args);
+          buildTarget,
+          context.getProjectFilesystem(),
+          graphBuilder,
+          platform.get().resolve(graphBuilder),
+          args);
     } else if (platform.isPresent()
         && libType.isPresent()
         && libType.get().equals(Type.SWIFT_UNDERLYING_MODULE)) {
@@ -777,7 +797,7 @@ public class AppleLibraryDescription
     if (metadataClass.isAssignableFrom(FrameworkDependencies.class)
         && buildTarget.getFlavors().contains(AppleDescriptions.FRAMEWORK_FLAVOR)) {
       Optional<Flavor> cxxPlatformFlavor =
-          getCxxPlatformsProvider().getCxxPlatforms().getFlavor(buildTarget);
+          getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getFlavor(buildTarget);
       Preconditions.checkState(
           cxxPlatformFlavor.isPresent(),
           "Could not find cxx platform in:\n%s",
@@ -916,9 +936,9 @@ public class AppleLibraryDescription
       AppleNativeTargetDescriptionArg args,
       Class<U> metadataClass,
       Entry<Flavor, CxxLibraryDescription.MetadataType> cxxMetaDataType) {
-    Entry<Flavor, CxxPlatform> platform =
+    Entry<Flavor, UnresolvedCxxPlatform> platformEntry =
         getCxxPlatformsProvider()
-            .getCxxPlatforms()
+            .getUnresolvedCxxPlatforms()
             .getFlavorAndValue(buildTarget)
             .orElseThrow(IllegalArgumentException::new);
     Entry<Flavor, HeaderVisibility> visibility =
@@ -927,16 +947,17 @@ public class AppleLibraryDescription
             .orElseThrow(IllegalArgumentException::new);
     BuildTarget baseTarget =
         buildTarget.withoutFlavors(
-            cxxMetaDataType.getKey(), platform.getKey(), visibility.getKey());
+            cxxMetaDataType.getKey(), platformEntry.getKey(), visibility.getKey());
+    CxxPlatform cxxPlatform = platformEntry.getValue().resolve(graphBuilder);
 
     CxxPreprocessorInput.Builder cxxPreprocessorInputBuilder = CxxPreprocessorInput.builder();
     CxxLibraryMetadataFactory.addCxxPreprocessorInputFromArgs(
         cxxPreprocessorInputBuilder,
         args,
-        platform,
+        cxxPlatform,
         f ->
             CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                buildTarget, cellRoots, graphBuilder, platform.getValue(), f));
+                buildTarget, cellRoots, graphBuilder, cxxPlatform, f));
 
     HeaderSymlinkTree symlinkTree =
         (HeaderSymlinkTree)
@@ -945,7 +966,7 @@ public class AppleLibraryDescription
                     .withoutFlavors(LIBRARY_TYPE.getFlavors())
                     .withAppendedFlavors(
                         CxxLibraryDescription.Type.EXPORTED_HEADERS.getFlavor(),
-                        platform.getKey(),
+                        platformEntry.getKey(),
                         HeaderMode.SYMLINK_TREE_WITH_MODULEMAP.getFlavor()));
     cxxPreprocessorInputBuilder.addIncludes(
         CxxSymlinkTreeHeaders.from(symlinkTree, CxxPreprocessables.IncludeType.LOCAL));
@@ -996,8 +1017,8 @@ public class AppleLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     MultiarchFileInfos.checkTargetSupportsMultiarch(getAppleCxxPlatformDomain(), buildTarget);
-    extraDepsBuilder.addAll(
-        cxxLibraryFactory.getPlatformParseTimeDeps(buildTarget, constructorArg));
+    targetGraphOnlyDepsBuilder.addAll(
+        cxxLibraryFactory.getPlatformParseTimeDeps(buildTarget.getTargetConfiguration()));
   }
 
   public static boolean isNotStaticallyLinkedLibraryNode(
@@ -1022,7 +1043,8 @@ public class AppleLibraryDescription
   // CxxLibraryDescriptionDelegate
 
   private static boolean targetContainsSwift(BuildTarget target, ActionGraphBuilder graphBuilder) {
-    BuildTarget metadataTarget = target.withFlavors(MetadataType.APPLE_SWIFT_METADATA.getFlavor());
+    BuildTarget metadataTarget =
+        target.withAppendedFlavors(MetadataType.APPLE_SWIFT_METADATA.getFlavor());
     Optional<AppleLibrarySwiftMetadata> metadata =
         graphBuilder.requireMetadata(metadataTarget, AppleLibrarySwiftMetadata.class);
     return metadata.map(m -> !m.getSwiftSources().isEmpty()).orElse(false);
@@ -1132,7 +1154,9 @@ public class AppleLibraryDescription
     BuildTarget targetWithPlatform = target.withAppendedFlavors(platform.getFlavor());
     Optional<SwiftPlatform> swiftPlatform = swiftPlatformFlavorDomain.getValue(targetWithPlatform);
     return swiftPlatform.map(
-        theSwiftPlatform -> ImmutableList.of(new SwiftRuntimeNativeLinkable(theSwiftPlatform)));
+        theSwiftPlatform ->
+            ImmutableList.of(
+                new SwiftRuntimeNativeLinkable(theSwiftPlatform, target.getTargetConfiguration())));
   }
 
   @Override

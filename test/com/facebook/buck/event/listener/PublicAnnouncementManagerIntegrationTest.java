@@ -42,6 +42,7 @@ import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteStreams;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
@@ -128,7 +129,9 @@ public class PublicAnnouncementManagerIntegrationTest {
                   ImmutableMap.of(
                       "log",
                       ImmutableMap.of(
-                          "slb_server_pool", "http://localhost:" + httpd.getRootUri().getPort())))
+                          "slb_server_pool", "http://localhost:" + httpd.getRootUri().getPort()),
+                      "cache",
+                      ImmutableMap.of("repository", REPOSITORY)))
               .build();
 
       TestConsole console = new TestConsole();
@@ -145,6 +148,7 @@ public class PublicAnnouncementManagerIntegrationTest {
               new BuildId("1234-5679"),
               false,
               Optional.empty(),
+              ImmutableSet.of(),
               ImmutableList.of());
       eventBus.register(listener);
 
@@ -153,7 +157,6 @@ public class PublicAnnouncementManagerIntegrationTest {
               clock,
               eventBus,
               listener,
-              REPOSITORY,
               new RemoteLogBuckConfig(buckConfig),
               MoreExecutors.newDirectExecutorService());
 

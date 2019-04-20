@@ -101,7 +101,7 @@ public class HaskellHaddockDescription
             context.getProjectFilesystem(),
             params,
             ruleFinder,
-            platform.getHaddock().resolve(graphBuilder),
+            platform.getHaddock().resolve(graphBuilder, baseTarget.getTargetConfiguration()),
             args.getHaddockFlags(),
             haddockInputs.build()));
   }
@@ -135,7 +135,9 @@ public class HaskellHaddockDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     HaskellDescriptionUtils.getParseTimeDeps(
-        ImmutableList.of(getPlatform(buildTarget, constructorArg)), targetGraphOnlyDepsBuilder);
+        buildTarget.getTargetConfiguration(),
+        ImmutableList.of(getPlatform(buildTarget, constructorArg)),
+        targetGraphOnlyDepsBuilder);
 
     constructorArg
         .getDepsQuery()

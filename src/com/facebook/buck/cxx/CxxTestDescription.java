@@ -25,6 +25,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -38,10 +39,10 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -92,22 +93,22 @@ public class CxxTestDescription
   }
 
   private ImmutableSet<BuildTarget> getImplicitFrameworkDeps(
-      AbstractCxxTestDescriptionArg constructorArg) {
+      TargetConfiguration targetConfiguration, AbstractCxxTestDescriptionArg constructorArg) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
     CxxTestType type = constructorArg.getFramework().orElse(getDefaultTestType());
     switch (type) {
       case GTEST:
         {
-          cxxBuckConfig.getGtestDep().ifPresent(deps::add);
+          cxxBuckConfig.getGtestDep(targetConfiguration).ifPresent(deps::add);
           if (constructorArg.getUseDefaultTestMain().orElse(true)) {
-            cxxBuckConfig.getGtestDefaultTestMainDep().ifPresent(deps::add);
+            cxxBuckConfig.getGtestDefaultTestMainDep(targetConfiguration).ifPresent(deps::add);
           }
           break;
         }
       case BOOST:
         {
-          cxxBuckConfig.getBoostTestDep().ifPresent(deps::add);
+          cxxBuckConfig.getBoostTestDep(targetConfiguration).ifPresent(deps::add);
           break;
         }
       default:
@@ -119,13 +120,14 @@ public class CxxTestDescription
     return deps.build();
   }
 
-  private CxxPlatform getCxxPlatform(
+  private UnresolvedCxxPlatform getCxxPlatform(
       BuildTarget target, CxxBinaryDescription.CommonArg constructorArg) {
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     // First check if the build target is setting a particular target.
-    Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
+    Optional<UnresolvedCxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
     if (targetPlatform.isPresent()) {
       return targetPlatform.get();
     }
@@ -136,7 +138,8 @@ public class CxxTestDescription
     }
 
     // Otherwise, fallback to the description-level default platform.
-    return cxxPlatforms.getValue(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor());
+    return cxxPlatforms.getValue(
+        cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor());
   }
 
   @Override
@@ -160,8 +163,8 @@ public class CxxTestDescription
         LinkerMapMode.removeLinkerMapModeFlavorInTarget(inputBuildTarget, flavoredLinkerMapMode);
     BuildTarget buildTarget = inputBuildTarget;
 
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args).resolve(graphBuilder);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
@@ -176,7 +179,7 @@ public class CxxTestDescription
               cxxBuckConfig,
               cxxPlatform,
               args,
-              getImplicitFrameworkDeps(args),
+              getImplicitFrameworkDeps(buildTarget.getTargetConfiguration(), args),
               flavoredStripStyle,
               flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
@@ -185,7 +188,7 @@ public class CxxTestDescription
 
     if (buildTarget.getFlavors().contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
-          getCxxPlatformsProvider().getCxxPlatforms().getValue(buildTarget).isPresent()
+          getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getValue(buildTarget).isPresent()
               ? buildTarget
               : buildTarget.withAppendedFlavors(cxxPlatform.getFlavor()),
           projectFilesystem,
@@ -202,7 +205,7 @@ public class CxxTestDescription
             cxxBuckConfig,
             cxxPlatform,
             args,
-            getImplicitFrameworkDeps(args),
+            getImplicitFrameworkDeps(buildTarget.getTargetConfiguration(), args),
             flavoredStripStyle,
             flavoredLinkerMapMode);
 
@@ -231,8 +234,7 @@ public class CxxTestDescription
             Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder)));
 
     ImmutableList<Arg> testArgs =
-        args.getArgs()
-            .stream()
+        args.getArgs().stream()
             .map(x -> macrosConverter.convert(x, graphBuilder))
             .collect(ImmutableList.toImmutableList());
 
@@ -335,10 +337,12 @@ public class CxxTestDescription
 
     // Get any parse time deps from the C/C++ platforms.
     targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatform(buildTarget, constructorArg)));
+        getCxxPlatform(buildTarget, constructorArg)
+            .getParseTimeDeps(buildTarget.getTargetConfiguration()));
 
     // Add in any implicit framework deps.
-    extraDepsBuilder.addAll(getImplicitFrameworkDeps(constructorArg));
+    extraDepsBuilder.addAll(
+        getImplicitFrameworkDeps(buildTarget.getTargetConfiguration(), constructorArg));
 
     constructorArg
         .getDepsQuery()
@@ -375,7 +379,7 @@ public class CxxTestDescription
       return true;
     }
 
-    return getCxxPlatformsProvider().getCxxPlatforms().containsAnyOf(flavors)
+    return getCxxPlatformsProvider().getUnresolvedCxxPlatforms().containsAnyOf(flavors)
         || !Sets.intersection(declaredPlatforms, flavors).isEmpty();
   }
 

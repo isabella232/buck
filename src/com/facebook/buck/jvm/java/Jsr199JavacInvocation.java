@@ -372,9 +372,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     }
 
     private boolean buildSuccessful() {
-      return diagnostics
-          .getDiagnostics()
-          .stream()
+      return diagnostics.getDiagnostics().stream()
           .noneMatch(diag -> diag.getKind() == Diagnostic.Kind.ERROR);
     }
 
@@ -580,9 +578,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                     javacTask,
                     ruleInfoFactory.create(fileManager),
                     () ->
-                        diagnostics
-                            .getDiagnostics()
-                            .stream()
+                        diagnostics.getDiagnostics().stream()
                             .anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR),
                     abiGenerationMode.getDiagnosticKindForSourceOnlyAbiCompatibility());
           }
@@ -645,7 +641,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
           Iterable<? extends JavaFileObject> javaFileObjects =
               fileManager.getJavaFileObjects(absolutifier.apply(path).toFile());
           compilationUnits.add(Iterables.getOnlyElement(javaFileObjects));
-        } else if (pathString.endsWith(Javac.SRC_ZIP) || pathString.endsWith(Javac.SRC_JAR)) {
+        } else if (pathString.endsWith(JavaPaths.SRC_ZIP)
+            || pathString.endsWith(JavaPaths.SRC_JAR)) {
           // For a Zip of .java files, create a JavaFileObject for each .java entry.
           ZipFile zipFile = new ZipFile(absolutifier.apply(path).toFile());
           boolean hasZipFileBeenUsed = false;

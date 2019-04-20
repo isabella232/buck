@@ -277,7 +277,7 @@ public abstract class DefaultJavaLibraryRules {
   private static final Pattern JAVA_VERSION_PATTERN = Pattern.compile("^(1\\.)*(?<version>\\d)$");
 
   private boolean isDesugarRequired() {
-    String sourceLevel = getJavacOptions().getSourceLevel();
+    String sourceLevel = getJavacOptions().getLanguageLevelOptions().getSourceLevel();
     Matcher matcher = JAVA_VERSION_PATTERN.matcher(sourceLevel);
     if (!matcher.find()) {
       return false;
@@ -370,8 +370,8 @@ public abstract class DefaultJavaLibraryRules {
   private boolean pluginsSupportSourceOnlyAbis() {
     ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
         Objects.requireNonNull(getJavacOptions())
-            .getAnnotationProcessingParams()
-            .getModernProcessors();
+            .getJavaAnnotationProcessorParams()
+            .getPluginProperties();
 
     for (ResolvedJavacPluginProperties annotationProcessor : annotationProcessors) {
       if (!annotationProcessor.getDoesNotAffectAbi()
@@ -523,7 +523,12 @@ public abstract class DefaultJavaLibraryRules {
   @Value.Lazy
   CompileToJarStepFactory getConfiguredCompiler() {
     return getConfiguredCompilerFactory()
-        .configure(getArgs(), getJavacOptions(), getActionGraphBuilder(), getToolchainProvider());
+        .configure(
+            getArgs(),
+            getJavacOptions(),
+            getActionGraphBuilder(),
+            getInitialBuildTarget().getTargetConfiguration(),
+            getToolchainProvider());
   }
 
   @Value.Lazy
@@ -533,18 +538,18 @@ public abstract class DefaultJavaLibraryRules {
             getArgs(),
             getJavacOptionsForSourceOnlyAbi(),
             getActionGraphBuilder(),
+            getInitialBuildTarget().getTargetConfiguration(),
             getToolchainProvider());
   }
 
   @Value.Lazy
   JavacOptions getJavacOptionsForSourceOnlyAbi() {
     JavacOptions javacOptions = getJavacOptions();
-    return javacOptions.withAnnotationProcessingParams(
-        abiProcessorsOnly(javacOptions.getAnnotationProcessingParams()));
+    return javacOptions.withJavaAnnotationProcessorParams(
+        abiProcessorsOnly(javacOptions.getJavaAnnotationProcessorParams()));
   }
 
-  private AnnotationProcessingParams abiProcessorsOnly(
-      AnnotationProcessingParams annotationProcessingParams) {
+  private JavacPluginParams abiProcessorsOnly(JavacPluginParams annotationProcessingParams) {
     return annotationProcessingParams.withAbiProcessorsOnly();
   }
 
@@ -651,7 +656,12 @@ public abstract class DefaultJavaLibraryRules {
             .setResourcesRoot(args.getResourcesRoot())
             .setProguardConfig(args.getProguardConfig())
             .setPostprocessClassesCommands(args.getPostprocessClassesCommands())
-            .setDeps(JavaLibraryDeps.newInstance(args, graphBuilder, configuredCompilerFactory))
+            .setDeps(
+                JavaLibraryDeps.newInstance(
+                    args,
+                    graphBuilder,
+                    initialBuildTarget.getTargetConfiguration(),
+                    configuredCompilerFactory))
             .setTests(args.getTests())
             .setManifestFile(args.getManifestFile())
             .setMavenCoords(args.getMavenCoords())

@@ -20,6 +20,7 @@ import com.facebook.buck.android.device.TargetDevice;
 import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.BuildEngine;
@@ -49,8 +50,10 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.parser.BuildFileSpec;
+import com.facebook.buck.parser.ImmutableTargetNodePredicateSpec;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.TargetNodePredicateSpec;
+import com.facebook.buck.parser.ParsingContext;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -59,7 +62,6 @@ import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.config.TestBuckConfig;
@@ -323,7 +325,6 @@ public class TestCommand extends BuildCommand {
               getTestRunningOptions(params),
               testPool.getWeightedListeningExecutorService(),
               buildEngine,
-              new DefaultStepRunner(),
               buildContext,
               ruleFinder);
       return ExitCode.map(exitCodeInt);
@@ -463,8 +464,11 @@ public class TestCommand extends BuildCommand {
 
     LOG.debug("Running with arguments %s", getArguments());
 
+    ListeningProcessExecutor processExecutor = new ListeningProcessExecutor();
     try (CommandThreadManager pool =
-        new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()))) {
+            new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()));
+        BuildPrehook prehook = getPrehook(processExecutor, params)) {
+      prehook.startPrehookScript();
       BuildEvent.Started started = BuildEvent.started(getArguments());
       params.getBuckEventBus().post(started);
 
@@ -472,6 +476,10 @@ public class TestCommand extends BuildCommand {
       // all of the test rules.
       TargetGraphAndBuildTargets targetGraphAndBuildTargets;
       ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
+      ParsingContext parsingContext =
+          createParsingContext(params.getCell(), pool.getListeningExecutorService())
+              .withApplyDefaultFlavorsMode(parserConfig.getDefaultFlavorsMode())
+              .withSpeculativeParsing(SpeculativeParsing.ENABLED);
 
       try {
 
@@ -482,16 +490,13 @@ public class TestCommand extends BuildCommand {
               params
                   .getParser()
                   .buildTargetGraphWithoutConfigurationTargets(
-                      params.getCell(),
-                      getEnableParserProfiling(),
-                      pool.getListeningExecutorService(),
+                      parsingContext,
                       ImmutableList.of(
-                          TargetNodePredicateSpec.of(
+                          ImmutableTargetNodePredicateSpec.of(
                                   BuildFileSpec.fromRecursivePath(
                                       Paths.get(""), params.getCell().getRoot()))
                               .withOnlyTests(true)),
-                      getExcludeIncompatibleTargets(),
-                      parserConfig.getDefaultFlavorsMode());
+                      params.getTargetConfiguration());
           targetGraphAndBuildTargets =
               targetGraphAndBuildTargets.withBuildTargets(ImmutableSet.of());
 
@@ -503,15 +508,10 @@ public class TestCommand extends BuildCommand {
               params
                   .getParser()
                   .buildTargetGraphWithoutConfigurationTargets(
-                      params.getCell(),
-                      getEnableParserProfiling(),
-                      pool.getListeningExecutorService(),
+                      parsingContext,
                       parseArgumentsAsTargetNodeSpecs(
-                          params.getCell().getCellPathResolver(),
-                          params.getBuckConfig(),
-                          getArguments()),
-                      getExcludeIncompatibleTargets(),
-                      parserConfig.getDefaultFlavorsMode());
+                          params.getCell(), params.getBuckConfig(), getArguments()),
+                      params.getTargetConfiguration());
 
           LOG.debug("Got explicit build targets %s", targetGraphAndBuildTargets.getBuildTargets());
           ImmutableSet.Builder<BuildTarget> testTargetsBuilder = ImmutableSet.builder();
@@ -531,19 +531,13 @@ public class TestCommand extends BuildCommand {
             Iterable<BuildTarget> allTargets =
                 Iterables.concat(targetGraphAndBuildTargets.getBuildTargets(), testTargets);
             TargetGraph targetGraph =
-                params
-                    .getParser()
-                    .buildTargetGraph(
-                        params.getCell(),
-                        getEnableParserProfiling(),
-                        pool.getListeningExecutorService(),
-                        allTargets);
+                params.getParser().buildTargetGraph(parsingContext, allTargets);
             LOG.debug("Finished building new target graph with tests.");
             targetGraphAndBuildTargets = TargetGraphAndBuildTargets.of(targetGraph, allTargets);
           }
         }
 
-        if (params.getBuckConfig().getBuildVersions()) {
+        if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
           targetGraphAndBuildTargets = toVersionedTargetGraph(params, targetGraphAndBuildTargets);
         }
 
@@ -577,7 +571,8 @@ public class TestCommand extends BuildCommand {
           getDefaultRuleKeyCacheScope(
               params,
               new RuleKeyCacheRecycler.SettingsAffectingCache(
-                  params.getBuckConfig().getKeySeed(), actionGraphAndBuilder.getActionGraph()))) {
+                  params.getBuckConfig().getView(BuildBuckConfig.class).getKeySeed(),
+                  actionGraphAndBuilder.getActionGraph()))) {
         LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
             new LocalCachingBuildEngineDelegate(params.getFileHashCache());
         SourcePathRuleFinder sourcePathRuleFinder =
@@ -595,7 +590,6 @@ public class TestCommand extends BuildCommand {
                         params.getBuckEventBus(),
                         params.getMetadataProvider()),
                     pool.getWeightedListeningExecutorService(),
-                    new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
                     cachingBuildEngineBuckConfig.getBuildMetadataStorage(),
                     cachingBuildEngineBuckConfig.getBuildDepFiles(),
@@ -604,6 +598,7 @@ public class TestCommand extends BuildCommand {
                     actionGraphAndBuilder.getActionGraphBuilder(),
                     sourcePathRuleFinder,
                     DefaultSourcePathResolver.from(sourcePathRuleFinder),
+                    params.getTargetConfigurationSerializer(),
                     params.getBuildInfoStoreManager(),
                     cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                     cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
@@ -611,7 +606,10 @@ public class TestCommand extends BuildCommand {
                         params.getRuleKeyConfiguration(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         actionGraphAndBuilder.getActionGraphBuilder(),
-                        params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+                        params
+                            .getBuckConfig()
+                            .getView(BuildBuckConfig.class)
+                            .getBuildInputRuleKeyFileSizeLimit(),
                         ruleKeyCacheScope.getCache()),
                     new NoOpRemoteBuildRuleCompletionWaiter(),
                     cachingBuildEngineBuckConfig.getManifestServiceIfEnabled(
@@ -662,7 +660,11 @@ public class TestCommand extends BuildCommand {
                   .setBuildCellRootPath(params.getCell().getRoot())
                   .setJavaPackageFinder(params.getJavaPackageFinder())
                   .setEventBus(params.getBuckEventBus())
-                  .setShouldDeleteTemporaries(params.getBuckConfig().getShouldDeleteTemporaries())
+                  .setShouldDeleteTemporaries(
+                      params
+                          .getBuckConfig()
+                          .getView(BuildBuckConfig.class)
+                          .getShouldDeleteTemporaries())
                   .build();
 
           // Once all of the rules are built, then run the tests.
@@ -779,9 +781,7 @@ public class TestCommand extends BuildCommand {
     @Override
     public int parseArguments(Parameters params) throws CmdLineException {
       Set<String> parsed =
-          Splitter.on(",")
-              .splitToList(params.getParameter(0))
-              .stream()
+          Splitter.on(",").splitToList(params.getParameter(0)).stream()
               .map(s -> s.replaceAll("-", "_").toLowerCase())
               .collect(Collectors.toSet());
       List<CoverageReportFormat> formats = new ArrayList<>();

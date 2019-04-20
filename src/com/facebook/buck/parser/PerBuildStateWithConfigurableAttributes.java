@@ -16,10 +16,10 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.model.platform.ConstraintResolver;
-import com.facebook.buck.core.model.platform.Platform;
+import com.facebook.buck.core.model.platform.TargetPlatformResolver;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.select.SelectorListResolver;
-import java.util.function.Supplier;
+import com.facebook.buck.core.select.impl.SelectorListFactory;
 
 /**
  * A variant of {@link PerBuildState} that keeps additional information used by {@link
@@ -29,19 +29,23 @@ class PerBuildStateWithConfigurableAttributes extends PerBuildState {
 
   private final ConstraintResolver constraintResolver;
   private final SelectorListResolver selectorListResolver;
-  private final Supplier<Platform> targetPlatform;
+  private final SelectorListFactory selectorListFactory;
+  private final TargetPlatformResolver targetPlatformResolver;
 
   PerBuildStateWithConfigurableAttributes(
       CellManager cellManager,
       BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline,
       ParsePipeline<TargetNode<?>> targetNodeParsePipeline,
+      ParsingContext parsingContext,
       ConstraintResolver constraintResolver,
       SelectorListResolver selectorListResolver,
-      Supplier<Platform> targetPlatform) {
-    super(cellManager, buildFileRawNodeParsePipeline, targetNodeParsePipeline);
+      SelectorListFactory selectorListFactory,
+      TargetPlatformResolver targetPlatformResolver) {
+    super(cellManager, buildFileRawNodeParsePipeline, targetNodeParsePipeline, parsingContext);
     this.constraintResolver = constraintResolver;
     this.selectorListResolver = selectorListResolver;
-    this.targetPlatform = targetPlatform;
+    this.selectorListFactory = selectorListFactory;
+    this.targetPlatformResolver = targetPlatformResolver;
   }
 
   public ConstraintResolver getConstraintResolver() {
@@ -52,7 +56,11 @@ class PerBuildStateWithConfigurableAttributes extends PerBuildState {
     return selectorListResolver;
   }
 
-  public Supplier<Platform> getTargetPlatform() {
-    return targetPlatform;
+  public SelectorListFactory getSelectorListFactory() {
+    return selectorListFactory;
+  }
+
+  public TargetPlatformResolver getTargetPlatformResolver() {
+    return targetPlatformResolver;
   }
 }

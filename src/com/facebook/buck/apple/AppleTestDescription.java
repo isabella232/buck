@@ -36,6 +36,7 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.FlavorDomainException;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -58,11 +59,11 @@ import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
@@ -91,7 +92,6 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -201,8 +201,9 @@ public class AppleTestDescription
     }
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatformFlavorDomain =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor();
 
     boolean createBundle =
         Sets.intersection(buildTarget.getFlavors(), AUXILIARY_LIBRARY_FLAVORS).isEmpty();
@@ -232,7 +233,8 @@ public class AppleTestDescription
     if (multiarchFileInfo.isPresent()) {
       ImmutableList.Builder<CxxPlatform> cxxPlatformBuilder = ImmutableList.builder();
       for (BuildTarget thinTarget : multiarchFileInfo.get().getThinTargets()) {
-        cxxPlatformBuilder.add(cxxPlatformFlavorDomain.getValue(thinTarget).get());
+        cxxPlatformBuilder.add(
+            cxxPlatformFlavorDomain.getValue(thinTarget).get().resolve(graphBuilder));
       }
       cxxPlatforms = cxxPlatformBuilder.build();
       appleCxxPlatform = multiarchFileInfo.get().getRepresentativePlatform();
@@ -240,7 +242,8 @@ public class AppleTestDescription
       CxxPlatform cxxPlatform =
           cxxPlatformFlavorDomain
               .getValue(buildTarget)
-              .orElse(cxxPlatformFlavorDomain.getValue(defaultCxxFlavor));
+              .orElse(cxxPlatformFlavorDomain.getValue(defaultCxxFlavor))
+              .resolve(graphBuilder);
       cxxPlatforms = ImmutableList.of(cxxPlatform);
       try {
         appleCxxPlatform = appleCxxPlatformFlavorDomain.getValue(cxxPlatform.getFlavor());
@@ -339,7 +342,8 @@ public class AppleTestDescription
                         swiftBuckConfig.getCopyStdlibToFrameworks(),
                         cxxBuckConfig.shouldCacheStrip())));
 
-    Optional<SourcePath> xctool = getXctool(projectFilesystem, params, graphBuilder);
+    Optional<SourcePath> xctool =
+        getXctool(projectFilesystem, params, buildTarget.getTargetConfiguration(), graphBuilder);
 
     return new AppleTest(
         xctool,
@@ -379,12 +383,14 @@ public class AppleTestDescription
   private Optional<SourcePath> getXctool(
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      TargetConfiguration targetConfiguration,
       ActionGraphBuilder graphBuilder) {
     // If xctool is specified as a build target in the buck config, it's wrapping ZIP file which
     // we need to unpack to get at the actual binary.  Otherwise, if it's specified as a path, we
     // can use that directly.
-    if (appleConfig.getXctoolZipTarget().isPresent()) {
-      BuildRule xctoolZipBuildRule = graphBuilder.getRule(appleConfig.getXctoolZipTarget().get());
+    if (appleConfig.getXctoolZipTarget(targetConfiguration).isPresent()) {
+      BuildRule xctoolZipBuildRule =
+          graphBuilder.getRule(appleConfig.getXctoolZipTarget(targetConfiguration).get());
 
       // Since the content is unzipped in a directory that might differ for each cell the tests are
       // from, we append a flavor that depends on the root path of the projectFilesystem
@@ -502,21 +508,29 @@ public class AppleTestDescription
     // TODO(beng, coneko): This should technically only be a runtime dependency;
     // doing this adds it to the extra deps in BuildRuleParams passed to
     // the bundle and test rule.
-    Optional<BuildTarget> xctoolZipTarget = appleConfig.getXctoolZipTarget();
+    Optional<BuildTarget> xctoolZipTarget =
+        appleConfig.getXctoolZipTarget(buildTarget.getTargetConfiguration());
     if (xctoolZipTarget.isPresent()) {
       extraDepsBuilder.add(xctoolZipTarget.get());
     }
-    extraDepsBuilder.addAll(appleConfig.getCodesignProvider().getParseTimeDeps());
+    extraDepsBuilder.addAll(
+        appleConfig.getCodesignProvider().getParseTimeDeps(buildTarget.getTargetConfiguration()));
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    ImmutableList<CxxPlatform> cxxPlatforms =
-        cxxPlatformsProvider.getCxxPlatforms().getValues(buildTarget);
+    ImmutableList<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms().getValues(buildTarget);
 
-    extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            cxxPlatforms.isEmpty()
-                ? Collections.singleton(cxxPlatformsProvider.getDefaultCxxPlatform())
-                : cxxPlatforms));
+    if (cxxPlatforms.isEmpty()) {
+      extraDepsBuilder.addAll(
+          cxxPlatformsProvider
+              .getDefaultUnresolvedCxxPlatform()
+              .getParseTimeDeps(buildTarget.getTargetConfiguration()));
+    } else {
+      cxxPlatforms.forEach(
+          platform ->
+              extraDepsBuilder.addAll(
+                  platform.getParseTimeDeps(buildTarget.getTargetConfiguration())));
+    }
   }
 
   private AppleBundle getBuildRuleForTestHostAppTarget(
@@ -580,8 +594,7 @@ public class AppleTestDescription
     for (CxxPlatform platform : cxxPlatforms) {
       ImmutableSet<BuildTarget> blacklistables =
           NativeLinkables.getTransitiveNativeLinkables(platform, graphBuilder, roots.values())
-              .entrySet()
-              .stream()
+              .entrySet().stream()
               .filter(x -> !(x.getValue() instanceof SwiftRuntimeNativeLinkable))
               .map(x -> x.getKey())
               .collect(ImmutableSet.toImmutableSet());

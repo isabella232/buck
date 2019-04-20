@@ -200,10 +200,10 @@ public class OcamlBuildRulesGenerator {
       Path outputPath = ocamlContext.getCOutput(pathResolver.getRelativePath(cSrc));
       OcamlCCompile compileRule =
           new OcamlCCompile(
-              createCCompileBuildTarget(buildTarget, name),
               projectFilesystem,
               cCompileParams,
               new OcamlCCompileStep.Args(
+                  createCCompileBuildTarget(buildTarget, name),
                   cCompiler.getEnvironment(pathResolver),
                   cCompiler.getCommandPrefix(pathResolver),
                   ocamlContext.getOcamlCompiler().get(),
@@ -261,17 +261,11 @@ public class OcamlBuildRulesGenerator {
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(ruleFinder.filterBuildRuleInputs(allInputs))
                     .addAll(
-                        ocamlContext
-                            .getNativeLinkableInput()
-                            .getArgs()
-                            .stream()
+                        ocamlContext.getNativeLinkableInput().getArgs().stream()
                             .flatMap(arg -> BuildableSupport.getDeps(arg, ruleFinder))
                             .iterator())
                     .addAll(
-                        ocamlContext
-                            .getCLinkableInput()
-                            .getArgs()
-                            .stream()
+                        ocamlContext.getCLinkableInput().getArgs().stream()
                             .flatMap(arg -> BuildableSupport.getDeps(arg, ruleFinder))
                             .iterator())
                     .addAll(BuildableSupport.getDepsCollection(cxxCompiler, ruleFinder))

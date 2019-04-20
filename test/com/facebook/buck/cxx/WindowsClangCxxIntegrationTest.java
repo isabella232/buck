@@ -121,9 +121,8 @@ public class WindowsClangCxxIntegrationTest {
         .getBuildLog()
         .assertTargetBuiltLocally(
             CxxDescriptionEnhancer.createCxxLinkTarget(
-                    BuildTargetFactory.newInstance("//app_lib:app_lib#windows-x86_64"),
-                    Optional.empty())
-                .toString());
+                BuildTargetFactory.newInstance("//app_lib:app_lib#windows-x86_64"),
+                Optional.empty()));
     ImmutableSortedSet<Path> subsequentObjects =
         findFiles(tmp.getRoot(), tmp.getRoot().getFileSystem().getPathMatcher("glob:**/*.obj"));
     assertThat(initialObjects, Matchers.equalTo(subsequentObjects));
@@ -141,6 +140,22 @@ public class WindowsClangCxxIntegrationTest {
   @Test
   public void simpleBinaryWithAsm64IsExecutableByCmd() throws IOException {
     ProcessResult runResult = workspace.runBuckCommand("build", "//app_asm:log");
+    runResult.assertSuccess();
+    Path outputPath = workspace.resolve("buck-out/gen/app_asm/log/log.txt");
+    assertThat(workspace.getFileContents(outputPath), Matchers.equalToIgnoringCase("42"));
+  }
+
+  @Test
+  public void asmAndDependencyTracking() throws IOException {
+    // no depfile is created for assembly, make sure header tracking is OK with it.
+    ProcessResult runResult =
+        workspace.runBuckCommand(
+            "build",
+            "-c",
+            "cxx.untracked_headers=warn",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
+            "//app_asm:log");
     runResult.assertSuccess();
     Path outputPath = workspace.resolve("buck-out/gen/app_asm/log/log.txt");
     assertThat(workspace.getFileContents(outputPath), Matchers.equalToIgnoringCase("42"));

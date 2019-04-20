@@ -16,7 +16,7 @@
 
 package com.facebook.buck.core.rules.platform;
 
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.platform.ConstraintResolver;
 import com.facebook.buck.core.model.platform.ConstraintSetting;
 import com.facebook.buck.core.model.platform.ConstraintValue;
@@ -39,28 +39,29 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 public class RuleBasedConstraintResolver implements ConstraintResolver {
   private final ConfigurationRuleResolver configurationRuleResolver;
 
-  private final LoadingCache<BuildTarget, ConstraintSetting> constraintSettingCache =
-      CacheBuilder.newBuilder()
-          .build(
-              new CacheLoader<BuildTarget, ConstraintSetting>() {
-                @Override
-                public ConstraintSetting load(BuildTarget buildTarget) {
-                  ConfigurationRule configurationRule =
-                      configurationRuleResolver.getRule(buildTarget);
-                  Preconditions.checkState(
-                      configurationRule instanceof ConstraintSettingRule,
-                      "%s is used as constraint_setting, but has wrong type",
-                      buildTarget);
-                  return ConstraintSetting.of(configurationRule.getBuildTarget());
-                }
-              });
+  private final LoadingCache<UnconfiguredBuildTargetView, ConstraintSetting>
+      constraintSettingCache =
+          CacheBuilder.newBuilder()
+              .build(
+                  new CacheLoader<UnconfiguredBuildTargetView, ConstraintSetting>() {
+                    @Override
+                    public ConstraintSetting load(UnconfiguredBuildTargetView buildTarget) {
+                      ConfigurationRule configurationRule =
+                          configurationRuleResolver.getRule(buildTarget);
+                      Preconditions.checkState(
+                          configurationRule instanceof ConstraintSettingRule,
+                          "%s is used as constraint_setting, but has wrong type",
+                          buildTarget);
+                      return ConstraintSetting.of(buildTarget);
+                    }
+                  });
 
-  private final LoadingCache<BuildTarget, ConstraintValue> constraintValueCache =
+  private final LoadingCache<UnconfiguredBuildTargetView, ConstraintValue> constraintValueCache =
       CacheBuilder.newBuilder()
           .build(
-              new CacheLoader<BuildTarget, ConstraintValue>() {
+              new CacheLoader<UnconfiguredBuildTargetView, ConstraintValue>() {
                 @Override
-                public ConstraintValue load(BuildTarget buildTarget) {
+                public ConstraintValue load(UnconfiguredBuildTargetView buildTarget) {
                   ConfigurationRule configurationRule =
                       configurationRuleResolver.getRule(buildTarget);
                   Preconditions.checkState(
@@ -81,7 +82,7 @@ public class RuleBasedConstraintResolver implements ConstraintResolver {
   }
 
   @Override
-  public ConstraintSetting getConstraintSetting(BuildTarget buildTarget) {
+  public ConstraintSetting getConstraintSetting(UnconfiguredBuildTargetView buildTarget) {
     try {
       return constraintSettingCache.getUnchecked(buildTarget);
     } catch (UncheckedExecutionException e) {
@@ -91,7 +92,7 @@ public class RuleBasedConstraintResolver implements ConstraintResolver {
   }
 
   @Override
-  public ConstraintValue getConstraintValue(BuildTarget buildTarget) {
+  public ConstraintValue getConstraintValue(UnconfiguredBuildTargetView buildTarget) {
     try {
       return constraintValueCache.getUnchecked(buildTarget);
     } catch (UncheckedExecutionException e) {

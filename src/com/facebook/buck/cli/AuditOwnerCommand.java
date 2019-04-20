@@ -74,26 +74,24 @@ public class AuditOwnerCommand extends AbstractCommand {
                     params.getFileHashCache(),
                     params.getUnconfiguredBuildTargetFactory())
                 .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+                    getTargetPlatforms())) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params,
               parserState,
-              pool.getListeningExecutorService(),
-              getEnableParserProfiling(),
-              getExcludeIncompatibleTargets());
+              createParsingContext(params.getCell(), pool.getListeningExecutorService()));
       QueryCommand.runMultipleQuery(
           params,
           env,
           "owner('%s')",
           getArguments(),
           shouldGenerateJsonOutput(),
-          ImmutableSet.of());
+          ImmutableSet.of(),
+          params.getConsole().getStdOut());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

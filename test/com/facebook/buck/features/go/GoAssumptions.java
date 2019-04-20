@@ -20,6 +20,7 @@ import static org.junit.Assume.assumeNoException;
 
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -70,7 +71,8 @@ abstract class GoAssumptions {
                   .withToolchain(
                       CxxPlatformsProvider.DEFAULT_NAME,
                       CxxPlatformsProvider.of(
-                          CxxPlatformUtils.DEFAULT_PLATFORM, CxxPlatformUtils.DEFAULT_PLATFORMS))
+                          CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+                          CxxPlatformUtils.DEFAULT_PLATFORMS))
                   .build(),
               ToolchainCreationContext.of(
                   ImmutableMap.of(),
@@ -78,7 +80,8 @@ abstract class GoAssumptions {
                   new FakeProjectFilesystem(),
                   executor,
                   new ExecutableFinder(),
-                  TestRuleKeyConfigurationFactory.create()))
+                  TestRuleKeyConfigurationFactory.create(),
+                  () -> EmptyTargetConfiguration.INSTANCE))
           .get()
           .getDefaultPlatform()
           .getCompiler();

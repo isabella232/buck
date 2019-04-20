@@ -34,6 +34,7 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig.ToolType;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
@@ -140,6 +141,7 @@ public class CxxCompilationDatabaseTest {
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                     new GccCompiler(
                         new HashedFileTool(PathSourcePath.of(filesystem, Paths.get("compiler"))),
+                        ToolType.CXX,
                         false),
                     CxxToolFlags.of(),
                     Optional.empty()),
@@ -188,6 +190,8 @@ public class CxxCompilationDatabaseTest {
                     "/foo/bar",
                     "-isystem",
                     "/test",
+                    "-fdebug-prefix-map=/Users/user/src=.",
+                    "-gno-record-gcc-switches",
                     "-o",
                     "buck-out/gen/foo/baz#compile-test.cpp/test.o",
                     "-c",
