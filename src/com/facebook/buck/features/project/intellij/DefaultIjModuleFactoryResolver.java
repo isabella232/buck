@@ -69,7 +69,8 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     Optional<BuildRule> dummyRDotJavaRule = graphBuilder.getRuleOptional(dummyRDotJavaTarget);
     if (dummyRDotJavaRule.isPresent()) {
       requiredBuildTargets.add(dummyRDotJavaTarget);
-      return Optional.of(DummyRDotJava.getOutputJarPath(dummyRDotJavaTarget, projectFilesystem));
+      return Optional.of(
+          DummyRDotJava.getOutputJarPath(dummyRDotJavaTarget, projectFilesystem));
     }
     return Optional.empty();
   }
