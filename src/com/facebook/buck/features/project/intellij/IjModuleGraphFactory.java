@@ -308,6 +308,24 @@ public final class IjModuleGraphFactory {
         }
       }
 
+      if (!module.getExtraClassPathDependencies().isEmpty()) {
+        IjLibrary extraClassPathLibrary =
+            IjLibrary.builder()
+                .setBinaryJars(module.getExtraClassPathDependencies())
+                .setTargets(ImmutableSet.of())
+                .setName("library_" + module.getName() + "_extra_classpath")
+                .build();
+        moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
+      }
+
+      if (extraCompileOutputRootPath.isPresent()
+          && !module.getExtraModuleDependencies().isEmpty()) {
+        IjModule extraModule =
+            createExtraModuleForCompilerOutput(module, extraCompileOutputRootPath.get());
+        moduleDeps.put(extraModule, DependencyType.PROD);
+        depsBuilder.put(extraModule, ImmutableMap.of());
+      }
+
       moduleDeps
           .keySet()
           .stream()
