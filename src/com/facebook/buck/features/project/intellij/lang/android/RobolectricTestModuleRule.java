@@ -19,21 +19,33 @@ import com.facebook.buck.android.RobolectricTestDescription;
 import com.facebook.buck.android.RobolectricTestDescriptionArg;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.features.project.intellij.ModuleBuildContext;
 import com.facebook.buck.features.project.intellij.aggregation.AggregationContext;
 import com.facebook.buck.features.project.intellij.lang.java.JavaLibraryRuleHelper;
 import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver;
 import com.facebook.buck.features.project.intellij.model.IjModuleType;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
+import com.facebook.buck.features.project.intellij.model.folders.IjResourceFolderType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
+import java.util.Optional;
 
 public class RobolectricTestModuleRule extends AndroidModuleRule<RobolectricTestDescriptionArg> {
+
+  private final JavaPackageFinder packageFinder;
 
   public RobolectricTestModuleRule(
       ProjectFilesystem projectFilesystem,
       IjModuleFactoryResolver moduleFactoryResolver,
-      IjProjectConfig projectConfig) {
+      IjProjectConfig projectConfig,
+      JavaPackageFinder packageFinder) {
     super(projectFilesystem, moduleFactoryResolver, projectConfig, AndroidProjectType.LIBRARY);
+    this.packageFinder = packageFinder;
   }
 
   @Override
@@ -44,7 +56,37 @@ public class RobolectricTestModuleRule extends AndroidModuleRule<RobolectricTest
   @Override
   public void apply(TargetNode<RobolectricTestDescriptionArg> target, ModuleBuildContext context) {
     super.apply(target, context);
-    addDepsAndTestSources(target, true /* wantsPackagePrefix */, context);
+
+    Optional<Path> presetResourcesRoot = target.getConstructorArg().getResourcesRoot();
+    ImmutableSortedSet<SourcePath> resources = target.getConstructorArg().getResources();
+    ImmutableSet<Path> resourcePaths;
+    // Copied from JavaTestModuleRule
+    if (presetResourcesRoot.isPresent()) {
+      resourcePaths =
+          getResourcePaths(target.getConstructorArg().getResources(), presetResourcesRoot.get());
+      addResourceFolders(
+          IjResourceFolderType.JAVA_TEST_RESOURCE,
+          resourcePaths,
+          presetResourcesRoot.get(),
+          context);
+      resourcePaths = ImmutableSet.<Path>builder()
+          .addAll(getResourcePaths(target.getConstructorArg().getResources(), presetResourcesRoot.get()))
+          .add(presetResourcesRoot.get())
+          .build();
+    } else {
+      resourcePaths = getResourcePaths(resources);
+      ImmutableMultimap<Path, Path> resourcesRootsToResources =
+          getResourcesRootsToResources(packageFinder, resourcePaths);
+      for (Path resourcesRoot : resourcesRootsToResources.keySet()) {
+        addResourceFolders(
+            IjResourceFolderType.JAVA_TEST_RESOURCE,
+            resourcesRootsToResources.get(resourcesRoot),
+            resourcesRoot,
+            context);
+      }
+    }
+
+    addDepsAndTestSources(target, true /* wantsPackagePrefix */, context, resourcePaths);
     JavaLibraryRuleHelper.addCompiledShadowIfNeeded(projectConfig, target, context);
     context.setJavaLanguageLevel(JavaLibraryRuleHelper.getLanguageLevel(projectConfig, target));
   }

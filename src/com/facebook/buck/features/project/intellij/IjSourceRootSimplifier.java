@@ -285,7 +285,6 @@ public class IjSourceRootSimplifier {
       if (children.size() == 1) {
         return FolderTypeWithPackageInfo.fromFolder(children.iterator().next());
       }
-
       return children
           .stream()
           .collect(
@@ -324,6 +323,7 @@ public class IjSourceRootSimplifier {
                           || child instanceof JavaTestResourceFolder)
               .collect(ImmutableList.toImmutableList());
 
+      // Don't merge into current path if there's zero or one child
       if (childrenToMerge.isEmpty()) {
         return Optional.empty();
       }

@@ -113,7 +113,7 @@ public class SupportedTargetTypeRegistry {
         new JavaTestModuleRule(
             projectFilesystem, moduleFactoryResolver, projectConfig, packageFinder));
     addToIndex(
-        new RobolectricTestModuleRule(projectFilesystem, moduleFactoryResolver, projectConfig));
+        new RobolectricTestModuleRule(projectFilesystem, moduleFactoryResolver, projectConfig, packageFinder));
     addToIndex(
         new GroovyLibraryModuleRule(projectFilesystem, moduleFactoryResolver, projectConfig));
     addToIndex(new GroovyTestModuleRule(projectFilesystem, moduleFactoryResolver, projectConfig));

@@ -146,14 +146,14 @@ public class IjProjectTemplateDataPreparer {
         if (!folder.getWantsPackagePrefix()) {
           continue;
         }
-        Optional<Path> firstJavaFile =
+        Optional<Path> firstJavaOrKtFile =
             folder
                 .getInputs()
                 .stream()
-                .filter(input -> input.getFileName().toString().endsWith(".java"))
+                .filter(input -> input.getFileName().toString().endsWith(".java") || input.getFileName().toString().endsWith(".kt"))
                 .findFirst();
-        if (firstJavaFile.isPresent()) {
-          builder.add(firstJavaFile.get());
+        if (firstJavaOrKtFile.isPresent()) {
+          builder.add(firstJavaOrKtFile.get());
         }
       }
     }
