@@ -3457,6 +3457,17 @@ public class ProjectGenerator {
   private static Path getDerivedSourcesDirectoryForBuildTarget(
       BuildTarget buildTarget, ProjectFilesystem fs) {
     String fullTargetName = buildTarget.getFullyQualifiedName();
+
+    // Ues the same derived sources dir as the non-flavored targets for #shared flavor targets.
+    // This fix the problem of Xcode unable to find "-Swift.h" when building #shared flavor targets.
+    String sharedFlavorPostfix = "#shared";
+    if (fullTargetName.endsWith(sharedFlavorPostfix)) {
+      // The derived sources dir is the sha1 hash of fullTargetName.
+      // By trimming the sharedFlavorPostfix from fullTargetName, we get to use tha same dir.
+      fullTargetName = fullTargetName.substring(0,
+          fullTargetName.length() - sharedFlavorPostfix.length());
+    }
+
     byte[] utf8Bytes = fullTargetName.getBytes(Charset.forName("UTF-8"));
 
     Hasher hasher = Hashing.sha1().newHasher();
