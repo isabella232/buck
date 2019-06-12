@@ -18,6 +18,7 @@ package com.facebook.buck.core.select.impl;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorKey;
 import com.facebook.buck.core.select.SelectorList;
@@ -50,6 +51,7 @@ public class SelectorListFactory {
       CellPathResolver cellPathResolver,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       List<Object> elements,
       TypeCoercer<T> elementTypeCoercer)
       throws CoerceFailedException {
@@ -65,6 +67,7 @@ public class SelectorListFactory {
                 cellPathResolver,
                 filesystem,
                 pathRelativeToProjectRoot,
+                targetConfiguration,
                 rawAttributes,
                 elementTypeCoercer,
                 selectorValue.getNoMatchError()));
@@ -74,6 +77,7 @@ public class SelectorListFactory {
                 cellPathResolver,
                 filesystem,
                 pathRelativeToProjectRoot,
+                targetConfiguration,
                 ImmutableMap.of(SelectorKey.DEFAULT_KEYWORD, element),
                 elementTypeCoercer));
       }
@@ -84,7 +88,7 @@ public class SelectorListFactory {
 
   private static <T> void assertElementTypeSupportsConcatenation(
       List<Object> elements, TypeCoercer<T> elementTypeCoercer) {
-    if (elements.size() > 1 && elementTypeCoercer.concat(ImmutableList.of()) == null) {
+    if (elements.size() > 1 && !elementTypeCoercer.supportsConcatenation()) {
       throw new HumanReadableException(
           String.format(
               "type '%s' doesn't support select concatenation",

@@ -17,10 +17,13 @@
 package com.facebook.buck.versions;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.collect.ImmutableSet;
@@ -30,31 +33,33 @@ import java.util.stream.Collectors;
 public class VersionedTargetGraphAndTargets {
 
   public static TargetGraphAndTargets toVersionedTargetGraphAndTargets(
-      TargetGraphAndTargets targetGraphAndTargets,
+      DepsAwareExecutor<? super ComputeResult, ?> depsAwareExecutor,
       InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       BuckEventBus buckEventBus,
       BuckConfig buckConfig,
       TypeCoercerFactory typeCoercerFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
-      ImmutableSet<BuildTarget> explicitTestTargets)
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      ImmutableSet<BuildTarget> explicitTestTargets,
+      TargetConfiguration targetConfiguration,
+      TargetGraphAndTargets targetGraphAndTargets)
       throws VersionException, InterruptedException {
     TargetGraphAndBuildTargets targetGraphAndBuildTargets =
         TargetGraphAndBuildTargets.of(
             targetGraphAndTargets.getTargetGraph(),
             Sets.union(
-                targetGraphAndTargets
-                    .getProjectRoots()
-                    .stream()
+                targetGraphAndTargets.getProjectRoots().stream()
                     .map(root -> root.getBuildTarget())
                     .collect(Collectors.toSet()),
                 explicitTestTargets));
     TargetGraphAndBuildTargets versionedTargetGraphAndBuildTargets =
         versionedTargetGraphCache.toVersionedTargetGraph(
-            buckEventBus,
+            depsAwareExecutor,
             buckConfig,
             typeCoercerFactory,
             unconfiguredBuildTargetFactory,
-            targetGraphAndBuildTargets);
+            targetGraphAndBuildTargets,
+            targetConfiguration,
+            buckEventBus);
     return new TargetGraphAndTargets(
         versionedTargetGraphAndBuildTargets.getTargetGraph(),
         targetGraphAndTargets.getProjectRoots());

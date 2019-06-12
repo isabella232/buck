@@ -112,12 +112,15 @@ public class JavacPipelineState implements RulePipelineState {
               firstOrderContext.getEnvironment(),
               firstOrderContext.getProcessExecutor());
 
-      ImmutableList<JavacPluginJsr199Fields> pluginFields =
+      ImmutableList<JavacPluginJsr199Fields> annotationProcessors =
           ImmutableList.copyOf(
-              javacOptions
-                  .getAnnotationProcessingParams()
-                  .getModernProcessors()
-                  .stream()
+              javacOptions.getJavaAnnotationProcessorParams().getPluginProperties().stream()
+                  .map(properties -> properties.getJavacPluginJsr199Fields(resolver, filesystem))
+                  .collect(Collectors.toList()));
+
+      ImmutableList<JavacPluginJsr199Fields> javaPlugins =
+          ImmutableList.copyOf(
+              javacOptions.getStandardJavacPluginParams().getPluginProperties().stream()
                   .map(properties -> properties.getJavacPluginJsr199Fields(resolver, filesystem))
                   .collect(Collectors.toList()));
 
@@ -129,7 +132,8 @@ public class JavacPipelineState implements RulePipelineState {
                   invokingRule,
                   getOptions(
                       context, compilerParameters.getClasspathEntries(), filesystem, resolver),
-                  pluginFields,
+                  annotationProcessors,
+                  javaPlugins,
                   compilerParameters.getSourceFilePaths(),
                   compilerParameters.getOutputPaths().getPathToSourcesList(),
                   compilerParameters.getOutputPaths().getWorkingDirectory(),
@@ -247,7 +251,7 @@ public class JavacPipelineState implements RulePipelineState {
     // Specify the output directory.
     builder.add("-d").add(filesystem.resolve(outputDirectory).toString());
 
-    if (!javacOptions.getAnnotationProcessingParams().isEmpty()) {
+    if (!javacOptions.getJavaAnnotationProcessorParams().isEmpty()) {
       builder.add("-s").add(filesystem.resolve(generatedCodeDirectory).toString());
     }
 

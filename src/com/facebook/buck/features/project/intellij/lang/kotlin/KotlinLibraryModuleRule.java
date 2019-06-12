@@ -15,8 +15,8 @@
  */
 package com.facebook.buck.features.project.intellij.lang.kotlin;
 
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.features.project.intellij.BaseIjModuleRule;
 import com.facebook.buck.features.project.intellij.ModuleBuildContext;
 import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver;
@@ -42,7 +42,7 @@ public class KotlinLibraryModuleRule extends BaseIjModuleRule<KotlinLibraryDescr
 
   @Override
   public void apply(TargetNode<KotlinLibraryDescriptionArg> target, ModuleBuildContext context) {
-    addDepsAndSources(target, false /* wantsPackagePrefix */, context);
+    addDepsAndSources(target, true /* wantsPackagePrefix */, context);
     context.setCompilerOutputPath(moduleFactoryResolver.getCompilerOutputPath(target));
   }
 

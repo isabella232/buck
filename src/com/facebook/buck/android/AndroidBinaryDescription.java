@@ -21,6 +21,7 @@ import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACK
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
@@ -31,15 +32,15 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -47,6 +48,7 @@ import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.step.fs.XzStep;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -55,7 +57,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.Supplier;
 import org.immutables.value.Value;
 
@@ -71,7 +72,8 @@ public class AndroidBinaryDescription
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
           AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR,
           AndroidBinaryGraphEnhancer.PROGUARD_TEXT_OUTPUT_FLAVOR,
-          AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_RESOURCES_FLAVOR);
+          AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_RESOURCES_FLAVOR,
+          AndroidBinaryFactory.EXO_SYMLINK_TREE);
 
   private final JavaBuckConfig javaBuckConfig;
   private final AndroidBuckConfig androidBuckConfig;
@@ -143,7 +145,7 @@ public class AndroidBinaryDescription
 
     DexSplitMode dexSplitMode = createDexSplitMode(args, exopackageModes);
 
-    ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
+    ImmutableSet<JavaLibrary> rulesToExcludeFromDex =
         NoDxArgsHelper.findRulesToExcludeFromDex(graphBuilder, buildTarget, args.getNoDx());
 
     CellPathResolver cellRoots = context.getCellPathResolver();
@@ -237,15 +239,31 @@ public class AndroidBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
 
-    Optionals.addIfPresent(proGuardConfig.getProguardTarget(), extraDepsBuilder);
+    Optionals.addIfPresent(
+        proGuardConfig.getProguardTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
 
     if (constructorArg.getRedex()) {
       // If specified, this option may point to either a BuildTarget or a file.
-      Optional<BuildTarget> redexTarget = androidBuckConfig.getRedexTarget();
+      Optional<BuildTarget> redexTarget =
+          androidBuckConfig.getRedexTarget(buildTarget.getTargetConfiguration());
       redexTarget.ifPresent(extraDepsBuilder::add);
     }
+    // TODO(cjhopman): we could filter this by the abis that this binary supports.
+    toolchainProvider
+        .getByNameIfPresent(NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class)
+        .ifPresent(
+            ndkCxxPlatformsProvider ->
+                ndkCxxPlatformsProvider
+                    .getNdkCxxPlatforms()
+                    .values()
+                    .forEach(
+                        platform ->
+                            extraDepsBuilder.addAll(
+                                platform.getParseTimeDeps(buildTarget.getTargetConfiguration()))));
   }
 
   @BuckStyleImmutable
@@ -297,7 +315,10 @@ public class AndroidBinaryDescription
     @Value.NaturalOrder
     abstract ImmutableSortedSet<BuildTarget> getPreprocessJavaClassesDeps();
 
-    abstract OptionalInt getXzCompressionLevel();
+    @Value.Default
+    int getXzCompressionLevel() {
+      return XzStep.DEFAULT_COMPRESSION_LEVEL;
+    }
 
     @Value.Default
     boolean isPackageAssetLibraries() {

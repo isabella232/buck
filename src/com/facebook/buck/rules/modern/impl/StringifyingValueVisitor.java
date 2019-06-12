@@ -16,14 +16,20 @@
 
 package com.facebook.buck.rules.modern.impl;
 
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.DefaultTargetConfiguration;
+import com.facebook.buck.core.model.impl.HostTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rulekey.CustomFieldBehaviorTag;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.modern.ClassInfo;
+import com.facebook.buck.rules.modern.CustomBehaviorUtils;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.ValueTypeInfo;
 import com.facebook.buck.rules.modern.ValueVisitor;
+import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ExcludedValueTypeInfo;
 import com.facebook.buck.util.Scope;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -32,6 +38,7 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -41,10 +48,13 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
   private StringBuilder builder = new StringBuilder();
   private int indent = 0;
 
+  public static final class ExcludeFromStringification implements CustomFieldBehaviorTag {}
+
   @Override
   public void visitOutputPath(OutputPath value) {
     append(
-        "OutputPath(%s)", MorePaths.pathWithUnixSeparators(OutputPath.internals().getPath(value)));
+        "OutputPath(%s)",
+        PathFormatter.pathWithUnixSeparators(OutputPath.internals().getPath(value)));
   }
 
   @Override
@@ -57,10 +67,17 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
       Field field,
       T value,
       ValueTypeInfo<T> valueTypeInfo,
-      Optional<CustomFieldBehavior> customBehavior) {
+      List<Class<? extends CustomFieldBehaviorTag>> customBehavior) {
     newline();
     append("%s:", field.getName());
     valueTypeInfo.visit(value, this);
+
+    boolean excludeFromStringification =
+        CustomBehaviorUtils.get(ExcludeFromStringification.class, customBehavior).isPresent();
+
+    if (valueTypeInfo instanceof ExcludedValueTypeInfo && !excludeFromStringification) {
+      append("excluded");
+    }
   }
 
   private <T> void visitIterableValues(Iterable<T> value, ValueTypeInfo<T> innerType) {
@@ -197,6 +214,21 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
     append("double(%s)", value);
   }
 
+  @Override
+  public void visitTargetConfiguration(TargetConfiguration value) throws RuntimeException {
+    if (value instanceof EmptyTargetConfiguration) {
+      append("configuration<>");
+    } else if (value instanceof HostTargetConfiguration) {
+      append("configuration<hostPlatform>");
+    } else if (value instanceof DefaultTargetConfiguration) {
+      append(
+          "configuration<targetPlatform(%s)>",
+          ((DefaultTargetConfiguration) value).getTargetPlatform().getFullyQualifiedName());
+    } else {
+      throw new IllegalArgumentException("Cannot visit target configuration: " + value);
+    }
+  }
+
   private void container(String label, Runnable runner) {
     append("%s<", label);
     indent++;
@@ -231,6 +263,6 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
 
   @Override
   public void visitPath(Path path) {
-    append("path(%s)", MorePaths.pathWithUnixSeparators(path));
+    append("path(%s)", PathFormatter.pathWithUnixSeparators(path));
   }
 }

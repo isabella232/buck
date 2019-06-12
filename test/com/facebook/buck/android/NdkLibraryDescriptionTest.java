@@ -20,6 +20,7 @@ import static org.hamcrest.junit.MatcherAssert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -28,7 +29,7 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.collect.FluentIterable;
@@ -38,23 +39,25 @@ import org.junit.Test;
 
 public class NdkLibraryDescriptionTest {
 
-  private static class FakeNativeLinkable extends FakeBuildRule implements NativeLinkable {
+  private static class FakeNativeLinkableGroup extends FakeBuildRule
+      implements NativeLinkableGroup {
 
     private final SourcePath input;
 
-    public FakeNativeLinkable(String target, SourcePath input, BuildRule... deps) {
+    public FakeNativeLinkableGroup(String target, SourcePath input, BuildRule... deps) {
       super(target, deps);
       this.input = input;
     }
 
     @Override
-    public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
-      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+    public Iterable<NativeLinkableGroup> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
     }
 
     @Override
-    public Iterable<NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver) {
-      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+    public Iterable<NativeLinkableGroup> getNativeLinkableExportedDeps(
+        BuildRuleResolver ruleResolver) {
+      return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
     }
 
     @Override
@@ -62,13 +65,13 @@ public class NdkLibraryDescriptionTest {
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
-        ActionGraphBuilder graphBuilder) {
+        ActionGraphBuilder graphBuilder,
+        TargetConfiguration targetConfiguration) {
       return NativeLinkableInput.builder().addArgs(SourcePathArg.of(input)).build();
     }
 
     @Override
-    public NativeLinkable.Linkage getPreferredLinkage(
-        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    public NativeLinkableGroup.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
       return Linkage.ANY;
     }
 
@@ -86,15 +89,16 @@ public class NdkLibraryDescriptionTest {
     FakeBuildRule transitiveInput =
         graphBuilder.addToIndex(new FakeBuildRule("//:transitive_input"));
     transitiveInput.setOutputFile("out");
-    FakeNativeLinkable transitiveDep =
+    FakeNativeLinkableGroup transitiveDep =
         graphBuilder.addToIndex(
-            new FakeNativeLinkable("//:transitive_dep", transitiveInput.getSourcePathToOutput()));
+            new FakeNativeLinkableGroup(
+                "//:transitive_dep", transitiveInput.getSourcePathToOutput()));
     FakeBuildRule firstOrderInput =
         graphBuilder.addToIndex(new FakeBuildRule("//:first_order_input"));
     firstOrderInput.setOutputFile("out");
-    FakeNativeLinkable firstOrderDep =
+    FakeNativeLinkableGroup firstOrderDep =
         graphBuilder.addToIndex(
-            new FakeNativeLinkable(
+            new FakeNativeLinkableGroup(
                 "//:first_order_dep", firstOrderInput.getSourcePathToOutput(), transitiveDep));
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");

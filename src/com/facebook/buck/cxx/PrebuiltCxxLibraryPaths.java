@@ -21,7 +21,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableCollection;
@@ -61,11 +61,8 @@ interface PrebuiltCxxLibraryPaths {
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions);
 
   @SuppressWarnings("unused")
-  default Optional<NativeLinkable.Linkage> getLinkage(
-      ProjectFilesystem filesystem,
-      ActionGraphBuilder graphBuilder,
-      CellPathResolver cellRoots,
-      CxxPlatform cxxPlatform) {
+  default Optional<NativeLinkableGroup.Linkage> getLinkage(
+      ProjectFilesystem filesystem, CellPathResolver cellRoots, CxxPlatform cxxPlatform) {
     return Optional.empty();
   }
 

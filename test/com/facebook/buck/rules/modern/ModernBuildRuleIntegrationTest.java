@@ -18,11 +18,11 @@ package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -111,9 +111,7 @@ public class ModernBuildRuleIntegrationTest {
         BuildRuleParams params,
         TemporaryWritingDescriptionArg args) {
       return new TemporaryWritingRule(
-          buildTarget,
-          context.getProjectFilesystem(),
-          new SourcePathRuleFinder(context.getActionGraphBuilder()));
+          buildTarget, context.getProjectFilesystem(), context.getActionGraphBuilder());
     }
   }
 

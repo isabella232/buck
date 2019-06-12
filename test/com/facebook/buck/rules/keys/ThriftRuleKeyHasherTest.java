@@ -23,7 +23,6 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.AbstractDefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
@@ -156,10 +155,11 @@ public class ThriftRuleKeyHasherTest {
         new File("test").toPath(), HashCode.fromString("0503e9786d39160e3811ea609c512530c7f66e82"));
     hasher.putKey(".path_value");
     hasher.putArchiveMemberPath(
-        ArchiveMemberPath.of(new File("archive_path").toPath(), new File("member_path").toPath()),
+        Paths.get("archive_path"),
+        Paths.get("member_path"),
         HashCode.fromString("f9d8ff855a16a3a3d28bfb445cc440502d6e895a"));
     hasher.putKey(".archive_member_path_value");
-    hasher.putNonHashingPath("non_hashing_test");
+    hasher.putNonHashingPath(Paths.get("non_hashing_test"));
     hasher.putKey(".non_hashing_path_value");
     hasher.putRuleKey(new RuleKey(HashCode.fromString("d0c852385a66458b6e960c89fac580e5eb6d6aec")));
     hasher.putKey(".rule_key_value");

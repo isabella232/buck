@@ -15,6 +15,7 @@
  */
 package com.facebook.buck.query;
 
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
@@ -27,7 +28,7 @@ import java.util.Set;
  *
  * <pre>expr ::= BUILDFILE '(' expr ')'</pre>
  */
-public class BuildFileFunction implements QueryFunction {
+public class BuildFileFunction<T extends QueryTarget> implements QueryFunction<QueryFileTarget, T> {
 
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION);
@@ -50,10 +51,10 @@ public class BuildFileFunction implements QueryFunction {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> eval(
-      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+  public ImmutableSet<QueryFileTarget> eval(
+      QueryEvaluator<T> evaluator, QueryEnvironment<T> env, ImmutableList<Argument<T>> args)
       throws QueryException {
-    Set<QueryTarget> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
+    Set<T> argumentSet = evaluator.eval(args.get(0).getExpression(), env);
     return env.getBuildFiles(argumentSet);
   }
 }

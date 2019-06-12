@@ -16,77 +16,78 @@
 package com.facebook.buck.intellij.ideabuck.folding;
 
 import com.facebook.buck.intellij.ideabuck.lang.psi.BcfgProperty;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BcfgPropertyName;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BcfgPropertyValue;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BcfgSection;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BcfgTypes;
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.folding.FoldingBuilderEx;
+import com.intellij.lang.folding.CustomFoldingBuilder;
 import com.intellij.lang.folding.FoldingDescriptor;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Folds {@code .buckconfig} sections and properties. */
-public class BcfgFoldingBuilder extends FoldingBuilderEx {
+public class BcfgFoldingBuilder extends CustomFoldingBuilder {
 
   /** Folds up all the properties in a section. */
-  static @Nullable FoldingDescriptor sectionFoldingDescriptor(BcfgSection section) {
-    return new FoldingDescriptor(section.getNode(), section.getTextRange()) {
+  static FoldingDescriptor sectionFoldingDescriptor(BcfgSection section) {
+    int start = section.getSectionHeader().getTextRange().getStartOffset();
+    int end = section.getTextRange().getEndOffset();
+    return new FoldingDescriptor(section.getNode(), new TextRange(start, end)) {
       @Nullable
       @Override
       public String getPlaceholderText() {
-        String sectionName = section.getSectionHeader().getSectionName().getText();
+        String name = section.getName();
         int numProperties = section.getPropertyList().size();
         String propertiesPluralized = numProperties == 1 ? "property" : "properties";
-        return "[" + sectionName + "] (" + numProperties + " " + propertiesPluralized + ")";
+        return "[" + name + "] (" + numProperties + " " + propertiesPluralized + ")";
       }
     };
   }
 
   /** Create a folding descriptor for the given property. */
-  static @Nullable FoldingDescriptor propertyFoldingDescriptor(BcfgProperty property) {
-    int start = property.getAssign().getTextRange().getEndOffset();
-    int end = property.getTextRange().getEndOffset();
+  static FoldingDescriptor propertyFoldingDescriptor(BcfgProperty property) {
+    BcfgPropertyName name = property.getPropertyName();
+    BcfgPropertyValue value = property.getPropertyValue();
+    int start = name.getTextRange().getStartOffset();
+    int end = value.getTextRange().getEndOffset();
     return new FoldingDescriptor(property.getNode(), new TextRange(start, end)) {
       @Nullable
       @Override
       public String getPlaceholderText() {
-        return property.getPropertyValueAsText();
+        return name.getValue() + " = " + value.getValue();
       }
     };
   }
 
-  @NotNull
   @Override
-  public FoldingDescriptor[] buildFoldRegions(
-      @NotNull PsiElement root, @NotNull Document document, boolean quick) {
-    List<FoldingDescriptor> descriptors = new ArrayList<>();
-    PsiTreeUtil.findChildrenOfType(root, BcfgSection.class)
-        .stream()
+  public void buildLanguageFoldRegions(
+      @NotNull List<FoldingDescriptor> descriptors,
+      @NotNull PsiElement root,
+      @NotNull Document document,
+      boolean quick) {
+    PsiTreeUtil.findChildrenOfType(root, BcfgSection.class).stream()
         .map(BcfgFoldingBuilder::sectionFoldingDescriptor)
         .forEach(descriptors::add);
-    PsiTreeUtil.findChildrenOfType(root, BcfgProperty.class)
-        .stream()
+    PsiTreeUtil.findChildrenOfType(root, BcfgProperty.class).stream()
         .map(BcfgFoldingBuilder::propertyFoldingDescriptor)
         .filter(Objects::nonNull)
         .forEach(descriptors::add);
-
-    return descriptors.toArray(new FoldingDescriptor[descriptors.size()]);
   }
 
-  @Nullable
   @Override
-  public String getPlaceholderText(@NotNull ASTNode node) {
+  protected String getLanguagePlaceholderText(@NotNull ASTNode node, @NotNull TextRange range) {
     return "...";
   }
 
   @Override
-  public boolean isCollapsedByDefault(@NotNull ASTNode node) {
+  public boolean isRegionCollapsedByDefault(@NotNull ASTNode node) {
     return node.getElementType().equals(BcfgTypes.SECTION)
         || node.getElementType().equals(BcfgTypes.PROPERTY);
   }

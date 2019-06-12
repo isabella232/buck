@@ -20,6 +20,7 @@ import com.google.common.base.Strings;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.EnvironmentUtil;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -39,8 +40,10 @@ public final class BuckWSServerPortUtils {
     GeneralCommandLine commandLine = new GeneralCommandLine();
     commandLine.setExePath(exec);
     commandLine.withWorkDirectory(path);
+    commandLine.withEnvironment(EnvironmentUtil.getEnvironmentMap());
     commandLine.addParameter("server");
     commandLine.addParameter("status");
+    commandLine.addParameter("--reuse-current-config");
     commandLine.addParameter("--http-port");
     commandLine.setRedirectErrorStream(true);
 

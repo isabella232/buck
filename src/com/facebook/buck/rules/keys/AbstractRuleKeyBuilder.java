@@ -16,16 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.util.Scope;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -33,13 +32,16 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.SortedMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
-public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectSink {
+/**
+ * Base class for rulekey builders. Implements much of the logic of computing keys from {@link
+ * com.facebook.buck.core.rulekey.AddToRuleKey}-annotated fields.
+ */
+public abstract class AbstractRuleKeyBuilder<RULE_KEY> {
   private static final Logger LOG = Logger.get(AbstractRuleKeyBuilder.class);
   final RuleKeyScopedHasher scopedHasher;
 
@@ -47,9 +49,27 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
     this.scopedHasher = scopedHasher;
   }
 
-  @Override
+  /**
+   * Adds the key-value pair to the rulekey. If the builder skips adding the value, the key will
+   * also be skipped.
+   */
   public final AbstractRuleKeyBuilder<RULE_KEY> setReflectively(String key, @Nullable Object val) {
     try (Scope ignored = scopedHasher.keyScope(key)) {
+      try {
+        return setReflectively(val);
+      } catch (IOException e) {
+        throw new BuckUncheckedExecutionException(
+            e, String.format("When adding %s with value %s", key, val));
+      }
+    }
+  }
+
+  /**
+   * Adds the key-value pair to the rulekey. If the builder skips adding the value, the key will
+   * also be skipped.
+   */
+  public AbstractRuleKeyBuilder<RULE_KEY> setReflectivelyPathKey(Path key, @Nullable Object val) {
+    try (Scope ignored = scopedHasher.pathKeyScope(key)) {
       try {
         return setReflectively(val);
       } catch (IOException e) {
@@ -62,6 +82,10 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
   /** Recursively serializes the value. Serialization of the key is handled outside. */
   protected AbstractRuleKeyBuilder<RULE_KEY> setReflectively(@Nullable Object val)
       throws IOException {
+    if (val instanceof SourcePath) {
+      return setSourcePath((SourcePath) val);
+    }
+
     if (val instanceof AddsToRuleKey) {
       return setAddsToRuleKey((AddsToRuleKey) val);
     }
@@ -80,14 +104,6 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
     if (val instanceof Optional) {
       Object o = ((Optional<?>) val).orElse(null);
       try (Scope ignored = scopedHasher.wrapperScope(RuleKeyHasher.Wrapper.OPTIONAL)) {
-        return setReflectively(o);
-      }
-    }
-
-    if (val instanceof OptionalInt) {
-      OptionalInt optionalInt = (OptionalInt) val;
-      @Nullable Object o = optionalInt.isPresent() ? optionalInt.getAsInt() : null;
-      try (Scope ignored = scopedHasher.wrapperScope(RuleKeyHasher.Wrapper.OPTIONAL_INT)) {
         return setReflectively(o);
       }
     }
@@ -156,10 +172,6 @@ public abstract class AbstractRuleKeyBuilder<RULE_KEY> implements RuleKeyObjectS
     if (val instanceof Path) {
       throw new HumanReadableException(
           "It's not possible to reliably disambiguate Paths. They are disallowed from rule keys");
-    }
-
-    if (val instanceof SourcePath) {
-      return setSourcePath((SourcePath) val);
     }
 
     if (val instanceof NonHashableSourcePathContainer) {

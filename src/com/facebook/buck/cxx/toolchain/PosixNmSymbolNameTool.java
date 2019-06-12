@@ -19,17 +19,18 @@ package com.facebook.buck.cxx.toolchain;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.DefaultShellStep;
@@ -61,9 +62,9 @@ import java.util.stream.StreamSupport;
  */
 public class PosixNmSymbolNameTool implements SymbolNameTool {
 
-  private final Tool nm;
+  private final ToolProvider nm;
 
-  public PosixNmSymbolNameTool(Tool nm) {
+  public PosixNmSymbolNameTool(ToolProvider nm) {
     this.nm = nm;
   }
 
@@ -72,9 +73,10 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       ActionGraphBuilder graphBuilder,
-      SourcePathRuleFinder ruleFinder,
+      TargetConfiguration targetConfiguration,
       BuildTarget target,
       Iterable<? extends SourcePath> linkerInputs) {
+    Tool nm = this.nm.resolve(graphBuilder, targetConfiguration);
     UndefinedSymbolsFile rule =
         graphBuilder.addToIndex(
             new UndefinedSymbolsFile(
@@ -83,13 +85,18 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
                 baseParams
                     .withDeclaredDeps(
                         ImmutableSortedSet.<BuildRule>naturalOrder()
-                            .addAll(BuildableSupport.getDepsCollection(nm, ruleFinder))
-                            .addAll(ruleFinder.filterBuildRuleInputs(linkerInputs))
+                            .addAll(BuildableSupport.getDepsCollection(nm, graphBuilder))
+                            .addAll(graphBuilder.filterBuildRuleInputs(linkerInputs))
                             .build())
                     .withoutExtraDeps(),
                 nm,
                 linkerInputs));
     return rule.getSourcePathToOutput();
+  }
+
+  @Override
+  public Iterable<BuildTarget> getParseTimeDeps(TargetConfiguration targetConfiguration) {
+    return nm.getParseTimeDeps(targetConfiguration);
   }
 
   private static class UndefinedSymbolsFile extends AbstractBuildRuleWithDeclaredAndExtraDeps {

@@ -22,12 +22,11 @@ import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -35,8 +34,8 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -90,12 +89,12 @@ public class JavaTestDescription
     return JavaTestDescriptionArg.class;
   }
 
-  private CxxPlatform getCxxPlatform(AbstractJavaTestDescriptionArg args) {
+  private UnresolvedCxxPlatform getUnresolvedCxxPlatform(AbstractJavaTestDescriptionArg args) {
     return args.getDefaultCxxPlatform()
         .map(
             toolchainProvider
                     .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                    .getCxxPlatforms()
+                    .getUnresolvedCxxPlatforms()
                 ::getValue)
         .orElse(
             toolchainProvider
@@ -121,7 +120,6 @@ public class JavaTestDescription
             graphBuilder,
             args);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     CxxLibraryEnhancement cxxLibraryEnhancement =
         new CxxLibraryEnhancement(
             buildTarget,
@@ -130,8 +128,8 @@ public class JavaTestDescription
             args.getUseCxxLibraries(),
             args.getCxxLibraryWhitelist(),
             graphBuilder,
-            ruleFinder,
-            getCxxPlatform(args));
+            getUnresolvedCxxPlatform(args)
+                .resolve(graphBuilder, buildTarget.getTargetConfiguration()));
     params = cxxLibraryEnhancement.updatedParams;
 
     DefaultJavaLibraryRules defaultJavaLibraryRules =
@@ -159,6 +157,7 @@ public class JavaTestDescription
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(cellRoots)
+            .setActionGraphBuilder(graphBuilder)
             .setExpanders(MACRO_EXPANDERS)
             .build();
 
@@ -171,8 +170,10 @@ public class JavaTestDescription
         args.getLabels(),
         args.getContacts(),
         args.getTestType().orElse(TestType.JUNIT),
-        javaOptionsForTests.get().getJavaRuntimeLauncher(graphBuilder),
-        Lists.transform(args.getVmArgs(), vmArg -> macrosConverter.convert(vmArg, graphBuilder)),
+        javaOptionsForTests
+            .get()
+            .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
+        Lists.transform(args.getVmArgs(), macrosConverter::convert),
         cxxLibraryEnhancement.nativeLibsEnvironment,
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
@@ -182,8 +183,7 @@ public class JavaTestDescription
                     .getView(TestBuckConfig.class)
                     .getDefaultTestRuleTimeoutMs()),
         args.getTestCaseTimeoutMs(),
-        ImmutableMap.copyOf(
-            Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder))),
+        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert)),
         args.getRunTestSeparately(),
         args.getForkMode(),
         args.getStdOutLogLevel(),
@@ -200,10 +200,13 @@ public class JavaTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     if (constructorArg.getUseCxxLibraries().orElse(false)) {
       targetGraphOnlyDepsBuilder.addAll(
-          CxxPlatforms.getParseTimeDeps(getCxxPlatform(constructorArg)));
+          getUnresolvedCxxPlatform(constructorArg)
+              .getParseTimeDeps(buildTarget.getTargetConfiguration()));
     }
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
-    javaOptionsForTests.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptionsForTests
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   public interface CoreArg extends HasContacts, HasTestTimeout, JavaLibraryDescription.CoreArg {
@@ -251,12 +254,11 @@ public class JavaTestDescription
         Optional<Boolean> useCxxLibraries,
         ImmutableSet<BuildTarget> cxxLibraryWhitelist,
         ActionGraphBuilder graphBuilder,
-        SourcePathRuleFinder ruleFinder,
         CxxPlatform cxxPlatform) {
       if (useCxxLibraries.orElse(false)) {
         SymlinkTree nativeLibsSymlinkTree =
             buildNativeLibsSymlinkTreeRule(
-                buildTarget, projectFilesystem, graphBuilder, ruleFinder, params, cxxPlatform);
+                buildTarget, projectFilesystem, graphBuilder, params, cxxPlatform);
 
         // If the cxxLibraryWhitelist is present, remove symlinks that were not requested.
         // They could point to old, invalid versions of the library in question.
@@ -282,7 +284,7 @@ public class JavaTestDescription
                       .relativize(nativeLibsSymlinkTree.getRoot()),
                   filteredLinks.build(),
                   ImmutableMultimap.of(),
-                  ruleFinder);
+                  graphBuilder);
         }
 
         graphBuilder.addToIndex(nativeLibsSymlinkTree);
@@ -296,11 +298,15 @@ public class JavaTestDescription
                     // (2) They affect the JavaTest's RuleKey, so changing them will invalidate
                     // the test results cache.
                     .addAll(
-                        ruleFinder.filterBuildRuleInputs(nativeLibsSymlinkTree.getLinks().values()))
+                        graphBuilder.filterBuildRuleInputs(
+                            nativeLibsSymlinkTree.getLinks().values()))
                     .build());
         nativeLibsEnvironment =
             ImmutableMap.of(
-                cxxPlatform.getLd().resolve(graphBuilder).searchPathEnvVar(),
+                cxxPlatform
+                    .getLd()
+                    .resolve(graphBuilder, buildTarget.getTargetConfiguration())
+                    .searchPathEnvVar(),
                 nativeLibsSymlinkTree.getRoot().toString());
       } else {
         updatedParams = params;
@@ -312,7 +318,6 @@ public class JavaTestDescription
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
         ActionGraphBuilder graphBuilder,
-        SourcePathRuleFinder ruleFinder,
         BuildRuleParams buildRuleParams,
         CxxPlatform cxxPlatform) {
       // TODO(cjhopman): The behavior of this doesn't really make sense. This should use a
@@ -322,7 +327,6 @@ public class JavaTestDescription
           buildTarget,
           projectFilesystem,
           graphBuilder,
-          ruleFinder,
           cxxPlatform,
           buildRuleParams.getBuildDeps(),
           r ->

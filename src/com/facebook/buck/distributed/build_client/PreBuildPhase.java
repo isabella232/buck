@@ -43,7 +43,7 @@ import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -98,7 +98,7 @@ public class PreBuildPhase {
   public Pair<StampedeId, ListenableFuture<Void>> runPreDistBuildLocalStepsAsync(
       ListeningExecutorService networkExecutorService,
       ProjectFilesystem projectFilesystem,
-      FileHashCache fileHashCache,
+      FileHashLoader fileHashLoader,
       BuckEventBus eventBus,
       BuildId buildId,
       BuildMode buildMode,
@@ -111,8 +111,7 @@ public class PreBuildPhase {
 
     distBuildClientStats.startTimer(CREATE_DISTRIBUTED_BUILD);
     List<String> buildTargets =
-        topLevelTargets
-            .stream()
+        topLevelTargets.stream()
             .map(BuildTarget::getFullyQualifiedName)
             .sorted()
             .collect(Collectors.toList());
@@ -169,7 +168,7 @@ public class PreBuildPhase {
         distBuildService.uploadBuckDotFilesAsync(
             stampedeId,
             projectFilesystem,
-            fileHashCache,
+            fileHashLoader,
             distBuildClientStats,
             networkExecutorService));
 

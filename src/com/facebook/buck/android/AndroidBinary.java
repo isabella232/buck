@@ -33,6 +33,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.attr.HasInstallHelpers;
@@ -44,6 +45,7 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathDeps;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
@@ -60,7 +62,6 @@ import com.google.common.collect.Ordering;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.stream.Stream;
@@ -81,6 +82,7 @@ import java.util.stream.Stream;
 public class AndroidBinary extends AbstractBuildRule
     implements SupportsInputBasedRuleKey,
         HasDeclaredAndExtraDeps,
+        HasClasspathDeps,
         HasClasspathEntries,
         HasRuntimeDeps,
         HasInstallableApk,
@@ -91,7 +93,7 @@ public class AndroidBinary extends AbstractBuildRule
 
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ProGuardObfuscateStep.SdkProguardType sdkProguardConfig;
-  private final OptionalInt optimizationPasses;
+  private final int optimizationPasses;
   private final Optional<SourcePath> proguardConfig;
   private final SourcePathRuleFinder ruleFinder;
 
@@ -100,7 +102,7 @@ public class AndroidBinary extends AbstractBuildRule
   private final ImmutableSet<TargetCpuType> cpuFilters;
   private final ResourceFilter resourceFilter;
   private final EnumSet<ExopackageMode> exopackageModes;
-  private final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
+  private final ImmutableSet<JavaLibrary> rulesToExcludeFromDex;
 
   private final AndroidGraphEnhancementResult enhancementResult;
   private final ManifestEntries manifestEntries;
@@ -129,7 +131,7 @@ public class AndroidBinary extends AbstractBuildRule
       DexSplitMode dexSplitMode,
       Set<BuildTarget> buildTargetsToExcludeFromDex,
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
-      OptionalInt proguardOptimizationPasses,
+      int proguardOptimizationPasses,
       Optional<SourcePath> proguardConfig,
       boolean skipProguard,
       Optional<RedexOptions> redexOptions,
@@ -137,9 +139,9 @@ public class AndroidBinary extends AbstractBuildRule
       Set<TargetCpuType> cpuFilters,
       ResourceFilter resourceFilter,
       EnumSet<ExopackageMode> exopackageModes,
-      ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
+      ImmutableSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidGraphEnhancementResult enhancementResult,
-      OptionalInt xzCompressionLevel,
+      int xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       Optional<CompressionAlgorithm> assetCompressionAlgorithm,
@@ -223,6 +225,7 @@ public class AndroidBinary extends AbstractBuildRule
             resourceFilesInfo,
             apkModules,
             enhancementResult.getModuleResourceApkPaths(),
+            Optional.empty(),
             true);
     this.exopackageInfo = exopackageInfo;
 
@@ -254,7 +257,7 @@ public class AndroidBinary extends AbstractBuildRule
     return buildRuleParams.getTargetGraphOnlyDeps();
   }
 
-  public ImmutableSortedSet<JavaLibrary> getRulesToExcludeFromDex() {
+  public ImmutableSet<JavaLibrary> getRulesToExcludeFromDex() {
     return rulesToExcludeFromDex;
   }
 
@@ -286,7 +289,7 @@ public class AndroidBinary extends AbstractBuildRule
     return sdkProguardConfig;
   }
 
-  public OptionalInt getOptimizationPasses() {
+  public int getOptimizationPasses() {
     return optimizationPasses;
   }
 
@@ -365,10 +368,8 @@ public class AndroidBinary extends AbstractBuildRule
   @Override
   public ImmutableSet<JavaLibrary> getTransitiveClasspathDeps() {
     return JavaLibraryClasspathProvider.getClasspathDeps(
-        enhancementResult
-            .getClasspathEntriesToDex()
-            .stream()
-            .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
+        ruleFinder
+            .filterBuildRuleInputs(enhancementResult.getClasspathEntriesToDex().stream())
             .collect(ImmutableSet.toImmutableSet()));
   }
 
@@ -384,9 +385,14 @@ public class AndroidBinary extends AbstractBuildRule
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
     return RichStream.from(moduleVerification)
         .map(BuildRule::getBuildTarget)
-        .concat(HasInstallableApkSupport.getRuntimeDepsForInstallableApk(this, ruleFinder));
+        .concat(HasInstallableApkSupport.getRuntimeDepsForInstallableApk(this, buildRuleResolver));
+  }
+
+  @Override
+  public Set<BuildRule> getDepsForTransitiveClasspathEntries() {
+    return ImmutableSortedSet.copyOf(getTransitiveClasspathDeps());
   }
 }

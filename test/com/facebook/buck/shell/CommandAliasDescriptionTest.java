@@ -30,17 +30,16 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -546,14 +545,10 @@ public class CommandAliasDescriptionTest {
   }
 
   private static RuleKey ruleKey(CommandAliasBuilder.BuildResult result, Object value) {
-    SourcePathResolver pathResolver = result.sourcePathResolver();
     SourcePathRuleFinder ruleFinder = result.ruleFinder();
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(ImmutableMap.of());
     return new UncachedRuleKeyBuilder(
-            ruleFinder,
-            pathResolver,
-            hashCache,
-            new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder))
+            ruleFinder, hashCache, new TestDefaultRuleKeyFactory(hashCache, ruleFinder))
         .setReflectively("key", value)
         .build(RuleKey::new);
   }

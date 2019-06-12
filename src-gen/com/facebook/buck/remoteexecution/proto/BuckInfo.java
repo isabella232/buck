@@ -23,6 +23,8 @@ private static final long serialVersionUID = 0L;
   }
   private BuckInfo() {
     buildId_ = "";
+    ruleName_ = "";
+    auxiliaryBuildTag_ = "";
   }
 
   @java.lang.Override
@@ -53,6 +55,18 @@ private static final long serialVersionUID = 0L;
             java.lang.String s = input.readStringRequireUtf8();
 
             buildId_ = s;
+            break;
+          }
+          case 18: {
+            java.lang.String s = input.readStringRequireUtf8();
+
+            ruleName_ = s;
+            break;
+          }
+          case 26: {
+            java.lang.String s = input.readStringRequireUtf8();
+
+            auxiliaryBuildTag_ = s;
             break;
           }
           default: {
@@ -129,6 +143,90 @@ private static final long serialVersionUID = 0L;
     }
   }
 
+  public static final int RULE_NAME_FIELD_NUMBER = 2;
+  private volatile java.lang.Object ruleName_;
+  /**
+   * <pre>
+   * Name of the Build Rule that's being executed
+   * </pre>
+   *
+   * <code>string rule_name = 2;</code>
+   */
+  public java.lang.String getRuleName() {
+    java.lang.Object ref = ruleName_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      ruleName_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Name of the Build Rule that's being executed
+   * </pre>
+   *
+   * <code>string rule_name = 2;</code>
+   */
+  public com.google.protobuf.ByteString
+      getRuleNameBytes() {
+    java.lang.Object ref = ruleName_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      ruleName_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int AUXILIARY_BUILD_TAG_FIELD_NUMBER = 3;
+  private volatile java.lang.Object auxiliaryBuildTag_;
+  /**
+   * <pre>
+   * Auxiliary tag set for builds with non-standard configurations.
+   * </pre>
+   *
+   * <code>string auxiliary_build_tag = 3;</code>
+   */
+  public java.lang.String getAuxiliaryBuildTag() {
+    java.lang.Object ref = auxiliaryBuildTag_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      auxiliaryBuildTag_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Auxiliary tag set for builds with non-standard configurations.
+   * </pre>
+   *
+   * <code>string auxiliary_build_tag = 3;</code>
+   */
+  public com.google.protobuf.ByteString
+      getAuxiliaryBuildTagBytes() {
+    java.lang.Object ref = auxiliaryBuildTag_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      auxiliaryBuildTag_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -146,6 +244,12 @@ private static final long serialVersionUID = 0L;
     if (!getBuildIdBytes().isEmpty()) {
       com.google.protobuf.GeneratedMessageV3.writeString(output, 1, buildId_);
     }
+    if (!getRuleNameBytes().isEmpty()) {
+      com.google.protobuf.GeneratedMessageV3.writeString(output, 2, ruleName_);
+    }
+    if (!getAuxiliaryBuildTagBytes().isEmpty()) {
+      com.google.protobuf.GeneratedMessageV3.writeString(output, 3, auxiliaryBuildTag_);
+    }
     unknownFields.writeTo(output);
   }
 
@@ -157,6 +261,12 @@ private static final long serialVersionUID = 0L;
     size = 0;
     if (!getBuildIdBytes().isEmpty()) {
       size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, buildId_);
+    }
+    if (!getRuleNameBytes().isEmpty()) {
+      size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, ruleName_);
+    }
+    if (!getAuxiliaryBuildTagBytes().isEmpty()) {
+      size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, auxiliaryBuildTag_);
     }
     size += unknownFields.getSerializedSize();
     memoizedSize = size;
@@ -176,6 +286,10 @@ private static final long serialVersionUID = 0L;
     boolean result = true;
     result = result && getBuildId()
         .equals(other.getBuildId());
+    result = result && getRuleName()
+        .equals(other.getRuleName());
+    result = result && getAuxiliaryBuildTag()
+        .equals(other.getAuxiliaryBuildTag());
     result = result && unknownFields.equals(other.unknownFields);
     return result;
   }
@@ -189,6 +303,10 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + BUILD_ID_FIELD_NUMBER;
     hash = (53 * hash) + getBuildId().hashCode();
+    hash = (37 * hash) + RULE_NAME_FIELD_NUMBER;
+    hash = (53 * hash) + getRuleName().hashCode();
+    hash = (37 * hash) + AUXILIARY_BUILD_TAG_FIELD_NUMBER;
+    hash = (53 * hash) + getAuxiliaryBuildTag().hashCode();
     hash = (29 * hash) + unknownFields.hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -328,6 +446,10 @@ private static final long serialVersionUID = 0L;
       super.clear();
       buildId_ = "";
 
+      ruleName_ = "";
+
+      auxiliaryBuildTag_ = "";
+
       return this;
     }
 
@@ -355,6 +477,8 @@ private static final long serialVersionUID = 0L;
     public com.facebook.buck.remoteexecution.proto.BuckInfo buildPartial() {
       com.facebook.buck.remoteexecution.proto.BuckInfo result = new com.facebook.buck.remoteexecution.proto.BuckInfo(this);
       result.buildId_ = buildId_;
+      result.ruleName_ = ruleName_;
+      result.auxiliaryBuildTag_ = auxiliaryBuildTag_;
       onBuilt();
       return result;
     }
@@ -405,6 +529,14 @@ private static final long serialVersionUID = 0L;
       if (other == com.facebook.buck.remoteexecution.proto.BuckInfo.getDefaultInstance()) return this;
       if (!other.getBuildId().isEmpty()) {
         buildId_ = other.buildId_;
+        onChanged();
+      }
+      if (!other.getRuleName().isEmpty()) {
+        ruleName_ = other.ruleName_;
+        onChanged();
+      }
+      if (!other.getAuxiliaryBuildTag().isEmpty()) {
+        auxiliaryBuildTag_ = other.auxiliaryBuildTag_;
         onChanged();
       }
       this.mergeUnknownFields(other.unknownFields);
@@ -521,6 +653,184 @@ private static final long serialVersionUID = 0L;
   checkByteStringIsUtf8(value);
       
       buildId_ = value;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object ruleName_ = "";
+    /**
+     * <pre>
+     * Name of the Build Rule that's being executed
+     * </pre>
+     *
+     * <code>string rule_name = 2;</code>
+     */
+    public java.lang.String getRuleName() {
+      java.lang.Object ref = ruleName_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        ruleName_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Name of the Build Rule that's being executed
+     * </pre>
+     *
+     * <code>string rule_name = 2;</code>
+     */
+    public com.google.protobuf.ByteString
+        getRuleNameBytes() {
+      java.lang.Object ref = ruleName_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        ruleName_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Name of the Build Rule that's being executed
+     * </pre>
+     *
+     * <code>string rule_name = 2;</code>
+     */
+    public Builder setRuleName(
+        java.lang.String value) {
+      if (value == null) {
+    throw new NullPointerException();
+  }
+  
+      ruleName_ = value;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Name of the Build Rule that's being executed
+     * </pre>
+     *
+     * <code>string rule_name = 2;</code>
+     */
+    public Builder clearRuleName() {
+      
+      ruleName_ = getDefaultInstance().getRuleName();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Name of the Build Rule that's being executed
+     * </pre>
+     *
+     * <code>string rule_name = 2;</code>
+     */
+    public Builder setRuleNameBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) {
+    throw new NullPointerException();
+  }
+  checkByteStringIsUtf8(value);
+      
+      ruleName_ = value;
+      onChanged();
+      return this;
+    }
+
+    private java.lang.Object auxiliaryBuildTag_ = "";
+    /**
+     * <pre>
+     * Auxiliary tag set for builds with non-standard configurations.
+     * </pre>
+     *
+     * <code>string auxiliary_build_tag = 3;</code>
+     */
+    public java.lang.String getAuxiliaryBuildTag() {
+      java.lang.Object ref = auxiliaryBuildTag_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        auxiliaryBuildTag_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Auxiliary tag set for builds with non-standard configurations.
+     * </pre>
+     *
+     * <code>string auxiliary_build_tag = 3;</code>
+     */
+    public com.google.protobuf.ByteString
+        getAuxiliaryBuildTagBytes() {
+      java.lang.Object ref = auxiliaryBuildTag_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        auxiliaryBuildTag_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Auxiliary tag set for builds with non-standard configurations.
+     * </pre>
+     *
+     * <code>string auxiliary_build_tag = 3;</code>
+     */
+    public Builder setAuxiliaryBuildTag(
+        java.lang.String value) {
+      if (value == null) {
+    throw new NullPointerException();
+  }
+  
+      auxiliaryBuildTag_ = value;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Auxiliary tag set for builds with non-standard configurations.
+     * </pre>
+     *
+     * <code>string auxiliary_build_tag = 3;</code>
+     */
+    public Builder clearAuxiliaryBuildTag() {
+      
+      auxiliaryBuildTag_ = getDefaultInstance().getAuxiliaryBuildTag();
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Auxiliary tag set for builds with non-standard configurations.
+     * </pre>
+     *
+     * <code>string auxiliary_build_tag = 3;</code>
+     */
+    public Builder setAuxiliaryBuildTagBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) {
+    throw new NullPointerException();
+  }
+  checkByteStringIsUtf8(value);
+      
+      auxiliaryBuildTag_ = value;
       onChanged();
       return this;
     }

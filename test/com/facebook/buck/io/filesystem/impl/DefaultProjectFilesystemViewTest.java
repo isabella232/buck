@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -80,6 +81,24 @@ public class DefaultProjectFilesystemViewTest {
     assertTrue(filesystemView.isSubdirOf(tmp.getRoot().resolve("foo").resolve("bar")));
     assertTrue(filesystemView.isSubdirOf(tmp.getRoot().resolve("foo")));
     assertFalse(filesystemView.isSubdirOf(tmp.getRoot()));
+  }
+
+  @Test
+  public void getDirectoryContentsObeysViewRoot() throws IOException {
+    tmp.newFile("file1");
+    tmp.newFolder("dir");
+    tmp.newFile("dir/file2");
+    tmp.newFolder("dir/subdir");
+    tmp.newFile("dir/subdir/file3");
+
+    DefaultProjectFilesystemView dirView =
+        filesystemView.withView(Paths.get("dir"), ImmutableSet.of());
+    assertThat(
+        dirView.getDirectoryContents(Paths.get("")),
+        containsInAnyOrder(Paths.get("file2"), Paths.get("subdir")));
+    assertThat(
+        dirView.getDirectoryContents(Paths.get("subdir")),
+        containsInAnyOrder(Paths.get("subdir/file3")));
   }
 
   @Test
@@ -324,5 +343,52 @@ public class DefaultProjectFilesystemViewTest {
     assertThat(
         filesystemView.getDirectoryContents(Paths.get("dir1")),
         containsInAnyOrder(Paths.get("dir1/file1"), Paths.get("dir1/file2")));
+  }
+
+  @Test
+  public void isFile() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file1");
+
+    assertTrue(filesystemView.isFile(Paths.get("dir1/file1")));
+    assertTrue(filesystemView.isFile(Paths.get("dir1/file1"), LinkOption.NOFOLLOW_LINKS));
+    assertFalse(filesystemView.isFile(Paths.get("dir1/file2")));
+  }
+
+  @Test
+  public void isDirectory() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFolder("dir1/dir2");
+
+    assertTrue(filesystemView.isDirectory(Paths.get("dir1/dir2")));
+    assertFalse(filesystemView.isDirectory(Paths.get("dir2")));
+    assertFalse(filesystemView.isDirectory(Paths.get("dir1/dir3")));
+  }
+
+  @Test
+  public void canReadAttributes() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file1");
+
+    BasicFileAttributes attributes =
+        filesystemView.readAttributes(Paths.get("dir1/file1"), BasicFileAttributes.class);
+    assertTrue(attributes.isRegularFile());
+    assertFalse(attributes.isDirectory());
+
+    attributes = filesystemView.readAttributes(Paths.get("dir1"), BasicFileAttributes.class);
+    assertFalse(attributes.isRegularFile());
+    assertTrue(attributes.isDirectory());
+  }
+
+  @Test
+  public void writeLinesToFileWritesFileAtCorrectPath() throws IOException {
+    filesystemView.writeLinesToPath(ImmutableList.of("1"), Paths.get("test1"));
+    assertEquals(ImmutableList.of("1"), filesystem.readLines(Paths.get("test1")));
+
+    filesystemView = filesystemView.withView(Paths.get("rel"), ImmutableSet.of());
+
+    filesystem.mkdirs(Paths.get("rel"));
+    filesystemView.writeLinesToPath(ImmutableList.of("2"), Paths.get("test2"));
+    assertEquals(ImmutableList.of("2"), filesystem.readLines(Paths.get("rel", "test2")));
   }
 }

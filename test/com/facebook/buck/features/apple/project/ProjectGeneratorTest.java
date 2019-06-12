@@ -25,6 +25,7 @@ import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.CoreMatchers.startsWith;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.junit.Assert.assertEquals;
@@ -91,20 +92,17 @@ import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxPrecompiledHeaderBuilder;
 import com.facebook.buck.cxx.CxxSource;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.event.BuckEventBus;
@@ -217,6 +215,8 @@ public class ProjectGeneratorTest {
                 "cxxppflags", "-DDEBUG=1",
                 "cxxflags", "-Wundeclared-selector -Wno-objc-designated-initializers",
                 "ldflags", "-fatal_warnings"),
+            "cxx#appletvos-armv7",
+            ImmutableMap.of("cflags", "-Wno-nullability-completeness"),
             "apple",
             ImmutableMap.of("force_dsym_mode_in_build_with_buck", "false"),
             "swift",
@@ -313,7 +313,7 @@ public class ProjectGeneratorTest {
   }
 
   @Test
-  public void testSwapWithSharedBundes() throws IOException {
+  public void testSwapWithSharedBundes() {
     BuildTarget sharedLibrary = BuildTargetFactory.newInstance(rootPath, "//foo:shared#shared");
     BuildTarget bundleTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "sharedFramework");
 
@@ -494,30 +494,21 @@ public class ProjectGeneratorTest {
     ImmutableList<Pair<Pattern, Iterable<SourcePath>>> platformHeadersIterable =
         platformHeadersIterableBuilder.build();
 
-    UserFlavor simulator =
-        UserFlavor.builder()
-            .setName("iphonesimulator11.4-i386")
-            .setDescription("buck boilerplate")
-            .build();
-    UserFlavor macOS =
-        UserFlavor.builder().setName("macosx10-x86_64").setDescription("buck boilerplate").build();
-    UserFlavor.Builder iOSBuilder =
-        UserFlavor.builder().setName("iphoneos-x86_64").setDescription("buck boilerplate");
-    UserFlavor iOS = iOSBuilder.build();
+    UserFlavor simulator = UserFlavor.of("iphonesimulator11.4-i386", "buck boilerplate");
+    UserFlavor macOS = UserFlavor.of("macosx10-x86_64", "buck boilerplate");
+    UserFlavor iOS = UserFlavor.of("iphoneos-x86_64", "buck boilerplate");
 
-    ImmutableSet<String> appleFlavors =
-        ImmutableSet.of(simulator, iOS, macOS)
-            .stream()
-            .map(f -> ProjectGenerator.applePlatformAndArchitecture(f).getFirst())
-            .collect(ImmutableSet.toImmutableSet());
+    ImmutableSet<Flavor> appleFlavors = ImmutableSet.of(simulator, iOS, macOS);
 
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     ImmutableMap<String, ImmutableSortedSet<String>> result =
         ProjectGenerator.gatherExcludedSources(
-            appleFlavors, platformSources, platformHeadersIterable, Paths.get("."), resolver);
+            appleFlavors,
+            platformSources,
+            platformHeadersIterable,
+            Paths.get("."),
+            graphBuilder.getSourcePathResolver());
 
     ImmutableSet.Builder<String> excludedResultsBuilder = ImmutableSet.builder();
     ImmutableSet<String> excludedResults =
@@ -555,9 +546,10 @@ public class ProjectGeneratorTest {
 
     ImmutableMap.Builder<String, ImmutableSet<String>> expectedBuilder = ImmutableMap.builder();
     expectedBuilder.put("EXCLUDED_SOURCE_FILE_NAMES", excludedResults);
-    expectedBuilder.put("INCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]", iOSResults);
-    expectedBuilder.put("INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]", simulatorResults);
-    expectedBuilder.put("INCLUDED_SOURCE_FILE_NAMES[sdk=macosx*]", macOSResults);
+    expectedBuilder.put("INCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*][arch=x86_64]", iOSResults);
+    expectedBuilder.put(
+        "INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*][arch=i386]", simulatorResults);
+    expectedBuilder.put("INCLUDED_SOURCE_FILE_NAMES[sdk=macosx*][arch=x86_64]", macOSResults);
     ImmutableMap<String, ImmutableSet<String>> expectedResult = expectedBuilder.build();
 
     assertEquals(result, expectedResult);
@@ -911,7 +903,11 @@ public class ProjectGeneratorTest {
     List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
     assertThat(headerSymlinkTrees, hasSize(2));
     assertEquals("buck-out/gen/_p/CwkbTNOBmb-pub", headerSymlinkTrees.get(0).toString());
-    assertTrue(projectFilesystem.isFile(headerSymlinkTrees.get(0).resolve("lib/lib.h")));
+
+    Path umbrellaHeaderPath = headerSymlinkTrees.get(0).resolve("lib/lib.h");
+    Optional<String> umbrellaContents = projectFilesystem.readFileIfItExists(umbrellaHeaderPath);
+    assertTrue(umbrellaContents.isPresent());
+    assertFalse(umbrellaContents.get().contains("lib-Swift.h"));
   }
 
   @Test
@@ -1126,11 +1122,7 @@ public class ProjectGeneratorTest {
                     .build())
             .build();
 
-    UserFlavor simulator =
-        UserFlavor.builder()
-            .setName("iphonesimulator11.4-i386")
-            .setDescription("Testing flavor")
-            .build();
+    UserFlavor simulator = UserFlavor.of("iphonesimulator11.4-i386", "Testing flavor");
 
     ProjectGenerator projectGenerator =
         createProjectGenerator(
@@ -1173,9 +1165,7 @@ public class ProjectGeneratorTest {
     PBXTarget target = assertTargetExistsAndReturnTarget(project, "//foo:lib");
     assertEquals(
         0,
-        target
-            .getBuildPhases()
-            .stream()
+        target.getBuildPhases().stream()
             .filter(input -> input instanceof PBXHeadersBuildPhase)
             .count());
 
@@ -1213,7 +1203,7 @@ public class ProjectGeneratorTest {
         buildSettings.get("EXCLUDED_SOURCE_FILE_NAMES"));
     assertEquals(
         "'../HeaderGroup1/foo1.h' '../HeaderGroup2/foo3.h'",
-        buildSettings.get("INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]"));
+        buildSettings.get("INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*][arch=i386]"));
   }
 
   @Test
@@ -1260,11 +1250,7 @@ public class ProjectGeneratorTest {
                     .build())
             .build();
 
-    UserFlavor simulator =
-        UserFlavor.builder()
-            .setName("iphonesimulator11.4-i386")
-            .setDescription("Testing flavor")
-            .build();
+    UserFlavor simulator = UserFlavor.of("iphonesimulator11.4-i386", "Testing flavor");
 
     ProjectGenerator projectGenerator =
         createProjectGenerator(
@@ -1313,9 +1299,7 @@ public class ProjectGeneratorTest {
     PBXTarget target = assertTargetExistsAndReturnTarget(project, "//foo:lib");
     assertEquals(
         0,
-        target
-            .getBuildPhases()
-            .stream()
+        target.getBuildPhases().stream()
             .filter(input -> input instanceof PBXHeadersBuildPhase)
             .count());
 
@@ -1346,7 +1330,7 @@ public class ProjectGeneratorTest {
         buildSettings.get("EXCLUDED_SOURCE_FILE_NAMES"));
     assertEquals(
         "'../HeaderGroup1/foo1.h'",
-        buildSettings.get("INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]"));
+        buildSettings.get("INCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*][arch=i386]"));
   }
 
   @Test
@@ -2462,6 +2446,30 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testAppleLibraryPlatformSpecificCxxFlags() throws IOException {
+    BuildTarget buildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+    TargetNode<?> node =
+        AppleLibraryBuilder.createBuilder(buildTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .build();
+
+    ImmutableSet<Flavor> appleFlavors =
+        ImmutableSet.of(
+            InternalFlavor.of("appletvos-armv7"), InternalFlavor.of("iphonesimulator-x86_64"));
+    ProjectGenerator projectGenerator = createProjectGenerator(ImmutableSet.of(node), appleFlavors);
+
+    projectGenerator.createXcodeProjects();
+
+    PBXTarget target =
+        assertTargetExistsAndReturnTarget(projectGenerator.getGeneratedProject(), "//foo:lib");
+
+    ImmutableMap<String, String> settings = getBuildSettings(buildTarget, target, "Debug");
+    assertEquals(
+        "$(inherited) -Wno-deprecated -Wno-conversion -Wno-nullability-completeness '-DDEBUG=1'",
+        settings.get("OTHER_CFLAGS[sdk=appletvos*][arch=armv7]"));
+  }
+
+  @Test
   public void testAppleLibraryCompilerAndPreprocessorFlags() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
     TargetNode<?> node =
@@ -3277,11 +3285,8 @@ public class ProjectGeneratorTest {
     ProjectGenerator projectGenerator =
         createProjectGenerator(
             ImmutableSet.of(node),
-            ImmutableSet.of(node),
-            ProjectGeneratorOptions.builder().build(),
             ImmutableSet.of(
-                InternalFlavor.of("iphonesimulator-x86_64"), InternalFlavor.of("macosx-x86_64")),
-            Optional.empty());
+                InternalFlavor.of("iphonesimulator-x86_64"), InternalFlavor.of("macosx-x86_64")));
 
     projectGenerator.createXcodeProjects();
 
@@ -4280,6 +4285,59 @@ public class ProjectGeneratorTest {
             "bar.m", Optional.empty()));
   }
 
+  /**
+   * Ensure target map filters out duplicated targets with an explicit and implicit static flavor.
+   * Ensure the filtering prefers the main workspace target over other project targets.
+   *
+   * @throws IOException
+   */
+  @Test
+  public void ruleToTargetMapFiltersDuplicatePBXTarget() throws IOException {
+    BuildTarget explicitStaticBuildTarget =
+        BuildTargetFactory.newInstance(
+            rootPath, "//foo", "lib", CxxDescriptionEnhancer.STATIC_FLAVOR);
+    TargetNode<?> explicitStaticNode =
+        AppleLibraryBuilder.createBuilder(explicitStaticBuildTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("foo.m"), ImmutableList.of("-foo")),
+                    SourceWithFlags.of(FakeSourcePath.of("bar.m"))))
+            .setHeaders(ImmutableSortedSet.of(FakeSourcePath.of("foo.h")))
+            .build();
+
+    BuildTarget implicitStaticBuildTarget =
+        BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+    TargetNode<?> implicitStaticNode =
+        AppleLibraryBuilder.createBuilder(implicitStaticBuildTarget)
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("foo.m"), ImmutableList.of("-foo")),
+                    SourceWithFlags.of(FakeSourcePath.of("bar.m"))))
+            .setHeaders(ImmutableSortedSet.of(FakeSourcePath.of("foo.h")))
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGenerator(
+            ImmutableSet.of(explicitStaticNode, implicitStaticNode),
+            Optional.of(explicitStaticBuildTarget));
+
+    projectGenerator.createXcodeProjects();
+
+    // `implicitStaticBuildTarget` should be filtered out since it duplicates
+    // `explicitStaticBuildTarget`, the workspace target, which takes precedence.
+    assertEquals(
+        explicitStaticBuildTarget,
+        Iterables.getOnlyElement(projectGenerator.getBuildTargetToGeneratedTargetMap().keySet()));
+
+    PBXTarget target =
+        Iterables.getOnlyElement(projectGenerator.getBuildTargetToGeneratedTargetMap().values());
+    assertHasSingletonSourcesPhaseWithSourcesAndFlags(
+        target,
+        ImmutableMap.of(
+            "foo.m", Optional.of("-foo"),
+            "bar.m", Optional.empty()));
+  }
+
   @Test
   public void generatedGidsForTargetsAreStable() throws IOException {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "foo");
@@ -5033,11 +5091,7 @@ public class ProjectGeneratorTest {
 
     Function<PBXTarget, Set<String>> getLinkedLibsForTarget =
         pbxTarget ->
-            pbxTarget
-                .getBuildPhases()
-                .get(0)
-                .getFiles()
-                .stream()
+            pbxTarget.getBuildPhases().get(0).getFiles().stream()
                 .map(PBXBuildFile::getFileRef)
                 .map(PBXReference::getName)
                 .collect(Collectors.toSet());
@@ -5117,11 +5171,7 @@ public class ProjectGeneratorTest {
 
     Function<PBXTarget, Set<String>> getLinkedLibsForTarget =
         pbxTarget ->
-            pbxTarget
-                .getBuildPhases()
-                .get(0)
-                .getFiles()
-                .stream()
+            pbxTarget.getBuildPhases().get(0).getFiles().stream()
                 .map(PBXBuildFile::getFileRef)
                 .map(PBXReference::getName)
                 .collect(Collectors.toSet());
@@ -5986,6 +6036,33 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testGeneratedProjectForAppleBinaryWithSwiftSources() throws IOException {
+    BuildTarget binBuildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "bin");
+    TargetNode<?> appBinaryNode =
+        AppleBinaryBuilder.createBuilder(binBuildTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .build();
+
+    ProjectGenerator projectGenerator = createProjectGenerator(ImmutableSet.of(appBinaryNode));
+    projectGenerator.createXcodeProjects();
+    PBXProject project = projectGenerator.getGeneratedProject();
+
+    PBXTarget target = assertTargetExistsAndReturnTarget(project, "//foo:bin");
+    ImmutableMap<String, String> buildSettings = getBuildSettings(binBuildTarget, target, "Debug");
+    assertThat(
+        buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*]"),
+        equalTo("$(inherited) /usr/lib/swift @executable_path/Frameworks @loader_path/Frameworks"));
+    assertThat(
+        buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*]"),
+        equalTo("$(inherited) /usr/lib/swift @executable_path/Frameworks @loader_path/Frameworks"));
+    assertThat(
+        buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]"),
+        equalTo(
+            "$(inherited) /usr/lib/swift @executable_path/../Frameworks @loader_path/../Frameworks"));
+  }
+
+  @Test
   public void testGeneratedProjectForAppleBinaryUsingAppleLibraryWithSwiftSources()
       throws IOException {
     BuildTarget libBuildTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
@@ -6014,13 +6091,14 @@ public class ProjectGeneratorTest {
         containsString("$DT_TOOLCHAIN_DIR/usr/lib/swift/$PLATFORM_NAME"));
     assertThat(
         buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*]"),
-        equalTo("$(inherited) @executable_path/Frameworks @loader_path/Frameworks"));
+        equalTo("$(inherited) /usr/lib/swift @executable_path/Frameworks @loader_path/Frameworks"));
     assertThat(
         buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*]"),
-        equalTo("$(inherited) @executable_path/Frameworks @loader_path/Frameworks"));
+        equalTo("$(inherited) /usr/lib/swift @executable_path/Frameworks @loader_path/Frameworks"));
     assertThat(
         buildSettings.get("LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]"),
-        equalTo("$(inherited) @executable_path/../Frameworks @loader_path/../Frameworks"));
+        equalTo(
+            "$(inherited) /usr/lib/swift @executable_path/../Frameworks @loader_path/../Frameworks"));
   }
 
   @Test
@@ -6061,7 +6139,8 @@ public class ProjectGeneratorTest {
     PBXTarget pbxTarget = assertTargetExistsAndReturnTarget(pbxProject, "//foo:lib");
     ImmutableMap<String, String> buildSettings = getBuildSettings(buildTarget, pbxTarget, "Debug");
 
-    assertThat(buildSettings.get("DERIVED_FILE_DIR"), equalTo("../" + derivedSourcesUserDir));
+    assertThat(buildSettings.get("DERIVED_FILE_DIR"), startsWith("/"));
+    assertTrue(buildSettings.get("DERIVED_FILE_DIR").endsWith(derivedSourcesUserDir));
     assertThat(
         buildSettings.get("SWIFT_OBJC_INTERFACE_HEADER_NAME"), equalTo(objCGeneratedHeaderName));
   }
@@ -6601,12 +6680,35 @@ public class ProjectGeneratorTest {
         buildSettingsTest.get("HEADER_SEARCH_PATHS"));
   }
 
+  private ProjectGenerator createProjectGenerator(
+      Collection<TargetNode<?>> allNodes, Optional<BuildTarget> workspaceTarget) {
+    return createProjectGenerator(
+        allNodes,
+        allNodes,
+        workspaceTarget,
+        ProjectGeneratorOptions.builder().build(),
+        ImmutableSet.of(),
+        Optional.empty());
+  }
+
   private ProjectGenerator createProjectGenerator(Collection<TargetNode<?>> allNodes) {
     return createProjectGenerator(
         allNodes,
         allNodes,
+        Optional.empty(),
         ProjectGeneratorOptions.builder().build(),
         ImmutableSet.of(),
+        Optional.empty());
+  }
+
+  private ProjectGenerator createProjectGenerator(
+      Collection<TargetNode<?>> allNodes, ImmutableSet<Flavor> appleCxxFlavors) {
+    return createProjectGenerator(
+        allNodes,
+        allNodes,
+        Optional.empty(),
+        ProjectGeneratorOptions.builder().build(),
+        appleCxxFlavors,
         Optional.empty());
   }
 
@@ -6616,10 +6718,27 @@ public class ProjectGeneratorTest {
       ProjectGeneratorOptions projectGeneratorOptions,
       ImmutableSet<Flavor> appleCxxFlavors,
       Optional<ImmutableMap<BuildTarget, TargetNode<?>>> sharedLibrariesToBundles) {
+    return createProjectGenerator(
+        allNodes,
+        initialTargetNodes,
+        Optional.empty(),
+        projectGeneratorOptions,
+        appleCxxFlavors,
+        sharedLibrariesToBundles);
+  }
+
+  private ProjectGenerator createProjectGenerator(
+      Collection<TargetNode<?>> allNodes,
+      Collection<TargetNode<?>> initialTargetNodes,
+      Optional<BuildTarget> workspaceTarget,
+      ProjectGeneratorOptions projectGeneratorOptions,
+      ImmutableSet<Flavor> appleCxxFlavors,
+      Optional<ImmutableMap<BuildTarget, TargetNode<?>>> sharedLibrariesToBundles) {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(allNodes));
     return createProjectGenerator(
         allNodes,
         initialTargetNodes,
+        workspaceTarget,
         projectGeneratorOptions,
         appleCxxFlavors,
         getActionGraphBuilderNodeFunction(targetGraph),
@@ -6632,6 +6751,7 @@ public class ProjectGeneratorTest {
     return createProjectGenerator(
         allNodes,
         allNodes,
+        Optional.empty(),
         projectGeneratorOptions,
         ImmutableSet.of(),
         getActionGraphBuilderNodeFunction(targetGraph),
@@ -6646,6 +6766,7 @@ public class ProjectGeneratorTest {
     return createProjectGenerator(
         allNodes,
         initialTargetNodes,
+        Optional.empty(),
         projectGeneratorOptions,
         ImmutableSet.of(),
         getActionGraphBuilderNodeFunction(targetGraph),
@@ -6659,6 +6780,7 @@ public class ProjectGeneratorTest {
     return createProjectGenerator(
         allNodes,
         allNodes,
+        Optional.empty(),
         projectGeneratorOptions,
         ImmutableSet.of(),
         actionGraphBuilderForNode,
@@ -6668,13 +6790,13 @@ public class ProjectGeneratorTest {
   private ProjectGenerator createProjectGenerator(
       Collection<TargetNode<?>> allNodes,
       Collection<TargetNode<?>> initialTargetNodes,
+      Optional<BuildTarget> workspaceTarget,
       ProjectGeneratorOptions projectGeneratorOptions,
       ImmutableSet<Flavor> appleCxxFlavors,
       Function<? super TargetNode<?>, ActionGraphBuilder> actionGraphBuilderForNode,
       Optional<ImmutableMap<BuildTarget, TargetNode<?>>> sharedLibrariesToBundles) {
     ImmutableSet<BuildTarget> initialBuildTargets =
-        initialTargetNodes
-            .stream()
+        initialTargetNodes.stream()
             .map(TargetNode::getBuildTarget)
             .collect(ImmutableSet.toImmutableSet());
 
@@ -6697,7 +6819,7 @@ public class ProjectGeneratorTest {
         projectGeneratorOptions,
         TestRuleKeyConfigurationFactory.create(),
         false,
-        Optional.empty(),
+        workspaceTarget,
         ImmutableSet.of(),
         FocusedModuleTargetMatcher.noFocus(),
         DEFAULT_PLATFORM,
@@ -6947,8 +7069,6 @@ public class ProjectGeneratorTest {
     TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
     BuildRuleResolver ruleResolver = getActionGraphBuilderNodeFunction(targetGraph).apply(node);
     SourcePath nodeOutput = ruleResolver.getRule(node.getBuildTarget()).getSourcePathToOutput();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
-    return sourcePathResolver.getAbsolutePath(nodeOutput);
+    return ruleResolver.getSourcePathResolver().getAbsolutePath(nodeOutput);
   }
 }

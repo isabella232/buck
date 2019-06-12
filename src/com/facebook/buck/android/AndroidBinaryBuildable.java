@@ -41,7 +41,6 @@ import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.XzStep;
 import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
@@ -63,7 +62,6 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 class AndroidBinaryBuildable implements AddsToRuleKey {
@@ -94,7 +92,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   // TODO(cjhopman): Redex shouldn't do that, or this list should be constructed more carefully.
   private final ImmutableList<SourcePath> additionalRedexInputs;
 
-  @AddToRuleKey private final OptionalInt xzCompressionLevel;
+  @AddToRuleKey private final int xzCompressionLevel;
 
   @AddToRuleKey private final SourcePath keystorePath;
   @AddToRuleKey private final SourcePath keystorePropertiesPath;
@@ -110,6 +108,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   @AddToRuleKey private final ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths;
 
   private final boolean isApk;
+  // Path to Bundles config file
+  @AddToRuleKey private final Optional<SourcePath> bundleConfigFilePath;
 
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
@@ -127,7 +127,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       Optional<RedexOptions> redexOptions,
       ImmutableList<SourcePath> additionalRedexInputs,
       EnumSet<ExopackageMode> exopackageModes,
-      OptionalInt xzCompressionLevel,
+      int xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       Optional<CompressionAlgorithm> assetCompressionAlgorithm,
@@ -139,6 +139,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
       ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths,
+      Optional<SourcePath> bundleConfigFilePath,
       boolean isApk) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
@@ -161,6 +162,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     this.compressAssetLibraries = compressAssetLibraries;
     this.assetCompressionAlgorithm = assetCompressionAlgorithm;
     this.resourceFilesInfo = resourceFilesInfo;
+    this.bundleConfigFilePath = bundleConfigFilePath;
     this.isApk = isApk;
   }
 
@@ -251,9 +253,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
         getKeystorePropertiesSupplier(resolver, pathToKeystore);
 
     ImmutableSet<Path> thirdPartyJars =
-        resourceFilesInfo
-            .pathsToThirdPartyJars
-            .stream()
+        resourceFilesInfo.pathsToThirdPartyJars.stream()
             .map(resolver::getAbsolutePath)
             .collect(ImmutableSet.toImmutableSet());
     if (isApk) {
@@ -309,10 +309,13 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
       modulesInfo.add(baseModuleInfo.build());
 
+      Optional<Path> bundleConfigPath = bundleConfigFilePath.map(pathResolver::getAbsolutePath);
+
       steps.add(
           new AabBuilderStep(
               getProjectFilesystem(),
               getSignedApkPath(),
+              bundleConfigPath,
               buildTarget,
               false,
               modulesInfo.build(),
@@ -625,14 +628,13 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       // Concat and xz compress.
       Path libOutputBlob = libSubdirectory.resolve("libraries.blob");
       steps.add(new ConcatStep(getProjectFilesystem(), outputAssetLibrariesBuilder, libOutputBlob));
-      int compressionLevel = xzCompressionLevel.orElse(XzStep.DEFAULT_COMPRESSION_LEVEL);
       steps.add(
           CompressionAlgorithmCreator.createCompressionStep(
               assetCompressionAlgorithm.orElse(CompressionAlgorithm.XZ),
               getProjectFilesystem(),
               libOutputBlob,
               libSubdirectory,
-              compressionLevel));
+              xzCompressionLevel));
     }
   }
 
@@ -780,26 +782,42 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   /** The APK at this path will be jar signed, but not zipaligned. */
   private Path getSignedApkPath() {
-    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".signed.apk"));
+    return Paths.get(
+        getUnsignedApkPath()
+            .replaceAll("\\.unsigned\\.apk$", ".signed.apk")
+            .replaceAll("\\.unsigned\\.aab$", ".signed.aab"));
   }
 
   /** The APK at this path will be zipaligned and jar signed. */
   private Path getZipalignedApkPath() {
-    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".zipaligned.apk"));
+    return Paths.get(
+        getUnsignedApkPath()
+            .replaceAll("\\.unsigned\\.apk$", ".zipaligned.apk")
+            .replaceAll("\\.unsigned\\.aab$", ".signed.aab"));
   }
 
   /** The APK at this path will be zipaligned and v2 signed. */
   Path getFinalApkPath() {
-    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".apk"));
+    return Paths.get(
+        getUnsignedApkPath()
+            .replaceAll("\\.unsigned\\.apk$", ".apk")
+            .replaceAll("\\.unsigned\\.aab$", ".aab"));
   }
 
   /** The APK at this path will have compressed resources, but will not be zipaligned. */
   private Path getCompressedResourcesApkPath() {
-    return Paths.get(getUnsignedApkPath().replaceAll("\\.unsigned\\.apk$", ".compressed.apk"));
+    return Paths.get(
+        getUnsignedApkPath()
+            .replaceAll("\\.unsigned\\.apk$", ".compressed.apk")
+            .replaceAll("\\.unsigned\\.aab$", ".compressed.aab"));
   }
 
   private String getUnsignedApkPath() {
-    return getPath("%s.unsigned.apk").toString();
+    return getPath("%s.unsigned." + getExtension()).toString();
+  }
+
+  private String getExtension() {
+    return isApk ? "apk" : "aab";
   }
 
   private Path getPath(String format) {
@@ -808,7 +826,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   private Path getRedexedApkPath() {
     Path path = BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s__redex");
-    return path.resolve(getBuildTarget().getShortName() + ".redex.apk");
+    return path.resolve(getBuildTarget().getShortName() + ".redex." + getExtension());
   }
 
   /**

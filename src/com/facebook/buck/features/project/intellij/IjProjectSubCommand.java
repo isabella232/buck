@@ -192,12 +192,13 @@ public class IjProjectSubCommand extends ProjectSubCommand {
         new IjProjectCommandHelper(
             params.getBuckEventBus(),
             executor,
-            params.getBuckConfig(),
+            params.getDepsAwareExecutorSupplier(),
             params.getActionGraphProvider(),
             params.getVersionedTargetGraphCache(),
             params.getTypeCoercerFactory(),
             params.getUnconfiguredBuildTargetFactory(),
             params.getCell(),
+            params.getTargetConfiguration(),
             projectConfig,
             projectGeneratorParameters.getEnableParserProfiling(),
             processAnnotations,
@@ -205,13 +206,13 @@ public class IjProjectSubCommand extends ProjectSubCommand {
             outputDir,
             (buildTargets, disableCaching) -> runBuild(params, buildTargets, disableCaching),
             projectGeneratorParameters.getArgsParser(),
-            projectGeneratorParameters);
+            projectGeneratorParameters,
+            params.getBuckConfig());
     return projectCommandHelper.parseTargetsAndRunProjectGenerator(projectCommandArguments);
   }
 
   private ExitCode runBuild(
-      CommandRunnerParams params, ImmutableSet<BuildTarget> targets, boolean disableCaching)
-      throws IOException, InterruptedException {
+      CommandRunnerParams params, ImmutableSet<BuildTarget> targets, boolean disableCaching) {
     BuildCommand buildCommand =
         new BuildCommand(
             targets.stream().map(Object::toString).collect(ImmutableList.toImmutableList()));

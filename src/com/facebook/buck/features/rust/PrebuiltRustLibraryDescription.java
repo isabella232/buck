@@ -19,15 +19,15 @@ package com.facebook.buck.features.rust;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableMap;
@@ -52,13 +52,10 @@ public class PrebuiltRustLibraryDescription
       PrebuiltRustLibraryDescriptionArg args) {
     CxxDeps allDeps =
         CxxDeps.builder().addDeps(args.getDeps()).addPlatformDeps(args.getPlatformDeps()).build();
-    return new PrebuiltRustLibrary(buildTarget, context.getProjectFilesystem(), params) {
-
-      @Override
-      protected SourcePath getRlib() {
-        return args.getRlib();
-      }
-
+    // TODO(cjhopman): This shouldn't be an anonymous class, it's capturing a ton of information
+    // that isn't being reflected in rulekeys.
+    return new PrebuiltRustLibrary(
+        buildTarget, context.getProjectFilesystem(), params, args.getRlib()) {
       @Override
       public com.facebook.buck.rules.args.Arg getLinkerArg(
           boolean direct,
@@ -74,8 +71,8 @@ public class PrebuiltRustLibraryDescription
       }
 
       @Override
-      public NativeLinkable.Linkage getPreferredLinkage() {
-        return NativeLinkable.Linkage.STATIC;
+      public NativeLinkableGroup.Linkage getPreferredLinkage() {
+        return NativeLinkableGroup.Linkage.STATIC;
       }
 
       @Override

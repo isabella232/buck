@@ -31,15 +31,15 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -47,6 +47,8 @@ import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.step.fs.XzStep;
+import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -54,7 +56,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.Supplier;
 import org.immutables.value.Value;
 
@@ -74,6 +75,8 @@ public class AndroidBundleDescription
 
   private final JavaBuckConfig javaBuckConfig;
   private final AndroidBuckConfig androidBuckConfig;
+  private final JavacFactory javacFactory;
+  private final Supplier<JavaOptions> javaOptions;
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
@@ -81,13 +84,11 @@ public class AndroidBundleDescription
   private final ToolchainProvider toolchainProvider;
   private final AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory;
   private final AndroidBundleFactory androidBundleFactory;
-  private final JavacFactory javacFactory;
-  private final Supplier<JavaOptions> javaOptions;
 
   public AndroidBundleDescription(
       JavaBuckConfig javaBuckConfig,
-      AndroidBuckConfig androidBuckConfig,
       ProGuardConfig proGuardConfig,
+      AndroidBuckConfig androidBuckConfig,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig,
@@ -95,6 +96,8 @@ public class AndroidBundleDescription
       AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory,
       AndroidBundleFactory androidBundleFactory) {
     this.javaBuckConfig = javaBuckConfig;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
+    this.javaOptions = JavaOptionsProvider.getDefaultJavaOptions(toolchainProvider);
     this.androidBuckConfig = androidBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
@@ -103,8 +106,6 @@ public class AndroidBundleDescription
     this.toolchainProvider = toolchainProvider;
     this.androidBinaryGraphEnhancerFactory = androidBinaryGraphEnhancerFactory;
     this.androidBundleFactory = androidBundleFactory;
-    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
-    this.javaOptions = JavaOptionsProvider.getDefaultJavaOptions(toolchainProvider);
   }
 
   @Override
@@ -148,7 +149,7 @@ public class AndroidBundleDescription
 
     DexSplitMode dexSplitMode = createDexSplitMode(args, exopackageModes);
 
-    ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
+    ImmutableSet<JavaLibrary> rulesToExcludeFromDex =
         NoDxArgsHelper.findRulesToExcludeFromDex(graphBuilder, buildTarget, args.getNoDx());
 
     CellPathResolver cellRoots = context.getCellPathResolver();
@@ -190,7 +191,6 @@ public class AndroidBundleDescription
             dexSplitMode,
             exopackageModes,
             resourceFilter,
-            rulesToExcludeFromDex,
             args,
             javaOptions.get());
     // The exo installer is always added to the index so that the action graph is the same
@@ -242,13 +242,18 @@ public class AndroidBundleDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
+
+    Optionals.addIfPresent(
+        proGuardConfig.getProguardTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
+
     if (constructorArg.getRedex()) {
       // If specified, this option may point to either a BuildTarget or a file.
-      Optional<BuildTarget> redexTarget = androidBuckConfig.getRedexTarget();
-      if (redexTarget.isPresent()) {
-        extraDepsBuilder.add(redexTarget.get());
-      }
+      Optional<BuildTarget> redexTarget =
+          androidBuckConfig.getRedexTarget(buildTarget.getTargetConfiguration());
+      redexTarget.ifPresent(extraDepsBuilder::add);
     }
   }
 
@@ -289,6 +294,8 @@ public class AndroidBundleDescription
 
     abstract Optional<SourcePath> getSecondaryDexTailClassesFile();
 
+    abstract Optional<SourcePath> getBundleConfigFile();
+
     abstract Optional<SourcePath> getAndroidAppModularityResult();
 
     @Value.Default
@@ -301,7 +308,10 @@ public class AndroidBundleDescription
     @Value.NaturalOrder
     abstract ImmutableSortedSet<BuildTarget> getPreprocessJavaClassesDeps();
 
-    abstract OptionalInt getXzCompressionLevel();
+    @Value.Default
+    int getXzCompressionLevel() {
+      return XzStep.DEFAULT_COMPRESSION_LEVEL;
+    }
 
     @Value.Default
     boolean isPackageAssetLibraries() {

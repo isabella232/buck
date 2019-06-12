@@ -19,9 +19,13 @@ package com.facebook.buck.skylark.parser;
 import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.skylark.function.SkylarkNativeModule;
+import com.facebook.buck.skylark.function.SkylarkProviderFunction;
 import com.facebook.buck.skylark.function.SkylarkRuleFunctions;
+import com.facebook.buck.skylark.function.attr.AttrModule;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.packages.StructProvider;
 import com.google.devtools.build.lib.syntax.BaseFunction;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
@@ -31,7 +35,7 @@ import com.google.devtools.build.lib.syntax.Environment.GlobalFrame;
 import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.MethodLibrary;
 import com.google.devtools.build.lib.syntax.Runtime;
-import com.google.devtools.build.lib.syntax.SkylarkSemantics;
+import com.google.devtools.build.lib.syntax.StarlarkSemantics;
 import org.immutables.value.Value;
 import org.immutables.value.Value.Lazy;
 
@@ -46,6 +50,18 @@ import org.immutables.value.Value.Lazy;
 @BuckStyleImmutable
 abstract class AbstractBuckGlobals {
 
+  static {
+    /**
+     * Ensure that we make a reference to the default builtins so that they are registered with
+     * {@link Runtime#getBuiltinRegistry()} before we freeze that BuiltinRegistry This also
+     * indirectly initializes {@link MethodLibrary} properly before freezing.
+     */
+    @SuppressWarnings("unused")
+    GlobalFrame globals = Environment.DEFAULT_GLOBALS;
+  }
+
+  abstract LoadingCache<String, Label> getLabelCache();
+
   /** Always disable implicit native imports in skylark rules, they should utilize native.foo */
   @Lazy
   Environment.GlobalFrame getBuckLoadContextGlobals() {
@@ -53,9 +69,19 @@ abstract class AbstractBuckGlobals {
     addBuckGlobals(builder);
     builder.put("native", getNativeModule());
     builder.put("struct", StructProvider.STRUCT);
-    Runtime.setupSkylarkLibrary(builder, new SkylarkRuleFunctions());
+    if (getEnableUserDefinedRules()) {
+      Runtime.setupSkylarkLibrary(builder, new SkylarkRuleFunctions(getLabelCache()));
+      Runtime.setupSkylarkLibrary(builder, new AttrModule());
+    }
+    Runtime.setupSkylarkLibrary(builder, new SkylarkProviderFunction());
     return GlobalFrame.createForBuiltins(builder.build());
   }
+
+  /**
+   * @return Whether or not modules, providers, and other functions for user defined rules should be
+   *     exported into .bzl files' execution environment
+   */
+  abstract boolean getEnableUserDefinedRules();
 
   /** Disable implicit native rules depending on configuration */
   @Lazy
@@ -86,8 +112,7 @@ abstract class AbstractBuckGlobals {
    */
   @Lazy
   ImmutableMap<String, BuiltinFunction> getBuckRuleFunctions() {
-    return getDescriptions()
-        .stream()
+    return getDescriptions().stream()
         .map(getRuleFunctionFactory()::create)
         .collect(ImmutableMap.toImmutableMap(BaseFunction::getName, r -> r));
   }
@@ -110,7 +135,7 @@ abstract class AbstractBuckGlobals {
   private void addNativeModuleFunctions(ImmutableMap.Builder<String, Object> builder) {
     for (String nativeFunction :
         FuncallExpression.getMethodNames(
-            SkylarkSemantics.DEFAULT_SEMANTICS, SkylarkNativeModule.class)) {
+            StarlarkSemantics.DEFAULT_SEMANTICS, SkylarkNativeModule.class)) {
       builder.put(
           nativeFunction,
           FuncallExpression.getBuiltinCallable(SkylarkNativeModule.NATIVE_MODULE, nativeFunction));

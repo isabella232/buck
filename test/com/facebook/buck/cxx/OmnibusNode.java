@@ -17,30 +17,31 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-class OmnibusNode implements NativeLinkable {
+class OmnibusNode implements NativeLinkableGroup {
 
   private final BuildTarget target;
-  private final Iterable<? extends NativeLinkable> deps;
-  private final Iterable<? extends NativeLinkable> exportedDeps;
+  private final Iterable<? extends NativeLinkableGroup> deps;
+  private final Iterable<? extends NativeLinkableGroup> exportedDeps;
   private final Linkage linkage;
 
   public OmnibusNode(
       String target,
-      Iterable<? extends NativeLinkable> deps,
-      Iterable<? extends NativeLinkable> exportedDeps,
-      NativeLinkable.Linkage linkage) {
+      Iterable<? extends NativeLinkableGroup> deps,
+      Iterable<? extends NativeLinkableGroup> exportedDeps,
+      NativeLinkableGroup.Linkage linkage) {
     this.target = BuildTargetFactory.newInstance(target);
     this.deps = deps;
     this.exportedDeps = exportedDeps;
@@ -49,12 +50,12 @@ class OmnibusNode implements NativeLinkable {
 
   public OmnibusNode(
       String target,
-      Iterable<? extends NativeLinkable> deps,
-      Iterable<? extends NativeLinkable> exportedDeps) {
+      Iterable<? extends NativeLinkableGroup> deps,
+      Iterable<? extends NativeLinkableGroup> exportedDeps) {
     this(target, deps, exportedDeps, Linkage.ANY);
   }
 
-  public OmnibusNode(String target, Iterable<? extends NativeLinkable> deps) {
+  public OmnibusNode(String target, Iterable<? extends NativeLinkableGroup> deps) {
     this(target, deps, ImmutableList.of());
   }
 
@@ -68,12 +69,13 @@ class OmnibusNode implements NativeLinkable {
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkableGroup> getNativeLinkableDeps(
+      BuildRuleResolver ruleResolver) {
     return deps;
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+  public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDeps(
       BuildRuleResolver ruleResolver) {
     return exportedDeps;
   }
@@ -83,13 +85,13 @@ class OmnibusNode implements NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public NativeLinkableGroup.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return linkage;
   }
 

@@ -18,29 +18,27 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.metadata.MetadataProvidingDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.FrameworkDependencies;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.HasSystemFrameworkAndLibraries;
 import com.facebook.buck.cxx.toolchain.StripStyle;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
@@ -115,7 +113,7 @@ public class PrebuiltAppleFrameworkDescription
         buildTarget,
         context.getProjectFilesystem(),
         params,
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getActionGraphBuilder())),
+        context.getActionGraphBuilder().getSourcePathResolver(),
         args.getFramework(),
         args.getPreferredLinkage(),
         args.getFrameworks(),
@@ -157,6 +155,6 @@ public class PrebuiltAppleFrameworkDescription
       return PatternMatchedCollection.of();
     }
 
-    NativeLinkable.Linkage getPreferredLinkage();
+    NativeLinkableGroup.Linkage getPreferredLinkage();
   }
 }

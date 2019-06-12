@@ -21,10 +21,10 @@ import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
@@ -64,8 +64,9 @@ public class AndroidAppModularityDescription
     return new AndroidAppModularity(
         buildTarget,
         context.getProjectFilesystem(),
-        params.withExtraDeps(result.getFinalDeps()),
-        result);
+        result,
+        args.getShouldIncludeClasses(),
+        apkModuleGraph);
   }
 
   @BuckStyleImmutable
@@ -82,5 +83,10 @@ public class AndroidAppModularityDescription
 
     @Hint(isDep = false)
     ImmutableSet<BuildTarget> getNoDx();
+
+    @Value.Default
+    default boolean getShouldIncludeClasses() {
+      return true;
+    }
   }
 }

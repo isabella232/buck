@@ -21,10 +21,10 @@ import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -171,9 +171,10 @@ public class ScalaLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder
-        .add(scalaBuckConfig.getScalaLibraryTarget())
-        .addAll(scalaBuckConfig.getCompilerPlugins());
-    Optionals.addIfPresent(scalaBuckConfig.getScalacTarget(), extraDepsBuilder);
+        .add(scalaBuckConfig.getScalaLibraryTarget(buildTarget.getTargetConfiguration()))
+        .addAll(scalaBuckConfig.getCompilerPlugins(buildTarget.getTargetConfiguration()));
+    Optionals.addIfPresent(
+        scalaBuckConfig.getScalacTarget(buildTarget.getTargetConfiguration()), extraDepsBuilder);
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
   }
 

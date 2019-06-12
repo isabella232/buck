@@ -27,7 +27,10 @@ import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.platform.ConstraintBasedPlatform;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetFactoryForTests;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.platform.impl.EmptyPlatform;
 import com.facebook.buck.core.rules.platform.DummyConfigurationRule;
 import com.facebook.buck.core.rules.platform.RuleBasedConstraintResolver;
 import com.facebook.buck.core.select.SelectableConfigurationContext;
@@ -55,7 +58,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import org.immutables.value.Value;
@@ -429,19 +431,6 @@ public class ConstructorArgMarshallerImmutableTest {
   }
 
   @Test
-  public void specifyingZeroIsNotConsideredOptional() throws Exception {
-    DtoWithOptionalInteger built =
-        marshaller.populate(
-            createCellRoots(filesystem),
-            filesystem,
-            TARGET,
-            DtoWithOptionalInteger.class,
-            ImmutableSet.builder(),
-            ImmutableMap.<String, Object>of("number", 0));
-    assertEquals(OptionalInt.of(0), built.getNumber());
-  }
-
-  @Test
   public void canPopulateSimpleConstructorArgFromBuildFactoryParams() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//example/path:path");
 
@@ -556,9 +545,7 @@ public class ConstructorArgMarshallerImmutableTest {
                 "srcs", ImmutableList.of("main.py", "lib/__init__.py", "lib/manifest.py")));
 
     ImmutableSet<String> observedValues =
-        built
-            .getSrcs()
-            .stream()
+        built.getSrcs().stream()
             .map(input -> ((PathSourcePath) input).getRelativePath().toString())
             .collect(ImmutableSet.toImmutableSet());
     assertEquals(
@@ -628,7 +615,8 @@ public class ConstructorArgMarshallerImmutableTest {
 
   @Test
   public void populateWithConfiguringAttributesResolvesConfigurableAttributes() throws Exception {
-    BuildTarget selectableTarget = BuildTargetFactory.newInstance("//x:y");
+    UnconfiguredBuildTargetView selectableTarget =
+        UnconfiguredBuildTargetFactoryForTests.newInstance("//x:y");
     SelectorListResolver selectorListResolver =
         new DefaultSelectorListResolver(
             new TestSelectableResolver(
@@ -645,7 +633,8 @@ public class ConstructorArgMarshallerImmutableTest {
         DefaultSelectableConfigurationContext.of(
             FakeBuckConfig.builder().build(),
             new RuleBasedConstraintResolver(DummyConfigurationRule::of),
-            new ConstraintBasedPlatform(ImmutableSet.of()));
+            EmptyTargetConfiguration.INSTANCE,
+            configuration -> EmptyPlatform.INSTANCE);
     ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
 
     DtoWithString dto =
@@ -791,12 +780,6 @@ public class ConstructorArgMarshallerImmutableTest {
   @Value.Immutable
   abstract static class AbstractDtoWithPath {
     abstract Path getPath();
-  }
-
-  @BuckStyleImmutable
-  @Value.Immutable
-  abstract static class AbstractDtoWithOptionalInteger {
-    abstract OptionalInt getNumber();
   }
 
   @BuckStyleImmutable

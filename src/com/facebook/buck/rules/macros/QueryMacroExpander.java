@@ -19,14 +19,15 @@ package com.facebook.buck.rules.macros;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.query.NoopQueryEvaluator;
+import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.GraphEnhancementQueryEnvironment;
@@ -41,8 +42,8 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
     implements MacroExpander<T, QueryMacroExpander.QueryResults> {
 
   private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
-  private static final UnconfiguredBuildTargetFactory UNCONFIGURED_BUILD_TARGET_FACTORY =
-      new ParsingUnconfiguredBuildTargetFactory();
+  private static final UnconfiguredBuildTargetViewFactory UNCONFIGURED_BUILD_TARGET_FACTORY =
+      new ParsingUnconfiguredBuildTargetViewFactory();
 
   private Optional<TargetGraph> targetGraph;
 
@@ -64,10 +65,12 @@ public abstract class QueryMacroExpander<T extends QueryMacro>
             cellNames,
             UNCONFIGURED_BUILD_TARGET_FACTORY,
             target.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            target.getTargetConfiguration());
     try {
-      QueryExpression parsedExp = QueryExpression.parse(queryExpression, env);
-      Set<QueryTarget> queryTargets = new NoopQueryEvaluator().eval(parsedExp, env);
+      QueryExpression<QueryBuildTarget> parsedExp = QueryExpression.parse(queryExpression, env);
+      Set<QueryTarget> queryTargets =
+          new NoopQueryEvaluator<QueryBuildTarget>().eval(parsedExp, env);
       return queryTargets.stream();
     } catch (QueryException e) {
       throw new MacroException("Error parsing/executing query from macro", e);

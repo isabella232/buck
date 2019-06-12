@@ -27,6 +27,8 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ImmutableBuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
@@ -38,7 +40,7 @@ import com.facebook.buck.rules.coercer.PathTypeCoercer.PathExistenceVerification
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
-import com.facebook.buck.rules.visibility.VisibilityPatternParser;
+import com.facebook.buck.rules.visibility.parser.VisibilityPatternParser;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;

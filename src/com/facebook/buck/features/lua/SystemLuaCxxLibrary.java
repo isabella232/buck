@@ -19,6 +19,7 @@ package com.facebook.buck.features.lua;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -27,7 +28,7 @@ import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
@@ -73,12 +74,13 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<? extends NativeLinkableGroup> getNativeLinkableDeps(
+      BuildRuleResolver ruleResolver) {
     return ImmutableList.of();
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+  public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDeps(
       BuildRuleResolver ruleResolver) {
     return ImmutableList.of();
   }
@@ -88,17 +90,18 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     return NativeLinkableInput.builder().addAllArgs(StringArg.from("-llua")).build();
   }
 
   @Override
-  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.SHARED;
   }
 
   @Override
-  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
     return false;
   }
 

@@ -23,7 +23,7 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.SimpleProcessListener;
+import com.facebook.buck.util.ProcessListeners.CapturingListener;
 import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -41,7 +41,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Assume;
@@ -106,7 +105,7 @@ public class WatchmanClientIntegrationTest {
             .build();
     executor = new ListeningProcessExecutor();
 
-    watchmanProcess = executor.launchProcess(params, new SimpleProcessListener());
+    watchmanProcess = executor.launchProcess(params, new CapturingListener());
 
     waitForWatchman();
   }
@@ -120,7 +119,7 @@ public class WatchmanClientIntegrationTest {
                 watchmanSockFile, new TestConsole(), new DefaultClock());
         try {
           if (optClient.isPresent()) {
-            optClient.get().queryWithTimeout(timeoutMillis, "get-pid");
+            optClient.get().queryWithTimeout(timeoutNanos, "get-pid");
             break;
           }
         } finally {
@@ -136,8 +135,6 @@ public class WatchmanClientIntegrationTest {
 
   @Before
   public void setUp() throws IOException, InterruptedException {
-    // watchman tests are currently very flaky on Linux
-    Assume.assumeThat(Platform.detect(), Matchers.not(Matchers.is(Platform.LINUX)));
     startWatchman();
     Assume.assumeTrue(watchmanProcess != null);
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "watchman", tmp);

@@ -49,12 +49,14 @@ public class XzStepTest {
     Path sourceFile = Paths.get("/path/to/source.file");
     XzStep step =
         new XzStep(
-            TestProjectFilesystems.createProjectFilesystem(tmp.getRoot().toPath()), sourceFile);
+            TestProjectFilesystems.createProjectFilesystem(tmp.getRoot().toPath()),
+            sourceFile,
+            XzStep.DEFAULT_COMPRESSION_LEVEL);
     assertEquals(Paths.get(sourceFile + ".xz"), step.getDestinationFile());
   }
 
   @Test
-  public void testXzStep() throws InterruptedException, IOException {
+  public void testXzStep() throws IOException {
     Path sourceFile =
         TestDataHelper.getTestDataScenario(this, "compression_test").resolve("step.data");
     File destinationFile = tmp.newFile("step.data.xz");
@@ -87,7 +89,7 @@ public class XzStepTest {
   }
 
   @Test
-  public void testXzStepDeletesOriginal() throws InterruptedException, IOException {
+  public void testXzStepDeletesOriginal() throws IOException {
     Path sourceFileOriginal =
         TestDataHelper.getTestDataScenario(this, "compression_test").resolve("step.data");
     Path sourceFile = tmp.newFile("step.data").toPath();

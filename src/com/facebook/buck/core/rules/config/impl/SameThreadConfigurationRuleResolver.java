@@ -16,41 +16,38 @@
 
 package com.facebook.buck.core.rules.config.impl;
 
-import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
 import com.facebook.buck.core.rules.config.ConfigurationRuleResolver;
 import com.google.common.base.Preconditions;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
- * Provides a mechanism for mapping between a {@link BuildTarget} and the {@link ConfigurationRule}
- * it represents.
+ * Provides a mechanism for mapping between a {@link UnconfiguredBuildTargetView} and the {@link
+ * ConfigurationRule} it represents.
  *
  * <p>This resolver performs all computations on the same thread {@link #getRule} was called from.
  */
 public class SameThreadConfigurationRuleResolver implements ConfigurationRuleResolver {
 
-  private final Function<BuildTarget, Cell> cellProvider;
-  private final BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier;
-  private final ConcurrentHashMap<BuildTarget, ConfigurationRule> configurationRuleIndex;
+  private final Function<UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier;
+  private final ConcurrentHashMap<UnconfiguredBuildTargetView, ConfigurationRule>
+      configurationRuleIndex;
 
   public SameThreadConfigurationRuleResolver(
-      Function<BuildTarget, Cell> cellProvider,
-      BiFunction<Cell, BuildTarget, TargetNode<?>> targetNodeSupplier) {
-    this.cellProvider = cellProvider;
+      Function<UnconfiguredBuildTargetView, TargetNode<?>> targetNodeSupplier) {
     this.targetNodeSupplier = targetNodeSupplier;
     this.configurationRuleIndex = new ConcurrentHashMap<>();
   }
 
   private ConfigurationRule computeIfAbsent(
-      BuildTarget target, Function<BuildTarget, ConfigurationRule> mappingFunction) {
+      UnconfiguredBuildTargetView target,
+      Function<UnconfiguredBuildTargetView, ConfigurationRule> mappingFunction) {
     @Nullable ConfigurationRule configurationRule = configurationRuleIndex.get(target);
     if (configurationRule != null) {
       return configurationRule;
@@ -61,14 +58,13 @@ public class SameThreadConfigurationRuleResolver implements ConfigurationRuleRes
   }
 
   @Override
-  public ConfigurationRule getRule(BuildTarget buildTarget) {
+  public ConfigurationRule getRule(UnconfiguredBuildTargetView buildTarget) {
     return computeIfAbsent(buildTarget, this::createConfigurationRule);
   }
 
-  private <T> ConfigurationRule createConfigurationRule(BuildTarget buildTarget) {
-    Cell cell = cellProvider.apply(buildTarget);
+  private <T> ConfigurationRule createConfigurationRule(UnconfiguredBuildTargetView buildTarget) {
     @SuppressWarnings("unchecked")
-    TargetNode<T> targetNode = (TargetNode<T>) targetNodeSupplier.apply(cell, buildTarget);
+    TargetNode<T> targetNode = (TargetNode<T>) targetNodeSupplier.apply(buildTarget);
     if (!(targetNode.getDescription() instanceof ConfigurationRuleDescription)) {
       throw new HumanReadableException(
           "%s was used to resolve configurable attribute but it is not a configuration rule",
@@ -78,7 +74,7 @@ public class SameThreadConfigurationRuleResolver implements ConfigurationRuleRes
         (ConfigurationRuleDescription<T>) targetNode.getDescription();
     ConfigurationRule configurationRule =
         configurationRuleDescription.createConfigurationRule(
-            this, cell, buildTarget, targetNode.getConstructorArg());
+            this, buildTarget, targetNode.getConstructorArg());
     Preconditions.checkState(
         configurationRule.getBuildTarget().equals(buildTarget),
         "Configuration rule description returned rule for '%s' instead of '%s'.",

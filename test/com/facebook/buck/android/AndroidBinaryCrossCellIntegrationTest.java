@@ -29,7 +29,7 @@ public class AndroidBinaryCrossCellIntegrationTest extends AbiCompilationModeTes
   @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
 
   @Test
-  public void testCrossRepositoryDexMerge() throws InterruptedException, IOException {
+  public void testCrossRepositoryDexMerge() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
 
@@ -43,7 +43,7 @@ public class AndroidBinaryCrossCellIntegrationTest extends AbiCompilationModeTes
   }
 
   @Test
-  public void testCrossRepositoryDexMergeWithSplitDex() throws InterruptedException, IOException {
+  public void testCrossRepositoryDexMergeWithSplitDex() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
 
@@ -59,7 +59,7 @@ public class AndroidBinaryCrossCellIntegrationTest extends AbiCompilationModeTes
   }
 
   @Test
-  public void testBuildingBinariesSeparately() throws InterruptedException, IOException {
+  public void testBuildingBinariesSeparately() throws IOException {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     AssumeAndroidPlatform.assumeNdkIsAvailable();
 
@@ -73,6 +73,8 @@ public class AndroidBinaryCrossCellIntegrationTest extends AbiCompilationModeTes
     workspace.runBuckCommand("build", "other_repo//:app_with_mainlib").assertSuccess();
     workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckCommand("build", "//:app_with_main_lib").assertSuccess();
-    workspace.getBuildLog().assertTargetWasFetchedFromCache("//java/com/sample/mainlib:mainlib");
+    workspace
+        .getBuildLog()
+        .assertTargetWasFetchedFromCache("//java/com/sample/mainlib:mainlib#dex");
   }
 }

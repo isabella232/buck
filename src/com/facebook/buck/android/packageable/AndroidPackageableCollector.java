@@ -25,12 +25,13 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -58,30 +59,54 @@ public class AndroidPackageableCollector {
   private final BuildTarget collectionRoot;
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ImmutableSet<BuildTarget> resourcesToExclude;
+  private final ImmutableCollection<SourcePath> nativeLibsToExclude;
+  private final ImmutableCollection<NativeLinkableGroup> nativeLinkablesToExcludeGroup;
+  private final ImmutableCollection<SourcePath> nativeLibAssetsToExclude;
+  private final ImmutableCollection<NativeLinkableGroup> nativeLinkablesAssetsToExcludeGroup;
   private final APKModuleGraph apkModuleGraph;
 
   @VisibleForTesting
   public AndroidPackageableCollector(BuildTarget collectionRoot) {
+    this(collectionRoot, ImmutableSet.of(), new APKModuleGraph(TargetGraph.EMPTY, collectionRoot));
+  }
+
+  public AndroidPackageableCollector(
+      BuildTarget collectionRoot,
+      ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
+      APKModuleGraph apkModuleGraph) {
     this(
         collectionRoot,
+        buildTargetsToExcludeFromDex,
         ImmutableSet.of(),
         ImmutableSet.of(),
-        new APKModuleGraph(TargetGraph.EMPTY, collectionRoot));
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        ImmutableSet.of(),
+        apkModuleGraph);
   }
 
   /**
    * @param resourcesToExclude Only relevant to {@link AndroidInstrumentationApk} which needs to
    *     remove resources that are already included in the {@link
-   *     AndroidInstrumentationApkDescription.AndroidInstrumentationApkDescriptionArg#apk}
+   *     AndroidInstrumentationApkDescription.AndroidInstrumentationApkDescriptionArg#apk}. The same
+   *     goes for native libs and native linkables, and their asset counterparts.
    */
   public AndroidPackageableCollector(
       BuildTarget collectionRoot,
       ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
       ImmutableSet<BuildTarget> resourcesToExclude,
+      ImmutableCollection<SourcePath> nativeLibsToExclude,
+      ImmutableCollection<NativeLinkableGroup> nativeLinkablesToExcludeGroup,
+      ImmutableCollection<SourcePath> nativeLibAssetsToExclude,
+      ImmutableCollection<NativeLinkableGroup> nativeLinkableGroupAssetsToExclude,
       APKModuleGraph apkModuleGraph) {
     this.collectionRoot = collectionRoot;
     this.buildTargetsToExcludeFromDex = buildTargetsToExcludeFromDex;
     this.resourcesToExclude = resourcesToExclude;
+    this.nativeLibsToExclude = nativeLibsToExclude;
+    this.nativeLinkablesToExcludeGroup = nativeLinkablesToExcludeGroup;
+    this.nativeLibAssetsToExclude = nativeLibAssetsToExclude;
+    this.nativeLinkablesAssetsToExcludeGroup = nativeLinkableGroupAssetsToExclude;
     this.apkModuleGraph = apkModuleGraph;
     apkModuleGraph
         .getAPKModules()
@@ -146,6 +171,9 @@ public class AndroidPackageableCollector {
 
   public AndroidPackageableCollector addNativeLibsDirectory(
       BuildTarget owner, SourcePath nativeLibDir) {
+    if (nativeLibsToExclude.contains(nativeLibDir)) {
+      return this;
+    }
     APKModule module = apkModuleGraph.findModuleForTarget(owner);
     if (module.isRootModule()) {
       collectionBuilder.putNativeLibsDirectories(module, nativeLibDir);
@@ -155,24 +183,34 @@ public class AndroidPackageableCollector {
     return this;
   }
 
-  public AndroidPackageableCollector addNativeLinkable(NativeLinkable nativeLinkable) {
-    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
+  public AndroidPackageableCollector addNativeLinkable(NativeLinkableGroup nativeLinkableGroup) {
+    if (nativeLinkablesToExcludeGroup.contains(nativeLinkableGroup)) {
+      return this;
+    }
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkableGroup.getBuildTarget());
     if (module.isRootModule()) {
-      collectionBuilder.putNativeLinkables(module, nativeLinkable);
+      collectionBuilder.putNativeLinkables(module, nativeLinkableGroup);
     } else {
-      collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
+      collectionBuilder.putNativeLinkablesAssets(module, nativeLinkableGroup);
     }
     return this;
   }
 
-  public AndroidPackageableCollector addNativeLinkableAsset(NativeLinkable nativeLinkable) {
-    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkable.getBuildTarget());
-    collectionBuilder.putNativeLinkablesAssets(module, nativeLinkable);
+  public AndroidPackageableCollector addNativeLinkableAsset(
+      NativeLinkableGroup nativeLinkableGroup) {
+    if (nativeLinkablesAssetsToExcludeGroup.contains(nativeLinkableGroup)) {
+      return this;
+    }
+    APKModule module = apkModuleGraph.findModuleForTarget(nativeLinkableGroup.getBuildTarget());
+    collectionBuilder.putNativeLinkablesAssets(module, nativeLinkableGroup);
     return this;
   }
 
   public AndroidPackageableCollector addNativeLibAssetsDirectory(
       BuildTarget owner, SourcePath assetsDir) {
+    if (nativeLibAssetsToExclude.contains(assetsDir)) {
+      return this;
+    }
     // We need to build the native target in order to have the assets available still.
     APKModule module = apkModuleGraph.findModuleForTarget(owner);
     collectionBuilder.putNativeLibAssetsDirectories(module, assetsDir);
@@ -254,8 +292,7 @@ public class AndroidPackageableCollector {
     collectionBuilder.setBuildConfigs(ImmutableMap.copyOf(buildConfigs));
     ImmutableSet<HasJavaClassHashes> javaClassProviders = javaClassHashesProviders.build();
     collectionBuilder.addAllJavaLibrariesToDex(
-        javaClassProviders
-            .stream()
+        javaClassProviders.stream()
             .map(HasJavaClassHashes::getBuildTarget)
             .collect(ImmutableSet.toImmutableSet()));
     collectionBuilder.setClassNamesToHashesSupplier(

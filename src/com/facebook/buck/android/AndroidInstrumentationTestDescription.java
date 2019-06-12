@@ -25,10 +25,10 @@ import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
@@ -36,7 +36,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.test.config.TestBuckConfig;
-import com.facebook.buck.util.PackagedResource;
 import com.google.common.collect.ImmutableCollection.Builder;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -89,7 +88,10 @@ public class AndroidInstrumentationTestDescription
         (HasInstallableApk) apk,
         args.getLabels(),
         args.getContacts(),
-        javaOptions.get().getJavaRuntimeLauncher(context.getActionGraphBuilder()),
+        javaOptions
+            .get()
+            .getJavaRuntimeLauncher(
+                context.getActionGraphBuilder(), buildTarget.getTargetConfiguration()),
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
             .orElse(buckConfig.getView(TestBuckConfig.class).getDefaultTestRuleTimeoutMs()),
@@ -123,7 +125,9 @@ public class AndroidInstrumentationTestDescription
       AndroidInstrumentationTestDescriptionArg constructorArg,
       Builder<BuildTarget> extraDepsBuilder,
       Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   @BuckStyleImmutable

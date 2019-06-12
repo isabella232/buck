@@ -21,13 +21,12 @@ import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.CustomFieldBehavior;
+import com.facebook.buck.core.rulekey.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
@@ -185,13 +184,12 @@ class DefaultJavaLibraryBuildable implements PipelinedBuildable<JavacPipelineSta
     return jarBuildStepsFactory.useDependencyFileRuleKeys();
   }
 
-  public Predicate<SourcePath> getCoveredByDepFilePredicate(
-      SourcePathResolver pathResolver, SourcePathRuleFinder ruleFinder) {
-    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver, ruleFinder);
+  public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathRuleFinder ruleFinder) {
+    return jarBuildStepsFactory.getCoveredByDepFilePredicate(ruleFinder);
   }
 
-  public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
-    return jarBuildStepsFactory.getExistenceOfInterestPredicate(pathResolver);
+  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+    return jarBuildStepsFactory.getExistenceOfInterestPredicate();
   }
 
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(

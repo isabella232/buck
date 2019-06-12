@@ -19,11 +19,11 @@ package com.facebook.buck.shell;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
@@ -74,14 +74,15 @@ public class CommandAliasDescription
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     StringWithMacrosConverter macrosConverter =
-        StringWithMacrosConverter.of(buildTarget, context.getCellPathResolver(), MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(
+            buildTarget, context.getCellPathResolver(), graphBuilder, MACRO_EXPANDERS);
 
     for (StringWithMacros x : args.getArgs()) {
-      toolArgs.add(macrosConverter.convert(x, graphBuilder));
+      toolArgs.add(macrosConverter.convert(x));
     }
 
     for (Map.Entry<String, StringWithMacros> x : args.getEnv().entrySet()) {
-      toolEnv.put(x.getKey(), macrosConverter.convert(x.getValue(), graphBuilder));
+      toolEnv.put(x.getKey(), macrosConverter.convert(x.getValue()));
     }
 
     Optional<BuildRule> exe = args.getExe().map(graphBuilder::getRule);

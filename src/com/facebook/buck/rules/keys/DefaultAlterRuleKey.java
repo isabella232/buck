@@ -16,8 +16,7 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 
 class DefaultAlterRuleKey implements AlterRuleKey {
   private final ValueExtractor valueExtractor;
@@ -27,7 +26,7 @@ class DefaultAlterRuleKey implements AlterRuleKey {
   }
 
   @Override
-  public void amendKey(RuleKeyObjectSink builder, Object addsToRuleKey) {
+  public void amendKey(AbstractRuleKeyBuilder<?> builder, Object addsToRuleKey) {
     try {
       builder.setReflectively(valueExtractor.getName(), valueExtractor.getValue(addsToRuleKey));
     } catch (Exception e) {

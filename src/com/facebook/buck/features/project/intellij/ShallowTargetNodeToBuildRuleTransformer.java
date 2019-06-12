@@ -20,14 +20,14 @@ import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidInstrumentationApkDescription;
 import com.facebook.buck.android.AndroidInstrumentationTestDescription;
 import com.facebook.buck.android.AndroidManifestDescription;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.ImmutableBuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ImmutableBuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.shell.AbstractGenruleDescription;
@@ -67,7 +67,7 @@ public class ShallowTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
     T arg = targetNode.getConstructorArg();
 
     if (UNUSED_BUILD_RULE_DESCRIPTION_CLASSES.contains(description.getClass())
-        || description.getClass().getSuperclass().equals(AbstractGenruleDescription.class)) {
+        || isNonExecutableGenrule(arg, description.getClass())) {
       String outputPath;
       if (description.getClass().equals(GenruleDescription.class)) {
         outputPath = ((GenruleDescriptionArg) arg).getOut();
@@ -94,5 +94,14 @@ public class ShallowTargetNodeToBuildRuleTransformer implements TargetNodeToBuil
 
       return description.createBuildRule(context, targetNode.getBuildTarget(), params, arg);
     }
+  }
+
+  private <T> boolean isNonExecutableGenrule(T arg, Class<?> descriptionClass) {
+    if (!AbstractGenruleDescription.class.isAssignableFrom(descriptionClass)) {
+      return false;
+    }
+    // This is a genrule, is it executable?
+    return !(arg instanceof GenruleDescriptionArg)
+        || !((GenruleDescriptionArg) arg).getExecutable().orElse(false);
   }
 }

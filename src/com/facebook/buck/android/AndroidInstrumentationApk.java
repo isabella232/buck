@@ -22,14 +22,16 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
+import com.facebook.buck.step.fs.XzStep;
 import com.facebook.buck.util.RichStream;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.EnumSet;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.stream.Stream;
 
 /**
@@ -56,7 +58,7 @@ public class AndroidInstrumentationApk extends AndroidBinary {
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       AndroidBinary apkUnderTest,
-      ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
+      ImmutableSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidGraphEnhancementResult enhancementResult,
       DexFilesInfo dexFilesInfo,
       NativeFilesInfo nativeFilesInfo,
@@ -85,7 +87,7 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         EnumSet.noneOf(ExopackageMode.class),
         rulesToExcludeFromDex,
         enhancementResult,
-        OptionalInt.empty(),
+        XzStep.DEFAULT_COMPRESSION_LEVEL,
         false,
         false,
         Optional.empty(),
@@ -111,7 +113,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return RichStream.of(apkUnderTest.getBuildTarget()).concat(super.getRuntimeDeps(ruleFinder));
+  public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
+    return RichStream.of(apkUnderTest.getBuildTarget())
+        .concat(super.getRuntimeDeps(buildRuleResolver));
   }
 }

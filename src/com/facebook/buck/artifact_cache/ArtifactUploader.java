@@ -16,7 +16,8 @@
 
 package com.facebook.buck.artifact_cache;
 
-import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.core.exceptions.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.util.log.Logger;
@@ -28,7 +29,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.NamedTemporaryFile;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.ZipConstants;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -85,6 +85,7 @@ public class ArtifactUploader {
             ArtifactInfo.builder()
                 .setRuleKeys(ruleKeys)
                 .setMetadata(buildMetadata)
+                .setBuildTarget(buildTarget)
                 .setBuildTimeMs(buildTimeMs)
                 .build(),
             BorrowablePath.borrowablePath(archive.get()));
@@ -195,7 +196,9 @@ public class ArtifactUploader {
 
         // Add a file entry.
         TarArchiveEntry e = new TarArchiveEntry(path.toString() + (isRegularFile ? "" : "/"));
-        e.setMode((int) projectFilesystem.getPosixFileMode(path));
+        int mode = (int) projectFilesystem.getPosixFileMode(path);
+        // If permissions don't allow for owner to r or w, update to u+=rw and g+=r
+        e.setMode((mode & 384) == 0 ? (mode | 416) : mode);
         e.setModTime(ZipConstants.getFakeTime());
 
         if (isRegularFile) {

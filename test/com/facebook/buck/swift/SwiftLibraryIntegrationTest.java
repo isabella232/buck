@@ -16,6 +16,8 @@
 
 package com.facebook.buck.swift;
 
+import static com.facebook.buck.util.environment.Platform.WINDOWS;
+import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
@@ -37,14 +39,12 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.FakeCxxLibrary;
@@ -61,6 +61,7 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -76,13 +77,12 @@ public class SwiftLibraryIntegrationTest {
 
   private ActionGraphBuilder graphBuilder;
   private SourcePathResolver pathResolver;
-  private SourcePathRuleFinder ruleFinder;
 
   @Before
   public void setUp() {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
     graphBuilder = new TestActionGraphBuilder();
-    ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    pathResolver = graphBuilder.getSourcePathResolver();
   }
 
   @Test
@@ -98,7 +98,7 @@ public class SwiftLibraryIntegrationTest {
 
     HeaderSymlinkTreeWithHeaderMap symlinkTreeBuildRule =
         HeaderSymlinkTreeWithHeaderMap.create(
-            symlinkTarget, projectFilesystem, symlinkTreeRoot, links, ruleFinder);
+            symlinkTarget, projectFilesystem, symlinkTreeRoot, links, graphBuilder);
     graphBuilder.addToIndex(symlinkTreeBuildRule);
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");

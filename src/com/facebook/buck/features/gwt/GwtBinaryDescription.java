@@ -21,12 +21,11 @@ import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
@@ -41,7 +40,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.Supplier;
 import org.immutables.value.Value;
 
@@ -84,7 +82,6 @@ public class GwtBinaryDescription
       GwtBinaryDescriptionArg args) {
 
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
 
@@ -121,13 +118,13 @@ public class GwtBinaryDescription
                           .build();
                   ImmutableSortedSet<BuildRule> deps =
                       ImmutableSortedSet.copyOf(
-                          ruleFinder.filterBuildRuleInputs(filesForGwtModule));
+                          graphBuilder.filterBuildRuleInputs(filesForGwtModule));
 
                   return new GwtModule(
                       gwtModuleTarget,
                       context.getProjectFilesystem(),
                       params.withDeclaredDeps(deps).withoutExtraDeps(),
-                      ruleFinder,
+                      graphBuilder,
                       filesForGwtModule,
                       javaLibrary.getResourcesRoot());
                 });
@@ -151,7 +148,9 @@ public class GwtBinaryDescription
         context.getProjectFilesystem(),
         params.withExtraDeps(extraDeps.build()),
         args.getModules(),
-        javaOptions.get().getJavaRuntimeLauncher(graphBuilder),
+        javaOptions
+            .get()
+            .getJavaRuntimeLauncher(graphBuilder, buildTarget.getTargetConfiguration()),
         args.getVmArgs(),
         args.getStyle().orElse(DEFAULT_STYLE),
         args.getDraftCompile().orElse(DEFAULT_DRAFT_COMPILE),
@@ -169,7 +168,9 @@ public class GwtBinaryDescription
       GwtBinaryDescriptionArg constructorArg,
       Builder<BuildTarget> extraDepsBuilder,
       Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+    javaOptions
+        .get()
+        .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
   }
 
   @BuckStyleImmutable
@@ -191,10 +192,10 @@ public class GwtBinaryDescription
     Optional<Boolean> getDraftCompile();
 
     /** This will be passed to the GWT Compiler's {@code -optimize} flag. */
-    OptionalInt getOptimize();
+    Optional<Integer> getOptimize();
 
     /** This will be passed to the GWT Compiler's {@code -localWorkers} flag. */
-    OptionalInt getLocalWorkers();
+    Optional<Integer> getLocalWorkers();
 
     /** If {@code true}, the GWT Compiler's {@code -strict} flag will be set. */
     Optional<Boolean> getStrict();

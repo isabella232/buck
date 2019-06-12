@@ -20,7 +20,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
-import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Joiner;
@@ -37,6 +36,12 @@ public class StringRuleKeyHasher implements RuleKeyHasher<String> {
 
   @Override
   public StringRuleKeyHasher putKey(String key) {
+    parts.add(String.format("key(%s)", key));
+    return this;
+  }
+
+  @Override
+  public RuleKeyHasher<String> putKeyPath(Path key) {
     parts.add(String.format("key(%s)", key));
     return this;
   }
@@ -90,8 +95,10 @@ public class StringRuleKeyHasher implements RuleKeyHasher<String> {
   }
 
   @Override
-  public StringRuleKeyHasher putArchiveMemberPath(ArchiveMemberPath path, HashCode hash) {
-    parts.add(String.format("archiveMember(%s:%s)", path.toString(), hash));
+  public StringRuleKeyHasher putArchiveMemberPath(
+      Path relativeArchivePath, Path archiveMemberPath, HashCode hash) {
+    parts.add(
+        String.format("archiveMember(%s!/%s:%s)", relativeArchivePath, archiveMemberPath, hash));
     return this;
   }
 
@@ -102,7 +109,7 @@ public class StringRuleKeyHasher implements RuleKeyHasher<String> {
   }
 
   @Override
-  public StringRuleKeyHasher putNonHashingPath(String path) {
+  public StringRuleKeyHasher putNonHashingPath(Path path) {
     parts.add(String.format("path(%s)", path));
     return this;
   }

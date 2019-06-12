@@ -31,7 +31,6 @@ import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
-import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -40,8 +39,6 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.EmptyJavaAbiInfo;
-import com.facebook.buck.jvm.core.HasClasspathDeps;
-import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
@@ -85,13 +82,10 @@ import javax.annotation.Nullable;
 public class DefaultJavaLibrary
     extends PipelinedModernBuildRule<JavacPipelineState, DefaultJavaLibraryBuildable>
     implements JavaLibrary,
-        HasClasspathEntries,
-        HasClasspathDeps,
         ExportDependencies,
         InitializableFromDisk<JavaLibrary.Data>,
         AndroidPackageable,
         MaybeRequiredForSourceOnlyAbi,
-        SupportsInputBasedRuleKey,
         SupportsDependencyFileRuleKey,
         JavaLibraryWithTests {
 
@@ -113,7 +107,7 @@ public class DefaultJavaLibrary
   private final Supplier<ImmutableSet<SourcePath>> transitiveClasspathsSupplier;
   private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
 
-  private final BuildOutputInitializer<Data> buildOutputInitializer;
+  private final BuildOutputInitializer<JavaLibrary.Data> buildOutputInitializer;
   private final ImmutableSortedSet<BuildTarget> tests;
   private final JavaAbiInfo javaAbiInfo;
 
@@ -378,7 +372,7 @@ public class DefaultJavaLibrary
   }
 
   @Override
-  public BuildOutputInitializer<Data> getBuildOutputInitializer() {
+  public BuildOutputInitializer<JavaLibrary.Data> getBuildOutputInitializer() {
     return buildOutputInitializer;
   }
 
@@ -445,12 +439,12 @@ public class DefaultJavaLibrary
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return getBuildable().getCoveredByDepFilePredicate(pathResolver, ruleFinder);
+    return getBuildable().getCoveredByDepFilePredicate(ruleFinder);
   }
 
   @Override
   public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
-    return getBuildable().getExistenceOfInterestPredicate(pathResolver);
+    return getBuildable().getExistenceOfInterestPredicate();
   }
 
   @Override

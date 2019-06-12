@@ -16,11 +16,17 @@
 
 package com.facebook.buck.rules.modern;
 
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTargetView;
+import com.facebook.buck.core.model.impl.HostTargetConfiguration;
+import com.facebook.buck.core.model.impl.ImmutableDefaultTargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.CustomFieldSerializationTag;
+import com.facebook.buck.core.rulekey.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -28,10 +34,11 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
+import com.facebook.buck.rules.modern.impl.UnconfiguredBuildTargetTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -216,19 +223,19 @@ public class Deserializer {
     @Override
     public OutputPath createOutputPath() throws IOException {
       boolean isPublic = stream.readBoolean();
-      String path = stream.readUTF();
-      return isPublic ? new PublicOutputPath(Paths.get(path)) : new OutputPath(path);
+      Path path = createRelativePath();
+      return isPublic ? new PublicOutputPath(path) : new OutputPath(path);
     }
 
     @Override
     public SourcePath createSourcePath() throws IOException {
       if (stream.readBoolean()) {
         BuildTarget target = readValue(new TypeToken<BuildTarget>() {});
-        Path path = Paths.get(stream.readUTF());
+        Path path = createRelativePath();
         return ExplicitBuildTargetSourcePath.of(target, path);
       } else {
         Optional<String> cellName = readValue(new TypeToken<Optional<String>>() {});
-        Path path = Paths.get(stream.readUTF());
+        Path path = createRelativePath();
         return PathSourcePath.of(cellMap.apply(cellName), path);
       }
     }
@@ -237,11 +244,25 @@ public class Deserializer {
     public Path createPath() throws IOException {
       if (stream.readBoolean()) {
         Optional<String> cellName = readValue(new TypeToken<Optional<String>>() {});
-        Path relativePath = Paths.get(stream.readUTF());
+        Path relativePath = createRelativePath();
         return cellMap.apply(cellName).resolve(relativePath);
       } else {
+        return createRelativePath();
+      }
+    }
+
+    private Path createRelativePath() throws IOException {
+      int nameCount = stream.readInt();
+      if (nameCount < 1) {
         return Paths.get(stream.readUTF());
       }
+
+      String first = stream.readUTF();
+      String[] rest = new String[nameCount - 1];
+      for (int i = 0; i < nameCount - 1; i++) {
+        rest[i] = stream.readUTF();
+      }
+      return Paths.get(first, rest);
     }
 
     @Override
@@ -354,9 +375,10 @@ public class Deserializer {
 
     @Nullable
     private <T> T createForField(FieldInfo<T> info) throws IOException {
-      Optional<CustomFieldBehavior> behavior = info.getCustomBehavior();
-      if (behavior.isPresent()) {
-        if (CustomBehaviorUtils.get(behavior.get(), DefaultFieldSerialization.class).isPresent()) {
+      Optional<CustomFieldSerializationTag> serializerTag =
+          CustomBehaviorUtils.get(CustomFieldSerializationTag.class, info.getCustomBehavior());
+      if (serializerTag.isPresent()) {
+        if (serializerTag.get() instanceof DefaultFieldSerialization) {
           @SuppressWarnings("unchecked")
           ValueTypeInfo<T> typeInfo =
               (ValueTypeInfo<T>)
@@ -364,9 +386,12 @@ public class Deserializer {
           return typeInfo.create(this);
         }
 
-        Optional<?> serializerTag =
-            CustomBehaviorUtils.get(behavior, CustomFieldSerialization.class);
-        if (serializerTag.isPresent()) {
+        Verify.verify(
+            serializerTag.get() instanceof CustomFieldSerialization,
+            "Unrecognized serialization behavior %s.",
+            serializerTag.get().getClass().getName());
+
+        if (serializerTag.get() instanceof CustomFieldSerialization) {
           @SuppressWarnings("unchecked")
           CustomFieldSerialization<T> customSerializer =
               (CustomFieldSerialization<T>) serializerTag.get();
@@ -405,6 +430,23 @@ public class Deserializer {
         builder.put(keyType.createNotNull(this), valueType.createNotNull(this));
       }
       return builder.build();
+    }
+
+    @Override
+    public TargetConfiguration createTargetConfiguration() throws IOException {
+      int type = stream.readInt();
+      switch (type) {
+        case Serializer.TARGET_CONFIGURATION_TYPE_EMPTY:
+          return EmptyTargetConfiguration.INSTANCE;
+        case Serializer.TARGET_CONFIGURATION_TYPE_HOST:
+          return HostTargetConfiguration.INSTANCE;
+        case Serializer.TARGET_CONFIGURATION_TYPE_DEFAULT:
+          UnconfiguredBuildTargetView targetPlatform =
+              UnconfiguredBuildTargetTypeInfo.INSTANCE.createNotNull(this);
+          return ImmutableDefaultTargetConfiguration.of(targetPlatform);
+        default:
+          throw new IllegalStateException("Cannot create target configuration for type " + type);
+      }
     }
   }
 }

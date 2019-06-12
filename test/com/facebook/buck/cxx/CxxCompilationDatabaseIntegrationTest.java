@@ -91,7 +91,7 @@ public class CxxCompilationDatabaseIntegrationTest {
   }
 
   @Test
-  public void binaryWithDependenciesCompilationDatabase() throws InterruptedException, IOException {
+  public void binaryWithDependenciesCompilationDatabase() throws IOException {
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_with_dep#compilation-database");
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -128,7 +128,10 @@ public class CxxCompilationDatabaseIntegrationTest {
     BuildTarget compilationTarget =
         target.withFlavors(
             InternalFlavor.of("default"), InternalFlavor.of("compile-" + sanitize("foo.cpp.o")));
-    Map<String, String> prefixMap = new TreeMap<>(Comparator.comparingInt(String::length));
+    Map<String, String> prefixMap =
+        new TreeMap<>(
+            Comparator.<String>comparingInt(str -> Paths.get(str).getNameCount())
+                .thenComparing(Comparator.naturalOrder()));
     prefixMap.put(rootPath.toString(), ".");
     if (Platform.detect() == Platform.MACOS) {
       prefixMap.put(libraryExportedHeaderSymlinkTreeFolder + "/", "");
@@ -147,9 +150,7 @@ public class CxxCompilationDatabaseIntegrationTest {
             .addAll(getExtraFlagsForHeaderMaps(filesystem))
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .addAll(
-                prefixMap
-                    .entrySet()
-                    .stream()
+                prefixMap.entrySet().stream()
                     .map(e -> String.format("-fdebug-prefix-map=%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
@@ -168,7 +169,7 @@ public class CxxCompilationDatabaseIntegrationTest {
   }
 
   @Test
-  public void libraryCompilationDatabase() throws InterruptedException, IOException {
+  public void libraryCompilationDatabase() throws IOException {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target =
         BuildTargetFactory.newInstance("//:library_with_header#default,compilation-database");
@@ -206,7 +207,8 @@ public class CxxCompilationDatabaseIntegrationTest {
             InternalFlavor.of("compile-pic-" + sanitize("bar.cpp.o")));
     Map<String, String> prefixMap =
         new TreeMap<>(
-            Comparator.comparingInt(String::length).thenComparing(Comparator.naturalOrder()));
+            Comparator.<String>comparingInt(str -> Paths.get(str).getNameCount())
+                .thenComparing(Comparator.naturalOrder()));
     prefixMap.put(rootPath.toString(), ".");
     if (Platform.detect() == Platform.MACOS) {
       // the compilation flags generated compares path length without the ending "/"
@@ -229,9 +231,7 @@ public class CxxCompilationDatabaseIntegrationTest {
             .addAll(getExtraFlagsForHeaderMaps(filesystem))
             .addAll(COMPILER_SPECIFIC_FLAGS)
             .addAll(
-                prefixMap
-                    .entrySet()
-                    .stream()
+                prefixMap.entrySet().stream()
                     .map(
                         e ->
                             String.format(
@@ -359,7 +359,7 @@ public class CxxCompilationDatabaseIntegrationTest {
 
   @Test
   public void compilationDatabaseFetchedFromCacheAlsoFetchesSymlinkTreeOrHeaderMap()
-      throws InterruptedException, IOException {
+      throws IOException {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // This test only fails if the directory cache is enabled and we don't update

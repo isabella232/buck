@@ -53,7 +53,7 @@ public class AuditOwnerCommand extends AbstractCommand {
           .post(
               ConsoleEvent.info(
                   "'buck audit owner' is deprecated. Please use 'buck query' instead. e.g.\n\t%s\n\n"
-                      + "The query language is documented at https://buckbuild.com/command/query.html",
+                      + "The query language is documented at https://buck.build/command/query.html",
                   QueryCommand.buildAuditOwnerQueryExpression(
                       getArguments(), shouldGenerateJsonOutput())));
     }
@@ -67,33 +67,29 @@ public class AuditOwnerCommand extends AbstractCommand {
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                    params.getCell().getBuckConfig(),
                     params.getWatchman(),
                     params.getBuckEventBus(),
                     params.getManifestServiceSupplier(),
                     params.getFileHashCache(),
                     params.getUnconfiguredBuildTargetFactory())
                 .create(
-                    params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
+                    params.getParser().getPermState())) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params,
               parserState,
-              pool.getListeningExecutorService(),
-              getEnableParserProfiling(),
-              getExcludeIncompatibleTargets());
+              createParsingContext(params.getCell(), pool.getListeningExecutorService()));
       QueryCommand.runMultipleQuery(
           params,
           env,
           "owner('%s')",
           getArguments(),
           shouldGenerateJsonOutput(),
-          ImmutableSet.of());
+          ImmutableSet.of(),
+          params.getConsole().getStdOut());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

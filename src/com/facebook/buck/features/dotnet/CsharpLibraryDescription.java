@@ -19,11 +19,11 @@ package com.facebook.buck.features.dotnet;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
@@ -66,12 +66,13 @@ public class CsharpLibraryDescription
             .getToolchainProvider()
             .getByName(DotnetToolchain.DEFAULT_NAME, DotnetToolchain.class)
             .getCsharpCompiler()
-            .resolve(context.getActionGraphBuilder()),
+            .resolve(context.getActionGraphBuilder(), buildTarget.getTargetConfiguration()),
         args.getDllName(),
         args.getSrcs(),
         refsAsRules.build(),
         args.getResources(),
-        args.getFrameworkVer());
+        args.getFrameworkVer(),
+        args.getCompilerFlags());
   }
 
   @BuckStyleImmutable
@@ -88,5 +89,7 @@ public class CsharpLibraryDescription
 
     // We may have system-provided references ("System.Core.dll") or other build targets
     ImmutableList<Either<BuildTarget, String>> getDeps();
+
+    ImmutableList<String> getCompilerFlags();
   }
 }

@@ -22,11 +22,11 @@ import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.attr.NoopInstallable;
 import com.facebook.buck.core.rules.common.InstallTrigger;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
@@ -123,8 +123,7 @@ public class InstallTriggerIntegrationTest {
         super(buildTarget, projectFilesystem);
         trigger = new InstallTrigger(projectFilesystem);
         inputs =
-            buildDeps
-                .stream()
+            buildDeps.stream()
                 .map(BuildRule::getSourcePathToOutput)
                 .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
         this.buildDeps = buildDeps;

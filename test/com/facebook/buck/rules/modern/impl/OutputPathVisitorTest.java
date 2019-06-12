@@ -139,6 +139,12 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
     MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithWildcards()));
   }
 
+  @Override
+  @Test
+  public void withExcludeFromRuleKey() {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithExcludeFromRuleKey()));
+  }
+
   static class WithOutputPathList implements FakeBuildable {
     @AddToRuleKey private final ImmutableList<OutputPath> outputs;
 
@@ -159,11 +165,6 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   @Test
   public void optional() {
     MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithOptional()));
-  }
-
-  @Override
-  public void optionalInt() {
-    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithOptionalInt()));
   }
 
   @Override
@@ -197,5 +198,19 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   @Override
   public void buildTarget() {
     MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithBuildTarget()));
+  }
+
+  @Test
+  @Override
+  public void buildTargetWithEmptyConfiguration() {
+    MoreAsserts.assertIterablesEquals(
+        ImmutableList.of(), getOutputs(new WithBuildTargetWithEmptyConfiguration()));
+  }
+
+  @Test
+  @Override
+  public void buildTargetWithHostConfiguration() {
+    MoreAsserts.assertIterablesEquals(
+        ImmutableList.of(), getOutputs(new WithBuildTargetWithHostConfiguration()));
   }
 }

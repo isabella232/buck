@@ -16,9 +16,7 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.watchman.Watchman;
@@ -26,9 +24,7 @@ import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
-import com.facebook.buck.util.cache.FileHashCache;
-import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.ListeningExecutorService;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -37,13 +33,13 @@ public abstract class PerBuildStateFactory {
 
   protected final ThrowingCloseableMemoizedSupplier<ManifestService, IOException>
       manifestServiceSupplier;
-  protected final FileHashCache fileHashCache;
+  protected final FileHashLoader fileHashLoader;
 
   protected PerBuildStateFactory(
       ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
-      FileHashCache fileHashCache) {
+      FileHashLoader fileHashLoader) {
     this.manifestServiceSupplier = manifestServiceSupplier;
-    this.fileHashCache = fileHashCache;
+    this.fileHashLoader = fileHashLoader;
   }
 
   /**
@@ -56,75 +52,37 @@ public abstract class PerBuildStateFactory {
       ConstructorArgMarshaller marshaller,
       KnownRuleTypesProvider knownRuleTypesProvider,
       ParserPythonInterpreterProvider parserPythonInterpreterProvider,
-      BuckConfig buckConfig,
       Watchman watchman,
       BuckEventBus eventBus,
       ThrowingCloseableMemoizedSupplier<ManifestService, IOException> manifestServiceSupplier,
-      FileHashCache fileHashCache,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
-    return buckConfig.getView(ParserConfig.class).getEnableConfigurableAttributes()
-        ? new PerBuildStateFactoryWithConfigurableAttributes(
-            typeCoercerFactory,
-            marshaller,
-            knownRuleTypesProvider,
-            parserPythonInterpreterProvider,
-            watchman,
-            eventBus,
-            manifestServiceSupplier,
-            fileHashCache,
-            unconfiguredBuildTargetFactory)
-        : new LegacyPerBuildStateFactory(
-            typeCoercerFactory,
-            marshaller,
-            knownRuleTypesProvider,
-            parserPythonInterpreterProvider,
-            watchman,
-            eventBus,
-            manifestServiceSupplier,
-            fileHashCache);
+      FileHashLoader fileHashLoader,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
+    return new PerBuildStateFactoryWithConfigurableAttributes(
+        typeCoercerFactory,
+        marshaller,
+        knownRuleTypesProvider,
+        parserPythonInterpreterProvider,
+        watchman,
+        eventBus,
+        manifestServiceSupplier,
+        fileHashLoader,
+        unconfiguredBuildTargetFactory);
   }
 
   public PerBuildState create(
-      DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
-      ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      SpeculativeParsing speculativeParsing) {
-    return create(
-        daemonicParserState,
-        executorService,
-        rootCell,
-        targetPlatforms,
-        enableProfiling,
-        Optional.empty(),
-        speculativeParsing);
+      ParsingContext parsingContext, DaemonicParserState daemonicParserState) {
+    return create(parsingContext, daemonicParserState, Optional.empty());
   }
 
   public PerBuildState create(
+      ParsingContext parsingContext,
       DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
-      ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      AtomicLong processedBytes,
-      SpeculativeParsing speculativeParsing) {
-    return create(
-        daemonicParserState,
-        executorService,
-        rootCell,
-        targetPlatforms,
-        enableProfiling,
-        Optional.of(processedBytes),
-        speculativeParsing);
+      AtomicLong processedBytes) {
+    return create(parsingContext, daemonicParserState, Optional.of(processedBytes));
   }
 
   protected abstract PerBuildState create(
+      ParsingContext parsingContext,
       DaemonicParserState daemonicParserState,
-      ListeningExecutorService executorService,
-      Cell rootCell,
-      ImmutableList<String> targetPlatforms,
-      boolean enableProfiling,
-      Optional<AtomicLong> parseProcessedBytes,
-      SpeculativeParsing speculativeParsing);
+      Optional<AtomicLong> parseProcessedBytes);
 }

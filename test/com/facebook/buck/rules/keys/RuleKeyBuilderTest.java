@@ -29,8 +29,7 @@ import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -38,8 +37,8 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourcePathFactoryForTests;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -57,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import org.junit.Test;
@@ -154,7 +152,6 @@ public class RuleKeyBuilderTest {
           // Wrappers
           Suppliers.ofInstance(42),
           Optional.of(42),
-          OptionalInt.of(42),
           Either.ofLeft(42),
           Either.ofRight(42),
 
@@ -213,20 +210,21 @@ public class RuleKeyBuilderTest {
     Map<AddsToRuleKey, RuleKey> appendableKeys =
         ImmutableMap.of(APPENDABLE_1, RULE_KEY_1, APPENDABLE_2, RULE_KEY_2);
     BuildRuleResolver ruleResolver = new FakeActionGraphBuilder(ruleMap);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathResolver pathResolver = ruleResolver.getSourcePathResolver();
     FakeFileHashCache hashCache =
         new FakeFileHashCache(
             ImmutableMap.of(
                 FILESYSTEM.resolve(PATH_1), HashCode.fromInt(0),
                 FILESYSTEM.resolve(PATH_2), HashCode.fromInt(42)),
             ImmutableMap.of(
-                pathResolver.getAbsoluteArchiveMemberPath(ARCHIVE_PATH_1), HashCode.fromInt(0),
-                pathResolver.getAbsoluteArchiveMemberPath(ARCHIVE_PATH_2), HashCode.fromInt(42)),
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, ARCHIVE_PATH_1),
+                    HashCode.fromInt(0),
+                SourcePathFactoryForTests.toAbsoluteArchiveMemberPath(pathResolver, ARCHIVE_PATH_2),
+                    HashCode.fromInt(42)),
             ImmutableMap.of());
 
     return new RuleKeyBuilder<HashCode>(
-        ruleFinder, pathResolver, hashCache, RuleKeyBuilder.createDefaultHasher(Optional.empty())) {
+        ruleResolver, hashCache, RuleKeyBuilder.createDefaultHasher(Optional.empty())) {
 
       @Override
       protected RuleKeyBuilder<HashCode> setBuildRule(BuildRule rule) {
@@ -261,7 +259,7 @@ public class RuleKeyBuilderTest {
   }
 
   // This ugliness is necessary as we don't have mocks in Buck unit tests.
-  private static class FakeActionGraphBuilder extends SingleThreadedActionGraphBuilder {
+  private static class FakeActionGraphBuilder extends TestActionGraphBuilder {
     private final Map<BuildTarget, BuildRule> ruleMap;
 
     public FakeActionGraphBuilder(Map<BuildTarget, BuildRule> ruleMap) {

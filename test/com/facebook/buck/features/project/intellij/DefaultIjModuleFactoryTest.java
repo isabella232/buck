@@ -35,14 +35,12 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.features.project.intellij.model.DependencyType;
 import com.facebook.buck.features.project.intellij.model.IjLibrary;
@@ -65,6 +63,7 @@ import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
+import com.facebook.buck.jvm.scala.FauxScalaLibraryBuilder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -395,7 +394,7 @@ public class DefaultIjModuleFactoryTest {
     IjFolder folder = module.getFolders().iterator().next();
     assertEquals(Paths.get("kotlin/com/example/base"), folder.getPath());
     assertFalse(folder instanceof TestFolder);
-    assertFalse(folder.getWantsPackagePrefix());
+    assertTrue(folder.getWantsPackagePrefix());
   }
 
   @Test
@@ -403,7 +402,7 @@ public class DefaultIjModuleFactoryTest {
     IjModuleFactory factory = createIjModuleFactory();
 
     TargetNode<?> scalaLib =
-        FauxKotlinLibraryBuilder.createBuilder(
+        FauxScalaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//scala/com/example/base:base"))
             .addSrc(Paths.get("scala/com/example/base/File.scala"))
             .build();
@@ -639,8 +638,7 @@ public class DefaultIjModuleFactoryTest {
             .build();
 
     BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
-    SourcePathResolver sourcePathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
+    SourcePathResolver sourcePathResolver = buildRuleResolver.getSourcePathResolver();
     IjLibraryFactoryResolver ijLibraryFactoryResolver =
         new IjLibraryFactoryResolver() {
           @Override

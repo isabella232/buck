@@ -17,7 +17,10 @@ package com.facebook.buck.core.rules;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.util.concurrent.Parallelizer;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -47,7 +50,7 @@ public interface ActionGraphBuilder extends BuildRuleResolver {
 
   /**
    * Retrieve a piece of metadata for a target. This metadata is computed via {@link
-   * com.facebook.buck.core.description.MetadataProvidingDescription#createMetadata}.
+   * com.facebook.buck.core.description.metadata.MetadataProvidingDescription#createMetadata}.
    */
   <T> Optional<T> requireMetadata(BuildTarget target, Class<T> metadataClass);
 
@@ -72,4 +75,9 @@ public interface ActionGraphBuilder extends BuildRuleResolver {
   // Convenience methods offering alternate access patterns.
 
   ImmutableSortedSet<BuildRule> requireAllRules(Iterable<BuildTarget> buildTargets);
+
+  ImmutableSortedMap<BuildTarget, BuildRule> computeAllIfAbsent(
+      ImmutableMap<BuildTarget, Function<BuildTarget, BuildRule>> mappings);
+
+  ListenableFuture<BuildRule> requireRuleFuture(BuildTarget target);
 }

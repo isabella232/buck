@@ -17,6 +17,7 @@
 package com.facebook.buck.features.halide;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -32,7 +33,7 @@ import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
@@ -47,7 +48,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements CxxPreprocessorDep, NativeLinkable {
+    implements CxxPreprocessorDep, NativeLinkableGroup {
 
   private final ActionGraphBuilder graphBuilder;
   private final Optional<Pattern> supportedPlatformsRegex;
@@ -104,12 +105,12 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
-    return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+  public Iterable<NativeLinkableGroup> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+    return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDepsForPlatform(
+  public Iterable<NativeLinkableGroup> getNativeLinkableDepsForPlatform(
       CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
@@ -118,7 +119,8 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkableGroup> getNativeLinkableExportedDeps(
+      BuildRuleResolver ruleResolver) {
     return ImmutableList.of();
   }
 
@@ -141,7 +143,8 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     if (!isPlatformSupported(cxxPlatform)) {
       return NativeLinkableInput.of();
     }
@@ -152,9 +155,8 @@ public class HalideLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
-    return NativeLinkable.Linkage.STATIC;
+  public NativeLinkableGroup.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+    return NativeLinkableGroup.Linkage.STATIC;
   }
 
   @Override

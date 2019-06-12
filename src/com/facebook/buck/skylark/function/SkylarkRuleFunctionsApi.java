@@ -16,60 +16,68 @@
 
 package com.facebook.buck.skylark.function;
 
+import com.facebook.buck.skylark.function.attr.AttributeHolder;
+import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.events.Location;
-import com.google.devtools.build.lib.skylarkbuildapi.ProviderApi;
 import com.google.devtools.build.lib.skylarkinterface.Param;
-import com.google.devtools.build.lib.skylarkinterface.ParamType;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkCallable;
+import com.google.devtools.build.lib.skylarkinterface.SkylarkConstructor;
 import com.google.devtools.build.lib.skylarkinterface.SkylarkGlobalLibrary;
+import com.google.devtools.build.lib.skylarkinterface.StarlarkContext;
+import com.google.devtools.build.lib.syntax.BaseFunction;
+import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.EvalException;
+import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.SkylarkDict;
-import com.google.devtools.build.lib.syntax.SkylarkList;
 
 /**
  * Interface for a global Skylark library containing rule-related helper and registration functions.
  */
 @SkylarkGlobalLibrary
 public interface SkylarkRuleFunctionsApi {
+  @SkylarkCallable(
+      name = "Label",
+      doc =
+          "Creates a Label referring to a BUILD target. Use "
+              + "this function only when you want to give a default value for the label "
+              + "attributes. The argument must refer to an absolute label. "
+              + "Example: <br><pre class=language-python>Label(\"//tools:default\")</pre>",
+      parameters = {
+        @Param(name = "label_string", type = String.class, doc = "the label string."),
+      },
+      useLocation = true,
+      useEnvironment = true,
+      useContext = true)
+  @SkylarkConstructor(objectType = Label.class)
+  Label label(String labelString, Location loc, Environment env, StarlarkContext context)
+      throws EvalException;
 
   @SkylarkCallable(
-      name = "provider",
-      doc =
-          "Creates a declared provider 'constructor'. The return value of this "
-              + "function can be used to create \"struct-like\" values. Example:<br>"
-              + "<pre class=\"language-python\">data = provider()\n"
-              + "d = data(x = 2, y = 3)\n"
-              + "print(d.x + d.y) # prints 5</pre>",
+      name = "rule",
+      doc = "Creates a user-defined rule",
       parameters = {
         @Param(
-            name = "doc",
-            type = String.class,
-            legacyNamed = true,
-            defaultValue = "''",
-            doc =
-                "A description of the provider that can be extracted by documentation generating tools."),
-        @Param(
-            name = "fields",
-            doc =
-                "If specified, restricts the set of allowed fields. <br>"
-                    + "Possible values are:"
-                    + "<ul>"
-                    + "  <li> list of fields:<br>"
-                    + "       <pre class=\"language-python\">provider(fields = ['a', 'b'])</pre><p>"
-                    + "  <li> dictionary field name -> documentation:<br>"
-                    + "       <pre class=\"language-python\">provider(\n"
-                    + "       fields = { 'a' : 'Documentation for a', 'b' : 'Documentation for b' })</pre>"
-                    + "</ul>"
-                    + "All fields are optional.",
-            allowedTypes = {
-              @ParamType(type = SkylarkList.class, generic1 = String.class),
-              @ParamType(type = SkylarkDict.class)
-            },
-            noneable = true,
+            name = "implementation",
+            type = BaseFunction.class,
+            noneable = false,
+            positional = true,
             named = true,
+            doc = "The implementation function that takes a ctx"),
+        @Param(
+            name = "attrs",
+            type = SkylarkDict.class,
             positional = false,
-            defaultValue = "None")
+            named = true,
+            doc = "A mapping of parameter names to the type of value that is expected")
       },
+      useEnvironment = true,
+      useAst = true,
       useLocation = true)
-  ProviderApi provider(String doc, Object fields, Location location) throws EvalException;
+  SkylarkUserDefinedRule rule(
+      BaseFunction implementation,
+      SkylarkDict<String, AttributeHolder> attrs,
+      Location loc,
+      FuncallExpression ast,
+      Environment env)
+      throws EvalException;
 }

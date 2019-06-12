@@ -166,7 +166,8 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return preprocessorDelegate.getCoveredByDepFilePredicate();
+    return Depfiles.getCoveredByDepFilePredicate(
+        Optional.of(preprocessorDelegate), Optional.empty());
   }
 
   @Override
@@ -189,7 +190,8 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
               getDepFilePath(),
               context.getSourcePathResolver().getRelativePath(input),
               output,
-              DependencyTrackingMode.MAKEFILE);
+              DependencyTrackingMode.MAKEFILE,
+              false);
     } catch (Depfiles.HeaderVerificationException e) {
       throw new HumanReadableException(e);
     }

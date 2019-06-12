@@ -30,9 +30,11 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileAttribute;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Set;
@@ -86,8 +88,19 @@ public class DefaultProjectFilesystemView implements ProjectFilesystemView {
   }
 
   @Override
+  public boolean isFile(Path path, LinkOption... options) {
+    return filesystemParent.isFile(projectRoot.resolve(path), options);
+  }
+
+  @Override
   public boolean isDirectory(Path path) {
     return filesystemParent.isDirectory(projectRoot.resolve(path));
+  }
+
+  @Override
+  public <A extends BasicFileAttributes> A readAttributes(
+      Path path, Class<A> type, LinkOption... options) throws IOException {
+    return filesystemParent.readAttributes(projectRoot.resolve(path), type, options);
   }
 
   @Override
@@ -180,12 +193,18 @@ public class DefaultProjectFilesystemView implements ProjectFilesystemView {
   public ImmutableCollection<Path> getDirectoryContents(Path pathToUse) throws IOException {
     try (DirectoryStream<Path> stream =
         filesystemParent.getDirectoryContentsStream(
-            filesystemParent.getPathForRelativePath(pathToUse))) {
+            filesystemParent.getPathForRelativePath(projectRoot.resolve(pathToUse)))) {
       return FluentIterable.from(stream)
           .filter(this::shouldExplorePaths)
           .transform(absolutePath -> MorePaths.relativize(resolvedProjectRoot, absolutePath))
           .toSortedList(Comparator.naturalOrder());
     }
+  }
+
+  @Override
+  public void writeLinesToPath(Iterable<String> lines, Path path, FileAttribute<?>... attrs)
+      throws IOException {
+    filesystemParent.writeLinesToPath(lines, resolvedProjectRoot.resolve(path), attrs);
   }
 
   private boolean shouldExplorePaths(Path p) {

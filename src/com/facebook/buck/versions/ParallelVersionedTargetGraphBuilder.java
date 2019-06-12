@@ -22,7 +22,7 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.base.Charsets;
@@ -82,11 +82,11 @@ public class ParallelVersionedTargetGraphBuilder extends AbstractVersionedTarget
   private final AtomicInteger roots = new AtomicInteger();
 
   ParallelVersionedTargetGraphBuilder(
-      ForkJoinPool pool,
+      int numberOfThreads,
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
       TypeCoercerFactory typeCoercerFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       long timeoutSeconds) {
 
     super(
@@ -95,7 +95,7 @@ public class ParallelVersionedTargetGraphBuilder extends AbstractVersionedTarget
         unversionedTargetGraphAndBuildTargets,
         timeoutSeconds,
         TimeUnit.SECONDS);
-    this.pool = pool;
+    this.pool = new ForkJoinPool(numberOfThreads);
     this.versionSelector = versionSelector;
 
     this.index =
@@ -192,9 +192,7 @@ public class ParallelVersionedTargetGraphBuilder extends AbstractVersionedTarget
 
     // Walk through explicit built targets, separating them into root and non-root nodes.
     ImmutableList<RootAction> actions =
-        unversionedTargetGraphAndBuildTargets
-            .getBuildTargets()
-            .stream()
+        unversionedTargetGraphAndBuildTargets.getBuildTargets().stream()
             .map(this::getNode)
             .map(RootAction::new)
             .collect(ImmutableList.toImmutableList());
@@ -221,14 +219,14 @@ public class ParallelVersionedTargetGraphBuilder extends AbstractVersionedTarget
   public static TargetGraphAndBuildTargets transform(
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
-      ForkJoinPool pool,
+      int numberOfThreads,
       TypeCoercerFactory typeCoercerFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       long timeoutSeconds)
       throws VersionException, TimeoutException, InterruptedException {
     return unversionedTargetGraphAndBuildTargets.withTargetGraph(
         new ParallelVersionedTargetGraphBuilder(
-                pool,
+                numberOfThreads,
                 versionSelector,
                 unversionedTargetGraphAndBuildTargets,
                 typeCoercerFactory,

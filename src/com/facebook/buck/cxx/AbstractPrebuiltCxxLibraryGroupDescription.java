@@ -25,13 +25,13 @@ import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.macros.MacroFinder;
 import com.facebook.buck.core.macros.MacroMatchResult;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -39,7 +39,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
@@ -214,17 +214,18 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableDeps(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableDeps(
           BuildRuleResolver ruleResolver) {
-        return FluentIterable.from(params.getDeclaredDeps().get()).filter(NativeLinkable.class);
+        return FluentIterable.from(params.getDeclaredDeps().get())
+            .filter(NativeLinkableGroup.class);
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDeps(
           BuildRuleResolver ruleResolver) {
         return FluentIterable.from(args.getExportedDeps())
             .transform(ruleResolver::getRule)
-            .filter(NativeLinkable.class);
+            .filter(NativeLinkableGroup.class);
       }
 
       @Override
@@ -232,12 +233,12 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ActionGraphBuilder graphBuilder) {
+          ActionGraphBuilder graphBuilder,
+          TargetConfiguration targetConfiguration) {
 
         if (!isPlatformSupported(cxxPlatform)) {
           return NativeLinkableInput.of();
         }
-        SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
         NativeLinkableInput.Builder builder = NativeLinkableInput.builder();
         switch (type) {
           case STATIC:
@@ -245,7 +246,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        graphBuilder, ruleFinder, cxxPlatform, args.getStaticLibs()),
+                        graphBuilder, cxxPlatform, args.getStaticLibs()),
                     args.getStaticLink()));
             break;
           case STATIC_PIC:
@@ -253,7 +254,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        graphBuilder, ruleFinder, cxxPlatform, args.getStaticPicLibs()),
+                        graphBuilder, cxxPlatform, args.getStaticPicLibs()),
                     args.getStaticPicLink()));
             break;
           case SHARED:
@@ -262,7 +263,6 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
                         graphBuilder,
-                        ruleFinder,
                         cxxPlatform,
                         ImmutableMap.<String, SourcePath>builder()
                             .putAll(args.getSharedLibs())
@@ -275,7 +275,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
       }
 
       @Override
-      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+      public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
 
         // If we both shared and static libs, we support any linkage.
         if (!args.getSharedLink().isEmpty()
@@ -298,13 +298,12 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
       }
 
       @Override
-      public boolean supportsOmnibusLinking(
-          CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
-        return getPreferredLinkage(cxxPlatform, graphBuilder) != Linkage.SHARED;
+      public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+        return getPreferredLinkage(cxxPlatform) != Linkage.SHARED;
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableDepsForPlatform(
           CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
@@ -313,7 +312,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription
       }
 
       @Override
-      public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
+      public Iterable<? extends NativeLinkableGroup> getNativeLinkableExportedDepsForPlatform(
           CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();

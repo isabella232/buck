@@ -22,7 +22,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
@@ -32,16 +31,16 @@ import com.facebook.buck.cxx.OmnibusLibraries;
 import com.facebook.buck.cxx.OmnibusLibrary;
 import com.facebook.buck.cxx.OmnibusRoot;
 import com.facebook.buck.cxx.OmnibusRoots;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -81,17 +80,12 @@ public class PythonUtil {
       CxxPlatform cxxPlatform,
       ImmutableSortedSet<BuildTarget> deps,
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps) {
-    return RichStream.<BuildTarget>empty()
-        .concat(deps.stream())
+    return RichStream.from(deps)
         .concat(
-            platformDeps
-                .getMatchingValues(pythonPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(pythonPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .concat(
-            platformDeps
-                .getMatchingValues(cxxPlatform.getFlavor().toString())
-                .stream()
+            platformDeps.getMatchingValues(cxxPlatform.getFlavor().toString()).stream()
                 .flatMap(Collection::stream))
         .toImmutableList();
   }
@@ -99,8 +93,6 @@ public class PythonUtil {
   public static ImmutableMap<Path, SourcePath> getModules(
       BuildTarget target,
       ActionGraphBuilder graphBuilder,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String parameter,
@@ -111,16 +103,19 @@ public class PythonUtil {
       Optional<ImmutableMap<BuildTarget, Version>> versions) {
     return CxxGenruleDescription.fixupSourcePaths(
         graphBuilder,
-        ruleFinder,
         cxxPlatform,
         ImmutableMap.<Path, SourcePath>builder()
             .putAll(
                 PythonUtil.toModuleMap(
-                    target, pathResolver, parameter, baseModule, ImmutableList.of(items)))
+                    target,
+                    graphBuilder.getSourcePathResolver(),
+                    parameter,
+                    baseModule,
+                    ImmutableList.of(items)))
             .putAll(
                 PythonUtil.toModuleMap(
                     target,
-                    pathResolver,
+                    graphBuilder.getSourcePathResolver(),
                     "platform" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
                     baseModule,
                     Iterables.concat(
@@ -129,7 +124,7 @@ public class PythonUtil {
             .putAll(
                 PythonUtil.toModuleMap(
                     target,
-                    pathResolver,
+                    graphBuilder.getSourcePathResolver(),
                     "versioned" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
                     baseModule,
                     versions.isPresent() && versionItems.isPresent()
@@ -170,7 +165,7 @@ public class PythonUtil {
       throw new HumanReadableException("%s: missing extension for module path: %s", target, name);
     }
     name = name.substring(0, ext);
-    return MorePaths.pathWithUnixSeparators(name).replace('/', '.');
+    return PathFormatter.pathWithUnixSeparators(name).replace('/', '.');
   }
 
   static PythonPackageComponents getAllComponents(
@@ -179,7 +174,6 @@ public class PythonUtil {
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ActionGraphBuilder graphBuilder,
-      SourcePathRuleFinder ruleFinder,
       Iterable<BuildRule> deps,
       PythonPackageComponents packageComponents,
       PythonPlatform pythonPlatform,
@@ -193,7 +187,7 @@ public class PythonUtil {
         new PythonPackageComponents.Builder(buildTarget);
 
     Map<BuildTarget, CxxPythonExtension> extensions = new LinkedHashMap<>();
-    Map<BuildTarget, NativeLinkable> nativeLinkableRoots = new LinkedHashMap<>();
+    Map<BuildTarget, NativeLinkableGroup> nativeLinkableRoots = new LinkedHashMap<>();
 
     OmnibusRoots.Builder omnibusRoots =
         OmnibusRoots.builder(cxxPlatform, preloadDeps, graphBuilder);
@@ -231,16 +225,16 @@ public class PythonUtil {
           if (packagable.doesPythonPackageDisallowOmnibus() || comps.hasNativeCode(cxxPlatform)) {
             for (BuildRule dep :
                 packagable.getPythonPackageDeps(pythonPlatform, cxxPlatform, graphBuilder)) {
-              if (dep instanceof NativeLinkable) {
-                NativeLinkable linkable = (NativeLinkable) dep;
+              if (dep instanceof NativeLinkableGroup) {
+                NativeLinkableGroup linkable = (NativeLinkableGroup) dep;
                 nativeLinkableRoots.put(linkable.getBuildTarget(), linkable);
                 omnibusRoots.addExcludedRoot(linkable);
               }
             }
           }
           deps = packagable.getPythonPackageDeps(pythonPlatform, cxxPlatform, graphBuilder);
-        } else if (rule instanceof NativeLinkable) {
-          NativeLinkable linkable = (NativeLinkable) rule;
+        } else if (rule instanceof NativeLinkableGroup) {
+          NativeLinkableGroup linkable = (NativeLinkableGroup) rule;
           nativeLinkableRoots.put(linkable.getBuildTarget(), linkable);
           omnibusRoots.addPotentialRoot(linkable);
         }
@@ -259,7 +253,6 @@ public class PythonUtil {
               params,
               cellPathResolver,
               graphBuilder,
-              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,
@@ -299,7 +292,7 @@ public class PythonUtil {
     } else {
 
       // For regular linking, add all extensions via the package components interface.
-      Map<BuildTarget, NativeLinkable> extensionNativeDeps = new LinkedHashMap<>();
+      Map<BuildTarget, NativeLinkableGroup> extensionNativeDeps = new LinkedHashMap<>();
       for (Map.Entry<BuildTarget, CxxPythonExtension> entry : extensions.entrySet()) {
         allComponents.addComponent(
             entry.getValue().getPythonPackageComponents(pythonPlatform, cxxPlatform, graphBuilder),
@@ -310,25 +303,24 @@ public class PythonUtil {
                     .getValue()
                     .getNativeLinkTarget(pythonPlatform)
                     .getNativeLinkTargetDeps(cxxPlatform, graphBuilder),
-                NativeLinkable::getBuildTarget));
+                NativeLinkableGroup::getBuildTarget));
       }
 
       // Add all the native libraries.
-      ImmutableMap<BuildTarget, NativeLinkable> nativeLinkables =
+      ImmutableMap<BuildTarget, NativeLinkableGroup> nativeLinkables =
           NativeLinkables.getTransitiveNativeLinkables(
               cxxPlatform,
               graphBuilder,
               Iterables.concat(nativeLinkableRoots.values(), extensionNativeDeps.values()));
-      for (NativeLinkable nativeLinkable : nativeLinkables.values()) {
-        NativeLinkable.Linkage linkage =
-            nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
-        if (nativeLinkableRoots.containsKey(nativeLinkable.getBuildTarget())
-            || linkage != NativeLinkable.Linkage.STATIC) {
+      for (NativeLinkableGroup nativeLinkableGroup : nativeLinkables.values()) {
+        NativeLinkableGroup.Linkage linkage = nativeLinkableGroup.getPreferredLinkage(cxxPlatform);
+        if (nativeLinkableRoots.containsKey(nativeLinkableGroup.getBuildTarget())
+            || linkage != NativeLinkableGroup.Linkage.STATIC) {
           ImmutableMap<String, SourcePath> libs =
-              nativeLinkable.getSharedLibraries(cxxPlatform, graphBuilder);
+              nativeLinkableGroup.getSharedLibraries(cxxPlatform, graphBuilder);
           for (Map.Entry<String, SourcePath> ent : libs.entrySet()) {
             allComponents.addNativeLibraries(
-                Paths.get(ent.getKey()), ent.getValue(), nativeLinkable.getBuildTarget());
+                Paths.get(ent.getKey()), ent.getValue(), nativeLinkableGroup.getBuildTarget());
           }
         }
       }
@@ -346,11 +338,11 @@ public class PythonUtil {
   static ImmutableSet<String> getPreloadNames(
       ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform, Iterable<BuildTarget> preloadDeps) {
     ImmutableSet.Builder<String> builder = ImmutableSortedSet.naturalOrder();
-    for (NativeLinkable nativeLinkable :
+    for (NativeLinkableGroup nativeLinkableGroup :
         FluentIterable.from(preloadDeps)
             .transform(graphBuilder::getRule)
-            .filter(NativeLinkable.class)) {
-      builder.addAll(nativeLinkable.getSharedLibraries(cxxPlatform, graphBuilder).keySet());
+            .filter(NativeLinkableGroup.class)) {
+      builder.addAll(nativeLinkableGroup.getSharedLibraries(cxxPlatform, graphBuilder).keySet());
     }
     return builder.build();
   }

@@ -24,17 +24,18 @@ import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.QueryTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.query.QueryBuildTarget;
-import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.collect.ImmutableList;
@@ -69,9 +70,10 @@ public class GraphEnhancementQueryEnvironmentTest {
             Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
-            new ParsingUnconfiguredBuildTargetFactory(),
+            new ParsingUnconfiguredBuildTargetViewFactory(),
             target.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            EmptyTargetConfiguration.INSTANCE);
     try {
       envWithoutDeps.getTargetsMatchingPattern("::");
       fail("Expected a QueryException to be thrown!");
@@ -89,9 +91,10 @@ public class GraphEnhancementQueryEnvironmentTest {
             Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
-            new ParsingUnconfiguredBuildTargetFactory(),
+            new ParsingUnconfiguredBuildTargetViewFactory(),
             target.getBaseName(),
-            ImmutableSet.of());
+            ImmutableSet.of(),
+            EmptyTargetConfiguration.INSTANCE);
 
     // No deps in == no deps out
     assertTrue(envWithoutDeps.getTargetsMatchingPattern("$declared_deps").isEmpty());
@@ -119,9 +122,10 @@ public class GraphEnhancementQueryEnvironmentTest {
             Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
-            new ParsingUnconfiguredBuildTargetFactory(),
+            new ParsingUnconfiguredBuildTargetViewFactory(),
             target.getBaseName(),
-            ImmutableSet.of(dep1, dep2));
+            ImmutableSet.of(dep1, dep2),
+            EmptyTargetConfiguration.INSTANCE);
 
     // Check that the macro resolves
     assertThat(
@@ -161,12 +165,13 @@ public class GraphEnhancementQueryEnvironmentTest {
         Optional.of(targetGraph),
         TYPE_COERCER_FACTORY,
         cellRoots,
-        new ParsingUnconfiguredBuildTargetFactory(),
+        new ParsingUnconfiguredBuildTargetViewFactory(),
         libNode.getBuildTarget().getBaseName(),
-        ImmutableSet.of(sublibNode.getBuildTarget()));
+        ImmutableSet.of(sublibNode.getBuildTarget()),
+        EmptyTargetConfiguration.INSTANCE);
   }
 
-  private static QueryTarget getQueryTarget(String target) {
+  private static QueryBuildTarget getQueryTarget(String target) {
     return QueryBuildTarget.of(BuildTargetFactory.newInstance(target));
   }
 

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.core.cell.impl;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.CellName;
@@ -26,7 +27,7 @@ import com.facebook.buck.core.cell.InvalidCellOverrideException;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.module.BuckModuleManager;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
@@ -58,7 +59,7 @@ public class LocalCellProviderFactory {
       BuckModuleManager moduleManager,
       ToolchainProviderFactory toolchainProviderFactory,
       ProjectFilesystemFactory projectFilesystemFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory) {
 
     ImmutableMap<Path, RawConfig> pathToConfigOverrides;
     try {
@@ -72,7 +73,7 @@ public class LocalCellProviderFactory {
         cellProvider ->
             new CacheLoader<Path, Cell>() {
               @Override
-              public Cell load(Path cellPath) throws IOException, InterruptedException {
+              public Cell load(Path cellPath) throws IOException {
                 Path normalizedCellPath = cellPath.toRealPath().normalize();
 
                 Preconditions.checkState(
@@ -119,7 +120,8 @@ public class LocalCellProviderFactory {
                 Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo = Optional.empty();
                 Optional<String> canonicalCellName =
                     cellPathResolver.getCanonicalCellName(normalizedCellPath);
-                if (rootConfig.isEmbeddedCellBuckOutEnabled() && canonicalCellName.isPresent()) {
+                if (rootConfig.getView(BuildBuckConfig.class).isEmbeddedCellBuckOutEnabled()
+                    && canonicalCellName.isPresent()) {
                   embeddedCellBuckOutInfo =
                       Optional.of(
                           EmbeddedCellBuckOutInfo.of(
@@ -158,7 +160,6 @@ public class LocalCellProviderFactory {
                     buckConfig,
                     cellProvider,
                     toolchainProvider,
-                    ruleKeyConfiguration,
                     cellPathResolver);
               }
             },

@@ -1,12 +1,15 @@
+
 [repositories]
     buck = .
     bazel_skylib = ./third-party/skylark/bazel-skylib
+    testlib = test/com/facebook/buck/testutil/integration/testlibs
 [java]
     ; Indicates that any folder named src or test
     ; are folders that contain Java code.
     src_roots = src, test
     source_level = 8
     target_level = 8
+    bootclasspath-8 = third-party/java/jdk/jdk8-rt-stub.jar
     jar_spool_mode = direct_to_jar
     abi_generation_mode = source_only
     # There is some nondeterminism with the Immutables processor that causes verification to
@@ -14,6 +17,11 @@
     # (instead of as a separate step), this can become an error again:
     source_abi_verification_mode = fail
     compile_against_abis = True
+[kotlin]
+  # TODO: Put this in a shared location so Kotlin code under src/
+  # does not depend on files under test/. We should probably update the
+  # version of the Kotlin toolchain we use, as well.
+  kotlin_home = test/com/facebook/buck/jvm/kotlin/testdata/kotlinc/
 [alias]
     buck = //programs:buck
     buck-android-support = //android/com/facebook/buck/android/support:buck-android-support
@@ -77,3 +85,4 @@
 [parser]
   default_build_file_syntax=skylark
   enable_configurable_attributes = true
+

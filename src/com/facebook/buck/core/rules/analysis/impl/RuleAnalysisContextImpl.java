@@ -15,11 +15,15 @@
  */
 package com.facebook.buck.core.rules.analysis.impl;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.actions.ActionAnalysisData;
-import com.facebook.buck.core.rules.actions.ActionAnalysisData.Key;
+import com.facebook.buck.core.rules.actions.ActionAnalysisDataRegistry;
+import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisContext;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisKey;
 import com.facebook.buck.core.rules.providers.ProviderInfoCollection;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
@@ -29,13 +33,20 @@ import java.util.Map;
  * Implementation of {@link com.facebook.buck.core.rules.analysis.RuleAnalysisContext}. This context
  * is created per rule analysis.
  */
-class RuleAnalysisContextImpl implements RuleAnalysisContext {
+class RuleAnalysisContextImpl implements RuleAnalysisContext, ActionAnalysisDataRegistry {
 
+  private final BuildTarget buildTarget;
   private final ImmutableMap<RuleAnalysisKey, ProviderInfoCollection> depProviders;
-  private final Map<Key, ActionAnalysisData> actionRegistry = new HashMap<>();
+  private final Map<ActionAnalysisData.ID, ActionAnalysisData> actionRegistry = new HashMap<>();
+  private final ActionWrapperDataFactory actionWrapperDataFactory;
 
-  RuleAnalysisContextImpl(ImmutableMap<RuleAnalysisKey, ProviderInfoCollection> depProviders) {
+  RuleAnalysisContextImpl(
+      BuildTarget buildTarget,
+      ImmutableMap<RuleAnalysisKey, ProviderInfoCollection> depProviders,
+      ProjectFilesystem filesystem) {
+    this.buildTarget = buildTarget;
     this.depProviders = depProviders;
+    this.actionWrapperDataFactory = new ActionWrapperDataFactory(buildTarget, this, filesystem);
   }
 
   @Override
@@ -44,9 +55,16 @@ class RuleAnalysisContextImpl implements RuleAnalysisContext {
   }
 
   @Override
+  public ActionWrapperDataFactory actionFactory() {
+    return actionWrapperDataFactory;
+  }
+
+  @Override
   public void registerAction(ActionAnalysisData actionAnalysisData) {
+    Preconditions.checkState(actionAnalysisData.getKey().getBuildTarget().equals(buildTarget));
+
     ActionAnalysisData prev =
-        actionRegistry.putIfAbsent(actionAnalysisData.getKey(), actionAnalysisData);
+        actionRegistry.putIfAbsent(actionAnalysisData.getKey().getID(), actionAnalysisData);
     Verify.verify(
         prev == null,
         "Action of key %s was already registered with %s",
@@ -54,7 +72,7 @@ class RuleAnalysisContextImpl implements RuleAnalysisContext {
         prev);
   }
 
-  public Map<ActionAnalysisData.Key, ActionAnalysisData> getRegisteredActionData() {
+  public Map<ActionAnalysisData.ID, ActionAnalysisData> getRegisteredActionData() {
     return actionRegistry;
   }
 }

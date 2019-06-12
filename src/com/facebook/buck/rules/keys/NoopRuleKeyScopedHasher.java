@@ -19,29 +19,43 @@ package com.facebook.buck.rules.keys;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Container;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Wrapper;
 import com.facebook.buck.util.Scope;
+import java.nio.file.Path;
 
 /** Does nothing. */
 public class NoopRuleKeyScopedHasher implements RuleKeyScopedHasher {
+
+  public static final NoopRuleKeyScopedHasher INSTANCE = new NoopRuleKeyScopedHasher();
+
+  private NoopRuleKeyScopedHasher() {}
+
   @Override
   public Scope keyScope(String key) {
-    return () -> {};
+    return Scope.NOOP;
+  }
+
+  @Override
+  public Scope pathKeyScope(Path key) {
+    return Scope.NOOP;
   }
 
   @Override
   public Scope wrapperScope(Wrapper wrapper) {
-    return () -> {};
+    return Scope.NOOP;
   }
 
   @Override
   public ContainerScope containerScope(Container container) {
-    return new ContainerScope() {
-      @Override
-      public void close() {}
-
-      @Override
-      public Scope elementScope() {
-        return () -> {};
-      }
-    };
+    return NOOP_CONTAINER_SCOPE;
   }
+
+  private static final ContainerScope NOOP_CONTAINER_SCOPE =
+      new ContainerScope() {
+        @Override
+        public Scope elementScope() {
+          return Scope.NOOP;
+        }
+
+        @Override
+        public void close() {}
+      };
 }

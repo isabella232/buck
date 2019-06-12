@@ -26,16 +26,14 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.hash.HashCode;
-import java.util.Optional;
 import org.junit.Test;
 
 public class DexWithClassesTest {
@@ -62,14 +60,15 @@ public class DexWithClassesTest {
                 /* weightEstimate */ 1600,
                 /* classNamesToHashes */ ImmutableSortedMap.of(
                     "com/example/Main", HashCode.fromString(Strings.repeat("cafebabe", 5))),
-                Optional.empty()));
+                ImmutableList.of()));
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
     DexWithClasses dexWithClasses = DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexFromJavaLibrary);
     assertEquals(
         BuildTargetPaths.getGenPath(javaLibrary.getProjectFilesystem(), buildTarget, "%s.dex.jar"),
-        pathResolver.getRelativePath(dexWithClasses.getSourcePathToDexFile()));
+        ruleFinder
+            .getSourcePathResolver()
+            .getRelativePath(dexWithClasses.getSourcePathToDexFile()));
     assertEquals(ImmutableSet.of("com/example/Main"), dexWithClasses.getClassNames());
     assertEquals(1600, dexWithClasses.getWeightEstimate());
   }
@@ -95,7 +94,7 @@ public class DexWithClassesTest {
             new DexProducedFromJavaLibrary.BuildOutput(
                 /* weightEstimate */ 1600,
                 /* classNamesToHashes */ ImmutableSortedMap.of(),
-                Optional.empty()));
+                ImmutableList.of()));
 
     DexWithClasses dexWithClasses = DexWithClasses.TO_DEX_WITH_CLASSES.apply(dexFromJavaLibrary);
     assertNull(

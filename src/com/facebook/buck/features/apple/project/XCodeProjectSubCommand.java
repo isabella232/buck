@@ -111,11 +111,13 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
             params.getUnconfiguredBuildTargetFactory(),
             params.getCell(),
             params.getRuleKeyConfiguration(),
+            params.getTargetConfiguration(),
             params.getConsole(),
             params.getProcessManager(),
             params.getEnvironment(),
             params.getExecutors().get(ExecutorPool.PROJECT),
-            projectCommandArguments,
+            executor,
+            params.getDepsAwareExecutorSupplier(),
             appleCxxPlatformsProvider.getAppleCxxPlatforms().getFlavors(),
             getAbsoluteHeaderMapPaths(params.getBuckConfig()),
             getSharedLibrariesInBundles(params.getBuckConfig()),
@@ -137,8 +139,9 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
               } catch (Exception e) {
                 throw new RuntimeException("Cannot run a build", e);
               }
-            });
-    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator(executor);
+            },
+            projectCommandArguments);
+    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator();
   }
 
   private ExitCode runBuild(CommandRunnerParams params, ImmutableList<String> arguments)

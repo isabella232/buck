@@ -17,8 +17,8 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
-import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.rulekey.CustomFieldBehavior;
+import com.facebook.buck.core.rulekey.DefaultFieldSerialization;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
@@ -165,7 +165,7 @@ public class CxxFlags {
       this.santizedMap =
           ImmutableSortedMap.copyOf(
               Maps.transformValues(
-                  flagMacros, compilerDebugPathSanitizer.sanitize(Optional.empty())::apply));
+                  flagMacros, compilerDebugPathSanitizer.sanitizer(Optional.empty())::apply));
     }
 
     @Override

@@ -20,10 +20,10 @@ import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
@@ -98,6 +98,12 @@ public class XcodeWorkspaceConfigDescription
 
     Optional<ImmutableMap<SchemeActionType, ImmutableMap<String, String>>>
         getEnvironmentVariables();
+
+    /**
+     * Add value to scheme to indicate it will be used to work on an app extension. This should
+     * cause Xcode to automatically begin debugging the extension when it's launched.
+     */
+    Optional<Boolean> getWasCreatedForAppExtension();
 
     Optional<Boolean> getIsRemoteRunnable();
 

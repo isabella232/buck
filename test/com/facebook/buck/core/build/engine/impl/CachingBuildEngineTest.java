@@ -45,6 +45,7 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.cli.CommandThreadManager;
+import com.facebook.buck.core.build.action.resolver.BuildEngineActionToBuildRuleResolver;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
@@ -68,12 +69,12 @@ import com.facebook.buck.core.build.engine.manifest.Manifest;
 import com.facebook.buck.core.build.engine.manifest.ManifestUtil;
 import com.facebook.buck.core.build.engine.type.BuildType;
 import com.facebook.buck.core.build.engine.type.DepFiles;
-import com.facebook.buck.core.build.engine.type.MetadataStorage;
 import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.ExceptionWithContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
@@ -87,6 +88,7 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
@@ -106,7 +108,6 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -156,7 +157,6 @@ import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
-import com.facebook.buck.util.exceptions.ExceptionWithContext;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.DefaultClock;
@@ -189,8 +189,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -229,7 +227,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
 import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 /**
  * Ensuring that build rule caching works correctly in Buck is imperative for both its performance
@@ -241,34 +238,19 @@ public class CachingBuildEngineTest {
   private static final boolean DEBUG = false;
   private static final BuildTarget BUILD_TARGET =
       BuildTargetFactory.newInstance("//src/com/facebook/orca:orca");
-  private static final SourcePathRuleFinder DEFAULT_RULE_FINDER =
-      new SourcePathRuleFinder(new TestActionGraphBuilder());
-  private static final SourcePathResolver DEFAULT_SOURCE_PATH_RESOLVER =
-      DefaultSourcePathResolver.from(DEFAULT_RULE_FINDER);
+  private static final SourcePathRuleFinder DEFAULT_RULE_FINDER = new TestActionGraphBuilder();
   public static final long NO_INPUT_FILE_SIZE_LIMIT = Long.MAX_VALUE;
   public static final RuleKeyFieldLoader FIELD_LOADER =
       new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
   private static final DefaultRuleKeyFactory NOOP_RULE_KEY_FACTORY =
-      new DefaultRuleKeyFactory(
-          FIELD_LOADER,
-          new DummyFileHashCache(),
-          DEFAULT_SOURCE_PATH_RESOLVER,
-          DEFAULT_RULE_FINDER);
+      new DefaultRuleKeyFactory(FIELD_LOADER, new DummyFileHashCache(), DEFAULT_RULE_FINDER);
   private static final InputBasedRuleKeyFactory NOOP_INPUT_BASED_RULE_KEY_FACTORY =
       new TestInputBasedRuleKeyFactory(
-          FIELD_LOADER,
-          new DummyFileHashCache(),
-          DEFAULT_SOURCE_PATH_RESOLVER,
-          DEFAULT_RULE_FINDER,
-          NO_INPUT_FILE_SIZE_LIMIT);
+          FIELD_LOADER, new DummyFileHashCache(), DEFAULT_RULE_FINDER, NO_INPUT_FILE_SIZE_LIMIT);
   private static final DependencyFileRuleKeyFactory NOOP_DEP_FILE_RULE_KEY_FACTORY =
       new DefaultDependencyFileRuleKeyFactory(
-          FIELD_LOADER,
-          new DummyFileHashCache(),
-          DEFAULT_SOURCE_PATH_RESOLVER,
-          DEFAULT_RULE_FINDER);
+          FIELD_LOADER, new DummyFileHashCache(), DEFAULT_RULE_FINDER);
 
-  @RunWith(Parameterized.class)
   public abstract static class CommonFixture extends EasyMockSupport {
     @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -281,30 +263,18 @@ public class CachingBuildEngineTest {
     protected FileHashCache fileHashCache;
     protected BuildEngineBuildContext buildContext;
     protected ActionGraphBuilder graphBuilder;
-    protected SourcePathRuleFinder ruleFinder;
+    protected BuildEngineActionToBuildRuleResolver actionToBuildRuleResolver;
     protected SourcePathResolver pathResolver;
     protected DefaultRuleKeyFactory defaultRuleKeyFactory;
     protected InputBasedRuleKeyFactory inputBasedRuleKeyFactory;
     protected BuildRuleDurationTracker durationTracker;
-    protected MetadataStorage metadataStorage;
-
-    @Parameterized.Parameters(name = "{0}")
-    public static Collection<Object[]> data() {
-      return Arrays.stream(MetadataStorage.values())
-          .map(v -> new Object[] {v})
-          .collect(ImmutableList.toImmutableList());
-    }
-
-    public CommonFixture(MetadataStorage metadataStorage) {
-      this.metadataStorage = metadataStorage;
-    }
 
     @Before
     public void setUp() throws Exception {
       filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
       buildInfoStoreManager = new BuildInfoStoreManager();
       Files.createDirectories(filesystem.resolve(filesystem.getBuckPaths().getScratchDir()));
-      buildInfoStore = buildInfoStoreManager.get(filesystem, metadataStorage);
+      buildInfoStore = buildInfoStoreManager.get(filesystem);
       defaultRemoteBuildRuleCompletionWaiter = new NoOpRemoteBuildRuleCompletionWaiter();
       fileHashCache =
           StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
@@ -317,13 +287,12 @@ public class CachingBuildEngineTest {
               .build();
       buildContext.getEventBus().register(listener);
       graphBuilder = new TestActionGraphBuilder();
-      ruleFinder = new SourcePathRuleFinder(graphBuilder);
-      pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-      defaultRuleKeyFactory =
-          new DefaultRuleKeyFactory(FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+      pathResolver = graphBuilder.getSourcePathResolver();
+      defaultRuleKeyFactory = new DefaultRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
+      actionToBuildRuleResolver = new BuildEngineActionToBuildRuleResolver();
       inputBasedRuleKeyFactory =
           new TestInputBasedRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder, NO_INPUT_FILE_SIZE_LIMIT);
+              FIELD_LOADER, fileHashCache, graphBuilder, NO_INPUT_FILE_SIZE_LIMIT);
       durationTracker = new BuildRuleDurationTracker();
     }
 
@@ -334,7 +303,10 @@ public class CachingBuildEngineTest {
     protected CachingBuildEngineFactory cachingBuildEngineFactory(
         RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {
       return new CachingBuildEngineFactory(
-              graphBuilder, buildInfoStoreManager, remoteBuildRuleCompletionWaiter)
+              graphBuilder,
+              actionToBuildRuleResolver,
+              buildInfoStoreManager,
+              remoteBuildRuleCompletionWaiter)
           .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache));
     }
 
@@ -350,9 +322,6 @@ public class CachingBuildEngineTest {
   }
 
   public static class OtherTests extends CommonFixture {
-    public OtherTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
 
     /**
      * Tests what should happen when a rule is built for the first time: it should have no cached
@@ -466,6 +435,7 @@ public class CachingBuildEngineTest {
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty(),
+                  Optional.empty(),
                   Optional.empty())));
     }
 
@@ -528,6 +498,7 @@ public class CachingBuildEngineTest {
                   Optional.empty(),
                   Optional.empty(),
                   Optional.empty(),
+                  Optional.empty(),
                   Optional.empty())));
     }
 
@@ -572,7 +543,7 @@ public class CachingBuildEngineTest {
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
               "Imagine this is the contents of a valid JAR file.",
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
-              "123",
+              "0",
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
               HashCode.fromInt(123).toString());
       expect(
@@ -661,7 +632,7 @@ public class CachingBuildEngineTest {
               metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATH_HASHES),
               ObjectMappers.WRITER.writeValueAsString(ImmutableMap.of()),
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
-              "123",
+              "0",
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
               HashCode.fromInt(123).toString(),
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
@@ -717,6 +688,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder recorder = createBuildInfoRecorder(BUILD_TARGET);
       recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
       recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       recorder.writeMetadataToDisk(true);
 
       // The BuildContext that will be used by the rule's build() method.
@@ -761,6 +733,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
       }
     }
@@ -775,6 +748,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder depRecorder = createBuildInfoRecorder(depTarget);
       depRecorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, depKey.toString());
       depRecorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      depRecorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       depRecorder.writeMetadataToDisk(true);
 
       FakeBuildRule ruleToTest = new FakeBuildRule(BUILD_TARGET, filesystem, dep);
@@ -782,6 +756,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder recorder = createBuildInfoRecorder(BUILD_TARGET);
       recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
       recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
@@ -821,6 +796,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started started =
             TestEventConfigurator.configureTestEvent(
@@ -845,6 +821,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
       }
     }
@@ -861,6 +838,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder recorder = createBuildInfoRecorder(transitiveRuntimeDep.getBuildTarget());
       recorder.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, transitiveRuntimeDepKey.toString());
       recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       recorder.writeMetadataToDisk(true);
 
       // Setup a runtime dependency that is referenced directly by the top-level rule.
@@ -872,6 +850,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder runtimeDepRec = createBuildInfoRecorder(runtimeDep.getBuildTarget());
       runtimeDepRec.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, runtimeDepKey.toString());
       runtimeDepRec.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      runtimeDepRec.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       runtimeDepRec.writeMetadataToDisk(true);
 
       // Create a dep for the build rule.
@@ -880,6 +859,7 @@ public class CachingBuildEngineTest {
       BuildInfoRecorder testRec = createBuildInfoRecorder(BUILD_TARGET);
       testRec.addBuildMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleToTestKey.toString());
       testRec.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      testRec.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       testRec.writeMetadataToDisk(true);
 
       // Create the build engine.
@@ -917,6 +897,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started startedDep =
             TestEventConfigurator.configureTestEvent(
@@ -941,6 +922,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started startedTransitive =
             TestEventConfigurator.configureTestEvent(
@@ -957,6 +939,7 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                     UploadToCacheResultType.UNCACHEABLE,
+                    Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
@@ -1188,6 +1171,7 @@ public class CachingBuildEngineTest {
       recorder.addBuildMetadata(
           BuildInfo.MetadataKey.RULE_KEY, defaultRuleKeyFactory.build(ruleToTest).toString());
       recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
@@ -1707,9 +1691,6 @@ public class CachingBuildEngineTest {
   }
 
   public static class InputBasedRuleKeyTests extends CommonFixture {
-    public InputBasedRuleKeyTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
 
     @Test
     public void inputBasedRuleKeyAndArtifactAreWrittenForSupportedRules() throws Exception {
@@ -1868,7 +1849,7 @@ public class CachingBuildEngineTest {
               metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
               ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(outputPath.toString())),
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
-              "123",
+              "5", // Size of "stuff"
               outputPath,
               "stuff"),
           ImmutableList.of(metadataDirectory));
@@ -1932,6 +1913,7 @@ public class CachingBuildEngineTest {
       // Prepopulate the input rule key on disk, so that we avoid a rebuild.
       recorder.addBuildMetadata(
           BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY, inputRuleKey.toString());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "10");
       recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
@@ -1996,7 +1978,7 @@ public class CachingBuildEngineTest {
               ObjectMappers.WRITER.writeValueAsString(
                   ImmutableMap.of(outputPath.toString(), HashCode.fromInt(123).toString())),
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
-              "123",
+              "5", // Size of "stuff"
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
               HashCode.fromInt(123).toString(),
               outputPath,
@@ -2072,10 +2054,6 @@ public class CachingBuildEngineTest {
       private BuildRule rule;
       private FakeStrategy strategy;
 
-      public CustomStrategyTests(MetadataStorage metadataStorage) {
-        super(metadataStorage);
-      }
-
       interface Builder {
         ListenableFuture<Optional<BuildResult>> build(
             ListeningExecutorService service, BuildRule rule, BuildStrategyContext executorRunner);
@@ -2094,7 +2072,7 @@ public class CachingBuildEngineTest {
               builder.get().build(strategyContext.getExecutorService(), rule, strategyContext);
           return new StrategyBuildResult() {
             @Override
-            public boolean cancelIfNotStarted(Throwable reason) {
+            public boolean cancelIfNotComplete(Throwable reason) {
               return false;
             }
 
@@ -2193,7 +2171,8 @@ public class CachingBuildEngineTest {
                   try (Scope ignored = strategyContext.buildRuleScope()) {
                     return Futures.immediateFuture(
                         Optional.of(
-                            strategyContext.createBuildResult(BuildRuleSuccessType.BUILT_LOCALLY)));
+                            strategyContext.createBuildResult(
+                                BuildRuleSuccessType.BUILT_LOCALLY, Optional.empty())));
                   }
                 });
         runVerifiedBuild(rule);
@@ -2230,7 +2209,7 @@ public class CachingBuildEngineTest {
 
                             return Optional.of(
                                 strategyContext.createBuildResult(
-                                    BuildRuleSuccessType.BUILT_LOCALLY));
+                                    BuildRuleSuccessType.BUILT_LOCALLY, Optional.empty()));
                           }
                         }));
         strategy.cancelCallback = () -> cancelSignal.countDown();
@@ -2393,15 +2372,10 @@ public class CachingBuildEngineTest {
 
     private DefaultDependencyFileRuleKeyFactory depFileFactory;
 
-    public DepFileTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
-
     @Before
     public void setUpDepFileFixture() {
       depFileFactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
     }
 
     @Test
@@ -2939,10 +2913,6 @@ public class CachingBuildEngineTest {
   }
 
   public static class ManifestTests extends CommonFixture {
-    public ManifestTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
-
     private static Optional<RuleKey> getManifestRuleKeyForTest(
         CachingBuildEngine engine, SupportsDependencyFileRuleKey rule, BuckEventBus eventBus)
         throws IOException {
@@ -2955,8 +2925,7 @@ public class CachingBuildEngineTest {
     @Test
     public void manifestIsWrittenWhenBuiltLocally() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
 
       // Use a genrule to produce the input file.
       Genrule genrule =
@@ -3068,8 +3037,7 @@ public class CachingBuildEngineTest {
     @Test
     public void manifestIsUpdatedWhenBuiltLocally() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
 
       // Use a genrule to produce the input file.
       Genrule genrule =
@@ -3191,8 +3159,7 @@ public class CachingBuildEngineTest {
     @Test
     public void manifestIsTruncatedWhenGrowingPastSizeLimit() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
 
       // Use a genrule to produce the input file.
       Genrule genrule =
@@ -3308,8 +3275,7 @@ public class CachingBuildEngineTest {
     @Test
     public void manifestBasedCacheHit() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
 
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -3401,7 +3367,7 @@ public class CachingBuildEngineTest {
               ObjectMappers.WRITER.writeValueAsString(
                   ImmutableMap.of(output.toString(), HashCode.fromInt(123).toString())),
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
-              "123",
+              "5", // Size of "stuff"
               metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
               HashCode.fromInt(123).toString()),
           ImmutableList.of());
@@ -3416,9 +3382,7 @@ public class CachingBuildEngineTest {
               .putMetadata(
                   BuildInfo.MetadataKey.DEP_FILE,
                   ObjectMappers.WRITER.writeValueAsString(
-                      depFileKey
-                          .getInputs()
-                          .stream()
+                      depFileKey.getInputs().stream()
                           .map(pathResolver::getRelativePath)
                           .collect(ImmutableList.toImmutableList())))
               .build(),
@@ -3449,9 +3413,7 @@ public class CachingBuildEngineTest {
             cacheResult.getMetadata().get(BuildInfo.MetadataKey.DEP_FILE),
             equalTo(
                 ObjectMappers.WRITER.writeValueAsString(
-                    depFileKey
-                        .getInputs()
-                        .stream()
+                    depFileKey.getInputs().stream()
                         .map(pathResolver::getRelativePath)
                         .collect(ImmutableList.toImmutableList()))));
         Files.delete(fetchedArtifact.get());
@@ -3461,8 +3423,7 @@ public class CachingBuildEngineTest {
     @Test
     public void staleExistingManifestIsIgnored() throws Exception {
       DefaultDependencyFileRuleKeyFactory depFilefactory =
-          new DefaultDependencyFileRuleKeyFactory(
-              FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
+          new DefaultDependencyFileRuleKeyFactory(FIELD_LOADER, fileHashCache, graphBuilder);
 
       // Create a simple rule which just writes a file.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -3538,9 +3499,7 @@ public class CachingBuildEngineTest {
               .get();
       assertThat(getSuccess(result), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
       assertManifestLoaded(
-          listener
-              .getEvents()
-              .stream()
+          listener.getEvents().stream()
               .filter(BuildRuleEvent.Finished.class::isInstance)
               .map(BuildRuleEvent.Finished.class::cast)
               .collect(Collectors.toList()));
@@ -3567,10 +3526,6 @@ public class CachingBuildEngineTest {
   }
 
   public static class UncachableRuleTests extends CommonFixture {
-    public UncachableRuleTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
-
     @Test
     public void uncachableRulesDoNotTouchTheCache() throws Exception {
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
@@ -3639,10 +3594,6 @@ public class CachingBuildEngineTest {
   }
 
   public static class ScheduleOverrideTests extends CommonFixture {
-    public ScheduleOverrideTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
-
     @Test
     public void customWeights() throws Exception {
       BuildTarget target1 = BuildTargetFactory.newInstance("//:rule1");
@@ -3755,10 +3706,6 @@ public class CachingBuildEngineTest {
     // the build engine issues begin and end rule events on different threads.
     private static final ListeningExecutorService SERVICE = new NewThreadExecutorService();
 
-    public BuildRuleEventTests(MetadataStorage metadataStorage) {
-      super(metadataStorage);
-    }
-
     @Ignore
     @Test
     public void eventsForBuiltLocallyRuleAreOnCorrectThreads() throws Exception {
@@ -3800,6 +3747,7 @@ public class CachingBuildEngineTest {
       recorder.addBuildMetadata(
           BuildInfo.MetadataKey.RULE_KEY, defaultRuleKeyFactory.build(rule).toString());
       recorder.addMetadata(BuildInfo.MetadataKey.RECORDED_PATHS, ImmutableList.of());
+      recorder.addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, "0");
       recorder.writeMetadataToDisk(true);
 
       // Create the build engine.
@@ -3932,7 +3880,6 @@ public class CachingBuildEngineTest {
 
     @Test
     public void originForCached() throws Exception {
-
       // Create a noop simple rule.
       BuildTarget target = BuildTargetFactory.newInstance("//:rule");
       Path output = filesystem.getPath("output/path");
@@ -3970,6 +3917,8 @@ public class CachingBuildEngineTest {
 
       // Verify we found the correct build id.
       assertThat(event.getOrigin(), equalTo(Optional.of(buildId1)));
+      // Verify that the output hash is recorded.
+      assertTrue(event.getOutputHash().isPresent());
     }
 
     /** Verify that the begin and end events in build rule event pairs occur on the same thread. */
@@ -3984,8 +3933,7 @@ public class CachingBuildEngineTest {
       for (List<BuildRuleEvent> queue : grouped.values()) {
         queue.sort(Comparator.comparingLong(BuildRuleEvent::getNanoTime));
         ImmutableList<String> queueDescription =
-            queue
-                .stream()
+            queue.stream()
                 .map(event -> String.format("%s@%s", event, event.getNanoTime()))
                 .collect(ImmutableList.toImmutableList());
         Iterator<BuildRuleEvent> itr = queue.iterator();
@@ -4024,11 +3972,11 @@ public class CachingBuildEngineTest {
         for (BuildRuleEvent event : queue) {
           if (event instanceof BuildRuleEvent.BeginningBuildRuleEvent) {
             if (count++ == 0) {
-              wallStart = event.getTimestamp();
+              wallStart = event.getTimestampMillis();
               nanoStart = event.getNanoTime();
             }
             assertEquals(
-                wall + event.getTimestamp() - wallStart,
+                wall + event.getTimestampMillis() - wallStart,
                 event.getDuration().getWallMillisDuration());
             assertEquals(
                 nano + event.getNanoTime() - nanoStart, event.getDuration().getNanoDuration());
@@ -4038,13 +3986,13 @@ public class CachingBuildEngineTest {
                 ((BuildRuleEvent.EndingBuildRuleEvent) event).getBeginningEvent();
             thread += event.getThreadUserNanoTime() - beginning.getThreadUserNanoTime();
             assertEquals(
-                wall + event.getTimestamp() - wallStart,
+                wall + event.getTimestampMillis() - wallStart,
                 event.getDuration().getWallMillisDuration());
             assertEquals(
                 nano + event.getNanoTime() - nanoStart, event.getDuration().getNanoDuration());
             assertEquals(thread, event.getDuration().getThreadUserNanoDuration());
             if (--count == 0) {
-              wall += event.getTimestamp() - wallStart;
+              wall += event.getTimestampMillis() - wallStart;
               nano += event.getNanoTime() - nanoStart;
             }
           }
@@ -4364,7 +4312,7 @@ public class CachingBuildEngineTest {
     }
 
     @Override
-    public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+    public Stream<BuildTarget> getRuntimeDeps(BuildRuleResolver buildRuleResolver) {
       return runtimeDeps.stream().map(BuildRule::getBuildTarget);
     }
   }

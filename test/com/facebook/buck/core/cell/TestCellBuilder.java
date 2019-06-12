@@ -20,8 +20,9 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
@@ -92,7 +93,11 @@ public class TestCellBuilder {
     ToolchainProviderFactory toolchainProviderFactory =
         toolchainProvider == null
             ? new DefaultToolchainProviderFactory(
-                pluginManager, environmentCopy, processExecutor, executableFinder)
+                pluginManager,
+                environmentCopy,
+                processExecutor,
+                executableFinder,
+                () -> EmptyTargetConfiguration.INSTANCE)
             : (buckConfig, filesystem, ruleKeyConfiguration) -> toolchainProvider;
 
     DefaultCellPathResolver rootCellCellPathResolver =
@@ -107,7 +112,7 @@ public class TestCellBuilder {
             TestBuckModuleManagerFactory.create(pluginManager),
             toolchainProviderFactory,
             new DefaultProjectFilesystemFactory(),
-            new ParsingUnconfiguredBuildTargetFactory())
+            new ParsingUnconfiguredBuildTargetViewFactory())
         .getCellByPath(filesystem.getRootPath());
   }
 

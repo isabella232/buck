@@ -16,21 +16,20 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.rules.ActionGraphBuilder;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Optional;
 
-class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLinkable {
+class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLinkableGroup {
 
-  public OmnibusRootNode(String target, Iterable<? extends NativeLinkable> deps) {
+  public OmnibusRootNode(String target, Iterable<? extends NativeLinkableGroup> deps) {
     super(target, deps);
   }
 
@@ -44,7 +43,7 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
+  public Iterable<? extends NativeLinkableGroup> getNativeLinkTargetDeps(
       CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return Iterables.concat(
         getNativeLinkableDepsForPlatform(cxxPlatform, graphBuilder),
@@ -53,15 +52,12 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
 
   @Override
   public NativeLinkableInput getNativeLinkTargetInput(
-      CxxPlatform cxxPlatform,
-      ActionGraphBuilder graphBuilder,
-      SourcePathResolver pathResolver,
-      SourcePathRuleFinder ruleFinder) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder, SourcePathResolver pathResolver) {
     return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 
   @Override
-  public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
+  public Optional<Path> getNativeLinkTargetOutputPath() {
     return Optional.empty();
   }
 }

@@ -22,7 +22,7 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
-import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPattern;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetMatcher;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
@@ -31,7 +31,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import org.immutables.value.Value;
 import org.junit.Before;
@@ -114,8 +113,6 @@ public class BuckPyFunctionTest {
       return ImmutableList.of("123");
     }
 
-    abstract OptionalInt getVersion();
-
     abstract Optional<Boolean> isDoStuff();
 
     @Value.Default
@@ -133,8 +130,7 @@ public class BuckPyFunctionTest {
     assertTrue(
         definition,
         definition.contains(
-            "do_something=None, do_stuff=None, strings=None, targets=None, "
-                + "thing=None, version=None"));
+            "do_something=None, do_stuff=None, strings=None, targets=None, " + "thing=None"));
   }
 
   @BuckStyleImmutable
@@ -182,7 +178,7 @@ public class BuckPyFunctionTest {
   @BuckStyleImmutable
   @Value.Immutable
   abstract static class AbstractVisible {
-    abstract Set<BuildTargetPattern> getVisibility();
+    abstract Set<BuildTargetMatcher> getVisibility();
   }
 
   @Test(expected = HumanReadableException.class)

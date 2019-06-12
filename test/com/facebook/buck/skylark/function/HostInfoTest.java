@@ -22,6 +22,7 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
+import com.facebook.buck.parser.LabelCache;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
@@ -83,7 +84,7 @@ public class HostInfoTest {
         "arch",
         "is_armeb");
     validateSkylarkStruct(
-        HostInfo.createHostInfoStruct(() -> Platform.UNKNOWN, () -> Architecture.I386),
+        HostInfo.createHostInfoStruct(() -> Platform.UNKNOWN, () -> Architecture.X86_32),
         "arch",
         "is_i386");
     validateSkylarkStruct(
@@ -193,9 +194,7 @@ public class HostInfoTest {
     SkylarkInfo realHostOs = realHostInfo.getValue("os", SkylarkInfo.class);
     SkylarkInfo realHostArch = realHostInfo.getValue("arch", SkylarkInfo.class);
     String trueOsKey =
-        realHostOs
-            .getFieldNames()
-            .stream()
+        realHostOs.getFieldNames().stream()
             .filter(
                 k -> {
                   try {
@@ -208,9 +207,7 @@ public class HostInfoTest {
             .get();
 
     String trueArchKey =
-        realHostArch
-            .getFieldNames()
-            .stream()
+        realHostArch.getFieldNames().stream()
             .filter(
                 k -> {
                   try {
@@ -260,6 +257,7 @@ public class HostInfoTest {
             .setBuildFileName("BUCK")
             .setBuildFileImportWhitelist(ImmutableList.of())
             .setPythonInterpreter("skylark")
+            .setEnableUserDefinedRules(false)
             .build();
     RuleFunctionFactory ruleFunctionFactory =
         new RuleFunctionFactory(new DefaultTypeCoercerFactory());
@@ -271,6 +269,8 @@ public class HostInfoTest {
             .setDescriptions(options.getDescriptions())
             .setDisableImplicitNativeRules(options.getDisableImplicitNativeRules())
             .setRuleFunctionFactory(ruleFunctionFactory)
+            .setEnableUserDefinedRules(options.getEnableUserDefinedRules())
+            .setLabelCache(LabelCache.newLabelCache())
             .build(),
         eventHandler,
         NativeGlobber::create);

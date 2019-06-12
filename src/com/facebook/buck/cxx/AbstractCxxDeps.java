@@ -23,7 +23,7 @@ import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +39,7 @@ import org.immutables.value.Value;
 
 /**
  * The group of {@link BuildTarget}s from C/C++ constructor args which comprise a C/C++ descriptions
- * logical C/C++ deps used to find dependency {@link NativeLinkable}s or {@link
+ * logical C/C++ deps used to find dependency {@link NativeLinkableGroup}s or {@link
  * CxxPreprocessorDep}s.
  */
 @Value.Immutable(builder = false, copy = false, singleton = true)
@@ -52,32 +52,27 @@ abstract class AbstractCxxDeps {
       getPlatformDeps();
 
   private Stream<BuildTarget> getSpecificPlatformDeps(CxxPlatform cxxPlatform) {
-    return getPlatformDeps()
-        .stream()
+    return getPlatformDeps().stream()
         .flatMap(
             p ->
-                p.getMatchingValues(cxxPlatform.getFlavor().toString())
-                    .stream()
+                p.getMatchingValues(cxxPlatform.getFlavor().toString()).stream()
                     .flatMap(Collection::stream));
   }
 
   private Stream<BuildTarget> getAllPlatformDeps() {
-    return getPlatformDeps()
-        .stream()
+    return getPlatformDeps().stream()
         .flatMap(p -> p.getValues().stream().flatMap(Collection::stream));
   }
 
   public ImmutableSet<BuildRule> getForAllPlatforms(BuildRuleResolver resolver) {
-    return RichStream.<BuildTarget>empty()
-        .concat(getDeps().stream())
+    return RichStream.from(getDeps())
         .concat(getAllPlatformDeps())
         .map(resolver::getRule)
         .toImmutableSet();
   }
 
   public ImmutableSet<BuildRule> get(BuildRuleResolver resolver, CxxPlatform cxxPlatform) {
-    return RichStream.<BuildTarget>empty()
-        .concat(getDeps().stream())
+    return RichStream.from(getDeps())
         .concat(getSpecificPlatformDeps(cxxPlatform))
         .map(resolver::getRule)
         .toImmutableSet();

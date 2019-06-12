@@ -19,8 +19,8 @@ package com.facebook.buck.rules.modern;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -29,14 +29,11 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.DefaultInputRuleResolver;
 import com.facebook.buck.rules.modern.impl.DepsComputingVisitor;
-import com.facebook.buck.rules.modern.impl.InputsMapBuilder;
 import com.facebook.buck.rules.modern.impl.OutputPathVisitor;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -115,6 +112,11 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   private OutputPathResolver outputPathResolver;
   private Supplier<ImmutableSortedSet<BuildRule>> deps;
   private T buildable;
+
+  // For cases where the ModernBuildRule is itself the Buildable, we don't want to add it to keys
+  // here.
+  @AddToRuleKey private T buildableForRuleKey;
+
   private ClassInfo<T> classInfo;
   private InputRuleResolver inputRuleResolver;
 
@@ -159,6 +161,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     rule.outputPathResolver = new DefaultOutputPathResolver(filesystem, buildTarget);
     T buildable = buildableSource.transform(b -> b, clz -> clz.cast(rule));
     rule.buildable = buildable;
+    rule.buildableForRuleKey = rule == buildable ? null : buildable;
     rule.classInfo = DefaultClassInfoFactory.forInstance(buildable);
   }
 
@@ -192,15 +195,6 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     return depsBuilder.build();
   }
 
-  /** Computes the inputs of the build rule. */
-  public ImmutableSortedSet<SourcePath> computeInputs() {
-    ImmutableSortedSet.Builder<SourcePath> depsBuilder = ImmutableSortedSet.naturalOrder();
-    new InputsMapBuilder()
-        .getInputs(getBuildable())
-        .forAllData(data -> depsBuilder.addAll(data.getPaths()));
-    return depsBuilder.build();
-  }
-
   public final T getBuildable() {
     return buildable;
   }
@@ -220,11 +214,8 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
   }
 
   @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
+  public void updateBuildRuleResolver(BuildRuleResolver ruleResolver) {
+    this.inputRuleResolver = new DefaultInputRuleResolver(ruleResolver);
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -364,17 +355,17 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     classInfo.visit(
         buildable,
         new OutputPathVisitor(
-            path1 -> {
+            path -> {
               // Check that any PublicOutputPath is not specified inside the rule's temporary
               // directory,
               // as the temp directory may be deleted after the rule is run.
-              if (path1 instanceof PublicOutputPath
-                  && path1.getPath().startsWith(outputPathResolver.getTempPath())) {
+              if (path instanceof PublicOutputPath
+                  && path.getPath().startsWith(outputPathResolver.getTempPath())) {
                 throw new IllegalStateException(
                     "PublicOutputPath should not be inside rule temporary directory. Path: "
-                        + path1);
+                        + path);
               }
-              collector.add(outputPathResolver.resolvePath(path1));
+              collector.add(outputPathResolver.resolvePath(path));
             }));
     // ImmutableSet guarantees that iteration order is unchanged.
     Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
@@ -408,11 +399,6 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
       parent = parent.getParent();
     }
     return true;
-  }
-
-  @Override
-  public final void appendToRuleKey(RuleKeyObjectSink sink) {
-    AlterRuleKeys.amendKey(sink, buildable);
   }
 
   @Override

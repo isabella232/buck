@@ -29,6 +29,7 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.step.fs.XzStep;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
@@ -47,7 +48,6 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.Rule;
@@ -85,10 +85,11 @@ public class SmartDexingStepTest {
             outputFile.toPath(),
             outputHashFile,
             EnumSet.of(DxStep.Option.NO_OPTIMIZE),
-            OptionalInt.empty(),
+            XzStep.DEFAULT_COMPRESSION_LEVEL,
             Optional.empty(),
             DxStep.DX,
-            null);
+            null,
+            false);
     assertFalse("'dummy' is not a matching input hash", rule.checkIsCached());
 
     // Write the real hash into the output hash file and ensure that checkIsCached now
@@ -118,10 +119,11 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        OptionalInt.empty(),
+        XzStep.DEFAULT_COMPRESSION_LEVEL,
         Optional.empty(),
         DxStep.DX,
-        null);
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Steps should repack zip entries and then compress using xz.",
@@ -161,10 +163,11 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        OptionalInt.of(9),
+        9,
         Optional.empty(),
         DxStep.DX,
-        null);
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Steps should repack zip entries and then compress using xz.",
@@ -204,10 +207,11 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        OptionalInt.empty(),
+        XzStep.DEFAULT_COMPRESSION_LEVEL,
         Optional.empty(),
         DxStep.DX,
-        null);
+        null,
+        false);
 
     assertEquals(
         Joiner.on(" ")
@@ -241,10 +245,11 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        OptionalInt.empty(),
+        XzStep.DEFAULT_COMPRESSION_LEVEL,
         Optional.empty(),
         DxStep.DX,
-        null);
+        null,
+        false);
 
     MoreAsserts.assertSteps(
         "Wrong steps",
@@ -282,10 +287,11 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        OptionalInt.empty(),
+        XzStep.DEFAULT_COMPRESSION_LEVEL,
         Optional.empty(),
         DxStep.DX,
-        null);
+        null,
+        false);
   }
 
   private AndroidPlatformTarget createAndroidPlatformTarget() {

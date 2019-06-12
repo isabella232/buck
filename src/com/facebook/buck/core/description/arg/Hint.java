@@ -25,7 +25,7 @@ import java.lang.annotation.Target;
 
 /**
  * Represents hints given when deal with the value of a type returned by {@link
- * com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph#getConstructorArgType()}.
+ * com.facebook.buck.core.rules.DescriptionWithTargetGraph#getConstructorArgType()}.
  */
 @Retention(RUNTIME)
 @Target({FIELD, METHOD})
@@ -33,6 +33,7 @@ public @interface Hint {
   boolean DEFAULT_IS_DEP = true;
   boolean DEFAULT_IS_INPUT = true;
   boolean DEFAULT_IS_TARGET_GRAPH_ONLY_DEP = false;
+  boolean DEFAULT_IS_CONFIGURABLE = true;
 
   /** @return Whether to search the field's value for dependencies */
   boolean isDep() default DEFAULT_IS_DEP;
@@ -49,4 +50,7 @@ public @interface Hint {
    *     dependencies matching target platform into the action graph.
    */
   boolean isTargetGraphOnlyDep() default DEFAULT_IS_TARGET_GRAPH_ONLY_DEP;
+
+  /** @return Whether an attribute can be configured using {@code select}. */
+  boolean isConfigurable() default DEFAULT_IS_CONFIGURABLE;
 }

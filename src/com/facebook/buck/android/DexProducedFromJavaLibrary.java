@@ -45,7 +45,6 @@ import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.util.json.ObjectMappers;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.zip.ZipScrubberStep;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.annotations.VisibleForTesting;
@@ -56,8 +55,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.Hasher;
-import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -213,7 +210,8 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
               dexTool.equals(DxStep.D8),
               desugarDeps != null
                   ? getAbsolutePaths(desugarDeps, context.getSourcePathResolver())
-                  : null);
+                  : null,
+              Optional.empty());
       steps.add(dx);
 
       // The `DxStep` delegates to android tools to build a ZIP with timestamps in it, making
@@ -299,7 +297,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
             readMetadataValue(getProjectFilesystem(), getBuildTarget(), CLASSNAMES_TO_HASHES).get(),
             new TypeReference<Map<String, String>>() {});
     Map<String, HashCode> classnamesToHashes = Maps.transformValues(map, HashCode::fromString);
-    Optional<ImmutableList<String>> referencedResources = readMetadataValues(REFERENCED_RESOURCES);
+    ImmutableList<String> referencedResources = readMetadataValues(REFERENCED_RESOURCES);
     return new BuildOutput(
         weightEstimate, ImmutableSortedMap.copyOf(classnamesToHashes), referencedResources);
   }
@@ -330,13 +328,12 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
     return projectFilesystem.readFileIfItExists(path);
   }
 
-  private Optional<ImmutableList<String>> readMetadataValues(String key) throws IOException {
+  private ImmutableList<String> readMetadataValues(String key) throws IOException {
     Optional<String> value = readMetadataValue(getProjectFilesystem(), getBuildTarget(), key);
     if (value.isPresent()) {
-      return Optional.of(
-          ObjectMappers.readValue(value.get(), new TypeReference<ImmutableList<String>>() {}));
+      return ObjectMappers.readValue(value.get(), new TypeReference<ImmutableList<String>>() {});
     }
-    return Optional.empty();
+    return ImmutableList.of();
   }
 
   @Override
@@ -347,12 +344,12 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   static class BuildOutput {
     @VisibleForTesting final int weightEstimate;
     private final ImmutableSortedMap<String, HashCode> classnamesToHashes;
-    private final Optional<ImmutableList<String>> referencedResources;
+    private final ImmutableList<String> referencedResources;
 
     BuildOutput(
         int weightEstimate,
         ImmutableSortedMap<String, HashCode> classnamesToHashes,
-        Optional<ImmutableList<String>> referencedResources) {
+        ImmutableList<String> referencedResources) {
       this.weightEstimate = weightEstimate;
       this.classnamesToHashes = classnamesToHashes;
       this.referencedResources = referencedResources;
@@ -392,19 +389,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
     return buildOutputInitializer.getBuildOutput().weightEstimate;
   }
 
-  Optional<ImmutableList<String>> getReferencedResources() {
+  ImmutableList<String> getReferencedResources() {
     return buildOutputInitializer.getBuildOutput().referencedResources;
-  }
-
-  @VisibleForTesting
-  static Sha1HashCode computeAbiKey(ImmutableSortedMap<String, HashCode> classNames) {
-    Hasher hasher = Hashing.sha1().newHasher();
-    for (Map.Entry<String, HashCode> entry : classNames.entrySet()) {
-      hasher.putUnencodedChars(entry.getKey());
-      hasher.putByte((byte) 0);
-      hasher.putUnencodedChars(entry.getValue().toString());
-      hasher.putByte((byte) 0);
-    }
-    return Sha1HashCode.fromHashCode(hasher.hash());
   }
 }

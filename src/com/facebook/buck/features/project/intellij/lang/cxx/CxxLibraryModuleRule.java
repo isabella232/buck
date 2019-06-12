@@ -15,8 +15,8 @@
  */
 package com.facebook.buck.features.project.intellij.lang.cxx;
 
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.features.project.intellij.BaseIjModuleRule;
@@ -24,7 +24,6 @@ import com.facebook.buck.features.project.intellij.ModuleBuildContext;
 import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver;
 import com.facebook.buck.features.project.intellij.model.IjModuleType;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
-import com.facebook.buck.features.project.intellij.model.folders.SourceFolder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 
 public class CxxLibraryModuleRule extends BaseIjModuleRule<CxxLibraryDescriptionArg> {
@@ -43,11 +42,7 @@ public class CxxLibraryModuleRule extends BaseIjModuleRule<CxxLibraryDescription
 
   @Override
   public void apply(TargetNode<CxxLibraryDescriptionArg> target, ModuleBuildContext context) {
-    addSourceFolders(
-        SourceFolder.FACTORY,
-        getSourceFoldersToInputsIndex(target.getInputs()),
-        false /* wantsPackagePrefix */,
-        context);
+    addDepsAndSources(target, false, context);
   }
 
   @Override

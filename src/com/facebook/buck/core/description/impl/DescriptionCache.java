@@ -17,10 +17,11 @@
 package com.facebook.buck.core.description.impl;
 
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.description.RuleDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.impl.RuleTypeFactory;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.config.ConfigurationRuleDescription;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -45,6 +46,9 @@ public class DescriptionCache {
       return RuleType.Kind.CONFIGURATION;
     }
     if (DescriptionWithTargetGraph.class.isAssignableFrom(cls)) {
+      return RuleType.Kind.BUILD;
+    }
+    if (RuleDescription.class.isAssignableFrom(cls)) {
       return RuleType.Kind.BUILD;
     }
     throw new HumanReadableException("Cannot determine rule kind for description class: %s", cls);

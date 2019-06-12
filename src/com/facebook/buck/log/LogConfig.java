@@ -16,8 +16,8 @@
 
 package com.facebook.buck.log;
 
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.PathListing;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
@@ -54,12 +54,16 @@ public class LogConfig {
 
   /** Default constructor, called by LogManager. */
   public LogConfig() throws IOException {
-    setupLogging(
-        LogConfigSetup.builder()
-            .from(LogConfigSetup.DEFAULT_SETUP)
-            .setLogFilePrefix("launch-")
-            .setCount(1)
-            .build());
+    LogConfigSetup.Builder logConfig = LogConfigSetup.builder().from(LogConfigSetup.DEFAULT_SETUP);
+    if (isBuckd()) {
+      logConfig.setLogFilePrefix("launchd-");
+      logConfig.setCount(10);
+
+    } else {
+      logConfig.setLogFilePrefix("launch-");
+      logConfig.setCount(1);
+    }
+    setupLogging(logConfig.build());
   }
 
   public static void setUseAsyncFileLogging(boolean useAsyncFileLogging) {
@@ -136,7 +140,7 @@ public class LogConfig {
       ST st = new ST(template);
       st.add(
           "default_file_pattern",
-          MorePaths.pathWithUnixSeparators(logConfigSetup.getLogFilePath()));
+          PathFormatter.pathWithUnixSeparators(logConfigSetup.getLogFilePath()));
       st.add("default_count", logConfigSetup.getCount());
       st.add("default_max_size_bytes", logConfigSetup.getMaxLogSizeBytes());
       String result = st.render();
@@ -171,5 +175,9 @@ public class LogConfig {
             Optional.of(logConfigSetup.getMaxLogSizeBytes()))) {
       Files.deleteIfExists(path);
     }
+  }
+
+  private static boolean isBuckd() {
+    return Boolean.valueOf(System.getProperty("buck.is_buckd"));
   }
 }

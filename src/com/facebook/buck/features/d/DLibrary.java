@@ -17,6 +17,7 @@
 package com.facebook.buck.features.d;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -26,7 +27,7 @@ import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.collect.FluentIterable;
@@ -34,7 +35,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
-public class DLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements NativeLinkable {
+public class DLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements NativeLinkableGroup {
 
   private final ActionGraphBuilder graphBuilder;
   private final DIncludes includes;
@@ -51,13 +52,14 @@ public class DLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements N
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
+  public Iterable<NativeLinkableGroup> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
     return ImmutableList.of();
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver) {
-    return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
+  public Iterable<NativeLinkableGroup> getNativeLinkableExportedDeps(
+      BuildRuleResolver ruleResolver) {
+    return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkableGroup.class);
   }
 
   @Override
@@ -65,7 +67,8 @@ public class DLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements N
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ActionGraphBuilder graphBuilder) {
+      ActionGraphBuilder graphBuilder,
+      TargetConfiguration targetConfiguration) {
     Archive archive =
         (Archive)
             this.graphBuilder.requireRule(
@@ -77,8 +80,7 @@ public class DLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps implements N
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(
-      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+  public NativeLinkableGroup.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
     return Linkage.STATIC;
   }
 

@@ -22,18 +22,16 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
-import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -43,17 +41,15 @@ import org.junit.Test;
 public class CxxHeadersDirTest {
 
   private RuleKey getRuleKey(ProjectFilesystem filesystem, CxxHeaders cxxHeaders) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-    FileHashCache fileHashCache =
+    SourcePathRuleFinder ruleFinder = new TestActionGraphBuilder();
+    FileHashLoader fileHashLoader =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     filesystem, FileHashCacheMode.DEFAULT)));
-    DefaultRuleKeyFactory factory =
-        new TestDefaultRuleKeyFactory(fileHashCache, pathResolver, ruleFinder);
+    DefaultRuleKeyFactory factory = new TestDefaultRuleKeyFactory(fileHashLoader, ruleFinder);
     UncachedRuleKeyBuilder builder =
-        new UncachedRuleKeyBuilder(ruleFinder, pathResolver, fileHashCache, factory);
+        new UncachedRuleKeyBuilder(ruleFinder, fileHashLoader, factory);
     AlterRuleKeys.amendKey(builder, cxxHeaders);
     return builder.build(RuleKey::new);
   }

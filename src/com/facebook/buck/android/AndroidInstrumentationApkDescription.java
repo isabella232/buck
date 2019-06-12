@@ -33,31 +33,30 @@ import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.step.fs.XzStep;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.util.EnumSet;
 import java.util.Optional;
-import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 public class AndroidInstrumentationApkDescription
@@ -108,24 +107,41 @@ public class AndroidInstrumentationApkDescription
     AndroidBinary apkUnderTest =
         ApkGenruleDescription.getUnderlyingApk((HasInstallableApk) installableApk);
 
-    ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex =
-        new ImmutableSortedSet.Builder<>(Ordering.<JavaLibrary>natural())
+    ImmutableSet<JavaLibrary> rulesToExcludeFromDex =
+        ImmutableSet.<JavaLibrary>builder()
             .addAll(apkUnderTest.getRulesToExcludeFromDex())
             .addAll(getClasspathDeps(apkUnderTest.getClasspathDeps()))
             .build();
 
-    // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
-    // apk under test.
+    APKModule rootAPKModule = APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME, true);
     AndroidPackageableCollection.ResourceDetails resourceDetails =
-        apkUnderTest
-            .getAndroidPackageableCollection()
-            .getResourceDetails()
-            .get(APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME, true));
+        apkUnderTest.getAndroidPackageableCollection().getResourceDetails().get(rootAPKModule);
     ImmutableSet<BuildTarget> resourcesToExclude =
         ImmutableSet.copyOf(
             Iterables.concat(
                 resourceDetails.getResourcesWithNonEmptyResDir(),
                 resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()));
+
+    ImmutableCollection<SourcePath> nativeLibsToExclude =
+        apkUnderTest
+            .getAndroidPackageableCollection()
+            .getNativeLibsDirectories()
+            .get(rootAPKModule);
+
+    ImmutableCollection<NativeLinkableGroup> nativeLinkablesToExcludeGroup =
+        apkUnderTest.getAndroidPackageableCollection().getNativeLinkables().get(rootAPKModule);
+
+    ImmutableCollection<SourcePath> nativeLibAssetsToExclude =
+        apkUnderTest
+            .getAndroidPackageableCollection()
+            .getNativeLibAssetsDirectories()
+            .get(rootAPKModule);
+
+    ImmutableCollection<NativeLinkableGroup> nativeLinkableGroupAssetsToExclude =
+        apkUnderTest
+            .getAndroidPackageableCollection()
+            .getNativeLinkablesAssets()
+            .get(rootAPKModule);
 
     ListeningExecutorService dxExecutorService =
         toolchainProvider
@@ -139,7 +155,8 @@ public class AndroidInstrumentationApkDescription
     NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs =
         NonPredexedDexBuildableArgs.builder()
             .setProguardAgentPath(proGuardConfig.getProguardAgentPath())
-            .setProguardJarOverride(proGuardConfig.getProguardJarOverride())
+            .setProguardJarOverride(
+                proGuardConfig.getProguardJarOverride(buildTarget.getTargetConfiguration()))
             .setProguardMaxHeapSize(proGuardConfig.getProguardMaxHeapSize())
             .setSdkProguardConfig(apkUnderTest.getSdkProguardConfig())
             .setPreprocessJavaClassesBash(Optional.empty())
@@ -155,8 +172,6 @@ public class AndroidInstrumentationApkDescription
             .setProguardConfigPath(apkUnderTest.getProguardConfig())
             .setShouldProguard(shouldProguard)
             .build();
-
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     AndroidPlatformTarget androidPlatformTarget =
         toolchainProvider.getByName(
@@ -187,11 +202,14 @@ public class AndroidInstrumentationApkDescription
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ false,
             DexSplitMode.NO_SPLIT,
-            rulesToExcludeFromDex
-                .stream()
+            rulesToExcludeFromDex.stream()
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableSet.toImmutableSet()),
             resourcesToExclude,
+            nativeLibsToExclude,
+            nativeLinkablesToExcludeGroup,
+            nativeLibAssetsToExclude,
+            nativeLinkableGroupAssetsToExclude,
             /* skipCrunchPngs */ false,
             args.getIncludesVectorDrawables(),
             /* noAutoVersionResources */ false,
@@ -205,7 +223,7 @@ public class AndroidInstrumentationApkDescription
             EnumSet.noneOf(ExopackageMode.class),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFile */ Optional.empty(),
-            /* xzCompressionLevel */ OptionalInt.empty(),
+            /* xzCompressionLevel */ XzStep.DEFAULT_COMPRESSION_LEVEL,
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -236,7 +254,7 @@ public class AndroidInstrumentationApkDescription
         toolchainProvider.getByName(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
         androidPlatformTarget,
         params,
-        ruleFinder,
+        graphBuilder,
         apkUnderTest,
         rulesToExcludeFromDex,
         enhancementResult,

@@ -18,7 +18,7 @@ package com.facebook.buck.features.filebundler;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.Javac;
+import com.facebook.buck.jvm.java.JavaPaths;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -33,8 +33,9 @@ public class SrcZipAwareFileBundler extends FileBundler {
 
   private final PatternsMatcher entriesToExclude;
 
-  public SrcZipAwareFileBundler(BuildTarget target, PatternsMatcher entriesToExclude) {
-    super(target);
+  public SrcZipAwareFileBundler(
+      ProjectFilesystem filesystem, BuildTarget target, PatternsMatcher entriesToExclude) {
+    super(filesystem, target);
     this.entriesToExclude = entriesToExclude;
   }
 
@@ -51,8 +52,8 @@ public class SrcZipAwareFileBundler extends FileBundler {
       Path relativePath,
       Path absolutePath,
       Path destination) {
-    if (relativePath.toString().endsWith(Javac.SRC_ZIP)
-        || relativePath.toString().endsWith(Javac.SRC_JAR)) {
+    if (relativePath.toString().endsWith(JavaPaths.SRC_ZIP)
+        || relativePath.toString().endsWith(JavaPaths.SRC_JAR)) {
       steps.add(
           new UnzipStep(
               filesystem,

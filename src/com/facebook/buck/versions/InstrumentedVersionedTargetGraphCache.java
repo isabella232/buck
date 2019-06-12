@@ -17,14 +17,16 @@
 package com.facebook.buck.versions;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.model.ComputeResult;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.cache.CacheStats;
 import com.facebook.buck.util.cache.CacheStatsTracker;
 import com.google.common.collect.ImmutableMap;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -47,21 +49,23 @@ public class InstrumentedVersionedTargetGraphCache {
    *     cache, with the current CacheStatsTracker.
    */
   public VersionedTargetGraphCacheResult getVersionedTargetGraph(
-      BuckEventBus eventBus,
+      DepsAwareExecutor<? super ComputeResult, ?> depsAwareExecutor,
       TypeCoercerFactory typeCoercerFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
       TargetGraphAndBuildTargets targetGraphAndBuildTargets,
       ImmutableMap<String, VersionUniverse> versionUniverses,
-      ForkJoinPool pool)
+      int numberOfThreads,
+      BuckEventBus eventBus)
       throws VersionException, InterruptedException, TimeoutException {
     return cache.toVersionedTargetGraph(
-        eventBus,
+        depsAwareExecutor,
         versionUniverses,
         typeCoercerFactory,
         unconfiguredBuildTargetFactory,
         targetGraphAndBuildTargets,
-        pool,
-        statsTracker);
+        numberOfThreads,
+        statsTracker,
+        eventBus);
   }
 
   /**
@@ -69,22 +73,24 @@ public class InstrumentedVersionedTargetGraphCache {
    *     cache, with the current CacheStatsTracker
    */
   public TargetGraphAndBuildTargets toVersionedTargetGraph(
-      BuckEventBus eventBus,
+      DepsAwareExecutor<? super ComputeResult, ?> depsAwareExecutor,
       BuckConfig buckConfig,
       TypeCoercerFactory typeCoercerFactory,
-      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets)
+      UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory,
+      TargetGraphAndBuildTargets targetGraphAndBuildTargets,
+      TargetConfiguration targetConfiguration,
+      BuckEventBus eventBus)
       throws VersionException, InterruptedException {
     return cache
         .getVersionedTargetGraph(
-            eventBus,
+            depsAwareExecutor,
+            buckConfig,
             typeCoercerFactory,
             unconfiguredBuildTargetFactory,
             targetGraphAndBuildTargets,
-            new VersionBuckConfig(buckConfig).getVersionUniverses(),
-            new ForkJoinPool(buckConfig.getNumThreads()),
-            new VersionBuckConfig(buckConfig),
-            statsTracker)
+            targetConfiguration,
+            statsTracker,
+            eventBus)
         .getTargetGraphAndBuildTargets();
   }
 

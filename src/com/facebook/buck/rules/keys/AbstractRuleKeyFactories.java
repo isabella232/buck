@@ -18,17 +18,14 @@ package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.util.Scope;
-import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.hashing.FileHashLoader;
 import java.io.IOException;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -51,13 +48,13 @@ abstract class AbstractRuleKeyFactories {
 
   public static RuleKeyFactories of(
       RuleKeyConfiguration ruleKeyConfiguration,
-      FileHashCache fileHashCache,
+      FileHashLoader fileHashLoader,
       BuildRuleResolver resolver,
       long inputRuleKeyFileSizeLimit,
       TrackedRuleKeyCache<RuleKey> defaultRuleKeyFactoryCache) {
     return of(
         ruleKeyConfiguration,
-        fileHashCache,
+        fileHashLoader,
         resolver,
         inputRuleKeyFileSizeLimit,
         defaultRuleKeyFactoryCache,
@@ -66,31 +63,19 @@ abstract class AbstractRuleKeyFactories {
 
   public static RuleKeyFactories of(
       RuleKeyConfiguration ruleKeyConfiguration,
-      FileHashCache fileHashCache,
+      FileHashLoader fileHashLoader,
       BuildRuleResolver resolver,
       long inputRuleKeyFileSizeLimit,
       TrackedRuleKeyCache<RuleKey> defaultRuleKeyFactoryCache,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeyConfiguration);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     return RuleKeyFactories.of(
         new DefaultRuleKeyFactory(
-            fieldLoader,
-            fileHashCache,
-            pathResolver,
-            ruleFinder,
-            defaultRuleKeyFactoryCache,
-            ruleKeyLogger),
+            fieldLoader, fileHashLoader, resolver, defaultRuleKeyFactoryCache, ruleKeyLogger),
         new InputBasedRuleKeyFactory(
-            fieldLoader,
-            fileHashCache,
-            pathResolver,
-            ruleFinder,
-            inputRuleKeyFileSizeLimit,
-            ruleKeyLogger),
+            fieldLoader, fileHashLoader, resolver, inputRuleKeyFileSizeLimit, ruleKeyLogger),
         new DefaultDependencyFileRuleKeyFactory(
-            fieldLoader, fileHashCache, pathResolver, ruleFinder, ruleKeyLogger));
+            fieldLoader, fileHashLoader, resolver, ruleKeyLogger));
   }
 
   public Optional<RuleKeyAndInputs> calculateManifestKey(

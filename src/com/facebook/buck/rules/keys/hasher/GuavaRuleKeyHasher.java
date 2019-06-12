@@ -22,7 +22,7 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.io.ArchiveMemberPath;
+import com.facebook.buck.io.file.FastPaths;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
@@ -50,6 +50,12 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
     return putBytes(type, val.getBytes(StandardCharsets.UTF_8));
   }
 
+  private GuavaRuleKeyHasher putPathFast(byte type, Path path) {
+    FastPaths.hashPathFast(hasher, path);
+    hasher.putByte(type);
+    return this;
+  }
+
   private GuavaRuleKeyHasher putBuildTarget(byte type, BuildTarget target) {
     return putStringified(type, target.getFullyQualifiedName());
   }
@@ -57,6 +63,11 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
   @Override
   public GuavaRuleKeyHasher putKey(String key) {
     return this.putStringified(RuleKeyHasherTypes.KEY, key);
+  }
+
+  @Override
+  public RuleKeyHasher<HashCode> putKeyPath(Path key) {
+    return this.putPathFast(RuleKeyHasherTypes.KEY, key);
   }
 
   @Override
@@ -127,21 +138,23 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
 
   @Override
   public GuavaRuleKeyHasher putPath(Path path, HashCode hash) {
-    this.putStringified(RuleKeyHasherTypes.PATH, path.toString());
+    this.putPathFast(RuleKeyHasherTypes.PATH, path);
     this.putBytes(RuleKeyHasherTypes.PATH, hash.asBytes());
     return this;
   }
 
   @Override
-  public GuavaRuleKeyHasher putArchiveMemberPath(ArchiveMemberPath path, HashCode hash) {
-    this.putStringified(RuleKeyHasherTypes.ARCHIVE_MEMBER_PATH, path.toString());
+  public GuavaRuleKeyHasher putArchiveMemberPath(
+      Path relativeArchivePath, Path archiveMemberPath, HashCode hash) {
+    putPathFast(RuleKeyHasherTypes.ARCHIVE_MEMBER_PATH, relativeArchivePath);
+    putPathFast(RuleKeyHasherTypes.ARCHIVE_MEMBER_PATH, archiveMemberPath);
     this.putBytes(RuleKeyHasherTypes.ARCHIVE_MEMBER_PATH, hash.asBytes());
     return this;
   }
 
   @Override
-  public GuavaRuleKeyHasher putNonHashingPath(String path) {
-    return this.putStringified(RuleKeyHasherTypes.NON_HASHING_PATH, path);
+  public GuavaRuleKeyHasher putNonHashingPath(Path path) {
+    return this.putPathFast(RuleKeyHasherTypes.NON_HASHING_PATH, path);
   }
 
   @Override
@@ -163,9 +176,9 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
   public RuleKeyHasher<HashCode> putBuildTargetSourcePath(BuildTargetSourcePath targetSourcePath) {
     this.putBuildTarget(RuleKeyHasherTypes.TARGET_SOURCE_PATH, targetSourcePath.getTarget());
     if (targetSourcePath instanceof ExplicitBuildTargetSourcePath) {
-      this.putStringified(
+      this.putPathFast(
           RuleKeyHasherTypes.TARGET_SOURCE_PATH,
-          ((ExplicitBuildTargetSourcePath) targetSourcePath).getResolvedPath().toString());
+          ((ExplicitBuildTargetSourcePath) targetSourcePath).getResolvedPath());
     } else if (targetSourcePath instanceof ForwardingBuildTargetSourcePath) {
       this.putStringified(
           RuleKeyHasherTypes.TARGET_SOURCE_PATH, targetSourcePath.representationForRuleKey());
