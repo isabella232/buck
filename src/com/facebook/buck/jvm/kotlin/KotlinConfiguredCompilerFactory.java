@@ -86,10 +86,8 @@ public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
     return true;
   }
 
-  @Override
   public void addTargetDeps(
-      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder) {
     Optionals.addIfPresent(kotlinBuckConfig.getKotlinHomeTarget(), extraDepsBuilder);
   }
 }

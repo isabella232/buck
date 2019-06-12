@@ -177,7 +177,7 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
                     .collect(Collectors.toList()))
             .build();
 
-    SetZ<String> kotlinHomeLibrariesStringPaths =
+    Set<String> kotlinHomeLibrariesStringPaths =
         kotlinHomeLibraries
             .stream()
             .map(Path::toAbsolutePath)

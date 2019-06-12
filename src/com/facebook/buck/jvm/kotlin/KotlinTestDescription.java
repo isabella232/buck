@@ -50,7 +50,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.Optional;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.immutables.value.Value;
 
 /** Description for kotlin_test. */
@@ -169,7 +168,7 @@ public class KotlinTestDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, constructorArg);
-    compilerFactory.addTargetDeps(extraDepsBuilder, targetGraphOnlyDepsBuilder);
+    compilerFactory.addTargetDeps(extraDepsBuilder);
     javaOptionsForTests
         .get()
         .addParseTimeDeps(targetGraphOnlyDepsBuilder, buildTarget.getTargetConfiguration());
