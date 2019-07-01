@@ -61,9 +61,14 @@ import com.google.common.collect.Streams;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
+
+// import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.util.ProcessExecutor.Result;
+import com.facebook.buck.util.ProcessExecutorParams;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
 public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
@@ -228,8 +233,20 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         modulePath.toString(),
         "-emit-objc-header-path",
         headerPath.toString(),
-        "-o",
-        objectFilePath.toString());
+        // "-o",
+        // objectFilePath.toString()
+        "-num-threads",
+        "12",
+        "-index-store-path",
+        "."
+        );
+
+    for (SourcePath sourcePath : srcs) {
+      compilerCommand.add("-o");
+      String source = resolver.getRelativePath(sourcePath).toString();
+      String file = Paths.get(source).getFileName().toString();
+      compilerCommand.add(outputPath.resolve(file + ".o").toString());
+    }
 
     if (shouldEmitSwiftdocs) {
       compilerCommand.add("-emit-module-doc", "-emit-module-doc-path", swiftdocPath.toString());
@@ -332,12 +349,59 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     swiftFileListPath.map(
         path -> steps.add(makeFileListStep(context.getSourcePathResolver(), path)));
     steps.add(makeCompileStep(context.getSourcePathResolver()));
+    steps.add(airbnb_makeCombineObjectFileStep(context.getSourcePathResolver()));
 
     if (swiftBuckConfig.getUseModulewrap()) {
       steps.add(makeModulewrapStep(context.getSourcePathResolver()));
     }
 
     return steps.build();
+  }
+
+  private Step airbnb_makeCombineObjectFileStep(SourcePathResolver resolver) {
+    return new Step() {
+      private ProcessExecutorParams makeProcessExecutorParams() {
+        ImmutableList.Builder<String> command = ImmutableList.builder();
+        command.add("ld","-r","-o",objectFilePath.toString());
+
+        for (SourcePath sourcePath : srcs) {
+          String source = resolver.getRelativePath(sourcePath).toString();
+          String file = Paths.get(source).getFileName().toString();
+          command.add(outputPath.resolve(file + ".o").toString());
+        }
+
+
+        ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
+        // builder.setDirectory(compilerCwd.toAbsolutePath());
+        // builder.setEnvironment(compilerEnvironment);
+        builder.setCommand(command.build());
+        return builder.build();
+      }
+
+      @Override
+      public StepExecutionResult execute(ExecutionContext context) throws IOException,InterruptedException {
+        ProcessExecutorParams params = makeProcessExecutorParams();
+        // LOG.debug("%s", compilerCommand);
+
+        Result processResult = context.getProcessExecutor().launchAndExecute(params);
+
+        int result = processResult.getExitCode();
+        // if (result != 0) {
+        //   LOG.error("Error running %s: %s", getDescription(context), processResult.getStderr());
+        // }
+        return StepExecutionResult.of(result, processResult.getStderr());
+      }
+
+      @Override
+      public String getShortName() {
+        return "ld----r";
+      }
+
+      @Override
+      public String getDescription(ExecutionContext context) {
+        return "ld----r";
+      }
+    };
   }
 
   private Step makeFileListStep(SourcePathResolver resolver, Path swiftFileListPath) {
