@@ -17,10 +17,10 @@ package com.facebook.buck.features.project.intellij;
 
 import com.facebook.buck.android.AndroidBinaryDescriptionArg;
 import com.facebook.buck.android.AndroidLibraryDescription;
+import com.facebook.buck.android.AndroidLibraryDescriptionArg;
 import com.facebook.buck.android.AndroidLibraryGraphEnhancer;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.AndroidResourceDescriptionArg;
-import com.facebook.buck.android.AndroidLibraryDescriptionArg;
 import com.facebook.buck.android.DummyRDotJava;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
