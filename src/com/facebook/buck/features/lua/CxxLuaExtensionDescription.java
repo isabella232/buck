@@ -161,7 +161,7 @@ public class CxxLuaExtensionDescription
                             macrosConverter::convert)),
                     ImmutableList.of(headerSymlinkTree),
                     ImmutableSet.of(),
-                    CxxPreprocessables.getTransitiveCxxPreprocessorInput(
+                    CxxPreprocessables.getTransitiveCxxPreprocessorInputFromDeps(
                         cxxPlatform, graphBuilder, deps),
                     args.getRawHeaders(),
                     args.getIncludeDirectories(),
@@ -235,6 +235,7 @@ public class CxxLuaExtensionDescription
                 Stream.of(
                     luaPlatform.getLuaCxxLibrary(
                         graphBuilder, buildTarget.getTargetConfiguration())))
+            .map(g -> g.getNativeLinkable(cxxPlatform, graphBuilder))
             .toImmutableList(),
         args.getCxxRuntimeType(),
         Optional.empty(),

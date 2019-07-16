@@ -55,7 +55,8 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.impl.Linkers;
-import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
+import com.facebook.buck.cxx.toolchain.nativelink.LegacyNativeLinkTargetGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -200,7 +201,8 @@ public class CxxPythonExtensionDescription
                     macrosConverter::convert)),
             ImmutableList.of(headerSymlinkTree),
             ImmutableSet.of(),
-            CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, deps),
+            CxxPreprocessables.getTransitiveCxxPreprocessorInputFromDeps(
+                cxxPlatform, graphBuilder, deps),
             args.getRawHeaders(),
             args.getIncludeDirectories(),
             projectFilesystem);
@@ -327,7 +329,10 @@ public class CxxPythonExtensionDescription
         args.getLinkerExtraOutputs(),
         Linker.LinkableDepType.SHARED,
         CxxLinkOptions.of(),
-        RichStream.from(deps).filter(NativeLinkableGroup.class).toImmutableList(),
+        RichStream.from(deps)
+            .filter(NativeLinkableGroup.class)
+            .map(g -> g.getNativeLinkable(cxxPlatform, graphBuilder))
+            .toImmutableList(),
         args.getCxxRuntimeType(),
         Optional.empty(),
         ImmutableSet.of(),
@@ -480,8 +485,8 @@ public class CxxPythonExtensionDescription
       }
 
       @Override
-      public NativeLinkTarget getNativeLinkTarget(PythonPlatform pythonPlatform) {
-        return new NativeLinkTarget() {
+      public NativeLinkTargetGroup getNativeLinkTarget(PythonPlatform pythonPlatform) {
+        return new LegacyNativeLinkTargetGroup() {
 
           @Override
           public BuildTarget getBuildTarget() {

@@ -38,14 +38,15 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserMessages;
 import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.query.AllPathsFunction;
 import com.facebook.buck.query.AttrFilterFunction;
+import com.facebook.buck.query.AttrRegexFilterFunction;
 import com.facebook.buck.query.BuildFileFunction;
 import com.facebook.buck.query.DepsFunction;
 import com.facebook.buck.query.FilterFunction;
@@ -106,6 +107,7 @@ public class BuckQueryEnvironment implements QueryEnvironment<QueryBuildTarget> 
       ImmutableList.of(
           new AllPathsFunction<>(),
           new AttrFilterFunction(),
+          new AttrRegexFilterFunction(),
           new BuildFileFunction<>(),
           new DepsFunction<>(),
           new DepsFunction.FirstOrderDepsFunction<>(),

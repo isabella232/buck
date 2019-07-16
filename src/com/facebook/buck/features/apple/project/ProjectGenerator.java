@@ -88,12 +88,12 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.config.registry.impl.ConfigurationRuleRegistryFactory;
 import com.facebook.buck.core.rules.resolver.impl.MultiThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -1070,6 +1070,7 @@ public class ProjectGenerator {
         new MultiThreadedActionGraphBuilder(
             MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
             TargetGraph.EMPTY,
+            ConfigurationRuleRegistryFactory.createRegistry(TargetGraph.EMPTY),
             new DefaultTargetNodeToBuildRuleTransformer(),
             projectCell.getCellProvider());
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
@@ -2039,7 +2040,7 @@ public class ProjectGenerator {
 
   /** Generate a mapping from libraries to the framework bundles that include them. */
   public static ImmutableMap<BuildTarget, TargetNode<?>> computeSharedLibrariesToBundles(
-      ImmutableSet<TargetNode<?>> targetNodes, TargetGraphAndTargets targetGraphAndTargets)
+      ImmutableSet<TargetNode<?>> targetNodes, TargetGraph targetGraph)
       throws HumanReadableException {
 
     Map<BuildTarget, TargetNode<?>> sharedLibraryToBundle = new HashMap<>();
@@ -2047,7 +2048,7 @@ public class ProjectGenerator {
       Optional<TargetNode<CxxLibraryDescription.CommonArg>> binaryNode =
           TargetNodes.castArg(targetNode, AppleBundleDescriptionArg.class)
               .flatMap(bundleNode -> bundleNode.getConstructorArg().getBinary())
-              .map(target -> targetGraphAndTargets.getTargetGraph().get(target))
+              .map(target -> targetGraph.get(target))
               .flatMap(node -> TargetNodes.castArg(node, CxxLibraryDescription.CommonArg.class));
       if (!binaryNode.isPresent()) {
         continue;

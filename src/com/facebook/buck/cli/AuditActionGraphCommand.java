@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
@@ -28,7 +28,7 @@ import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
 import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ExitCode;
@@ -79,10 +79,10 @@ public class AuditActionGraphCommand extends AbstractCommand {
     try (CommandThreadManager pool =
         new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()))) {
       // Create the target graph.
-      TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets =
+      TargetGraphCreationResult unversionedTargetGraphCreationResult =
           params
               .getParser()
-              .buildTargetGraphWithoutConfigurationTargets(
+              .buildTargetGraphWithoutTopLevelConfigurationTargets(
                   createParsingContext(params.getCell(), pool.getListeningExecutorService())
                       .withApplyDefaultFlavorsMode(
                           params
@@ -92,16 +92,14 @@ public class AuditActionGraphCommand extends AbstractCommand {
                   parseArgumentsAsTargetNodeSpecs(
                       params.getCell(), params.getBuckConfig(), targetSpecs),
                   params.getTargetConfiguration());
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets =
+      TargetGraphCreationResult targetGraphCreationResult =
           params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()
-              ? toVersionedTargetGraph(params, unversionedTargetGraphAndBuildTargets)
-              : unversionedTargetGraphAndBuildTargets;
+              ? toVersionedTargetGraph(params, unversionedTargetGraphCreationResult)
+              : unversionedTargetGraphCreationResult;
 
       // Create the action graph.
       ActionGraphAndBuilder actionGraphAndBuilder =
-          params
-              .getActionGraphProvider()
-              .getActionGraph(targetGraphAndBuildTargets.getTargetGraph());
+          params.getActionGraphProvider().getActionGraph(targetGraphCreationResult);
 
       // Dump the action graph.
       if (generateDotOutput) {

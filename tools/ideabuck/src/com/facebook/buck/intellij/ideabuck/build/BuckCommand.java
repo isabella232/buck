@@ -16,6 +16,8 @@
 
 package com.facebook.buck.intellij.ideabuck.build;
 
+import com.google.common.collect.Iterables;
+
 /** The descriptor of buck command. */
 public class BuckCommand {
   private static final String VERBOSITY_TAG = "-v";
@@ -32,7 +34,6 @@ public class BuckCommand {
       new BuckCommand("project", VERBOSITY_TAG, VERBOSITY_LEVEL);
   // Internal commands
   public static final BuckCommand QUERY = new BuckCommand("query", "--json");
-  public static final BuckCommand AUDIT_OWNER = new BuckCommand("audit", "owner", "--json");
 
   /** Command name passed to buck. */
   private final String name;
@@ -42,6 +43,11 @@ public class BuckCommand {
   public BuckCommand(String name, String... parameters) {
     this.name = name;
     this.parameters = parameters;
+  }
+
+  public BuckCommand(String name, Iterable<String> parameters) {
+    this.name = name;
+    this.parameters = Iterables.toArray(parameters, String.class);
   }
 
   public String name() {

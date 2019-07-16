@@ -23,20 +23,25 @@ import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.cxx.AbstractCxxLibrary;
+import com.facebook.buck.cxx.AbstractCxxLibraryGroup;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.nativelink.LegacyNativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
+import com.facebook.buck.cxx.toolchain.nativelink.PlatformLockedNativeLinkableGroup;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
+/** Represents the system lua c++ library. */
+public class SystemLuaCxxLibrary implements AbstractCxxLibraryGroup {
 
   private final BuildTarget target;
+  private final PlatformLockedNativeLinkableGroup.Cache linkableCache =
+      LegacyNativeLinkableGroup.getNativeLinkableCache(this);
 
   public SystemLuaCxxLibrary(BuildTarget target) {
     this.target = target;
@@ -109,5 +114,10 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
   public ImmutableMap<String, SourcePath> getSharedLibraries(
       CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return ImmutableMap.of();
+  }
+
+  @Override
+  public PlatformLockedNativeLinkableGroup.Cache getNativeLinkableCompatibilityCache() {
+    return linkableCache;
   }
 }

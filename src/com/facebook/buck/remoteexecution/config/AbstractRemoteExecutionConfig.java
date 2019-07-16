@@ -25,6 +25,7 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.remoteexecution.proto.RESessionID;
 import com.facebook.buck.remoteexecution.proto.WorkerRequirements;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +48,7 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
 
   public static final int DEFAULT_REMOTE_PORT = 19030;
   public static final int DEFAULT_CAS_PORT = 19031;
+  public static final int DEFAULT_CAS_DEADLINE_S = 300;
 
   public static final int DEFAULT_REMOTE_STRATEGY_THREADS = 12;
   public static final int DEFAULT_REMOTE_CONCURRENT_ACTION_COMPUTATIONS = 4;
@@ -120,8 +122,63 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
       "auto_re_build_projects_whitelist";
   public static final String AUTO_RE_BUILD_USERS_BLACKLIST_KEY = "auto_re_build_users_blacklist";
 
+  /**
+   * Strategy used to determine whether to enable Remote Execution automatically for the current
+   * build
+   */
+  public static final String AUTO_RE_STRATEGY_KEY = "auto_re_strategy";
+
   // Auxiliary flag used for setting custom build tags.
   public static final String BUILD_TAGS_KEY = "build_tags";
+
+  // Property inside [experiments] section that will be used to enable Remote Execution
+  // automatically or not
+  public static final String AUTO_RE_EXPERIMENT_PROPERTY_KEY = "auto_re_experiment_property";
+
+  public static final String DEFAULT_AUTO_RE_EXPERIMENT_PROPERTY = "remote_execution_beta_test";
+
+  private String getAutoReExperimentPropertyKey() {
+    return getValue(AUTO_RE_EXPERIMENT_PROPERTY_KEY).orElse(DEFAULT_AUTO_RE_EXPERIMENT_PROPERTY);
+  }
+
+  @VisibleForTesting
+  boolean isExperimentEnabled() {
+    return getDelegate().getBooleanValue("experiments", getAutoReExperimentPropertyKey(), false);
+  }
+
+  public boolean isRemoteExecutionAutoEnabled(String username, List<String> commandArguments) {
+    return isRemoteExecutionAutoEnabled(
+        isBuildWhitelistedForRemoteExecution(username, commandArguments),
+        isExperimentEnabled(),
+        getAutoRemoteExecutionStrategy());
+  }
+
+  @VisibleForTesting
+  static boolean isRemoteExecutionAutoEnabled(
+      boolean whitelistedForRemoteExecution,
+      boolean experimentEnabled,
+      AutoRemoteExecutionStrategy autoRemoteExecutionStrategy) {
+    switch (autoRemoteExecutionStrategy) {
+      case DISABLED:
+        return false;
+      case RE_IF_EXPERIMENT_ENABLED:
+        return experimentEnabled;
+      case RE_IF_WHITELIST_MATCH:
+        return whitelistedForRemoteExecution;
+      case RE_IF_EXPERIMENT_ENABLED_AND_WHITELIST_MATCH:
+        return experimentEnabled && whitelistedForRemoteExecution;
+      case RE_IF_EXPERIMENT_ENABLED_OR_WHITELIST_MATCH:
+        return experimentEnabled || whitelistedForRemoteExecution;
+      default:
+        return false;
+    }
+  }
+
+  private AutoRemoteExecutionStrategy getAutoRemoteExecutionStrategy() {
+    return getDelegate()
+        .getEnum(SECTION, AUTO_RE_STRATEGY_KEY, AutoRemoteExecutionStrategy.class)
+        .orElse(AutoRemoteExecutionStrategy.DEFAULT);
+  }
 
   public String getRemoteHost() {
     return getValue("remote_host").orElse("localhost");
@@ -137,6 +194,10 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
 
   public int getCasPort() {
     return getValue("cas_port").map(Integer::parseInt).orElse(DEFAULT_CAS_PORT);
+  }
+
+  public int getCasDeadline() {
+    return getValue("cas_deadline_sec").map(Integer::parseInt).orElse(DEFAULT_CAS_DEADLINE_S);
   }
 
   public boolean getInsecure() {
@@ -371,7 +432,7 @@ abstract class AbstractRemoteExecutionConfig implements ConfigView<BuckConfig> {
     }
   }
 
-  public boolean isBuildWhitelistedForRemoteExecution(
+  private boolean isBuildWhitelistedForRemoteExecution(
       String username, List<String> commandArguments) {
     Optional<ImmutableList<String>> optionalUsersBlacklist =
         getDelegate().getOptionalListWithoutComments(SECTION, AUTO_RE_BUILD_USERS_BLACKLIST_KEY);

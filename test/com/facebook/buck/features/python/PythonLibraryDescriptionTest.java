@@ -22,8 +22,8 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.targetgraph.ImmutableTargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -54,6 +54,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Pattern;
@@ -205,7 +206,7 @@ public class PythonLibraryDescriptionTest {
                     ImmutableMap.of(
                         builder.getTarget(),
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("1.0")))),
-                TargetGraphAndBuildTargets.of(
+                new ImmutableTargetGraphCreationResult(
                     TargetGraphFactory.newInstance(
                         transitiveDepBuilder.build(), depBuilder.build(), builder.build()),
                     ImmutableSet.of(builder.getTarget())),
@@ -255,7 +256,7 @@ public class PythonLibraryDescriptionTest {
                     ImmutableMap.of(
                         builder.getTarget(),
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("1.0")))),
-                TargetGraphAndBuildTargets.of(
+                new ImmutableTargetGraphCreationResult(
                     TargetGraphFactory.newInstance(
                         transitiveDepBuilder.build(), depBuilder.build(), builder.build()),
                     ImmutableSet.of(builder.getTarget())),
@@ -372,8 +373,9 @@ public class PythonLibraryDescriptionTest {
     cxxBuilder.build(graphBuilder);
     libBuilder.build(graphBuilder);
     PythonBinary binary = binaryBuilder.build(graphBuilder);
+    ImmutableSortedSet<Path> nativeLibs = binary.getComponents().getNativeLibraries().keySet();
     assertThat(
-        Iterables.transform(binary.getComponents().getNativeLibraries().keySet(), Object::toString),
+        Iterables.transform(nativeLibs, Object::toString),
         Matchers.containsInAnyOrder("libdep.so", "libcxx.so"));
   }
 }

@@ -30,7 +30,7 @@ import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ConsoleEvent;
@@ -38,8 +38,8 @@ import com.facebook.buck.file.HttpArchive;
 import com.facebook.buck.file.HttpFile;
 import com.facebook.buck.file.RemoteFile;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -77,10 +77,10 @@ public class FetchCommand extends BuildCommand {
       ImmutableSet<BuildTarget> buildTargets;
       try {
         ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
-        TargetGraphAndBuildTargets result =
+        TargetGraphCreationResult result =
             params
                 .getParser()
-                .buildTargetGraphWithoutConfigurationTargets(
+                .buildTargetGraphWithoutTopLevelConfigurationTargets(
                     createParsingContext(params.getCell(), pool.getListeningExecutorService())
                         .withApplyDefaultFlavorsMode(parserConfig.getDefaultFlavorsMode())
                         .withSpeculativeParsing(SpeculativeParsing.ENABLED),
@@ -107,7 +107,7 @@ public class FetchCommand extends BuildCommand {
                                 .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
-                    .getFreshActionGraph(result.getTargetGraph()));
+                    .getFreshActionGraph(result));
         buildTargets =
             RichStream.from(actionGraphAndBuilder.getActionGraph().getNodes())
                 .filter(rule -> isDownloadableRule(rule))

@@ -65,6 +65,7 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroup;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableGroups;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -72,7 +73,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
-import com.facebook.buck.swift.SwiftRuntimeNativeLinkableGroup;
 import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.RichStream;
@@ -85,6 +85,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hasher;
@@ -584,7 +585,7 @@ public class AppleTestDescription
         testHostWithTargetApp.getBinaryBuildRule().getSourcePathToOutput();
 
     ImmutableMap<BuildTarget, NativeLinkableGroup> roots =
-        NativeLinkables.getNativeLinkableRoots(
+        NativeLinkableGroups.getNativeLinkableRoots(
             testHostWithTargetApp.getBinary().get().getBuildDeps(),
             r ->
                 !(r instanceof NativeLinkableGroup)
@@ -597,10 +598,13 @@ public class AppleTestDescription
     ImmutableSet.Builder<BuildTarget> blacklistBuilder = ImmutableSet.builder();
     for (CxxPlatform platform : cxxPlatforms) {
       ImmutableSet<BuildTarget> blacklistables =
-          NativeLinkables.getTransitiveNativeLinkables(platform, graphBuilder, roots.values())
-              .entrySet().stream()
-              .filter(x -> !(x.getValue() instanceof SwiftRuntimeNativeLinkableGroup))
-              .map(x -> x.getKey())
+          NativeLinkables.getTransitiveNativeLinkables(
+                  graphBuilder,
+                  Iterables.transform(
+                      roots.values(), g -> g.getNativeLinkable(platform, graphBuilder)))
+              .stream()
+              .filter(x -> !x.shouldBeLinkedInAppleTestAndHost())
+              .map(x -> x.getBuildTarget())
               .collect(ImmutableSet.toImmutableSet());
       blacklistBuilder.addAll(blacklistables);
     }
@@ -740,7 +744,8 @@ public class AppleTestDescription
         CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
             graphBuilder, baseTarget, cxxPlatform, HeaderVisibility.PUBLIC);
     Collection<CxxPreprocessorInput> depsInputs =
-        CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder, deps);
+        CxxPreprocessables.getTransitiveCxxPreprocessorInputFromDeps(
+            cxxPlatform, graphBuilder, deps);
 
     ImmutableSet.Builder<CxxPreprocessorInput> inputsBuilder = ImmutableSet.builder();
     inputsBuilder.addAll(depsInputs);

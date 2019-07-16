@@ -20,7 +20,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
@@ -79,14 +79,15 @@ public interface Parser {
   SortedMap<String, Object> getTargetNodeRawAttributes(
       ParsingContext parsingContext, TargetNode<?> targetNode) throws BuildFileParseException;
 
-  TargetGraph buildTargetGraph(ParsingContext parsingContext, ImmutableSet<BuildTarget> toExplore)
+  TargetGraphCreationResult buildTargetGraph(
+      ParsingContext parsingContext, ImmutableSet<BuildTarget> toExplore)
       throws IOException, InterruptedException, BuildFileParseException;
 
   /**
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
-  TargetGraphAndBuildTargets buildTargetGraphWithoutConfigurationTargets(
+  TargetGraphCreationResult buildTargetGraphWithoutTopLevelConfigurationTargets(
       ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
       TargetConfiguration targetConfiguration)
@@ -96,7 +97,7 @@ public interface Parser {
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
-  TargetGraphAndBuildTargets buildTargetGraphWithConfigurationTargets(
+  TargetGraphCreationResult buildTargetGraphWithTopLevelConfigurationTargets(
       ParsingContext parsingContext,
       Iterable<? extends TargetNodeSpec> targetNodeSpecs,
       TargetConfiguration targetConfiguration)

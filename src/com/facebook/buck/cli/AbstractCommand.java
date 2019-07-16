@@ -23,7 +23,7 @@ import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -33,9 +33,9 @@ import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
 import com.facebook.buck.parser.BuildTargetMatcherTargetNodeParser;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TargetNodeSpec;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -177,6 +177,20 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       forbids = {GlobalCliOptions.CONFIG_LONG_ARG, GlobalCliOptions.CONFIG_FILE_LONG_ARG})
   private boolean reuseCurrentConfig = false;
 
+  @Nullable
+  @Option(
+      name = GlobalCliOptions.COMMAND_ARGS_FILE_LONG_ARG,
+      usage = GlobalCliOptions.COMMAND_ARGS_FILE_HELP,
+      hidden = true)
+  protected String commandArgsFile;
+
+  @Nullable
+  @Option(
+      name = GlobalCliOptions.FIX_SPEC_FILE_LONG_ARG,
+      usage = GlobalCliOptions.FIX_SPEC_FILE_HELP,
+      hidden = true)
+  protected String fixSpecFile;
+
   /** @return {code true} if the {@code [cache]} in {@code .buckconfig} should be ignored. */
   public boolean isNoCache() {
     return noCache;
@@ -184,6 +198,16 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
 
   public boolean isReuseCurrentConfig() {
     return reuseCurrentConfig;
+  }
+
+  @Nullable
+  public String getCommandArgsFile() {
+    return commandArgsFile;
+  }
+
+  @Nullable
+  public String getFixSpecFile() {
+    return fixSpecFile;
   }
 
   public Optional<Path> getEventsOutputPath() {
@@ -363,8 +387,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     return false;
   }
 
-  TargetGraphAndBuildTargets toVersionedTargetGraph(
-      CommandRunnerParams params, TargetGraphAndBuildTargets targetGraphAndBuildTargets)
+  TargetGraphCreationResult toVersionedTargetGraph(
+      CommandRunnerParams params, TargetGraphCreationResult targetGraphCreationResult)
       throws VersionException, InterruptedException {
     return params
         .getVersionedTargetGraphCache()
@@ -373,7 +397,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             params.getBuckConfig(),
             params.getTypeCoercerFactory(),
             params.getUnconfiguredBuildTargetFactory(),
-            targetGraphAndBuildTargets,
+            targetGraphCreationResult,
             params.getTargetConfiguration(),
             params.getBuckEventBus());
   }

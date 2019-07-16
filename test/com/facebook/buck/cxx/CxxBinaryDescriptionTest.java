@@ -26,8 +26,8 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.ImmutableTargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -380,7 +380,8 @@ public class CxxBinaryDescriptionTest {
         TargetGraphFactory.newInstance(
             transitiveDepBuilder.build(), depBuilder.build(), builder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
-    CxxLibrary transitiveDep = (CxxLibrary) transitiveDepBuilder.build(graphBuilder, targetGraph);
+    CxxLibraryGroup transitiveDep =
+        (CxxLibraryGroup) transitiveDepBuilder.build(graphBuilder, targetGraph);
     depBuilder.build(graphBuilder, targetGraph);
     CxxBinary binary = builder.build(graphBuilder, targetGraph);
     // TODO(agallagher): should also test that `:dep` does *not* get included.
@@ -415,7 +416,7 @@ public class CxxBinaryDescriptionTest {
         ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
-                TargetGraphAndBuildTargets.of(
+                new ImmutableTargetGraphCreationResult(
                     unversionedTargetGraph, ImmutableSet.of(builder.getTarget())),
                 NUMBER_OF_THREADS,
                 new DefaultTypeCoercerFactory(),

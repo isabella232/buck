@@ -32,8 +32,7 @@ import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.resources.ResourcesConfig;
@@ -49,9 +48,9 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ImmutableTargetNodePredicateSpec;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.SpeculativeParsing;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -472,7 +471,7 @@ public class TestCommand extends BuildCommand {
 
       // The first step is to parse all of the build files. This will populate the parser and find
       // all of the test rules.
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets;
+      TargetGraphCreationResult targetGraphCreationResult;
       ParserConfig parserConfig = params.getBuckConfig().getView(ParserConfig.class);
       ParsingContext parsingContext =
           createParsingContext(params.getCell(), pool.getListeningExecutorService())
@@ -484,10 +483,10 @@ public class TestCommand extends BuildCommand {
         // If the user asked to run all of the tests, parse all of the build files looking for any
         // test rules.
         if (isRunAllTests()) {
-          targetGraphAndBuildTargets =
+          targetGraphCreationResult =
               params
                   .getParser()
-                  .buildTargetGraphWithoutConfigurationTargets(
+                  .buildTargetGraphWithoutTopLevelConfigurationTargets(
                       parsingContext,
                       ImmutableList.of(
                           ImmutableTargetNodePredicateSpec.of(
@@ -495,28 +494,27 @@ public class TestCommand extends BuildCommand {
                                       Paths.get(""), params.getCell().getRoot()))
                               .withOnlyTests(true)),
                       params.getTargetConfiguration());
-          targetGraphAndBuildTargets =
-              targetGraphAndBuildTargets.withBuildTargets(ImmutableSet.of());
+          targetGraphCreationResult = targetGraphCreationResult.withBuildTargets(ImmutableSet.of());
 
           // Otherwise, the user specified specific test targets to build and run, so build a graph
           // around these.
         } else {
           LOG.debug("Parsing graph for arguments %s", getArguments());
-          targetGraphAndBuildTargets =
+          targetGraphCreationResult =
               params
                   .getParser()
-                  .buildTargetGraphWithoutConfigurationTargets(
+                  .buildTargetGraphWithoutTopLevelConfigurationTargets(
                       parsingContext,
                       parseArgumentsAsTargetNodeSpecs(
                           params.getCell(), params.getBuckConfig(), getArguments()),
                       params.getTargetConfiguration());
 
-          LOG.debug("Got explicit build targets %s", targetGraphAndBuildTargets.getBuildTargets());
+          LOG.debug("Got explicit build targets %s", targetGraphCreationResult.getBuildTargets());
           ImmutableSet.Builder<BuildTarget> testTargetsBuilder = ImmutableSet.builder();
           for (TargetNode<?> node :
-              targetGraphAndBuildTargets
+              targetGraphCreationResult
                   .getTargetGraph()
-                  .getAll(targetGraphAndBuildTargets.getBuildTargets())) {
+                  .getAll(targetGraphCreationResult.getBuildTargets())) {
             ImmutableSortedSet<BuildTarget> nodeTests = TargetNodes.getTestTargetsForNode(node);
             if (!nodeTests.isEmpty()) {
               LOG.debug("Got tests for target %s: %s", node.getBuildTarget(), nodeTests);
@@ -527,16 +525,15 @@ public class TestCommand extends BuildCommand {
           if (!testTargets.isEmpty()) {
             LOG.debug("Got related test targets %s, building new target graph...", testTargets);
             ImmutableSet<BuildTarget> allTargets =
-                MoreSets.union(targetGraphAndBuildTargets.getBuildTargets(), testTargets);
-            TargetGraph targetGraph =
+                MoreSets.union(targetGraphCreationResult.getBuildTargets(), testTargets);
+            targetGraphCreationResult =
                 params.getParser().buildTargetGraph(parsingContext, allTargets);
             LOG.debug("Finished building new target graph with tests.");
-            targetGraphAndBuildTargets = TargetGraphAndBuildTargets.of(targetGraph, allTargets);
           }
         }
 
         if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-          targetGraphAndBuildTargets = toVersionedTargetGraph(params, targetGraphAndBuildTargets);
+          targetGraphCreationResult = toVersionedTargetGraph(params, targetGraphCreationResult);
         }
 
       } catch (BuildFileParseException | VersionException e) {
@@ -547,9 +544,7 @@ public class TestCommand extends BuildCommand {
       }
 
       ActionGraphAndBuilder actionGraphAndBuilder =
-          params
-              .getActionGraphProvider()
-              .getActionGraph(targetGraphAndBuildTargets.getTargetGraph());
+          params.getActionGraphProvider().getActionGraph(targetGraphCreationResult);
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules =
           Iterables.filter(actionGraphAndBuilder.getActionGraph().getNodes(), TestRule.class);
@@ -559,7 +554,7 @@ public class TestCommand extends BuildCommand {
       if (!isBuildFiltered(params.getBuckConfig())) {
         testRules =
             filterTestRules(
-                params.getBuckConfig(), targetGraphAndBuildTargets.getBuildTargets(), testRules);
+                params.getBuckConfig(), targetGraphCreationResult.getBuildTargets(), testRules);
       }
 
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
@@ -647,9 +642,7 @@ public class TestCommand extends BuildCommand {
           if (isBuildFiltered(params.getBuckConfig())) {
             testRules =
                 filterTestRules(
-                    params.getBuckConfig(),
-                    targetGraphAndBuildTargets.getBuildTargets(),
-                    testRules);
+                    params.getBuckConfig(), targetGraphCreationResult.getBuildTargets(), testRules);
           }
 
           BuildContext buildContext =

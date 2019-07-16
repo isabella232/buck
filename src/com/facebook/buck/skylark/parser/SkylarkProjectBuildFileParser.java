@@ -16,6 +16,7 @@
 
 package com.facebook.buck.skylark.parser;
 
+import com.facebook.buck.core.starlark.rule.SkylarkUserDefinedRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
@@ -32,7 +33,6 @@ import com.facebook.buck.parser.implicit.PackageImplicitIncludesFinder;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.parser.syntax.ImmutableListWithSelects;
 import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
-import com.facebook.buck.skylark.function.SkylarkUserDefinedRule;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.skylark.io.Globber;
@@ -192,7 +192,8 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
           ImmutableSortedSet.copyOf(parseResult.getLoadedPaths()),
           parseResult.getReadConfigurationOptions(),
           Optional.empty(),
-          parseResult.getGlobManifestWithResult());
+          parseResult.getGlobManifestWithResult(),
+          ImmutableList.of());
     } finally {
       LOG.verbose("Finished parsing build file %s", buildFile);
       buckEventBus.post(ParseBuckFileEvent.finished(startEvent, rulesParsed, 0L, Optional.empty()));
@@ -293,6 +294,11 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
               implicitLoad.getExtensionData());
       boolean exec = buildFileAst.exec(envData.getEnvironment(), eventHandler);
       if (!exec) {
+        // buildFileAst.exec reports extended error information to console with eventHandler
+        // but this is not propagated to BuildFileParseException. So in case of resilient parsing
+        // when exceptions are stored in BuildFileManifest they do not have detailed information.
+        // TODO(sergeyb): propagate detailed error information from AST evaluation to exception
+
         throw BuildFileParseException.createForUnknownParseError(
             "Cannot evaluate build file " + buildFile);
       }
@@ -760,6 +766,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       SkylarkUtils.setPhase(extensionEnv, Phase.LOADING);
 
       BuildFileAST ast = load.getAST();
+      buckGlobals.getKnownUserDefinedRuleTypes().invalidateExtension(load.getLabel());
       for (Statement stmt : ast.getStatements()) {
         if (!ast.execTopLevelStatement(stmt, extensionEnv, eventHandler)) {
           throw BuildFileParseException.createForUnknownParseError(
@@ -806,6 +813,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         Label extensionLabel = extensionEnv.getGlobals().getLabel();
         if (extensionLabel != null) {
           exportable.export(extensionLabel, identifier);
+          this.buckGlobals.getKnownUserDefinedRuleTypes().addRule(exportable);
         }
       }
     }

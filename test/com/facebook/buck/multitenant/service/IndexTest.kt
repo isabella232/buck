@@ -24,7 +24,6 @@ import com.facebook.buck.multitenant.importer.RuleTypeFactory
 import com.facebook.buck.multitenant.importer.ServiceRawTargetNode
 import com.facebook.buck.multitenant.importer.populateIndexFromStream
 import com.google.common.collect.ImmutableMap
-import com.google.common.collect.ImmutableSet
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -107,21 +106,17 @@ class IndexTest {
                 index.getTransitiveDeps(generation3, targetSequence("//java/com/facebook/buck/model:model"))
         )
 
-        val commit1baseFwdDeps = ImmutableSet.Builder<UnconfiguredBuildTarget>()
-        index.getFwdDeps(generation1, targetList("//java/com/facebook/buck/base:base"), commit1baseFwdDeps)
-        assertEquals(commit1baseFwdDeps.build(), targetSet())
+        val commit1baseFwdDeps = index.getFwdDeps(generation1, targetList("//java/com/facebook/buck/base:base"))
+        assertEquals(commit1baseFwdDeps, targetSet())
 
-        val commit2modelFwdDeps = ImmutableSet.Builder<UnconfiguredBuildTarget>()
-        index.getFwdDeps(generation2, targetList("//java/com/facebook/buck/model:model"), commit2modelFwdDeps)
-        assertEquals(commit2modelFwdDeps.build(), targetSet("//java/com/facebook/buck/base:base"))
+        val commit2modelFwdDeps = index.getFwdDeps(generation2, targetList("//java/com/facebook/buck/model:model"))
+        assertEquals(commit2modelFwdDeps, targetSet("//java/com/facebook/buck/base:base"))
 
-        val commit3modelFwdDeps = ImmutableSet.Builder<UnconfiguredBuildTarget>()
-        index.getFwdDeps(generation3, targetList("//java/com/facebook/buck/model:model"), commit3modelFwdDeps)
-        assertEquals(commit3modelFwdDeps.build(), targetSet("//java/com/facebook/buck/base:base", "//java/com/facebook/buck/util:util"))
+        val commit3modelFwdDeps = index.getFwdDeps(generation3, targetList("//java/com/facebook/buck/model:model"))
+        assertEquals(commit3modelFwdDeps, targetSet("//java/com/facebook/buck/base:base", "//java/com/facebook/buck/util:util"))
 
-        val commit3utilFwdDeps = ImmutableSet.Builder<UnconfiguredBuildTarget>()
-        index.getFwdDeps(generation3, targetList("//java/com/facebook/buck/util:util"), commit3utilFwdDeps)
-        assertEquals(commit3utilFwdDeps.build(), targetSet("//java/com/facebook/buck/base:base"))
+        val commit3utilFwdDeps = index.getFwdDeps(generation3, targetList("//java/com/facebook/buck/util:util"))
+        assertEquals(commit3utilFwdDeps, targetSet("//java/com/facebook/buck/base:base"))
     }
 
     @Test
@@ -400,6 +395,32 @@ class IndexTest {
         val localizedIndex = index.createIndexForGenerationWithLocalChanges(generation1, changes)
         performAssertions(generation1, localizedIndex)
     }
+
+    @Test
+    fun getRefs() {
+        val (index, generations) = loadIndex("graph_with_many_edges.json")
+        val generation0 = generations[0]
+        assertEquals(
+            "Nothing depends on //:A.",
+            targetList(),
+            index.getRefs(generation0, targetOf("//:A"))
+        )
+        assertEquals(
+            "Some rules depend directly on //:D.",
+            targetList("//:A", "//:B"),
+            index.getRefs(generation0, targetOf("//:D")).sorted().toList()
+        )
+        assertEquals(
+            "Many rules depend on //:F, but getRefs() should return only immediate refs.",
+            targetList("//:D"),
+            index.getRefs(generation0, targetOf("//:F"))
+        )
+        assertEquals(
+            "Non-existent target should return empty list rather than throw an exception.",
+            listOf<UnconfiguredBuildTarget>(),
+            index.getRefs(generation0, targetOf("//:i_do_not_exist"))
+        )
+    }
 }
 
 private fun loadIndex(resource: String): Pair<Index, List<Int>> {
@@ -408,6 +429,8 @@ private fun loadIndex(resource: String): Pair<Index, List<Int>> {
     val generations = commits.map { requireNotNull(indexAppender.getGeneration(it)) }
     return Pair(index, generations)
 }
+
+private fun targetOf(target: String): UnconfiguredBuildTarget = BuildTargets.parseOrThrow(target)
 
 private fun targetList(vararg targets: String): List<UnconfiguredBuildTarget> =
         targets.map(BuildTargets::parseOrThrow)

@@ -15,24 +15,23 @@
  */
 package com.facebook.buck.core.rules.analysis.impl;
 
+import com.facebook.buck.core.artifact.Artifact;
 import com.facebook.buck.core.description.RuleDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.actions.ActionCreationException;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory.DeclaredArtifact;
-import com.facebook.buck.core.rules.actions.Artifact.BuildArtifact;
 import com.facebook.buck.core.rules.actions.FakeAction;
-import com.facebook.buck.core.rules.actions.FakeAction.FakeActionConstructorArgs;
 import com.facebook.buck.core.rules.actions.ImmutableActionExecutionFailure;
 import com.facebook.buck.core.rules.actions.ImmutableActionExecutionSuccess;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisContext;
 import com.facebook.buck.core.rules.providers.ProviderInfoCollection;
 import com.facebook.buck.core.rules.providers.impl.ProviderInfoCollectionImpl;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Paths;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -44,14 +43,15 @@ public class FakeRuleDescription implements RuleDescription<FakeRuleDescriptionA
       RuleAnalysisContext context, BuildTarget target, FakeRuleDescriptionArg args)
       throws ActionCreationException {
 
-    DeclaredArtifact artifact = context.actionFactory().declareArtifact(Paths.get("output"));
+    Artifact artifact = context.actionRegistry().declareArtifact(Paths.get("output"));
 
-    FakeActionConstructorArgs actionExecution =
+    FakeAction.FakeActionExecuteLambda actionExecution =
         (inputs, outputs, ctx) -> {
-          BuildArtifact output = Iterables.getOnlyElement(outputs);
+          Artifact output = Iterables.getOnlyElement(outputs);
           try {
-            ctx.getGenOutputFilesystem()
-                .writeLinesToPath(ImmutableList.of("testcontent"), output.getOutputPath());
+            try (OutputStream fileout = ctx.getArtifactFilesystem().getOutputStream(output)) {
+              fileout.write("testcontent".getBytes(Charsets.UTF_8));
+            }
           } catch (IOException e) {
             return ImmutableActionExecutionFailure.of(
                 Optional.empty(), Optional.empty(), Optional.of(e));
@@ -59,10 +59,8 @@ public class FakeRuleDescription implements RuleDescription<FakeRuleDescriptionA
           return ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
         };
 
-    context
-        .actionFactory()
-        .createActionAnalysisData(
-            FakeAction.class, ImmutableSet.of(), ImmutableSet.of(artifact), actionExecution);
+    new FakeAction(
+        context.actionRegistry(), ImmutableSet.of(), ImmutableSet.of(artifact), actionExecution);
     return ProviderInfoCollectionImpl.builder().build();
   }
 

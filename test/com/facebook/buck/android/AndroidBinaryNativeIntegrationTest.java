@@ -25,21 +25,17 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.relinker.Symbols;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
 import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolGetter;
 import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolsAndDtNeeded;
-import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -189,6 +185,27 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
                 "lib1b_so", "lib1_so",
                 "lib2e_so", "lib2_so",
                 "lib2f_so", "lib2_so")));
+  }
+
+  @Test
+  public void testMergeWithPlatformSpecificDeps() throws Exception {
+    workspace.replaceFileContents(".buckconfig", "#cpu_abis", "cpu_abis = x86, armv7");
+    Path apkPath =
+        workspace.buildAndReturnOutput("//apps/sample:app_with_different_merged_libs_per_platform");
+
+    ZipInspector zipInspector = new ZipInspector(apkPath);
+
+    zipInspector.assertFileExists("lib/armeabi-v7a/liball.so");
+    zipInspector.assertFileExists("lib/x86/liball.so");
+  }
+
+  @Test
+  public void testMergeHeaderOnly() throws Exception {
+    workspace.replaceFileContents(".buckconfig", "#cpu_abis", "cpu_abis = x86");
+    Path apkPath = workspace.buildAndReturnOutput("//apps/sample:app_with_header_only_merged");
+
+    ZipInspector zipInspector = new ZipInspector(apkPath);
+    zipInspector.assertFileExists("lib/x86/liball.so");
   }
 
   @Test
@@ -401,12 +418,6 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
   }
 
   private SymbolGetter getSymbolGetter() throws IOException {
-    NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(filesystem);
-    Path tmpDir = tmpFolder.newFolder("symbols_tmp");
-    return new SymbolGetter(
-        new DefaultProcessExecutor(new TestConsole()),
-        tmpDir,
-        platform.getObjdump(),
-        new TestActionGraphBuilder().getSourcePathResolver());
+    return AndroidNdkHelper.getSymbolGetter(filesystem, tmpFolder);
   }
 }

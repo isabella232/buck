@@ -134,6 +134,7 @@ public class ChromeTraceBuildListenerTest {
             .setUnexpandedCommandArgs(ImmutableList.of("@mode/arglist", "--foo", "--bar"))
             .setCommandArgs(ImmutableList.of("--config", "configvalue", "--foo", "--bar"))
             .setIsRemoteExecution(false)
+            .setRepository("repository")
             .build();
     durationTracker = new BuildRuleDurationTracker();
     eventBus = new DefaultBuckEventBus(FAKE_CLOCK, BUILD_ID);
@@ -468,7 +469,8 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(artifactCacheEventStarted);
     eventBus.post(
         ArtifactCacheTestUtils.newFetchFinishedEvent(
-            artifactCacheEventStarted, CacheResult.hit("http", ArtifactCacheMode.http)));
+            artifactCacheEventStarted,
+            CacheResult.hit("http", ArtifactCacheMode.http, ImmutableMap.of(), 42)));
 
     ArtifactCompressionEvent.Started artifactCompressionStartedEvent =
         ArtifactCompressionEvent.started(
@@ -628,7 +630,8 @@ public class ChromeTraceBuildListenerTest {
             "rule_key", "abc123",
             "rule", "//fake:rule",
             "success", "true",
-            "cache_result", "HTTP_HIT"));
+            "cache_result", "HTTP_HIT",
+            "artifact_size", "42"));
 
     assertNextResult(
         resultListCopy,
@@ -672,7 +675,8 @@ public class ChromeTraceBuildListenerTest {
         ImmutableMap.of(
             "success", "true",
             "rule_key", "abc123",
-            "rule", "//target:one"));
+            "rule", "//target:one",
+            "artifact_size", "unknown"));
 
     assertNextResult(resultListCopy, "processingPartOne", ChromeTraceEvent.Phase.BEGIN, emptyArgs);
 

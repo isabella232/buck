@@ -37,9 +37,9 @@ import com.facebook.buck.core.model.targetgraph.raw.RawTargetNodeWithDepsPackage
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.pathformat.PathFormatter;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.RawTargetNodeToTargetNodeFactory;
 import com.facebook.buck.parser.api.BuildFileManifest;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.manifest.ImmutableBuildPackagePathToBuildFileManifestKey;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -132,7 +132,11 @@ public class BuildPackagePathToRawTargetNodePackageComputation
       builder.put(unconfiguredBuildTarget.getName(), rawTargetNodeWithDeps);
     }
 
-    return new ImmutableRawTargetNodeWithDepsPackage(key.getPath(), builder.build());
+    BuildFileManifest buildFileManifest =
+        env.getDep(ImmutableBuildPackagePathToBuildFileManifestKey.of(key.getPath()));
+
+    return new ImmutableRawTargetNodeWithDepsPackage(
+        key.getPath(), builder.build(), buildFileManifest.getErrors());
   }
 
   @Override

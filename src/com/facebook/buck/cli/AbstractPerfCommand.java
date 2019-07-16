@@ -19,8 +19,7 @@ import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
@@ -163,10 +162,10 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
   }
 
   /** Most of our perf tests require a target graph, this helps them get it concisely. */
-  protected TargetGraph getTargetGraph(
+  protected TargetGraphCreationResult getTargetGraph(
       CommandRunnerParams params, ImmutableSet<BuildTarget> targets)
       throws InterruptedException, IOException, VersionException {
-    TargetGraph targetGraph;
+    TargetGraphCreationResult targetGraph;
     try (CommandThreadManager pool =
         new CommandThreadManager("Perf", getConcurrencyLimit(params.getBuckConfig()))) {
       targetGraph =
@@ -179,9 +178,7 @@ public abstract class AbstractPerfCommand<CommandContext> extends AbstractComman
       throw new BuckUncheckedExecutionException(e);
     }
     if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
-      targetGraph =
-          toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
-              .getTargetGraph();
+      targetGraph = toVersionedTargetGraph(params, targetGraph);
     }
     return targetGraph;
   }

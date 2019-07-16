@@ -19,6 +19,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.artifact.Artifact;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.cell.TestCellBuilder;
@@ -30,19 +31,19 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.actions.ActionAnalysisData;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory;
-import com.facebook.buck.core.rules.actions.ActionWrapperDataFactory.DeclaredArtifact;
+import com.facebook.buck.core.rules.actions.ActionRegistry;
+import com.facebook.buck.core.rules.actions.DefaultActionRegistry;
 import com.facebook.buck.core.rules.actions.FakeAction;
-import com.facebook.buck.core.rules.actions.FakeAction.FakeActionConstructorArgs;
 import com.facebook.buck.core.rules.actions.FakeActionAnalysisRegistry;
 import com.facebook.buck.core.rules.actions.ImmutableActionExecutionSuccess;
 import com.facebook.buck.core.rules.analysis.ImmutableRuleAnalysisKey;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisContext;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisResult;
+import com.facebook.buck.core.rules.analysis.action.ActionAnalysisData;
 import com.facebook.buck.core.rules.analysis.impl.FakeRuleAnalysisComputation;
 import com.facebook.buck.core.rules.analysis.impl.FakeRuleDescriptionArg;
 import com.facebook.buck.core.rules.analysis.impl.ImmutableFakeRuleAnalysisResultImpl;
+import com.facebook.buck.core.rules.config.registry.impl.ConfigurationRuleRegistryFactory;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.RuleAnalysisLegacyBuildRuleView;
 import com.facebook.buck.core.rules.providers.ProviderInfoCollection;
@@ -54,6 +55,7 @@ import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Paths;
@@ -121,6 +123,7 @@ public class RuleAnalysisCompatibleDelegatingActionGraphBuilderTest {
             projectFilesystem,
             target,
             ImmutableSet.of(),
+            ImmutableSortedSet.of(),
             ImmutableSet.of(),
             ImmutableSet.of(),
             cellPathResolver);
@@ -142,6 +145,7 @@ public class RuleAnalysisCompatibleDelegatingActionGraphBuilderTest {
                 new MultiThreadedActionGraphBuilder(
                     MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
                     targetGraph,
+                    ConfigurationRuleRegistryFactory.createRegistry(targetGraph),
                     transformer,
                     cellProvider) {
                   @Override
@@ -156,21 +160,16 @@ public class RuleAnalysisCompatibleDelegatingActionGraphBuilderTest {
 
                   FakeActionAnalysisRegistry actionAnalysisRegistry =
                       new FakeActionAnalysisRegistry();
-                  ActionWrapperDataFactory actionWrapperDataFactory =
-                      new ActionWrapperDataFactory(
-                          target, actionAnalysisRegistry, projectFilesystem);
-                  DeclaredArtifact artifact =
-                      actionWrapperDataFactory.declareArtifact(Paths.get("foo"));
+                  ActionRegistry actionRegistry =
+                      new DefaultActionRegistry(target, actionAnalysisRegistry, projectFilesystem);
+                  Artifact artifact = actionRegistry.declareArtifact(Paths.get("foo"));
 
-                  FakeActionConstructorArgs actionFunction =
+                  FakeAction.FakeActionExecuteLambda actionFunction =
                       (ignored, ignored2, ignored3) ->
                           ImmutableActionExecutionSuccess.of(Optional.empty(), Optional.empty());
 
-                  actionWrapperDataFactory.createActionAnalysisData(
-                      FakeAction.class,
-                      ImmutableSet.of(),
-                      ImmutableSet.of(artifact),
-                      actionFunction);
+                  new FakeAction(
+                      actionRegistry, ImmutableSet.of(), ImmutableSet.of(artifact), actionFunction);
                   ActionAnalysisData actionAnalysisData =
                       Iterables.getOnlyElement(actionAnalysisRegistry.getRegistered().entrySet())
                           .getValue();

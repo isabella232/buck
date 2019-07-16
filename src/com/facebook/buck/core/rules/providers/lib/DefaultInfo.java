@@ -15,11 +15,11 @@
  */
 package com.facebook.buck.core.rules.providers.lib;
 
-import com.facebook.buck.core.rules.actions.Artifact;
+import com.facebook.buck.core.artifact.Artifact;
 import com.facebook.buck.core.rules.providers.annotations.ImmutableInfo;
 import com.facebook.buck.core.rules.providers.impl.BuiltInProvider;
 import com.facebook.buck.core.rules.providers.impl.BuiltInProviderInfo;
-import java.util.Map;
+import com.google.devtools.build.lib.syntax.SkylarkDict;
 import java.util.Set;
 
 /**
@@ -38,10 +38,11 @@ public abstract class DefaultInfo extends BuiltInProviderInfo<DefaultInfo> {
    *
    * @return a map of a String, which is the named identifier to a set of outputs.
    */
-  public abstract Map<String, Set<Artifact.BuildArtifact>> namedOutputs();
+  // TODO(bobyf): replace with our own map types?
+  public abstract SkylarkDict<String, Set<Artifact>> namedOutputs();
 
   /** @return the set of default outputs built by the rule if no output selection is specified. */
-  public abstract Set<Artifact.BuildArtifact> defaultOutputs();
+  public abstract Set<Artifact> defaultOutputs();
 
   // TODO: add run files and such
 }

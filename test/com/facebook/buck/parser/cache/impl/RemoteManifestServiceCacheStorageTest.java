@@ -32,11 +32,11 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.manifestservice.ManifestService;
 import com.facebook.buck.manifestservice.ManifestServiceConfig;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ImmutableBuildFileManifest;
 import com.facebook.buck.parser.cache.ParserCacheStorage;
 import com.facebook.buck.parser.cache.json.BuildFileManifestSerializer;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.skylark.io.GlobSpec;
 import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -249,7 +249,12 @@ public class RemoteManifestServiceCacheStorageTest {
 
     BuildFileManifest buildFileManifest =
         ImmutableBuildFileManifest.of(
-            targets, includes, configs, Optional.of(ImmutableMap.of()), globSpecs);
+            targets,
+            includes,
+            configs,
+            Optional.of(ImmutableMap.of()),
+            globSpecs,
+            ImmutableList.of());
 
     byte[] serializedManifest = BuildFileManifestSerializer.serialize(buildFileManifest);
     String resultString =

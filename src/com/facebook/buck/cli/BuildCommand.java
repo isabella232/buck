@@ -32,7 +32,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -49,9 +49,9 @@ import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
-import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
+import com.facebook.buck.parser.config.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -430,10 +430,10 @@ public class BuildCommand extends AbstractCommand {
       Function<ImmutableList<TargetNodeSpec>, ImmutableList<TargetNodeSpec>> targetNodeSpecEnhancer,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger)
       throws ActionGraphCreationException, IOException, InterruptedException {
-    TargetGraphAndBuildTargets unversionedTargetGraph =
+    TargetGraphCreationResult unversionedTargetGraph =
         createUnversionedTargetGraph(params, executorService, targetNodeSpecEnhancer);
 
-    Optional<TargetGraphAndBuildTargets> versionedTargetGraph = Optional.empty();
+    Optional<TargetGraphCreationResult> versionedTargetGraph = Optional.empty();
     try {
       if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
         versionedTargetGraph = Optional.of(toVersionedTargetGraph(params, unversionedTargetGraph));
@@ -442,7 +442,7 @@ public class BuildCommand extends AbstractCommand {
       throw new ActionGraphCreationException(MoreExceptions.getHumanReadableOrLocalizedMessage(e));
     }
 
-    TargetGraphAndBuildTargets targetGraphForLocalBuild =
+    TargetGraphCreationResult targetGraphForLocalBuild =
         ActionAndTargetGraphs.getTargetGraphForLocalBuild(
             unversionedTargetGraph, versionedTargetGraph);
     checkSingleBuildTargetSpecifiedForOutBuildMode(targetGraphForLocalBuild);
@@ -468,7 +468,7 @@ public class BuildCommand extends AbstractCommand {
   }
 
   private void checkSingleBuildTargetSpecifiedForOutBuildMode(
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets) {
+      TargetGraphCreationResult targetGraphAndBuildTargets) {
     // Ideally, we would error out of this before we build the entire graph, but it is possible
     // that `getArguments().size()` is 1 but `targetGraphAndBuildTargets.getBuildTargets().size()`
     // is greater than 1 if the lone argument is a wildcard build target that ends in "...".
@@ -706,7 +706,7 @@ public class BuildCommand extends AbstractCommand {
     }
   }
 
-  private TargetGraphAndBuildTargets createUnversionedTargetGraph(
+  private TargetGraphCreationResult createUnversionedTargetGraph(
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Function<ImmutableList<TargetNodeSpec>, ImmutableList<TargetNodeSpec>> targetNodeSpecEnhancer)
@@ -716,7 +716,7 @@ public class BuildCommand extends AbstractCommand {
     try {
       return params
           .getParser()
-          .buildTargetGraphWithoutConfigurationTargets(
+          .buildTargetGraphWithoutTopLevelConfigurationTargets(
               createParsingContext(params.getCell(), executor)
                   .withSpeculativeParsing(SpeculativeParsing.ENABLED)
                   .withApplyDefaultFlavorsMode(parserConfig.getDefaultFlavorsMode()),
@@ -731,20 +731,20 @@ public class BuildCommand extends AbstractCommand {
 
   private static ActionGraphAndBuilder createActionGraphAndResolver(
       CommandRunnerParams params,
-      TargetGraphAndBuildTargets targetGraphAndBuildTargets,
+      TargetGraphCreationResult targetGraphAndBuildTargets,
       Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     return params
         .getActionGraphProvider()
         .getActionGraph(
             new DefaultTargetNodeToBuildRuleTransformer(),
-            targetGraphAndBuildTargets.getTargetGraph(),
+            targetGraphAndBuildTargets,
             ruleKeyLogger);
   }
 
   private static ImmutableSet<BuildTarget> getBuildTargets(
       CommandRunnerParams params,
       ActionGraphAndBuilder actionGraphAndBuilder,
-      TargetGraphAndBuildTargets targetGraph,
+      TargetGraphCreationResult targetGraph,
       TargetConfiguration targetConfiguration,
       @Nullable String justBuildTarget)
       throws ActionGraphCreationException {
@@ -784,11 +784,11 @@ public class BuildCommand extends AbstractCommand {
 
     ActionGraphAndBuilder actionGraphAndBuilder =
         graphsAndBuildTargets.getGraphs().getActionGraphAndBuilder();
-    boolean whitelistedForRemoteExecution =
+    boolean remoteExecutionAutoEnabled =
         params
             .getBuckConfig()
             .getView(RemoteExecutionConfig.class)
-            .isBuildWhitelistedForRemoteExecution(
+            .isRemoteExecutionAutoEnabled(
                 params.getBuildEnvironmentDescription().getUser(), getArguments());
     LocalBuildExecutor builder =
         new LocalBuildExecutor(
@@ -808,7 +808,7 @@ public class BuildCommand extends AbstractCommand {
             params.getUnconfiguredBuildTargetFactory(),
             params.getTargetConfiguration(),
             params.getTargetConfigurationSerializer(),
-            whitelistedForRemoteExecution);
+            remoteExecutionAutoEnabled);
     // TODO(buck_team): use try-with-resources instead
     try {
       buildReference.set(builder.getBuild());

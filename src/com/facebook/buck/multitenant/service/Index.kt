@@ -18,9 +18,10 @@ package com.facebook.buck.multitenant.service
 
 import com.facebook.buck.core.model.UnconfiguredBuildTarget
 import com.facebook.buck.multitenant.fs.FsAgnosticPath
-import com.google.common.collect.ImmutableSet
-import java.util.ArrayDeque
-import kotlin.collections.HashSet
+import it.unimi.dsi.fastutil.ints.IntArrayFIFOQueue
+import it.unimi.dsi.fastutil.ints.IntArrayList
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import java.util.ArrayList
 
 /**
  * View of build graph data across a range of generations. Because this is a "view," it is not
@@ -122,7 +123,7 @@ class Index internal constructor(
         // not need to be guarded by rwLock.
         return internalRules.map {
             if (it != null) {
-                val deps = it.deps.asSequence().map { buildTargetCache.getByIndex(it) }.toSet()
+                val deps = buildTargetCache.resolveIndexes(IntArrayList.wrap(it.deps))
                 RawBuildRule(it.targetNode, deps)
             } else {
                 null
@@ -134,23 +135,22 @@ class Index internal constructor(
      * @return the transitive deps of the specified targets (includes targets)
      */
     fun getTransitiveDeps(generation: Generation, targets: Sequence<UnconfiguredBuildTarget>): Set<UnconfiguredBuildTarget> {
-        val queue = ArrayDeque<BuildTargetId>()
+        val queue = IntArrayFIFOQueue()
 
-        val visited: HashSet<BuildTargetId> = if (targets is Collection<*>) {
-            HashSet(targets.size)
+        val visited: IntOpenHashSet = if (targets is Collection<*>) {
+            IntOpenHashSet(targets.size)
         } else {
-            hashSetOf()
+            IntOpenHashSet()
         }
 
         indexGenerationData.withRuleMap { ruleMap ->
-
             val visitDeps: (BuildTargetId) -> Unit = { targetId ->
                 val node = ruleMap.getVersion(targetId, generation)
 
                 node?.deps?.forEach { dep ->
                     if (visited.add(dep)) {
                         // only traverse node if it was not seen before
-                        queue.add(dep)
+                        queue.enqueue(dep)
                     }
                 }
             }
@@ -165,22 +165,19 @@ class Index internal constructor(
             }
 
             // now traverse all deps recursively
-            while (queue.isNotEmpty()) {
-                val targetId = queue.pop()
+            while (!queue.isEmpty()) {
+                val targetId = queue.dequeueInt()
                 visitDeps(targetId)
             }
         }
 
-        // We use a HashSet instead of a Kotlin Set so we can specify the initialCapacity.
-        val out = HashSet<UnconfiguredBuildTarget>(visited.size)
-        return visited.mapTo(out) { buildTargetCache.getByIndex(it) }
+        return buildTargetCache.resolveIndexes(visited)
     }
 
     fun getFwdDeps(
         generation: Generation,
-        targets: Iterable<UnconfiguredBuildTarget>,
-        out: ImmutableSet.Builder<UnconfiguredBuildTarget>
-    ) {
+        targets: Iterable<UnconfiguredBuildTarget>
+    ): Set<UnconfiguredBuildTarget> {
         val targetIds = targets.map { buildTargetCache.get(it) }
         val rules: List<InternalRawBuildRule> = indexGenerationData.withRuleMap { ruleMap ->
             targetIds.mapNotNull { targetId ->
@@ -188,11 +185,14 @@ class Index internal constructor(
             }
         }
 
+        // Take the union of all of the deps across all of the rules so we can make one call to
+        // addAllByIndex().
+        val union = IntOpenHashSet()
         rules.forEach { rule ->
-            rule.deps.forEach { dep ->
-                out.add(buildTargetCache.getByIndex(dep))
-            }
+            addBuildTargetSetToCollection(rule.deps, union)
         }
+
+        return buildTargetCache.resolveIndexes(union)
     }
 
     /**
@@ -208,12 +208,40 @@ class Index internal constructor(
             }
         }
 
-        val out = mutableSetOf<UnconfiguredBuildTarget>()
-        rdepsSets.forEach { rdepsSet ->
-            rdepsSet.forEach { dep ->
-                out.add(buildTargetCache.getByIndex(dep))
+        // Try to be clever depending on the number of sets there are.
+        return when (rdepsSets.size) {
+            0 -> {
+               setOf()
+            }
+            1 -> {
+                val onlySet = rdepsSets.single()
+                buildTargetCache.resolveIndexes(onlySet)
+            }
+            else -> {
+                // Take the union of all of the deps across all of the rules so we can make one call to
+                // addAllByIndex().
+                val union = IntOpenHashSet()
+                for (set in rdepsSets) {
+                    set.addAllTo(union)
+                }
+                buildTargetCache.resolveIndexes(union)
             }
         }
+    }
+
+    /**
+     * Get all references for `target` at the specified `generation`. This is almost the same thing
+     * as `rdeps(//..., target, 1)` except that `//...` is a universe that would exclude rdeps
+     * outside of the current cell whereas this method is designed for the "Show References in an
+     * IDE" use case, so it returns <em>all</em> references without considering cell boundaries.
+     */
+    fun getRefs(generation: Generation, target: UnconfiguredBuildTarget): List<UnconfiguredBuildTarget> {
+        val targetId = buildTargetCache.get(target)
+        val rdeps = indexGenerationData.withRdepsMap { rDepsMap ->
+            rDepsMap.getVersion(targetId, generation)
+        } ?: return listOf()
+        val out = ArrayList<UnconfiguredBuildTarget>(rdeps.size)
+        buildTargetCache.resolveIndexes(rdeps, out)
         return out
     }
 
@@ -222,15 +250,17 @@ class Index internal constructor(
      */
     fun getTargets(generation: Generation): List<UnconfiguredBuildTarget> {
         val pairs = indexGenerationData.withRuleMap { ruleMap ->
-            ruleMap.getEntries(generation)
+            ruleMap.getEntries(generation).toList()
         }
 
         // Note that we release the read lock before making a bunch of requests to the
-        // buildTargetCache. As this is going to do a LOT of lookups to the buildTargetCache, we
-        // should probably see whether we can do some sort of "multi-get" operation that requires
-        // less locking, or potentially change the locking strategy for AppendOnlyBidirectionalCache
-        // completely so that it is not thread-safe internally, but is guarded by its own lock.
-        return pairs.map { buildTargetCache.getByIndex(it.first) }.toList()
+        // buildTargetCache.
+        val out = ArrayList<UnconfiguredBuildTarget>(pairs.size)
+        val iterable = object : Iterable<Int> {
+            override fun iterator(): Iterator<Int> = pairs.asSequence().map { it.first }.iterator()
+        }
+        buildTargetCache.resolveIndexes(iterable, out)
+        return out
     }
 
     /**

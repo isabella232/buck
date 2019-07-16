@@ -26,14 +26,15 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.actions.ActionCreationException;
 import com.facebook.buck.core.rules.analysis.ImmutableRuleAnalysisKey;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisContext;
+import com.facebook.buck.core.rules.analysis.RuleAnalysisException;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisKey;
 import com.facebook.buck.core.rules.analysis.RuleAnalysisResult;
 import com.facebook.buck.core.rules.providers.ProviderInfoCollection;
+import com.facebook.buck.event.BuckEventBus;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
 
 /**
  * The {@link GraphComputation} for performing the target graph to provider and action graph
@@ -47,9 +48,11 @@ public class RuleAnalysisComputation
     implements GraphComputation<RuleAnalysisKey, RuleAnalysisResult> {
 
   private final TargetGraph targetGraph;
+  private final BuckEventBus eventBus;
 
-  public RuleAnalysisComputation(TargetGraph targetGraph) {
+  public RuleAnalysisComputation(TargetGraph targetGraph, BuckEventBus eventBus) {
     this.targetGraph = targetGraph;
+    this.eventBus = eventBus;
   }
 
   @Override
@@ -59,7 +62,7 @@ public class RuleAnalysisComputation
 
   @Override
   public RuleAnalysisResult transform(RuleAnalysisKey key, ComputationEnvironment env)
-      throws ActionCreationException {
+      throws ActionCreationException, RuleAnalysisException {
     return transformImpl(targetGraph.get(key.getBuildTarget()), env);
   }
 
@@ -77,7 +80,7 @@ public class RuleAnalysisComputation
    * @return an {@link RuleAnalysisResult} containing information about the rule analyzed
    */
   private <T> RuleAnalysisResult transformImpl(TargetNode<T> targetNode, ComputationEnvironment env)
-      throws ActionCreationException {
+      throws ActionCreationException, RuleAnalysisException {
     BaseDescription<T> baseDescription = targetNode.getDescription();
     Verify.verify(baseDescription instanceof RuleDescription);
 
@@ -86,10 +89,12 @@ public class RuleAnalysisComputation
     RuleAnalysisContextImpl ruleAnalysisContext =
         new RuleAnalysisContextImpl(
             targetNode.getBuildTarget(),
-            ImmutableMap.copyOf(
-                Maps.transformValues(
-                    env.getDeps(RuleAnalysisKey.IDENTIFIER), RuleAnalysisResult::getProviderInfos)),
-            targetNode.getFilesystem());
+            env.getDeps(RuleAnalysisKey.IDENTIFIER).values().stream()
+                .collect(
+                    ImmutableMap.toImmutableMap(
+                        RuleAnalysisResult::getBuildTarget, RuleAnalysisResult::getProviderInfos)),
+            targetNode.getFilesystem(),
+            eventBus);
 
     ProviderInfoCollection providers =
         ruleDescription.ruleImpl(
