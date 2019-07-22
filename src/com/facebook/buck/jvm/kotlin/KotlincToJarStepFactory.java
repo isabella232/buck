@@ -135,9 +135,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
         BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_gen__");
     Path classesOutput =
         BuildTargetPaths.getAnnotationPath(projectFilesystem, invokingRule, "__%s_classes__");
-    Path kaptGeneratedOutput =
-        BuildTargetPaths.getAnnotationPath(
-            projectFilesystem, invokingRule, "__%s_kapt_generated__");
     Path incrementalDataOutput =
         BuildTargetPaths.getAnnotationPath(
             projectFilesystem, invokingRule, "__%s_incremental_data__");
@@ -162,7 +159,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
       // Javac requires that the root directory for generated sources already exist.
       addCreateFolderStep(steps, projectFilesystem, buildContext, stubsOutput);
       addCreateFolderStep(steps, projectFilesystem, buildContext, classesOutput);
-      addCreateFolderStep(steps, projectFilesystem, buildContext, kaptGeneratedOutput);
       addCreateFolderStep(steps, projectFilesystem, buildContext, incrementalDataOutput);
       addCreateFolderStep(steps, projectFilesystem, buildContext, sourcesOutput);
       addCreateFolderStep(steps, projectFilesystem, buildContext, tmpFolder);
@@ -187,7 +183,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             pathToSrcsList,
             allClasspaths,
             extraKotlincArguments,
-            kaptGeneratedOutput,
+            sourcesOutput,
             stubsOutput,
             incrementalDataOutput,
             classesOutput,
@@ -204,9 +200,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
       steps.add(
           CopyStep.forDirectory(
               projectFilesystem, classesOutput, tmpFolder, DirectoryMode.CONTENTS_ONLY));
-      steps.add(
-          CopyStep.forDirectory(
-              projectFilesystem, kaptGeneratedOutput, tmpFolder, DirectoryMode.CONTENTS_ONLY));
 
       steps.add(
           new ZipStep(
