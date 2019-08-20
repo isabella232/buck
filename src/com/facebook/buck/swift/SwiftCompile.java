@@ -217,6 +217,8 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             .anyMatch(SwiftDescriptions.SWIFT_MAIN_FILENAME::equalsIgnoreCase);
 
     compilerCommand.add(
+        "-index-store-path",
+        ".",
         "-c",
         enableObjcInterop ? "-enable-objc-interop" : "",
         hasMainEntry ? "" : "-parse-as-library",
