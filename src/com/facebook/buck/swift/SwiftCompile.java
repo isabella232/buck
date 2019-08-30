@@ -245,6 +245,8 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       compilerCommand.add("-o");
       String source = resolver.getRelativePath(sourcePath).toString();
       String file = Paths.get(source).getFileName().toString();
+      // Remove the file suffix from the file name
+      file = file.substring(0, file.lastIndexOf('.'));
       compilerCommand.add(outputPath.resolve(file + ".o").toString());
     }
 
@@ -367,6 +369,8 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         for (SourcePath sourcePath : srcs) {
           String source = resolver.getRelativePath(sourcePath).toString();
           String file = Paths.get(source).getFileName().toString();
+          // Remove the file suffix from the file name
+          file = file.substring(0, file.lastIndexOf('.'));
           command.add(outputPath.resolve(file + ".o").toString());
         }
 
