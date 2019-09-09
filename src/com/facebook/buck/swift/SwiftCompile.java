@@ -58,6 +58,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Streams;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,6 +66,7 @@ import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
+import java.io.PrintWriter;
 
 // import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.ProcessExecutor.Result;
@@ -241,13 +243,37 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "."
         );
 
+    boolean use_output_filelist = false;
+    PrintWriter output_filelist = null;
+    String output_filelist_path = "/tmp/" + moduleName + "-output-filelist";
+    if (srcs.size() > 10) {
+      try {
+        output_filelist = new PrintWriter(output_filelist_path);
+        compilerCommand.add(
+            "-output-filelist",
+            output_filelist_path
+        );
+        use_output_filelist = true;
+      }
+      catch(FileNotFoundException e) {
+        //  Block of code to handle errors
+        System.out.println(e.getMessage());
+      }
+    }
+
     for (SourcePath sourcePath : srcs) {
-      compilerCommand.add("-o");
       String source = resolver.getRelativePath(sourcePath).toString();
       String file = Paths.get(source).getFileName().toString();
       // Remove the file suffix from the file name
       file = file.substring(0, file.lastIndexOf('.'));
-      compilerCommand.add(outputPath.resolve(file + ".o").toString());
+      if (use_output_filelist) {
+        output_filelist.println(outputPath.resolve(file + ".o").toString());
+      } else {
+        compilerCommand.add("-o",  outputPath.resolve(file + ".o").toString());
+      }
+    }
+    if (use_output_filelist) {
+      output_filelist.close();
     }
 
     if (shouldEmitSwiftdocs) {
