@@ -49,6 +49,8 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.ProcessExecutor.Result;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -68,9 +70,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.io.PrintWriter;
 
-// import com.facebook.buck.step.StepExecutionResult;
-import com.facebook.buck.util.ProcessExecutor.Result;
-import com.facebook.buck.util.ProcessExecutorParams;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
 public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
@@ -89,6 +88,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final Path moduleObjectPath;
   private final ImmutableList<Path> objectPaths;
   private final Optional<Path> swiftFileListPath;
+  private final boolean shouldGenerateIndex;
 
   @AddToRuleKey private final boolean shouldEmitSwiftdocs;
   private final Path swiftdocPath;
@@ -148,6 +148,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         swiftBuckConfig.getUseModulewrap()
             ? ImmutableList.of(objectFilePath, moduleObjectPath)
             : ImmutableList.of(objectFilePath);
+    this.shouldGenerateIndex = swiftBuckConfig.getGenerateIndex();
     this.swiftFileListPath =
         swiftBuckConfig.getUseFileList()
             ? Optional.of(
@@ -234,46 +235,52 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "-emit-module-path",
         modulePath.toString(),
         "-emit-objc-header-path",
-        headerPath.toString(),
-        // "-o",
-        // objectFilePath.toString()
+        headerPath.toString()
+      );
+
+    if (shouldGenerateIndex) {
+      compilerCommand.add(
         "-num-threads",
         "12",
         "-index-store-path",
         "."
-        );
+      );
 
-    boolean use_output_filelist = false;
-    PrintWriter output_filelist = null;
-    String output_filelist_path = "/tmp/" + moduleName + "-output-filelist";
-    if (srcs.size() > 10) {
-      try {
-        output_filelist = new PrintWriter(output_filelist_path);
-        compilerCommand.add(
-            "-output-filelist",
-            output_filelist_path
-        );
-        use_output_filelist = true;
+      boolean use_output_filelist = false;
+      PrintWriter output_filelist = null;
+      String output_filelist_path = "/tmp/" + moduleName + "-output-filelist";
+      if (srcs.size() > 30) {
+        try {
+          output_filelist = new PrintWriter(output_filelist_path);
+          compilerCommand.add(
+              "-output-filelist",
+              output_filelist_path
+          );
+          use_output_filelist = true;
+        }
+        catch(FileNotFoundException e) {
+          //  Block of code to handle errors
+          System.out.println(e.getMessage());
+        }
       }
-      catch(FileNotFoundException e) {
-        //  Block of code to handle errors
-        System.out.println(e.getMessage());
-      }
-    }
 
-    for (SourcePath sourcePath : srcs) {
-      String source = resolver.getRelativePath(sourcePath).toString();
-      String file = Paths.get(source).getFileName().toString();
-      // Remove the file suffix from the file name
-      file = file.substring(0, file.lastIndexOf('.'));
+      for (SourcePath sourcePath : srcs) {
+        String source = resolver.getRelativePath(sourcePath).toString();
+        String file = Paths.get(source).getFileName().toString();
+        if (use_output_filelist) {
+          output_filelist.println(outputPath.resolve(file + ".o").toString());
+        } else {
+          compilerCommand.add("-o",  outputPath.resolve(file + ".o").toString());
+        }
+      }
       if (use_output_filelist) {
-        output_filelist.println(outputPath.resolve(file + ".o").toString());
-      } else {
-        compilerCommand.add("-o",  outputPath.resolve(file + ".o").toString());
+        output_filelist.close();
       }
-    }
-    if (use_output_filelist) {
-      output_filelist.close();
+    } else {
+      compilerCommand.add(
+        "-o",
+        objectFilePath.toString()
+      );
     }
 
     if (shouldEmitSwiftdocs) {
@@ -377,7 +384,9 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     swiftFileListPath.map(
         path -> steps.add(makeFileListStep(context.getSourcePathResolver(), path)));
     steps.add(makeCompileStep(context.getSourcePathResolver()));
-    steps.add(airbnb_makeCombineObjectFileStep(context.getSourcePathResolver()));
+    if (shouldGenerateIndex) {
+      steps.add(airbnb_makeCombineObjectFileStep(context.getSourcePathResolver()));
+    }
 
     if (swiftBuckConfig.getUseModulewrap()) {
       steps.add(makeModulewrapStep(context.getSourcePathResolver()));
@@ -395,8 +404,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         for (SourcePath sourcePath : srcs) {
           String source = resolver.getRelativePath(sourcePath).toString();
           String file = Paths.get(source).getFileName().toString();
-          // Remove the file suffix from the file name
-          file = file.substring(0, file.lastIndexOf('.'));
           command.add(outputPath.resolve(file + ".o").toString());
         }
 

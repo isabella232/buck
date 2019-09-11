@@ -71,6 +71,10 @@ public class SwiftBuckConfig implements ConfigView<BuckConfig> {
     return delegate.getBooleanValue(SECTION_NAME, USE_FILELIST, false);
   }
 
+  public boolean getGenerateIndex() {
+    return delegate.getBooleanValue("project", "generate_index", false);
+  }
+
   public boolean getUseModulewrap() {
     return delegate.getBooleanValue(SECTION_NAME, USE_MODULEWRAP, false);
   }
