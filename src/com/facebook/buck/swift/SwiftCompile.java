@@ -70,7 +70,6 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.io.PrintWriter;
 
-
 /** A build rule which compiles one or more Swift sources into a Swift module. */
 public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
@@ -416,7 +415,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
           command.add(outputPath.resolve(file + ".o").toString());
         }
 
-
         ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
         builder.setCommand(command.build());
         return builder.build();
@@ -434,7 +432,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
       @Override
       public String getShortName() {
-        return "combineObjectFiles";
+        return "combine object files";
       }
 
       @Override
