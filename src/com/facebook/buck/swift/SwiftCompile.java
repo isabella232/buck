@@ -75,6 +75,7 @@ import java.io.PrintWriter;
 public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private static final String INCLUDE_FLAG = "-I";
+  private static final Integer MAX_OUTPUT_ARG_COUNT = 30;
 
   @AddToRuleKey private final Tool swiftCompiler;
 
@@ -246,10 +247,12 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "buck-out"
       );
 
+      // If there are too many output files, we need to use a output file list instead.
+      // Otherwise, we would get an error about command line too long.
       boolean use_output_filelist = false;
       PrintWriter output_filelist = null;
       String output_filelist_path = "/tmp/" + moduleName + "-output-filelist";
-      if (srcs.size() > 30) {
+      if (srcs.size() > MAX_OUTPUT_ARG_COUNT) {
         try {
           output_filelist = new PrintWriter(output_filelist_path);
           compilerCommand.add(
@@ -264,6 +267,8 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         }
       }
 
+      // For indexing to work properly, we have to specify multiple .o files for each Swift file
+      // to generate corresponding Unit files. Because Xcode expects an Unit file per Swift file.
       for (SourcePath sourcePath : srcs) {
         String source = resolver.getRelativePath(sourcePath).toString();
         String file = Paths.get(source).getFileName().toString();
@@ -385,7 +390,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         path -> steps.add(makeFileListStep(context.getSourcePathResolver(), path)));
     steps.add(makeCompileStep(context.getSourcePathResolver()));
     if (shouldGenerateIndex) {
-      steps.add(airbnb_makeCombineObjectFileStep(context.getSourcePathResolver()));
+      steps.add(airbnb_combineObjectFileStep(context.getSourcePathResolver()));
     }
 
     if (swiftBuckConfig.getUseModulewrap()) {
@@ -395,7 +400,11 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     return steps.build();
   }
 
-  private Step airbnb_makeCombineObjectFileStep(SourcePathResolver resolver) {
+  // This step is needed when buck indexing is enabled, to link all object files of a module
+  // into a single object file. Because Buck expects a single object file per module when
+  // consuming the input of a module, and we split it up to support indexing when buck indexing
+  // is enabled.
+  private Step airbnb_combineObjectFileStep(SourcePathResolver resolver) {
     return new Step() {
       private ProcessExecutorParams makeProcessExecutorParams() {
         ImmutableList.Builder<String> command = ImmutableList.builder();
@@ -409,8 +418,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
 
         ProcessExecutorParams.Builder builder = ProcessExecutorParams.builder();
-        // builder.setDirectory(compilerCwd.toAbsolutePath());
-        // builder.setEnvironment(compilerEnvironment);
         builder.setCommand(command.build());
         return builder.build();
       }
@@ -418,25 +425,21 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       @Override
       public StepExecutionResult execute(ExecutionContext context) throws IOException,InterruptedException {
         ProcessExecutorParams params = makeProcessExecutorParams();
-        // LOG.debug("%s", compilerCommand);
 
         Result processResult = context.getProcessExecutor().launchAndExecute(params);
 
         int result = processResult.getExitCode();
-        // if (result != 0) {
-        //   LOG.error("Error running %s: %s", getDescription(context), processResult.getStderr());
-        // }
         return StepExecutionResult.of(result, processResult.getStderr());
       }
 
       @Override
       public String getShortName() {
-        return "ld----r";
+        return "combineObjectFiles";
       }
 
       @Override
       public String getDescription(ExecutionContext context) {
-        return "ld----r";
+        return "Combine all object files of a module into a single object file.";
       }
     };
   }
