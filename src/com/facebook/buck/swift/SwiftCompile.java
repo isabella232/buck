@@ -243,7 +243,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "-num-threads",
         "12",
         "-index-store-path",
-        "."
+        "buck-out"
       );
 
       boolean use_output_filelist = false;
