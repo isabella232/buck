@@ -83,6 +83,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final Path moduleObjectPath;
   private final ImmutableList<Path> objectPaths;
   private final Optional<Path> swiftFileListPath;
+  private final Optional<Path> argsFilePath;
 
   @AddToRuleKey private final boolean shouldEmitSwiftdocs;
   private final Path swiftdocPath;
@@ -153,6 +154,16 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                         BuildTargetPaths.getScratchPath(
                             getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt")))
             : Optional.empty();
+
+    this.argsFilePath =
+      swiftBuckConfig.getUseArgFile()
+          ? Optional.of(
+            getProjectFilesystem()
+                .getRootPath()
+                .resolve(
+                    BuildTargetPaths.getScratchPath(
+                        getProjectFilesystem(), getBuildTarget(), "%s__swiftcompile.argsfile")))
+          : Optional.empty();
 
     this.shouldEmitSwiftdocs = swiftBuckConfig.getEmitSwiftdocs();
     this.swiftdocPath = outputPath.resolve(escapedModuleName + ".swiftdoc");
@@ -258,6 +269,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return new SwiftCompileStep(
+        projectFilesystem, argsFilePath,
         projectFilesystem.getRootPath(), ImmutableMap.of(), compilerCommand.build());
   }
 
@@ -298,6 +310,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return new SwiftCompileStep(
+        projectFilesystem, argsFilePath,
         projectFilesystem.getRootPath(), ImmutableMap.of(), compilerCommand.build());
   }
 
