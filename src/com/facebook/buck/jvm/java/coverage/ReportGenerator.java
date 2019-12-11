@@ -65,6 +65,7 @@ import org.jacoco.report.xml.XMLFormatter;
  * <p>The class files under test must be compiled with debug information, otherwise source
  * highlighting will not work.
  */
+// add test comment
 public class ReportGenerator {
 
   private static final Set<String> KNOWN_REPORT_FORMATS = Sets.newHashSet("csv", "html", "xml");
