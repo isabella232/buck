@@ -45,9 +45,11 @@ import java.util.Set;
 import javax.xml.xpath.XPathExpressionException;
 import org.hamcrest.core.IsEqual;
 import org.hamcrest.junit.ExpectedException;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
+@Ignore
 public class MiniAaptTest {
 
   private static final ImmutableList<String> RESOURCES =
