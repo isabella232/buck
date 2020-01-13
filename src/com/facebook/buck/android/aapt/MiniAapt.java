@@ -204,16 +204,16 @@ public class MiniAapt implements Step {
       return StepExecutionResults.ERROR;
     }
 
-    Set<RDotTxtEntry> missing = verifyReferences(filesystem, references.build());
-    if (!missing.isEmpty()) {
-      context
-          .getBuckEventBus()
-          .post(
-              ConsoleEvent.severe(
-                  "The following resources were not found when processing %s: \n%s\n",
-                  resDirectory, Joiner.on('\n').join(missing)));
-      return StepExecutionResults.ERROR;
-    }
+//    Set<RDotTxtEntry> missing = verifyReferences(filesystem, references.build());
+//    if (!missing.isEmpty()) {
+//      context
+//          .getBuckEventBus()
+//          .post(
+//              ConsoleEvent.severe(
+//                  "The following resources were not found when processing %s: \n%s\n",
+//                  resDirectory, Joiner.on('\n').join(missing)));
+//      return StepExecutionResults.ERROR;
+//    }
 
     if (resourceUnion) {
       resourceUnion();
