@@ -35,7 +35,7 @@ import com.facebook.buck.util.xml.DocumentLocation;
 import com.facebook.buck.util.xml.PositionalXmlHandler;
 import com.facebook.buck.util.xml.XmlDomParserWithLineNumbers;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
+//import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
