@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.util.config;
@@ -21,17 +21,15 @@ import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.macros.MacroFinder;
 import com.facebook.buck.core.macros.MacroReplacer;
 import com.facebook.buck.core.macros.StringMacroCombiner;
+import com.facebook.buck.core.util.Optionals;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.Optionals;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -40,6 +38,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.AbstractMap;
 import java.util.List;
 import java.util.Locale;
@@ -66,6 +65,13 @@ public class Config {
   // rawConfig is the flattened configuration relevant to the current cell
   private final RawConfig rawConfig;
 
+  /**
+   * Because rawConfig is a merge of other RawConfigs, the source of each field-value is lost. As
+   * that information is useful for diagnosis, this map stores each merged rawConfig with it's path
+   * as a key.
+   */
+  private final ImmutableMap<Path, RawConfig> configsMap;
+
   // The order-independent {@link HashCode} of the flattened configuration relevant to the current
   // cell.
   private final Supplier<HashCode> orderIndependentHashCode =
@@ -85,11 +91,16 @@ public class Config {
 
   /** Convenience constructor to create an empty config. */
   public Config() {
-    this(RawConfig.of());
+    this(RawConfig.of(), ImmutableMap.of());
   }
 
   public Config(RawConfig rawConfig) {
+    this(rawConfig, ImmutableMap.of());
+  }
+
+  public Config(RawConfig rawConfig, ImmutableMap<Path, RawConfig> configsMap) {
     this.rawConfig = rawConfig;
+    this.configsMap = configsMap;
   }
 
   // Some `.buckconfig`s embed genrule macros which break with recent changes to support the config
@@ -210,10 +221,6 @@ public class Config {
     return expanded.build();
   }
 
-  public ImmutableMap<String, ImmutableMap<String, String>> getRawConfigForDistBuild() {
-    return getSectionToEntries();
-  }
-
   /**
    * @return An {@link ImmutableList} containing all entries that don't look like comments, or the
    *     empty list if the property is not defined or there are no values.
@@ -270,8 +277,12 @@ public class Config {
       if (value.isEmpty()) {
         return Optional.empty();
       } else {
-        return Optional.of(
-            decodeQuotedParts(value, Optional.empty(), sectionName, propertyName).get(0));
+        ImmutableList<String> decoded =
+            decodeQuotedParts(value, Optional.empty(), sectionName, propertyName);
+        if (decoded.isEmpty()) {
+          return Optional.empty();
+        }
+        return Optional.of(decoded.get(0));
       }
     } else {
       return rawValue;
@@ -371,8 +382,7 @@ public class Config {
    */
   public ImmutableMap<String, String> getMap(
       String section, String field, char pairSeparatorChar, String keyValueSeparator) {
-    return getListWithoutComments(section, field, pairSeparatorChar)
-        .stream()
+    return getListWithoutComments(section, field, pairSeparatorChar).stream()
         .map(kvp -> Splitter.on(keyValueSeparator).trimResults().splitToList(kvp))
         .peek(
             kvp -> {
@@ -406,32 +416,6 @@ public class Config {
     }
     Config that = (Config) obj;
     return Objects.equal(this.rawConfig, that.rawConfig);
-  }
-
-  public boolean equalsIgnoring(
-      Config other, ImmutableMap<String, ImmutableSet<String>> ignoredFields) {
-    if (this == other) {
-      return true;
-    }
-    ImmutableMap<String, ImmutableMap<String, String>> left = this.getSectionToEntries();
-    ImmutableMap<String, ImmutableMap<String, String>> right = other.getSectionToEntries();
-    Sets.SetView<String> sections = Sets.union(left.keySet(), right.keySet());
-    for (String section : sections) {
-      ImmutableMap<String, String> leftFields = left.getOrDefault(section, ImmutableMap.of());
-      ImmutableMap<String, String> rightFields = right.getOrDefault(section, ImmutableMap.of());
-      Sets.SetView<String> fields =
-          Sets.difference(
-              Sets.union(leftFields.keySet(), rightFields.keySet()),
-              Optional.ofNullable(ignoredFields.get(section)).orElse(ImmutableSet.of()));
-      for (String field : fields) {
-        String leftValue = leftFields.get(field);
-        String rightValue = rightFields.get(field);
-        if (leftValue == null || !leftValue.equals(rightValue)) {
-          return false;
-        }
-      }
-    }
-    return true;
   }
 
   @Override
@@ -548,7 +532,7 @@ public class Config {
           section, field, input.substring(quoteIndex, lastIndex));
     }
 
-    listBuilder.add(stringBuilder.toString());
+    if (seenChar) listBuilder.add(stringBuilder.toString());
     return listBuilder.build();
   }
 
@@ -556,7 +540,7 @@ public class Config {
     RawConfig.Builder builder = RawConfig.builder();
     builder.putAll(this.rawConfig);
     builder.putAll(other.rawConfig);
-    return new Config(builder.build());
+    return new Config(builder.build(), this.configsMap);
   }
 
   /**
@@ -611,5 +595,15 @@ public class Config {
 
   public RawConfig getRawConfig() {
     return rawConfig;
+  }
+
+  /**
+   * A map of Paths to the RawConfig that came from that config file. When accessing this structure,
+   * bear in mind that it might have values that have been overriden in the merged rawConfig.
+   *
+   * @return A map of Paths to the RawConfig whose origin is that config file.
+   */
+  public ImmutableMap<Path, RawConfig> getConfigsMap() {
+    return configsMap;
   }
 }

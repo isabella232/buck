@@ -1,17 +1,17 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
@@ -22,17 +22,19 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.description.arg.BuildRuleArg;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
-import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownNativeRuleTypes;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.RuleArg;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.Step;
@@ -42,7 +44,6 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -51,6 +52,7 @@ import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -58,7 +60,6 @@ import java.util.Optional;
 import java.util.SortedSet;
 import javax.annotation.Nullable;
 import org.hamcrest.Matchers;
-import org.immutables.value.Value;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -81,8 +82,10 @@ public class BuildCommandErrorsIntegrationTest {
             sandboxExecutionStrategyFactory,
             knownConfigurationDescriptions) ->
             cell ->
-                KnownRuleTypes.of(
-                    ImmutableList.of(mockDescription), knownConfigurationDescriptions));
+                KnownNativeRuleTypes.of(
+                    ImmutableList.of(mockDescription),
+                    knownConfigurationDescriptions,
+                    ImmutableList.of()));
   }
 
   // TODO(cjhopman): Add cases for errors in other phases of the build (watchman, parsing,
@@ -101,7 +104,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void exceptionWithCauseThrown() throws Exception {
+  public void exceptionWithCauseThrown() {
     mockDescription.buildRuleFactory =
         exceptionTargetFactory("failure message", RuntimeException.class, RuntimeException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -116,7 +119,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void exceptionWithCauseThrownInStep() throws Exception {
+  public void exceptionWithCauseThrownInStep() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory(
             "failure message", RuntimeException.class, RuntimeException.class);
@@ -134,7 +137,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void runtimeExceptionThrown() throws Exception {
+  public void runtimeExceptionThrown() {
     mockDescription.buildRuleFactory =
         exceptionTargetFactory("failure message", RuntimeException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -148,7 +151,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void runtimeExceptionThrownInStep() throws Exception {
+  public void runtimeExceptionThrownInStep() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory("failure message", RuntimeException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -163,7 +166,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void ioExceptionThrownInStep() throws Exception {
+  public void ioExceptionThrownInStep() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory("failure message", IOException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -178,7 +181,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void ioExceptionThrown() throws Exception {
+  public void ioExceptionThrown() {
     mockDescription.buildRuleFactory = exceptionTargetFactory("failure message", IOException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertExitCode(null, ExitCode.FATAL_IO);
@@ -191,7 +194,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void ioExceptionWithRuleInMessageThrown() throws Exception {
+  public void ioExceptionWithRuleInMessageThrown() {
     mockDescription.buildRuleFactory =
         exceptionTargetFactory("failure message //:target_name", IOException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -205,7 +208,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void humanReadableExceptionThrownInStep() throws Exception {
+  public void humanReadableExceptionThrownInStep() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory("failure message", HumanReadableException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -219,7 +222,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void humanReadableExceptionThrown() throws Exception {
+  public void humanReadableExceptionThrown() {
     mockDescription.buildRuleFactory =
         exceptionTargetFactory("failure message", HumanReadableException.class);
     ProcessResult result = workspace.runBuckBuild(":target_name");
@@ -230,7 +233,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void withStepReturningFailure() throws Exception {
+  public void withStepReturningFailure() {
     mockDescription.buildRuleFactory = exitCodeTargetFactory("failure message", 1);
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
@@ -244,7 +247,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void withSuccessfulStep() throws Exception {
+  public void withSuccessfulStep() {
     mockDescription.buildRuleFactory = exitCodeTargetFactory("success message", 0);
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertSuccess();
@@ -252,7 +255,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void successWithNoSteps() throws Exception {
+  public void successWithNoSteps() {
     mockDescription.buildRuleFactory = successTargetFactory();
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertSuccess();
@@ -260,7 +263,7 @@ public class BuildCommandErrorsIntegrationTest {
   }
 
   @Test
-  public void runtimeExceptionThrownKeepGoing() throws Exception {
+  public void runtimeExceptionThrownKeepGoing() {
     mockDescription.buildRuleFactory =
         exceptionTargetFactory("failure message", RuntimeException.class);
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
@@ -269,13 +272,14 @@ public class BuildCommandErrorsIntegrationTest {
         result.getStderr(),
         Matchers.stringContainsInOrder(
             " ** Summary of failures encountered during the build **",
-            "Rule //:target_name FAILED because java.lang.RuntimeException: failure message",
+            "Rule //:target_name FAILED because",
+            "java.lang.RuntimeException: failure message",
             "When building rule //:target_name.",
             "Not all rules succeeded."));
   }
 
   @Test
-  public void runtimeExceptionThrownInStepKeepGoing() throws Exception {
+  public void runtimeExceptionThrownInStepKeepGoing() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory("failure message", RuntimeException.class);
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
@@ -284,14 +288,15 @@ public class BuildCommandErrorsIntegrationTest {
         result.getStderr(),
         Matchers.stringContainsInOrder(
             " ** Summary of failures encountered during the build **",
-            "Rule //:target_name FAILED because java.lang.RuntimeException: failure message",
+            "Rule //:target_name FAILED because",
+            "java.lang.RuntimeException: failure message",
             "When running <failing_step>.",
             "When building rule //:target_name.",
             "Not all rules succeeded."));
   }
 
   @Test
-  public void ioExceptionThrownInStepKeepGoing() throws Exception {
+  public void ioExceptionThrownInStepKeepGoing() {
     mockDescription.buildRuleFactory =
         stepExceptionTargetFactory("failure message", IOException.class);
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
@@ -300,14 +305,15 @@ public class BuildCommandErrorsIntegrationTest {
         result.getStderr(),
         Matchers.stringContainsInOrder(
             " ** Summary of failures encountered during the build **",
-            "Rule //:target_name FAILED because java.io.IOException: failure message",
+            "Rule //:target_name FAILED because",
+            "java.io.IOException: failure message",
             "When running <failing_step>.",
             "When building rule //:target_name.",
             "Not all rules succeeded."));
   }
 
   @Test
-  public void ioExceptionThrownKeepGoing() throws Exception {
+  public void ioExceptionThrownKeepGoing() {
     mockDescription.buildRuleFactory = exceptionTargetFactory("failure message", IOException.class);
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
     result.assertFailure();
@@ -315,9 +321,86 @@ public class BuildCommandErrorsIntegrationTest {
         result.getStderr(),
         Matchers.stringContainsInOrder(
             " ** Summary of failures encountered during the build **",
-            "Rule //:target_name FAILED because java.io.IOException: failure message",
+            "Rule //:target_name FAILED because",
+            "java.io.IOException: failure message",
             "When building rule //:target_name.",
             "Not all rules succeeded."));
+  }
+
+  @Test
+  public void suggestionsWhenBuildTargetDoesntExist() {
+    ProcessResult result =
+        workspace
+            .runBuckBuild("--keep-going", "//missing_target:bar")
+            .assertExitCode(ExitCode.PARSE_ERROR);
+    assertThat(
+        result.getStderr(),
+        Matchers.stringContainsInOrder(
+            "BUILD FAILED: The rule //missing_target:bar could not be found.",
+            "Please check the spelling and whether it is one of the 23 targets in ",
+            Paths.get("missing_target", "BUCK").toString() + ". (915 bytes)",
+            "3 similar targets in ",
+            "  //missing_target:barWithSomeLongSuffix",
+            "  //missing_target:baz",
+            "  //missing_target:foo"));
+
+    assertThat(
+        result.getStderr(), Matchers.not(Matchers.containsString("some_long_prefix_string_00")));
+
+    result =
+        workspace
+            .runBuckBuild("--keep-going", "//missing_target:bazWithSomeLongSuffix")
+            .assertExitCode(ExitCode.PARSE_ERROR);
+    assertThat(
+        result.getStderr(),
+        Matchers.stringContainsInOrder(
+            "BUILD FAILED: The rule //missing_target:bazWithSomeLongSuffix could not be found.",
+            "Please check the spelling and whether it is one of the 23 targets in ",
+            "2 similar targets in ",
+            "  //missing_target:barWithSomeLongSuffix",
+            "  //missing_target:baz"));
+
+    assertThat(result.getStderr(), Matchers.not(Matchers.containsString("  //missing_target:foo")));
+
+    result =
+        workspace
+            .runBuckBuild("--keep-going", "//missing_target:some_long_prefix_string")
+            .assertExitCode(ExitCode.PARSE_ERROR);
+    assertThat(
+        result.getStderr(),
+        Matchers.stringContainsInOrder(
+            "BUILD FAILED: The rule //missing_target:some_long_prefix_string could not be found.",
+            "Please check the spelling and whether it is one of the 23 targets in ",
+            "15 similar targets in ",
+            "some_long_prefix_string_00",
+            "some_long_prefix_string_01",
+            "some_long_prefix_string_02",
+            "some_long_prefix_string_03",
+            "some_long_prefix_string_04",
+            "some_long_prefix_string_05",
+            "some_long_prefix_string_06",
+            "some_long_prefix_string_07",
+            "some_long_prefix_string_08",
+            "some_long_prefix_string_09",
+            "some_long_prefix_string_10",
+            "some_long_prefix_string_11",
+            "some_long_prefix_string_12",
+            "some_long_prefix_string_13",
+            "some_long_prefix_string_14"));
+
+    assertThat(
+        result.getStderr(), Matchers.not(Matchers.containsString("some_long_prefix_string_15")));
+
+    result =
+        workspace
+            .runBuckBuild("--keep-going", "//missing_target:really_long_string_that_doesnt_match")
+            .assertExitCode(ExitCode.PARSE_ERROR);
+    assertThat(
+        result.getStderr(),
+        Matchers.stringContainsInOrder(
+            "BUILD FAILED: The rule //missing_target:really_long_string_that_doesnt_match could not be found.",
+            "Please check the spelling and whether it is one of the 23 targets in "));
+    assertThat(result.getStderr(), Matchers.not(Matchers.containsString("Similar targets in")));
   }
 
   private String getError(String stderr) {
@@ -491,7 +574,10 @@ public class BuildCommandErrorsIntegrationTest {
           new AbstractExecutionStep("step_with_exit_code_" + exitCode) {
             @Override
             public StepExecutionResult execute(ExecutionContext context) {
-              return StepExecutionResult.of(exitCode, Optional.of(message));
+              return StepExecutionResult.builder()
+                  .setExitCode(exitCode)
+                  .setStderr(Optional.of(message))
+                  .build();
             }
           });
     }
@@ -503,9 +589,8 @@ public class BuildCommandErrorsIntegrationTest {
     }
   }
 
-  @BuckStyleImmutable
-  @Value.Immutable
-  interface AbstractMockArg {}
+  @RuleArg
+  interface AbstractMockArg extends BuildRuleArg {}
 
   private class MockDescription implements DescriptionWithTargetGraph<MockArg> {
     private BuildRuleFactory buildRuleFactory = null;

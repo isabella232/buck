@@ -1,17 +1,17 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.java;
@@ -87,6 +87,9 @@ public class JavaFileParser {
           .put("6", JavaCore.VERSION_1_6)
           .put("7", JavaCore.VERSION_1_7)
           .put("8", JavaCore.VERSION_1_8)
+          .put("9", JavaCore.VERSION_9)
+          .put("10", JavaCore.VERSION_10)
+          .put("11", JavaCore.VERSION_11)
           .build();
 
   /**
@@ -455,7 +458,7 @@ public class JavaFileParser {
     this.javaVersion = javaVersion;
   }
 
-  public static JavaFileParser createJavaFileParser(JavacOptions options) {
+  public static JavaFileParser createJavaFileParser(JavacLanguageLevelOptions options) {
     String javaVersion = Objects.requireNonNull(javaVersionMap.get(options.getSourceLevel()));
     return new JavaFileParser(AST.JLS8, javaVersion);
   }
@@ -645,7 +648,7 @@ public class JavaFileParser {
 
               simpleImportedTypes.put(name, enclosingType);
             } else {
-              LOG.warn("Suspicious import lacks obvious enclosing type: %s", fullyQualifiedName);
+              LOG.info("Suspicious import lacks obvious enclosing type: %s", fullyQualifiedName);
               // The one example we have seen of this in the wild is
               // "org.whispersystems.curve25519.java.curve_sigs". In practice, we still need to add
               // it as a required symbol in this case.

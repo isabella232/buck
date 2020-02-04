@@ -1,31 +1,31 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.StringResources.Gender;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
-import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.pathformat.PathFormatter;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.util.xml.XmlDomParser;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
@@ -218,7 +218,7 @@ public class CompileStringsStep implements Step {
     ImmutableMultimap.Builder<String, Path> localeToFiles = ImmutableMultimap.builder();
 
     for (Path filepath : files) {
-      String path = MorePaths.pathWithUnixSeparators(filepath);
+      String path = PathFormatter.pathWithUnixSeparators(filepath);
       Matcher matcher = NON_ENGLISH_STRING_FILE_PATTERN.matcher(path);
 
       if (matcher.matches()) {
@@ -231,9 +231,11 @@ public class CompileStringsStep implements Step {
 
         localeToFiles.put(locale, filepath);
       } else {
-        Preconditions.checkState(
-            path.endsWith(ENGLISH_STRING_PATH_SUFFIX),
-            "Invalid path passed to compile strings: " + path);
+        if (!path.endsWith(ENGLISH_STRING_PATH_SUFFIX)) {
+          throw new HumanReadableException(
+              "Invalid path passed to compile strings. Expected path to end with %s, got path %s.",
+              ENGLISH_STRING_PATH_SUFFIX, path);
+        }
 
         localeToFiles.put(ENGLISH_LOCALE, filepath);
       }

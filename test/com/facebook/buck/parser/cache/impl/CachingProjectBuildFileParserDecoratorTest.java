@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser.cache.impl;
@@ -59,7 +59,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
   class FakeProjectBuildParser implements ProjectBuildFileParser {
 
     @Override
-    public BuildFileManifest getBuildFileManifest(Path buildFile) throws BuildFileParseException {
+    public BuildFileManifest getManifest(Path buildFile) throws BuildFileParseException {
       ImmutableMap<String, Object> targetMap = ImmutableMap.of("foo", "foo", "bar", "bar");
 
       return BuildFileManifest.of(
@@ -67,6 +67,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
           ImmutableSortedSet.of(),
           ImmutableMap.of(),
           Optional.empty(),
+          ImmutableList.of(),
           ImmutableList.of());
     }
 
@@ -105,7 +106,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
   public void setUp() throws IOException, InterruptedException {
     filesystem = FakeProjectFilesystem.createRealTempFilesystem();
     fakeParser = new FakeProjectBuildParser();
-    fakeParserManifest = fakeParser.getBuildFileManifest(filesystem.resolve("BUCK"));
+    fakeParserManifest = fakeParser.getManifest(filesystem.resolve("BUCK"));
   }
 
   @Test
@@ -120,8 +121,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
             filesystem,
             new FakeFileHashCache(ImmutableMap.of()));
 
-    BuildFileManifest cachingParserManifest =
-        cachingParser.getBuildFileManifest(filesystem.resolve("BUCK"));
+    BuildFileManifest cachingParserManifest = cachingParser.getManifest(filesystem.resolve("BUCK"));
 
     assertEquals(fakeParserManifest, cachingParserManifest);
   }
@@ -152,8 +152,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
             filesystem,
             new FakeFileHashCache(ImmutableMap.of()));
 
-    BuildFileManifest cachingParserManifest =
-        cachingParser.getBuildFileManifest(filesystem.resolve("BUCK"));
+    BuildFileManifest cachingParserManifest = cachingParser.getManifest(filesystem.resolve("BUCK"));
 
     assertEquals(fakeParserManifest, cachingParserManifest);
   }
@@ -171,8 +170,7 @@ public class CachingProjectBuildFileParserDecoratorTest {
             filesystem,
             new FakeFileHashCache(ImmutableMap.of()));
 
-    BuildFileManifest cachingParserManifest =
-        cachingParser.getBuildFileManifest(filesystem.resolve("BUCK"));
+    BuildFileManifest cachingParserManifest = cachingParser.getManifest(filesystem.resolve("BUCK"));
 
     assertEquals(fakeParserManifest, cachingParserManifest);
   }

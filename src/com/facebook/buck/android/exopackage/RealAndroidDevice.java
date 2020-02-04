@@ -1,22 +1,23 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.exopackage;
 
 import com.android.ddmlib.AdbCommandRejectedException;
+import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.CollectingOutputReceiver;
 import com.android.ddmlib.IDevice;
 import com.android.ddmlib.InstallException;
@@ -26,7 +27,9 @@ import com.android.ddmlib.SyncException;
 import com.android.ddmlib.TimeoutException;
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.agent.util.AgentUtil;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.immutables.BuckStyleValue;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
@@ -34,7 +37,6 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -44,12 +46,19 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 import com.google.common.io.Closer;
 import com.google.common.primitives.Ints;
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
+import java.nio.charset.UnsupportedCharsetException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -65,7 +74,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
-import org.immutables.value.Value;
 
 @VisibleForTesting
 public class RealAndroidDevice implements AndroidDevice {
@@ -85,6 +93,24 @@ public class RealAndroidDevice implements AndroidDevice {
 
   // constants for making requests to the adb daemon
   private static final Pattern LINE_ENDING = Pattern.compile("\r?\n");
+
+  // constants for making requests to the adb daemon
+  private static final String CHARSET_NAME = "ISO-8859-1";
+  private static final int DEFAULT_TIMEOUT = 1000; // 1000ms
+  private static final Charset DEFAULT_ENCODING;
+
+  static {
+    try {
+      DEFAULT_ENCODING = Charset.forName(CHARSET_NAME);
+    } catch (UnsupportedCharsetException e) {
+      throw new HumanReadableException("Unsupported Charset name: " + CHARSET_NAME);
+    }
+  }
+
+  private static final byte[] ID_DATA = "DATA".getBytes(DEFAULT_ENCODING);
+  private static final byte[] ID_DONE = "DONE".getBytes(DEFAULT_ENCODING);
+  private static final byte[] ID_SEND = "SEND".getBytes(DEFAULT_ENCODING);
+  private static final int SYNC_DATA_MAX = 64 * 1024; // 64KB
 
   private final BuckEventBus eventBus;
   private final IDevice device;
@@ -155,14 +181,14 @@ public class RealAndroidDevice implements AndroidDevice {
 
     String pmPath = null;
     for (String line : lines) {
-      // Ignore silly linker warnings about non-PIC code on emulators
-      if (!line.startsWith("WARNING: linker: ")) {
+      // Ignore warnings/other info that may come before the pm path output
+      if (line.startsWith(pmPathPrefix)) {
         pmPath = line;
         break;
       }
     }
 
-    if (pmPath == null || !pmPath.startsWith(pmPathPrefix)) {
+    if (pmPath == null || !pmPath.contains(packageName)) {
       LOG.warn("unable to locate package path for [" + packageName + "]");
       return Optional.empty();
     }
@@ -672,18 +698,17 @@ public class RealAndroidDevice implements AndroidDevice {
     };
   }
 
-  @Value.Immutable
-  @BuckStyleImmutable
-  abstract static class AbstractRapidInstallMode {
+  @BuckStyleValue
+  abstract static class RapidInstallMode {
     abstract String getIpAddress();
   }
 
   private Optional<RapidInstallMode> getRapidInstallMode() {
     if (device.isEmulator() && rapidInstallTypes.contains("emu")) {
-      return Optional.of(RapidInstallMode.builder().setIpAddress("10.0.2.2").build()); // NOPMD
+      return Optional.of(ImmutableRapidInstallMode.of("10.0.2.2")); // NOPMD
     } else if (isLocalTransport() && rapidInstallTypes.contains("tcp")) {
       String hostIpAddr = device.getSerialNumber().replaceAll("\\.[0-9:]+$", ".1");
-      return Optional.of(RapidInstallMode.builder().setIpAddress(hostIpAddr).build());
+      return Optional.of(ImmutableRapidInstallMode.of(hostIpAddr));
     }
     return Optional.empty();
   }
@@ -702,39 +727,177 @@ public class RealAndroidDevice implements AndroidDevice {
     }
   }
 
-  private void doMultiInstallViaADB(Map<Path, Path> installPaths) throws Exception {
-    // Directly utilize adb push to transfer files
-    for (Map.Entry<Path, Path> entry : installPaths.entrySet()) {
-      Path destination = entry.getKey();
-      Path source = entry.getValue();
-      try {
-        device.pushFile(source.toString(), destination.toString());
-
-      } catch (SyncException e) {
-        SyncException.SyncError errCode = e.getErrorCode();
-        String message = errCode.getMessage();
-        switch (errCode) {
-          case LOCAL_IS_DIRECTORY:
-          case NO_LOCAL_FILE:
-          case FILE_READ_ERROR:
-            throw new SyncException(
-                errCode, message.substring(0, message.length() - 1) + ": " + source);
-          case REMOTE_IS_FILE:
-          case REMOTE_PATH_LENGTH:
-          case REMOTE_PATH_ENCODING:
-            throw new SyncException(
-                errCode, message.substring(0, message.length() - 1) + ": " + destination);
-          case CANCELED:
-          case TRANSFER_PROTOCOL_ERROR:
-          case NO_REMOTE_OBJECT:
-          case TARGET_IS_FILE:
-          case NO_DIR_TARGET:
-          case FILE_WRITE_ERROR:
-          case BUFFER_OVERRUN:
-            throw e;
-        }
-      }
+  private void writeAllToChannel(SocketChannel chan, ByteBuffer buf) throws HumanReadableException {
+    try {
+      chan.write(buf);
+    } catch (IOException e) {
+      throw new HumanReadableException("Write timed out");
     }
+  }
+
+  private void readAllFromChannel(SocketChannel chan, ByteBuffer buf)
+      throws HumanReadableException {
+    try {
+      chan.read(buf);
+    } catch (IOException e) {
+      throw new HumanReadableException("Read timed out");
+    }
+  }
+
+  private SocketChannel getSyncService() throws Exception {
+    // Create a socket and send the necessary requests to adb daemon
+    SocketChannel chan = SocketChannel.open(AndroidDebugBridge.getSocketAddress());
+
+    // Set a timeout for the blocking channel
+    chan.socket().setSoTimeout(DEFAULT_TIMEOUT);
+
+    // Set the channel to be blocking
+    chan.configureBlocking(true);
+
+    String msg = "host:transport:" + device.getSerialNumber();
+    byte[] device_query = formAdbRequest(msg); // req = length + command
+
+    writeAllToChannel(chan, ByteBuffer.wrap(device_query));
+    byte[] resp = readResp(chan, 4);
+
+    if (!isOkay(resp)) {
+      throw new HumanReadableException(
+          "ADB daemon rejected switching connection to " + device.getSerialNumber());
+    }
+
+    byte[] sync_req = formAdbRequest("sync:");
+
+    ByteBuffer b = ByteBuffer.wrap(sync_req);
+    writeAllToChannel(chan, b);
+
+    if (!isOkay(readResp(chan, 4))) {
+      throw new HumanReadableException(
+          "ADB daemon rejected starting sync service to " + device.getSerialNumber());
+    }
+
+    return chan;
+  }
+
+  @SuppressWarnings("PMD.AvoidUsingOctalValues")
+  private void pushFile(String localPath, String remotePath, SocketChannel chan) throws Exception {
+    byte[] remotePathContent = remotePath.getBytes(DEFAULT_ENCODING);
+    File f = new File(localPath);
+    FileInputStream fis = new FileInputStream(f);
+    BufferedInputStream bis = new BufferedInputStream(fis);
+    byte[] send_msg =
+        createSendFileReq(ID_SEND, remotePathContent, 0644); // set the correct permission
+    writeAllToChannel(chan, ByteBuffer.wrap(send_msg));
+
+    byte[] dataBuffer = new byte[SYNC_DATA_MAX + 8];
+    System.arraycopy(ID_DATA, 0, dataBuffer, 0, ID_DATA.length); // Write the data header
+
+    // real transfer part
+
+    while (true) {
+
+      int readCount =
+          bis.read(dataBuffer, 8, SYNC_DATA_MAX); // Give 8 bytes of space to command + length
+
+      if (readCount == -1) {
+        // we reached the end of the file
+        break;
+      }
+
+      swap32bitsToArray(readCount, dataBuffer, 4);
+      writeAllToChannel(
+          chan, ByteBuffer.wrap(dataBuffer, 0, readCount + 8)); // 8 bytes for DATA + length
+    }
+
+    bis.close();
+
+    long time = f.lastModified() / 1000;
+    byte[] done_msg = createAdbdReq(ID_DONE, (int) time);
+    writeAllToChannel(chan, ByteBuffer.wrap(done_msg));
+
+    byte[] result = readResp(chan, 8); // 4-byte ID + 4-byte length
+
+    if (!isOkay(result)) {
+      throw new HumanReadableException(
+          "Encountered \""
+              + readErrorMessage(chan, result)
+              + "\" when sending file "
+              + localPath
+              + " --> "
+              + remotePath);
+    }
+  }
+
+  private static boolean isOkay(byte[] reply) {
+    return reply[0] == (byte) 'O'
+        && reply[1] == (byte) 'K'
+        && reply[2] == (byte) 'A'
+        && reply[3] == (byte) 'Y';
+  }
+
+  private String readErrorMessage(SocketChannel chann, byte[] reply) throws Exception {
+    // Read the 4-byte length at the end of the reply
+    int length = ByteBuffer.wrap(reply, 4, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
+    return new String(readResp(chann, length));
+  }
+
+  private static byte[] formAdbRequest(String req) {
+    String resultStr = String.format("%04X%s", req.length(), req);
+    byte[] result;
+    result = resultStr.getBytes(DEFAULT_ENCODING);
+    assert result.length == req.length() + 4;
+    return result;
+  }
+
+  private static byte[] createAdbdReq(byte[] command, int value) {
+    byte[] array = new byte[8];
+
+    System.arraycopy(command, 0, array, 0, 4);
+    swap32bitsToArray(value, array, 4);
+
+    return array;
+  }
+
+  private static void swap32bitsToArray(int value, byte[] dest, int offset) {
+    dest[offset] = (byte) (value & 0x000000FF);
+    dest[offset + 1] = (byte) ((value & 0x0000FF00) >> 8);
+    dest[offset + 2] = (byte) ((value & 0x00FF0000) >> 16);
+    dest[offset + 3] = (byte) ((value & 0xFF000000) >> 24);
+  }
+
+  private static byte[] createSendFileReq(byte[] command, byte[] path, int mode) {
+    // make the mode into a string
+    String modeStr = "," + (mode & 777);
+    byte[] modeContent = modeStr.getBytes(DEFAULT_ENCODING);
+
+    byte[] array = new byte[8 + path.length + modeContent.length];
+
+    System.arraycopy(command, 0, array, 0, 4);
+    swap32bitsToArray(
+        path.length + modeContent.length,
+        array,
+        4); // used for complying with the little endian requirement
+    System.arraycopy(path, 0, array, 8, path.length);
+    System.arraycopy(modeContent, 0, array, 8 + path.length, modeContent.length);
+    return array;
+  }
+
+  private byte[] readResp(SocketChannel chan, int length) throws Exception {
+    byte[] reply = new byte[length];
+    ByteBuffer b_reply = ByteBuffer.wrap(reply);
+    readAllFromChannel(chan, b_reply);
+
+    return reply;
+  }
+
+  private void doMultiInstallViaADB(Map<Path, Path> installPaths) throws Exception {
+    SocketChannel chan = getSyncService();
+    for (Map.Entry<Path, Path> entry : installPaths.entrySet()) {
+      String source = entry.getValue().toString();
+      String destination = entry.getKey().toString();
+      pushFile(source, destination, chan);
+    }
+
+    chan.close();
   }
 
   private void doMultiInstall(String filesType, Map<Path, Path> installPaths) throws Exception {

@@ -1,18 +1,19 @@
 /*
- * Copyright 2019-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.intellij.ideabuck.highlight;
 
 import static com.intellij.openapi.editor.colors.TextAttributesKey.createTextAttributesKey;
@@ -27,6 +28,7 @@ import com.intellij.openapi.fileTypes.SyntaxHighlighterBase;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /** Syntax highlighting for {@code .buckconfig} files. */
 public class BcfgSyntaxHighlighter extends SyntaxHighlighterBase {
@@ -63,25 +65,25 @@ public class BcfgSyntaxHighlighter extends SyntaxHighlighterBase {
 
   @NotNull
   @Override
-  public TextAttributesKey[] getTokenHighlights(IElementType tokenType) {
-    if (tokenType.equals(BcfgTypes.COMMENT)) {
+  public TextAttributesKey[] getTokenHighlights(@Nullable IElementType tokenType) {
+    if (BcfgTypes.COMMENT.equals(tokenType)) {
       return COMMENT_KEYS;
-    } else if (tokenType.equals(BcfgTypes.L_BRACKET)
-        || tokenType.equals(BcfgTypes.R_BRACKET)
-        || tokenType.equals(BcfgTypes.REQUIRED_INLINE)
-        || tokenType.equals(BcfgTypes.OPTIONAL_INLINE)
-        || tokenType.equals(BcfgTypes.END_INLINE)
-        || tokenType.equals(BcfgTypes.ASSIGN)) {
+    } else if (BcfgTypes.L_BRACKET.equals(tokenType)
+        || BcfgTypes.R_BRACKET.equals(tokenType)
+        || BcfgTypes.REQUIRED_FILE.equals(tokenType)
+        || BcfgTypes.OPTIONAL_FILE.equals(tokenType)
+        || BcfgTypes.END_INLINE.equals(tokenType)
+        || BcfgTypes.ASSIGN.equals(tokenType)) {
       return PUNCTUATION_KEYS;
-    } else if (tokenType.equals(BcfgTypes.PROPERTY_VALUE_FRAGMENT)) {
+    } else if (BcfgTypes.PROPERTY_VALUE_FRAGMENT.equals(tokenType)) {
       return VALUE_KEYS;
-    } else if (tokenType.equals(BcfgTypes.SECTION_NAME)) {
+    } else if (BcfgTypes.SECTION_NAME.equals(tokenType)) {
       return SECTION_KEYS;
-    } else if (tokenType.equals(BcfgTypes.PROPERTY_NAME)) {
+    } else if (BcfgTypes.PROPERTY_NAME.equals(tokenType)) {
       return PROPERTY_KEYS;
-    } else if (tokenType.equals(BcfgTypes.FILE_PATH)) {
+    } else if (BcfgTypes.FILE_PATH.equals(tokenType)) {
       return FILE_PATH_KEYS;
-    } else if (tokenType.equals(TokenType.BAD_CHARACTER)) {
+    } else if (TokenType.BAD_CHARACTER.equals(tokenType)) {
       return BAD_CHAR_KEYS;
     } else {
       return EMPTY_KEYS;

@@ -1,28 +1,34 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.io.filesystem;
 
+import com.facebook.buck.core.path.ForwardRelativePath;
+import com.facebook.buck.io.watchman.Capability;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitor;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileAttribute;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -50,14 +56,37 @@ public interface ProjectFilesystemView {
    */
   Path resolve(Path path);
 
-  /** @see #resolve(Path) * */
+  /** @see #resolve(Path) */
   Path resolve(String path);
+
+  /** @see #resolve(Path) */
+  Path resolve(ForwardRelativePath path);
+
+  /**
+   * Checks whether there is a normal file at the specified path
+   *
+   * @param path relative path to the root
+   * @param options whether to resolve symlinks
+   * @return true if path is a file
+   */
+  boolean isFile(Path path, LinkOption... options);
 
   /**
    * @param path relative path to the root
    * @return true iff the given path maps to a directory
    */
   boolean isDirectory(Path path);
+
+  /**
+   * Read basic attributes of a file from a file system
+   *
+   * @param path relative path to the root
+   * @param type type of attributes object
+   * @param options whether to resolve symlinks
+   * @return File attributes object
+   */
+  <A extends BasicFileAttributes> A readAttributes(Path path, Class<A> type, LinkOption... options)
+      throws IOException;
 
   /** @return the absolute path of the root of this view */
   Path getRootPath();
@@ -109,4 +138,15 @@ public interface ProjectFilesystemView {
    * relative to the root of this view.
    */
   ImmutableCollection<Path> getDirectoryContents(Path pathToUse) throws IOException;
+
+  /**
+   * @param lines the lines to write to the file. Each item is written as one line
+   * @param path the path relative to the view of this root to write the file. The parent of the
+   *     path must exist
+   * @param attrs the {@link FileAttribute}s for the file created
+   */
+  void writeLinesToPath(Iterable<String> lines, Path path, FileAttribute<?>... attrs)
+      throws IOException;
+
+  ImmutableList<String> toWatchmanQuery(Set<Capability> capabilities);
 }

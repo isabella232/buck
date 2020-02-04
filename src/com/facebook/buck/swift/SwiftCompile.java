@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.swift;
@@ -22,12 +22,14 @@ import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.PreprocessorFlags;
@@ -48,6 +50,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.swift.toolchain.SwiftTargetTriple;
 import com.facebook.buck.util.MoreIterables;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -63,10 +66,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.SortedSet;
 import java.util.function.Function;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
-public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+public class SwiftCompile extends AbstractBuildRule {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -87,6 +91,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final Path swiftdocPath;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
+  @AddToRuleKey private final SwiftTargetTriple swiftTarget;
   @AddToRuleKey private final Optional<String> version;
   @AddToRuleKey private final ImmutableList<? extends Arg> compilerFlags;
 
@@ -105,12 +110,15 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey private final boolean importUnderlyingModule;
 
+  private BuildableSupport.DepsSupplier depsSupplier;
+
   SwiftCompile(
       CxxPlatform cxxPlatform,
       SwiftBuckConfig swiftBuckConfig,
       BuildTarget buildTarget,
+      SwiftTargetTriple swiftTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
+      ActionGraphBuilder graphBuilder,
       Tool swiftCompiler,
       ImmutableSet<FrameworkPath> frameworks,
       String moduleName,
@@ -123,7 +131,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       Preprocessor preprocessor,
       PreprocessorFlags cxxDeps,
       boolean importUnderlyingModule) {
-    super(buildTarget, projectFilesystem, params);
+    super(buildTarget, projectFilesystem);
     this.cxxPlatform = cxxPlatform;
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
@@ -155,6 +163,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.swiftdocPath = outputPath.resolve(escapedModuleName + ".swiftdoc");
 
     this.srcs = ImmutableSortedSet.copyOf(srcs);
+    this.swiftTarget = swiftTarget;
     this.version = version;
     this.compilerFlags =
         new ImmutableList.Builder<Arg>()
@@ -165,6 +174,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.bridgingHeader = bridgingHeader;
     this.cPreprocessor = preprocessor;
     this.cxxDeps = cxxDeps;
+    this.depsSupplier = BuildableSupport.buildDepsSupplier(this, graphBuilder);
     performChecks(buildTarget);
   }
 
@@ -178,9 +188,11 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         !buildTarget.getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR));
   }
 
-  private SwiftCompileStep makeCompileStep(SourcePathResolver resolver) {
+  private SwiftCompileStep makeCompileStep(SourcePathResolverAdapter resolver) {
     ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
     compilerCommand.addAll(swiftCompiler.getCommandPrefix(resolver));
+
+    compilerCommand.add("-target", swiftTarget.getTriple());
 
     if (bridgingHeader.isPresent()) {
       compilerCommand.add(
@@ -205,11 +217,10 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(
             Iterables.cycle(INCLUDE_FLAG),
-            getBuildDeps()
-                .stream()
+            getBuildDeps().stream()
                 .filter(SwiftCompile.class::isInstance)
                 .map(BuildRule::getSourcePathToOutput)
-                .map(input -> resolver.getAbsolutePath(input).toString())
+                .map(input -> resolver.getRelativePath(input).toString())
                 .collect(ImmutableSet.toImmutableSet())));
 
     boolean hasMainEntry =
@@ -241,7 +252,8 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
           compilerCommand.add("-swift-version", validVersionString(v));
         });
 
-    compilerCommand.addAll(Arg.stringify(compilerFlags, resolver));
+    compilerCommand.addAll(
+        Iterables.filter(Arg.stringify(compilerFlags, resolver), arg -> !arg.equals("-Xfrontend")));
     if (swiftFileListPath.isPresent()) {
       compilerCommand.add("-filelist", swiftFileListPath.get().toString());
     } else {
@@ -281,26 +293,14 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     }
   }
 
-  private SwiftCompileStep makeModulewrapStep(SourcePathResolver resolver) {
+  private SwiftCompileStep makeModulewrapStep(SourcePathResolverAdapter resolver) {
     ImmutableList.Builder<String> compilerCommand = ImmutableList.builder();
     ImmutableList<String> commandPrefix = swiftCompiler.getCommandPrefix(resolver);
 
     // The swift compiler path will be the first element of the command prefix
     compilerCommand.add(commandPrefix.get(0));
-
-    String target = "";
-    for (int i = 0; i < commandPrefix.size() - 1; ++i) {
-      if (commandPrefix.get(i).equals("-target")) {
-        target = commandPrefix.get(i + 1);
-        break;
-      }
-    }
-
     compilerCommand.add("-modulewrap", modulePath.toString(), "-o", moduleObjectPath.toString());
-
-    if (!target.isEmpty()) {
-      compilerCommand.add("-target", target);
-    }
+    compilerCommand.add("-target", swiftTarget.getTriple());
 
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return new SwiftCompileStep(
@@ -318,6 +318,16 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     // populated the cache and the machine which is building have placed the source
     // repository at different paths (usually the case with CI and developer machines).
     return !bridgingHeader.isPresent() || swiftBuckConfig.getCompileForceCache();
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return depsSupplier.get();
+  }
+
+  @Override
+  public void updateBuildRuleResolver(BuildRuleResolver ruleResolver) {
+    this.depsSupplier = BuildableSupport.buildDepsSupplier(this, ruleResolver);
   }
 
   @Override
@@ -341,7 +351,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     return steps.build();
   }
 
-  private Step makeFileListStep(SourcePathResolver resolver, Path swiftFileListPath) {
+  private Step makeFileListStep(SourcePathResolverAdapter resolver, Path swiftFileListPath) {
     ImmutableList<String> relativePaths =
         srcs.stream()
             .map(sourcePath -> resolver.getRelativePath(sourcePath).toString())
@@ -381,7 +391,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
    *     swift doesn't like spaces after the "-I" flag.
    */
   @VisibleForTesting
-  ImmutableList<String> getSwiftIncludeArgs(SourcePathResolver resolver) {
+  ImmutableList<String> getSwiftIncludeArgs(SourcePathResolverAdapter resolver) {
     ImmutableList.Builder<String> args = ImmutableList.builder();
 
     // Arg list can't simply be passed in since the current implementation of toToolFlags drops the
@@ -426,8 +436,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   ImmutableList<Arg> getFileListLinkArg() {
     return FileListableLinkerInputArg.from(
-        objectPaths
-            .stream()
+        objectPaths.stream()
             .map(
                 objectPath ->
                     SourcePathArg.of(
@@ -443,8 +452,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   /** @return List of {@link SourcePath} to the output object file(s) (i.e., .o file) */
   public ImmutableList<SourcePath> getObjectPaths() {
     // Ensures that users of the object path can depend on this build target
-    return objectPaths
-        .stream()
+    return objectPaths.stream()
         .map(objectPath -> ExplicitBuildTargetSourcePath.of(getBuildTarget(), objectPath))
         .collect(ImmutableList.toImmutableList());
   }

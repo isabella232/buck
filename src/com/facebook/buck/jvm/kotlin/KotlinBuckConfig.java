@@ -1,27 +1,30 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.jvm.kotlin;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,52 +32,169 @@ import java.nio.file.Paths;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
-public class KotlinBuckConfig {
+/** A kotlin-specific "view" of BuckConfig. */
+public class KotlinBuckConfig implements ConfigView<BuckConfig> {
+
+  private static final Logger LOG = Logger.get(KotlinBuckConfig.class);
   private static final String SECTION = "kotlin";
-  private static final String KOTLIN_HOME_CONFIG = "kotlin_home";
+  public static final String PROPERTY_COMPILE_AGAINST_ABIS = "compile_against_abis";
+  public static final String PROPERTY_ABI_GENERATION_MODE = "abi_generation_mode";
 
   private static final Path DEFAULT_KOTLIN_COMPILER = Paths.get("kotlinc");
 
   private final BuckConfig delegate;
-  private @Nullable Kotlinc kotlinc;
+  private @Nullable Path kotlinHome;
 
   public KotlinBuckConfig(BuckConfig delegate) {
     this.delegate = delegate;
   }
 
   public Kotlinc getKotlinc() {
-    if (kotlinc == null) {
-      if (isExternalCompilation()) {
-        kotlinc = new ExternalKotlinc(getPathToCompilerBinary());
-      } else {
-        Optional<SourcePath> kotlinHomeSourcePath =
-            delegate.getSourcePath(SECTION, KOTLIN_HOME_CONFIG, EmptyTargetConfiguration.INSTANCE);
-        if (kotlinHomeSourcePath.isPresent()) {
-          kotlinc = new JarBackedReflectedKotlinc(kotlinHomeSourcePath.get());
-        } else {
-          throw new HumanReadableException(
-              "kotlin_home needs to be set when not an external compilation");
-        }
-      }
+    if (isExternalCompilation()) {
+      return new ExternalKotlinc(getPathToCompilerBinary());
+    } else {
+      ImmutableSet<SourcePath> classpathEntries =
+        ImmutableSet.of(
+          delegate.getPathSourcePath(getPathToStdlibJar()),
+          delegate.getPathSourcePath(getPathToReflectJar()),
+          delegate.getPathSourcePath(getPathToScriptRuntimeJar()),
+          delegate.getPathSourcePath(getPathToAnnotationsJar()),
+          delegate.getPathSourcePath(getPathToCompilerJar()));
+
+      return new JarBackedReflectedKotlinc(
+        classpathEntries, getPathToAnnotationProcessingJar(), getPathToStdlibJar());
     }
-    return kotlinc;
   }
 
-  public Optional<BuildTarget> getKotlinHomeTarget() {
-    return delegate.getMaybeBuildTarget(SECTION, KOTLIN_HOME_CONFIG, EmptyTargetConfiguration.INSTANCE);
+  public ImmutableSortedSet<Path> getKotlinHomeLibraries() {
+    return ImmutableSortedSet.copyOf(
+      ImmutableSortedSet.of(
+        getPathToStdlibJar(),
+        getPathToReflectJar(),
+        getPathToScriptRuntimeJar(),
+        getPathToCompilerJar(),
+        getPathToTrove4jJar(),
+        getPathToAnnotationsJar()));
   }
 
-  private Path getPathToCompilerBinary() {
-    Path kotlinHome = getKotlinHome();
-    Path compilerPath = kotlinHome.resolve("kotlinc");
+  public boolean shouldCompileAgainstAbis() {
+    return delegate.getBooleanValue(SECTION, PROPERTY_COMPILE_AGAINST_ABIS, false);
+  }
+
+  public AbiGenerationMode getAbiGenerationMode() {
+    return delegate
+      .getEnum(SECTION, PROPERTY_ABI_GENERATION_MODE, AbiGenerationMode.class)
+      .orElse(AbiGenerationMode.CLASS);
+  }
+
+  Path getPathToCompilerBinary() {
+    Path compilerPath = getKotlinHome().resolve("kotlinc");
     if (!Files.isExecutable(compilerPath)) {
-      compilerPath = kotlinHome.resolve("bin").resolve("kotlinc");
+      compilerPath = getKotlinHome().resolve(Paths.get("bin", "kotlinc"));
       if (!Files.isExecutable(compilerPath)) {
         throw new HumanReadableException("Could not resolve kotlinc location.");
       }
     }
 
     return new ExecutableFinder().getExecutable(compilerPath, delegate.getEnvironment());
+  }
+
+  private Path getPathToJar(String jarName) {
+    Path reflect = getKotlinHome().resolve(jarName + ".jar");
+    if (Files.isRegularFile(reflect)) {
+      return reflect.normalize();
+    }
+
+    reflect = getKotlinHome().resolve(Paths.get("lib", jarName + ".jar"));
+    if (Files.isRegularFile(reflect)) {
+      return reflect.normalize();
+    }
+
+    reflect = getKotlinHome().resolve(Paths.get("libexec", "lib", jarName + ".jar"));
+    if (Files.isRegularFile(reflect)) {
+      return reflect.normalize();
+    }
+
+    throw new HumanReadableException(
+      "Could not resolve " + jarName + " JAR location (kotlin home:" + getKotlinHome() + ").");
+  }
+
+  /**
+   * Get the path to the Kotlin runtime jar.
+   *
+   * @return the Kotlin runtime jar path
+   */
+  Path getPathToStdlibJar() {
+    return getPathToJar("kotlin-stdlib");
+  }
+
+  /**
+   * Get the path to the Kotlin reflection jar.
+   *
+   * @return the Kotlin reflection jar path
+   */
+  Path getPathToReflectJar() {
+    return getPathToJar("kotlin-reflect");
+  }
+
+  /**
+   * Get the path to the Kotlin script runtime jar.
+   *
+   * @return the Kotlin script runtime jar path
+   */
+  Path getPathToScriptRuntimeJar() {
+    return getPathToJar("kotlin-script-runtime");
+  }
+
+  /**
+   * Get the path to the Kotlin compiler jar.
+   *
+   * @return the Kotlin compiler jar path
+   */
+  Path getPathToCompilerJar() {
+    return getPathToJar("kotlin-compiler");
+  }
+
+  /**
+   * Get the path to the trove4j jar, which is required by the compiler jar.
+   *
+   * @return the trove4j jar path
+   */
+  Path getPathToTrove4jJar() {
+    return getPathToJar("trove4j");
+  }
+
+  /**
+   * Get the path to the annotations jar, which is required by the compiler jar.
+   *
+   * @return the annotations jar path
+   */
+  Path getPathToAnnotationsJar() {
+    return getPathToJar("annotations-13.0");
+  }
+
+  /**
+   * Get the path to the Kotlin annotation processing jar.
+   *
+   * @return the Kotlin annotation processing jar path
+   */
+  Path getPathToAnnotationProcessingJar() {
+    return getPathToJar("kotlin-annotation-processing");
+  }
+
+  /** @return the path to the Kotlin compiler abi generation plugin jar. */
+  @Nullable
+  Path getPathToAbiGenerationPluginJar() {
+    try {
+      return getPathToJar("jvm-abi-gen");
+    } catch (HumanReadableException e) {
+      LOG.warn(
+        "jvm-abi-gen.jar was not found in "
+          + kotlinHome
+          + " directory, this"
+          + " means that source ABIs will not be generated.");
+      return null;
+    }
   }
 
   /**
@@ -102,52 +222,53 @@ public class KotlinBuckConfig {
    * @return the Kotlin home path
    */
   private Path getKotlinHome() {
-    if (!isExternalCompilation()) {
-      throw new HumanReadableException(
-          "kotlinHome path can only be queried when it's an external compilation");
+    if (kotlinHome != null) {
+      return kotlinHome;
     }
 
-    Path kotlinHome;
-
     try {
-      Optional<String> value = delegate.getValue(SECTION, KOTLIN_HOME_CONFIG);
-      if (value.isPresent()) {
-        // try to get kotlin home path from kotlin_home buck config
-        boolean isAbsolute = Paths.get(value.get()).isAbsolute();
-        Optional<Path> homePath = delegate.getPath(SECTION, KOTLIN_HOME_CONFIG, !isAbsolute);
+      // Check the buck configuration for a specified kotlin home
+      Optional<String> value = delegate.getValue(SECTION, "kotlin_home");
 
+      if (value.isPresent()) {
+        boolean isAbsolute = Paths.get(value.get()).isAbsolute();
+        Optional<Path> homePath = delegate.getPath(SECTION, "kotlin_home", !isAbsolute);
         if (homePath.isPresent() && Files.isDirectory(homePath.get())) {
-          kotlinHome = homePath.get().toRealPath().normalize();
+          return homePath.get().toRealPath().normalize();
         } else {
           throw new HumanReadableException(
-              "Kotlin home directory (" + homePath + ") specified in .buckconfig was not found.");
+            "Kotlin home directory (" + homePath + ") specified in .buckconfig was not found.");
         }
       } else {
         // If the KOTLIN_HOME environment variable is specified we trust it
         String home = delegate.getEnvironment().get("KOTLIN_HOME");
         if (home != null) {
-          kotlinHome = Paths.get(home).normalize();
+          return Paths.get(home).normalize();
         } else {
           // Lastly, we try to resolve from the system PATH
           Optional<Path> compiler =
-              new ExecutableFinder()
-                  .getOptionalExecutable(DEFAULT_KOTLIN_COMPILER, delegate.getEnvironment());
+            new ExecutableFinder()
+              .getOptionalExecutable(DEFAULT_KOTLIN_COMPILER, delegate.getEnvironment());
           if (compiler.isPresent()) {
             kotlinHome = compiler.get().toRealPath().getParent().normalize();
             if (kotlinHome != null && kotlinHome.endsWith(Paths.get("bin"))) {
               kotlinHome = kotlinHome.getParent().normalize();
             }
+            return kotlinHome;
           } else {
             throw new HumanReadableException(
-                "Could not resolve kotlin home directory, Consider setting KOTLIN_HOME.");
+              "Could not resolve kotlin home directory, Consider setting KOTLIN_HOME.");
           }
         }
       }
     } catch (IOException io) {
       throw new HumanReadableException(
-          "Could not resolve kotlin home directory, Consider setting KOTLIN_HOME.", io);
+        "Could not resolve kotlin home directory, Consider setting KOTLIN_HOME.", io);
     }
+  }
 
-    return kotlinHome;
+  @Override
+  public BuckConfig getDelegate() {
+    return delegate;
   }
 }

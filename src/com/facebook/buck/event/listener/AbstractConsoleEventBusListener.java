@@ -1,32 +1,27 @@
 /*
- * Copyright 2013-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
 package com.facebook.buck.event.listener;
 
-import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
-import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.util.log.Logger;
-import com.facebook.buck.distributed.DistBuildStatus;
-import com.facebook.buck.distributed.DistBuildStatusEvent;
-import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
-import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -38,13 +33,16 @@ import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.stats.cache.NetworkStatsKeeper;
+import com.facebook.buck.event.listener.stats.cache.NetworkStatsTracker;
+import com.facebook.buck.event.listener.stats.parse.ParseStatsTracker;
 import com.facebook.buck.event.listener.util.EventInterval;
-import com.facebook.buck.json.ProjectBuildFileParseEvents;
-import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.parser.events.ParseBuckFileEvent;
+import com.facebook.buck.event.listener.util.ProgressEstimation;
+import com.facebook.buck.event.listener.util.ProgressEstimator;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.console.ConsoleUtils;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.i18n.NumberFormatter;
 import com.facebook.buck.util.timing.Clock;
@@ -52,7 +50,6 @@ import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -78,12 +75,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
-import javax.annotation.concurrent.GuardedBy;
 import org.stringtemplate.v4.ST;
 
 /**
@@ -116,45 +110,24 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   private final boolean showSlowRulesInConsole;
   private final Map<UnflavoredBuildTarget, Long> timeSpentMillisecondsInRules;
 
-  @Nullable protected volatile ProjectBuildFileParseEvents.Started projectBuildFileParseStarted;
-  @Nullable protected volatile ProjectBuildFileParseEvents.Finished projectBuildFileParseFinished;
-
   @Nullable protected volatile ProjectGenerationEvent.Started projectGenerationStarted;
   @Nullable protected volatile ProjectGenerationEvent.Finished projectGenerationFinished;
 
   @Nullable protected volatile WatchmanStatusEvent.Started watchmanStarted;
   @Nullable protected volatile WatchmanStatusEvent.Finished watchmanFinished;
 
-  protected ConcurrentLinkedDeque<ParseEvent.Started> parseStarted;
-  protected ConcurrentLinkedDeque<ParseEvent.Finished> parseFinished;
-
   protected ConcurrentLinkedDeque<ActionGraphEvent.Started> actionGraphStarted;
   protected ConcurrentLinkedDeque<ActionGraphEvent.Finished> actionGraphFinished;
 
   protected ConcurrentHashMap<EventKey, EventInterval> actionGraphEvents;
-  protected ConcurrentHashMap<EventKey, EventInterval> buckFilesParsingEvents;
 
   @Nullable protected volatile BuildEvent.Started buildStarted;
   @Nullable protected volatile BuildEvent.Finished buildFinished;
-
-  @Nullable protected volatile BuildEvent.DistBuildStarted distBuildStarted;
-  @Nullable protected volatile BuildEvent.DistBuildFinished distBuildFinished;
 
   @Nullable protected volatile InstallEvent.Started installStarted;
   @Nullable protected volatile InstallEvent.Finished installFinished;
 
   @Nullable protected volatile CommandEvent.Finished commandFinished;
-
-  protected AtomicReference<HttpArtifactCacheEvent.Scheduled> firstHttpCacheUploadScheduled =
-      new AtomicReference<>();
-
-  protected final AtomicInteger remoteArtifactUploadsScheduledCount = new AtomicInteger(0);
-  protected final AtomicInteger remoteArtifactUploadsStartedCount = new AtomicInteger(0);
-  protected final AtomicInteger remoteArtifactUploadedCount = new AtomicInteger(0);
-  protected final AtomicLong remoteArtifactTotalBytesUploaded = new AtomicLong(0);
-  protected final AtomicInteger remoteArtifactUploadFailedCount = new AtomicInteger(0);
-
-  @Nullable protected volatile HttpArtifactCacheEvent.Shutdown httpShutdownEvent;
 
   protected volatile OptionalInt ruleCount = OptionalInt.empty();
   protected Optional<String> publicAnnouncements = Optional.empty();
@@ -163,23 +136,13 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   protected Optional<ProgressEstimator> progressEstimator = Optional.empty();
 
-  protected final CacheRateStatsKeeper cacheRateStatsKeeper;
-
-  protected final NetworkStatsKeeper networkStatsKeeper;
-
-  protected volatile int distBuildTotalRulesCount = 0;
-  protected volatile int distBuildFinishedRulesCount = 0;
+  protected final NetworkStatsTracker networkStatsTracker;
+  protected final ParseStatsTracker parseStats;
 
   protected BuildRuleThreadTracker buildRuleThreadTracker;
 
-  protected final Object distBuildStatusLock = new Object();
-
-  @GuardedBy("distBuildStatusLock")
-  protected Optional<DistBuildStatus> distBuildStatus = Optional.empty();
-
   /** Commands that should print out the build details, if provided */
-  protected final ImmutableSet<String> buildDetailsCommands =
-      ImmutableSet.of("build", "test", "install");
+  protected final ImmutableSet<String> buildDetailsCommands;
 
   private final AtomicBoolean topSlowestRulesLogged = new AtomicBoolean(false);
 
@@ -190,8 +153,11 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       ExecutionEnvironment executionEnvironment,
       boolean showTextInAllCaps,
       int numberOfSlowRulesToShow,
-      boolean showSlowRulesInConsole) {
+      boolean showSlowRulesInConsole,
+      ImmutableSet<String> buildDetailsCommands) {
     this.console = console;
+    this.parseStats = new ParseStatsTracker();
+    this.networkStatsTracker = new NetworkStatsTracker();
     this.clock = clock;
     this.locale = locale;
     this.ansi = console.getAnsi();
@@ -201,23 +167,16 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     this.showSlowRulesInConsole = showSlowRulesInConsole;
     this.timeSpentMillisecondsInRules = new HashMap<>();
 
-    this.projectBuildFileParseStarted = null;
-    this.projectBuildFileParseFinished = null;
-
     this.projectGenerationStarted = null;
     this.projectGenerationFinished = null;
 
     this.watchmanStarted = null;
     this.watchmanFinished = null;
 
-    this.parseStarted = new ConcurrentLinkedDeque<>();
-    this.parseFinished = new ConcurrentLinkedDeque<>();
-
     this.actionGraphStarted = new ConcurrentLinkedDeque<>();
     this.actionGraphFinished = new ConcurrentLinkedDeque<>();
 
     this.actionGraphEvents = new ConcurrentHashMap<>();
-    this.buckFilesParsingEvents = new ConcurrentHashMap<>();
 
     this.buildStarted = null;
     this.buildFinished = null;
@@ -225,10 +184,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     this.installStarted = null;
     this.installFinished = null;
 
-    this.cacheRateStatsKeeper = new CacheRateStatsKeeper();
-    this.networkStatsKeeper = new NetworkStatsKeeper();
-
     this.buildRuleThreadTracker = new BuildRuleThreadTracker(executionEnvironment);
+    this.buildDetailsCommands = buildDetailsCommands;
+  }
+
+  public void register(BuckEventBus buildEventBus) {
+    buildEventBus.register(this);
+    buildEventBus.register(parseStats);
+    buildEventBus.register(networkStatsTracker);
   }
 
   public static String getBuildDetailsLine(BuildId buildId, String buildDetailsTemplate) {
@@ -251,6 +214,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   public void setProgressEstimator(ProgressEstimator estimator) {
     if (displaysEstimatedProgress()) {
       progressEstimator = Optional.of(estimator);
+      parseStats.setProgressEstimator(estimator);
     }
   }
 
@@ -260,29 +224,11 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     return minutes == 0 ? String.valueOf(seconds) : String.format("%2$dm %1$s", seconds, minutes);
   }
 
-  protected Optional<Double> getApproximateDistBuildProgress() {
-    if (distBuildTotalRulesCount == 0) {
-      return Optional.of(0.0);
-    }
-
-    double buildRatio = (double) distBuildFinishedRulesCount / distBuildTotalRulesCount;
-    return Optional.of(Math.floor(100 * buildRatio) / 100.0);
-  }
-
-  /** Local build progress. */
-  protected Optional<Double> getApproximateLocalBuildProgress() {
+  protected Optional<Double> getApproximateBuildProgress() {
     if (progressEstimator.isPresent()) {
       return progressEstimator.get().getApproximateBuildProgress();
     } else {
       return Optional.empty();
-    }
-  }
-
-  protected Optional<Double> getApproximateBuildProgress() {
-    if (distBuildStarted != null && distBuildFinished == null) {
-      return getApproximateDistBuildProgress();
-    } else {
-      return getApproximateLocalBuildProgress();
     }
   }
 
@@ -294,11 +240,21 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
   }
 
-  protected Optional<Double> getEstimatedProgressOfParsingBuckFiles() {
+  /** @return Estimated progress of parsing files stage. */
+  protected ProgressEstimation getEstimatedProgressOfParsingBuckFiles() {
     if (progressEstimator.isPresent()) {
       return progressEstimator.get().getEstimatedProgressOfParsingBuckFiles();
     } else {
-      return Optional.empty();
+      return ProgressEstimation.UNKNOWN;
+    }
+  }
+
+  /** @return Estimated progress of parsing files stage. */
+  protected ProgressEstimation getEstimatedProgressOfCreatingActionGraph() {
+    if (progressEstimator.isPresent()) {
+      return progressEstimator.get().getEstimatedProgressOfCreatingActionGraph();
+    } else {
+      return ProgressEstimation.UNKNOWN;
     }
   }
 
@@ -390,13 +346,11 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       return UNFINISHED_EVENT_PAIR;
     }
     EventInterval interval =
-        EventInterval.builder()
-            .setStart(startEvent.getTimestamp())
-            .setFinish(
-                finishedEvent == null
-                    ? OptionalLong.empty()
-                    : OptionalLong.of(finishedEvent.getTimestamp()))
-            .build();
+        EventInterval.of(
+            OptionalLong.of(startEvent.getTimestampMillis()),
+            finishedEvent == null
+                ? OptionalLong.empty()
+                : OptionalLong.of(finishedEvent.getTimestampMillis()));
     return logEventInterval(
         prefix,
         suffix,
@@ -414,8 +368,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * @param lines The builder to append lines to.
    */
   protected void logHttpCacheUploads(ImmutableList.Builder<String> lines) {
-    if (firstHttpCacheUploadScheduled.get() != null) {
-      boolean isFinished = httpShutdownEvent != null;
+    if (networkStatsTracker.haveUploadsStarted()) {
+      boolean isFinished = networkStatsTracker.haveUploadsFinished();
       String line = "HTTP CACHE UPLOAD" + (isFinished ? ": FINISHED " : "... ");
       line += renderRemoteUploads();
       lines.add(line);
@@ -437,12 +391,31 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       Optional<String> suffix,
       long currentMillis,
       Collection<EventInterval> eventIntervals,
-      Optional<Double> progress,
+      ProgressEstimation progress,
       Optional<Long> minimum,
       ImmutableList.Builder<String> lines) {
+    return addLineFromEventInterval(
+        prefix, suffix, currentMillis, getStartAndFinish(eventIntervals), progress, minimum, lines);
+  }
 
-    EventInterval startAndFinish = getStartAndFinish(eventIntervals);
-
+  /**
+   * Adds a line about an {@link EventInterval} to lines.
+   *
+   * @param prefix Prefix to print for this event pair.
+   * @param suffix Suffix to print for this event pair.
+   * @param currentMillis The current time in milliseconds.
+   * @param startAndFinish the event interval to measure elapsed time.
+   * @param lines The builder to append lines to.
+   * @return True if all events are finished, false otherwise
+   */
+  protected boolean addLineFromEventInterval(
+      String prefix,
+      Optional<String> suffix,
+      long currentMillis,
+      EventInterval startAndFinish,
+      ProgressEstimation progress,
+      Optional<Long> minimum,
+      ImmutableList.Builder<String> lines) {
     if (!startAndFinish.getStart().isPresent()) {
       // nothing to display, event has not even started yet
       return false;
@@ -465,8 +438,12 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
     result += formatElapsedTime(elapsedTime);
 
-    if (progress.isPresent()) {
-      result += isFinished ? " (100%)" : " (" + Math.round(progress.get() * 100) + "%)";
+    if (!isFinished) {
+      if (progress.getProgress().isPresent()) {
+        result += " (" + Math.round(progress.getProgress().get() * 100) + "%)";
+      } else if (progress.getNumber().isPresent()) {
+        result += " (" + progress.getNumber().get() + "/unknown)";
+      }
     }
 
     if (suffix.isPresent()) {
@@ -630,24 +607,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   /** Formats a {@link ConsoleEvent} and adds it to {@code lines}. */
   protected ImmutableList<String> formatConsoleEvent(ConsoleEvent logEvent) {
-    if (logEvent.getMessage() == null) {
-      LOG.error("Got logEvent with null message");
-      return ImmutableList.of();
-    }
-    String formattedLine = "";
-    if (logEvent.containsAnsiEscapeCodes() || logEvent.getLevel().equals(Level.INFO)) {
-      formattedLine = logEvent.getMessage();
-    } else if (logEvent.getLevel().equals(Level.WARNING)) {
-      formattedLine = ansi.asWarningText(logEvent.getMessage());
-    } else if (logEvent.getLevel().equals(Level.SEVERE)) {
-      formattedLine = ansi.asHighlightedFailureText(logEvent.getMessage());
-    }
-    if (!formattedLine.isEmpty()) {
-      // Split log messages at newlines and add each line individually to keep the line count
-      // consistent.
-      return ImmutableList.copyOf(Splitter.on(System.lineSeparator()).split(formattedLine));
-    }
-    return ImmutableList.of();
+    return ConsoleUtils.formatConsoleEvent(logEvent, console.getAnsi());
   }
 
   @Subscribe
@@ -663,8 +623,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
         started.getEventKey(),
         (key, pair) ->
             pair == null
-                ? EventInterval.builder().setStart(started.getTimestamp()).build()
-                : pair.withStart(started.getTimestamp()));
+                ? EventInterval.start(started.getTimestampMillis())
+                : pair.withStart(started.getTimestampMillis()));
   }
 
   public static void aggregateFinishedEvent(
@@ -673,22 +633,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
         finished.getEventKey(),
         (key, pair) ->
             pair == null
-                ? EventInterval.builder().setFinish(finished.getTimestamp()).build()
-                : pair.withFinish(finished.getTimestamp()));
-  }
-
-  @Subscribe
-  public void projectBuildFileParseStarted(ProjectBuildFileParseEvents.Started started) {
-    if (projectBuildFileParseStarted == null) {
-      projectBuildFileParseStarted = started;
-    }
-    aggregateStartedEvent(buckFilesParsingEvents, started);
-  }
-
-  @Subscribe
-  public void projectBuildFileParseFinished(ProjectBuildFileParseEvents.Finished finished) {
-    projectBuildFileParseFinished = finished;
-    aggregateFinishedEvent(buckFilesParsingEvents, finished);
+                ? EventInterval.finish(finished.getTimestampMillis())
+                : pair.withFinish(finished.getTimestampMillis()));
   }
 
   @Subscribe
@@ -706,25 +652,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   public void projectGenerationFinished(ProjectGenerationEvent.Finished finished) {
     projectGenerationFinished = finished;
     progressEstimator.ifPresent(ProgressEstimator::didFinishProjectGeneration);
-  }
-
-  @Subscribe
-  public void parseStarted(ParseEvent.Started started) {
-    parseStarted.add(started);
-    aggregateStartedEvent(buckFilesParsingEvents, started);
-  }
-
-  @Subscribe
-  public void ruleParseFinished(ParseBuckFileEvent.Finished ruleParseFinished) {
-    progressEstimator.ifPresent(
-        estimator -> estimator.didParseBuckRules(ruleParseFinished.getNumRules()));
-  }
-
-  @Subscribe
-  public void parseFinished(ParseEvent.Finished finished) {
-    parseFinished.add(finished);
-    progressEstimator.ifPresent(ProgressEstimator::didFinishParsing);
-    aggregateFinishedEvent(buckFilesParsingEvents, finished);
   }
 
   @Subscribe
@@ -756,22 +683,15 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   @Subscribe
-  public void distBuildStarted(BuildEvent.DistBuildStarted started) {
-    distBuildStarted = started;
-  }
-
-  @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
     ruleCount = OptionalInt.of(calculated.getNumRules());
     progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(calculated.getNumRules()));
-    cacheRateStatsKeeper.ruleCountCalculated(calculated);
   }
 
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
     ruleCount = OptionalInt.of(updated.getNumRules());
     progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(updated.getNumRules()));
-    cacheRateStatsKeeper.ruleCountUpdated(updated);
   }
 
   protected Optional<String> getOptionalBuildLineSuffix() {
@@ -786,7 +706,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
               numRulesCompleted.get(),
               ruleCount.getAsInt()));
       CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
-          cacheRateStatsKeeper.getStats();
+          networkStatsTracker.getCacheRateStats();
       columns.add(
           String.format(
               locale,
@@ -805,23 +725,23 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
             : convertToAllCapsIfNeeded("Downloading") + "...";
     List<String> columns = new ArrayList<>();
 
-    Pair<Long, SizeUnit> remoteDownloadedBytes =
-        networkStatsKeeper.getRemoteDownloadedArtifactsBytes();
+    NetworkStatsKeeper.RemoteDownloadStats downloadStats =
+        networkStatsTracker.getRemoteDownloadStats();
+
+    long remoteDownloadedBytes = downloadStats.getBytes();
     Pair<Double, SizeUnit> redableRemoteDownloadedBytes =
-        SizeUnit.getHumanReadableSize(
-            remoteDownloadedBytes.getFirst(), remoteDownloadedBytes.getSecond());
+        SizeUnit.getHumanReadableSize(remoteDownloadedBytes, SizeUnit.BYTES);
     columns.add(
         String.format(
-            locale,
-            "%d " + convertToAllCapsIfNeeded("artifacts"),
-            networkStatsKeeper.getRemoteDownloadedArtifactsCount()));
+            locale, "%d " + convertToAllCapsIfNeeded("artifacts"), downloadStats.getArtifacts()));
     columns.add(
         String.format(
             locale,
             "%s",
             convertToAllCapsIfNeeded(
                 SizeUnit.toHumanReadableString(redableRemoteDownloadedBytes, locale))));
-    CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats = cacheRateStatsKeeper.getStats();
+    CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
+        networkStatsTracker.getCacheRateStats();
     columns.add(
         String.format(
             locale,
@@ -847,14 +767,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
     progressEstimator.ifPresent(ProgressEstimator::didResumeRule);
     buildRuleThreadTracker.didResumeBuildRule(resumed);
-  }
-
-  @SuppressWarnings("unused")
-  @Subscribe
-  private void resetLocalBuildStats(BuildEvent.Reset reset) {
-    buildRuleThreadTracker.reset();
-    progressEstimator.ifPresent(ProgressEstimator::resetBuildData);
-    numRulesCompleted.set(0);
   }
 
   @Subscribe
@@ -884,14 +796,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     }
 
     buildRuleThreadTracker.didFinishBuildRule(finished);
-    cacheRateStatsKeeper.buildRuleFinished(finished);
-  }
-
-  @Subscribe
-  public void distBuildFinished(BuildEvent.DistBuildFinished finished) {
-    if (distBuildFinished == null) {
-      distBuildFinished = finished;
-    }
   }
 
   @Subscribe
@@ -921,73 +825,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   @Subscribe
-  public void onHttpArtifactCacheScheduledEvent(HttpArtifactCacheEvent.Scheduled event) {
-    if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
-      firstHttpCacheUploadScheduled.compareAndSet(null, event);
-      remoteArtifactUploadsScheduledCount.incrementAndGet();
-    }
-  }
-
-  @Subscribe
-  public void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
-    if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
-      remoteArtifactUploadsStartedCount.incrementAndGet();
-    }
-  }
-
-  @Subscribe
-  public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {
-    switch (event.getOperation()) {
-      case MULTI_FETCH:
-      case FETCH:
-        if (event.getCacheResult().isPresent()
-            && event.getCacheResult().get().getType().isSuccess()) {
-          networkStatsKeeper.incrementRemoteDownloadedArtifactsCount();
-          event
-              .getCacheResult()
-              .get()
-              .artifactSizeBytes()
-              .ifPresent(networkStatsKeeper::addRemoteDownloadedArtifactsBytes);
-        }
-        break;
-      case STORE:
-        if (event.getStoreData().wasStoreSuccessful().orElse(false)) {
-          remoteArtifactUploadedCount.incrementAndGet();
-          event
-              .getStoreData()
-              .getArtifactSizeBytes()
-              .ifPresent(remoteArtifactTotalBytesUploaded::addAndGet);
-        } else {
-          remoteArtifactUploadFailedCount.incrementAndGet();
-        }
-        break;
-      case MULTI_CONTAINS:
-        break;
-    }
-  }
-
-  @Subscribe
-  public void onHttpArtifactCacheShutdownEvent(HttpArtifactCacheEvent.Shutdown event) {
-    httpShutdownEvent = event;
-  }
-
-  @Subscribe
-  public void onDistBuildStatusEvent(DistBuildStatusEvent event) {
-    synchronized (distBuildStatusLock) {
-      distBuildStatus = Optional.of(event.getStatus());
-    }
-  }
-
-  /** Update distributed build progress. */
-  @Subscribe
-  public void onDistBuildProgressEvent(DistBuildRemoteProgressEvent event) {
-    CoordinatorBuildProgress buildProgress = event.getBuildProgress();
-    distBuildTotalRulesCount =
-        buildProgress.getTotalRulesCount() - buildProgress.getSkippedRulesCount();
-    distBuildFinishedRulesCount = buildProgress.getBuiltRulesCount();
-  }
-
-  @Subscribe
   public void commandFinished(CommandEvent.Finished event) {
     commandFinished = event;
   }
@@ -998,15 +835,18 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * @return the line
    */
   protected String renderRemoteUploads() {
-    long bytesUploaded = remoteArtifactTotalBytesUploaded.longValue();
+    NetworkStatsTracker.RemoteArtifactUploadStats uploadStats =
+        networkStatsTracker.getRemoteArtifactUploadStats();
+
+    long bytesUploaded = uploadStats.getTotalBytes();
     String humanReadableBytesUploaded =
         convertToAllCapsIfNeeded(
             SizeUnit.toHumanReadableString(
                 SizeUnit.getHumanReadableSize(bytesUploaded, SizeUnit.BYTES), locale));
-    int scheduled = remoteArtifactUploadsScheduledCount.get();
-    int complete = remoteArtifactUploadedCount.get();
-    int failed = remoteArtifactUploadFailedCount.get();
-    int uploading = remoteArtifactUploadsStartedCount.get() - (complete + failed);
+    int scheduled = uploadStats.getScheduled();
+    int complete = uploadStats.getUploaded();
+    int failed = uploadStats.getFailed();
+    int uploading = uploadStats.getStarted() - (complete + failed);
     int pending = scheduled - (uploading + complete + failed);
     if (scheduled > 0) {
       return String.format(

@@ -1,11 +1,23 @@
 prebuilt_jar(
     name = "kotlinx-metadata-jvm",
+<<<<<<< HEAD
     binary_jar = "kotlinx-metadata-jvm-0.0.4.jar",
     licenses = [
         "LICENSE",
     ],
     source_jar = "kotlinx-metadata-jvm-0.0.4-sources.jar",
+=======
+    binary_jar = "kotlinx-metadata-jvm-0.1.0.jar",
+    licenses = [
+        "LICENSE",
+    ],
+    source_jar = "kotlinx-metadata-jvm-0.1.0-sources.jar",
+>>>>>>> upstream/master
     visibility = [
+        "//src/com/facebook/buck/jvm/java/abi/kotlin:kotlin",
         "//third-party/java/d8/...",
+    ],
+    deps = [
+        "//third-party/java/kotlin:kotlin-stdlib",
     ],
 )

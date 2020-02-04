@@ -1,24 +1,23 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.parser.cache.impl;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.manifestservice.ManifestService;
@@ -38,8 +37,10 @@ import java.util.Optional;
 public class ParserCache {
   private final ParserCacheStorage parserCacheStorage;
   private final BuckEventBus eventBus;
-  private final PerfEventId eventIdGet = PerfEventId.of("ParseFileCacheGet");
-  private final PerfEventId eventIdStore = PerfEventId.of("ParseFileCacheStore");
+  private final SimplePerfEvent.PerfEventId eventIdGet =
+      SimplePerfEvent.PerfEventId.of("ParseFileCacheGet");
+  private final SimplePerfEvent.PerfEventId eventIdStore =
+      SimplePerfEvent.PerfEventId.of("ParseFileCacheStore");
 
   private ParserCache(ParserCacheStorage parserCacheStorage, BuckEventBus eventBus) {
     this.parserCacheStorage = parserCacheStorage;

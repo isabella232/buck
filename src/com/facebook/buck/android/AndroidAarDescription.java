@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android;
@@ -22,28 +22,28 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.cell.nameresolver.CellNameResolver;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.core.util.immutables.RuleArg;
+import com.facebook.buck.cxx.config.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.rules.query.Query;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
@@ -109,7 +109,6 @@ public class AndroidAarDescription
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     buildTarget.assertUnflavored();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ImmutableSortedSet.Builder<BuildRule> aarExtraDepsBuilder =
         new ImmutableSortedSet.Builder<BuildRule>(Ordering.natural())
             .addAll(originalBuildRuleParams.getExtraDeps().get());
@@ -132,10 +131,7 @@ public class AndroidAarDescription
     /* assemble dirs */
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
-            buildTarget,
-            /* buildTargetsToExcludeFromDex */ ImmutableSet.of(),
-            /* resourcesToExclude */ ImmutableSet.of(),
-            apkModuleGraph);
+            buildTarget, /* buildTargetsToExcludeFromDex */ ImmutableSet.of(), apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(originalBuildRuleParams.getBuildDeps()),
         graphBuilder);
@@ -147,22 +143,19 @@ public class AndroidAarDescription
         new AssembleDirectories(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_ASSETS_FLAVOR),
             projectFilesystem,
-            ruleFinder,
+            graphBuilder,
             assetsDirectories);
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleAssetsDirectories));
 
     ImmutableCollection<SourcePath> resDirectories =
-        packageableCollection
-            .getResourceDetails()
-            .values()
-            .stream()
+        packageableCollection.getResourceDetails().values().stream()
             .flatMap(resourceDetails -> resourceDetails.getResourceDirectories().stream())
             .collect(ImmutableList.toImmutableList());
     MergeAndroidResourceSources assembleResourceDirectories =
         new MergeAndroidResourceSources(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_RESOURCE_FLAVOR),
             projectFilesystem,
-            ruleFinder,
+            graphBuilder,
             resDirectories);
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleResourceDirectories));
 
@@ -179,7 +172,7 @@ public class AndroidAarDescription
             buildTarget.withAppendedFlavors(AAR_ANDROID_RESOURCE_FLAVOR),
             projectFilesystem,
             androidResourceParams,
-            ruleFinder,
+            graphBuilder,
             /* deps */ ImmutableSortedSet.<BuildRule>naturalOrder()
                 .add(assembleAssetsDirectories)
                 .add(assembleResourceDirectories)
@@ -219,16 +212,18 @@ public class AndroidAarDescription
               args.getBuildConfigValues(),
               Optional.empty(),
               graphBuilder,
-              javacFactory.create(ruleFinder, args),
+              javacFactory.create(graphBuilder, args, buildTarget.getTargetConfiguration()),
               toolchainProvider
-                  .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
+                  .getByName(
+                      JavacOptionsProvider.DEFAULT_NAME,
+                      buildTarget.getTargetConfiguration(),
+                      JavacOptionsProvider.class)
                   .getJavacOptions(),
               packageableCollection);
       buildConfigRules.forEach(graphBuilder::addToIndex);
       aarExtraDepsBuilder.addAll(buildConfigRules);
       classpathToIncludeInAar.addAll(
-          buildConfigRules
-              .stream()
+          buildConfigRules.stream()
               .map(BuildRule::getSourcePathToOutput)
               .collect(Collectors.toList()));
     }
@@ -241,15 +236,15 @@ public class AndroidAarDescription
             graphBuilder,
             buildTarget,
             projectFilesystem,
-            originalBuildRuleParams,
             ImmutableSet.of(),
             cxxBuckConfig,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
             Optional.empty(),
-            RelinkerMode.DISABLED,
+            args.isEnableRelinker() ? RelinkerMode.ENABLED : RelinkerMode.DISABLED,
             ImmutableList.of(),
-            apkModuleGraph);
+            apkModuleGraph,
+            new NoopAndroidNativeTargetConfigurationMatcher());
     Optional<ImmutableMap<APKModule, CopyNativeLibraries>> nativeLibrariesOptional =
         packageableGraphEnhancer.enhance(packageableCollection).getCopyNativeLibraries();
     Optional<CopyNativeLibraries> rootModuleCopyNativeLibraries =
@@ -287,15 +282,15 @@ public class AndroidAarDescription
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
-      CellPathResolver cellRoots,
+      CellNameResolver cellRoots,
       AndroidAarDescriptionArg constructorArg,
       Builder<BuildTarget> extraDepsBuilder,
       Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
+    javacFactory.addParseTimeDeps(
+        targetGraphOnlyDepsBuilder, null, buildTarget.getTargetConfiguration());
   }
 
-  @BuckStyleImmutable
-  @Value.Immutable(copy = true)
+  @RuleArg
   interface AbstractAndroidAarDescriptionArg extends AndroidLibraryDescription.CoreArg {
     SourcePath getManifestSkeleton();
 
@@ -307,6 +302,27 @@ public class AndroidAarDescription
     @Value.Default
     default Boolean getIncludeBuildConfigClass() {
       return false;
+    }
+
+    @Value.Default
+    default boolean isEnableRelinker() {
+      return false;
+    }
+
+    @Override
+    default AndroidAarDescriptionArg withDepsQuery(Query query) {
+      if (getDepsQuery().equals(Optional.of(query))) {
+        return (AndroidAarDescriptionArg) this;
+      }
+      return AndroidAarDescriptionArg.builder().from(this).setDepsQuery(query).build();
+    }
+
+    @Override
+    default AndroidAarDescriptionArg withProvidedDepsQuery(Query query) {
+      if (getProvidedDepsQuery().equals(Optional.of(query))) {
+        return (AndroidAarDescriptionArg) this;
+      }
+      return AndroidAarDescriptionArg.builder().from(this).setProvidedDepsQuery(query).build();
     }
   }
 }

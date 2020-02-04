@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.doctor.BuildLogHelper;
 import com.facebook.buck.doctor.DefaultDefectReporter;
 import com.facebook.buck.doctor.DefaultExtraInfoCollector;
-import com.facebook.buck.doctor.DefectSubmitResult;
+import com.facebook.buck.doctor.DefectReporter;
 import com.facebook.buck.doctor.DoctorInteractiveReport;
 import com.facebook.buck.doctor.DoctorReportHelper;
 import com.facebook.buck.doctor.UserInput;
@@ -66,7 +66,7 @@ public class DoctorCommand extends AbstractCommand {
     }
     Optional<String> issueDescription = helper.promptForIssue();
 
-    Optional<DefectSubmitResult> reportResult =
+    Optional<DefectReporter.DefectSubmitResult> reportResult =
         generateReport(params, userInput, entry.get(), issueDescription);
     if (!reportResult.isPresent()) {
       params.getConsole().printErrorText("Failed to generate report to send.");
@@ -82,7 +82,7 @@ public class DoctorCommand extends AbstractCommand {
     return ExitCode.SUCCESS;
   }
 
-  private Optional<DefectSubmitResult> generateReport(
+  private Optional<DefectReporter.DefectSubmitResult> generateReport(
       CommandRunnerParams params,
       UserInput userInput,
       BuildLogEntry entry,

@@ -1,32 +1,33 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.cli;
 
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.CellName;
-import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.EmptyTargetConfiguration;
-import com.facebook.buck.core.model.TargetConfiguration;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.model.BuildTargetWithOutputs;
+import com.facebook.buck.core.model.OutputLabel;
+import com.facebook.buck.core.model.UnconfiguredTargetConfiguration;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
@@ -34,8 +35,11 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
-import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
-import com.facebook.buck.parser.TargetNodeSpec;
+import com.facebook.buck.parser.ParsingContext;
+import com.facebook.buck.parser.config.ParserConfig;
+import com.facebook.buck.parser.spec.BuildTargetMatcherTargetNodeParser;
+import com.facebook.buck.parser.spec.BuildTargetSpec;
+import com.facebook.buck.parser.spec.TargetNodeSpec;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -43,6 +47,7 @@ import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.support.cli.args.BuckCellArg;
 import com.facebook.buck.support.cli.args.GlobalCliOptions;
+import com.facebook.buck.support.cli.config.CliConfig;
 import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
@@ -61,7 +66,7 @@ import com.google.devtools.build.lib.clock.Clock;
 import com.google.devtools.build.lib.clock.JavaClock;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.Profiler.Format;
-import com.google.devtools.build.lib.profiler.Profiler.ProfiledTaskKinds;
+import com.google.devtools.build.lib.profiler.ProfilerTask;
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
@@ -76,6 +81,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.CmdLineException;
@@ -91,49 +97,53 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
    * field so that {@code --verbose} is universally available to all commands.
    */
   @Option(
-      name = GlobalCliOptions.VERBOSE_LONG_ARG,
-      aliases = {GlobalCliOptions.VERBOSE_SHORT_ARG},
-      usage = "Specify a number between 0 and 8. '-v 1' is default, '-v 8' is most verbose.")
+    name = GlobalCliOptions.VERBOSE_LONG_ARG,
+    aliases = {GlobalCliOptions.VERBOSE_SHORT_ARG},
+    usage = "Specify a number between 0 and 8. '-v 1' is default, '-v 8' is most verbose.")
   @SuppressWarnings("PMD.UnusedPrivateField")
   private int verbosityLevel = -1;
 
   private volatile ExecutionContext executionContext;
 
   @Option(
-      name = GlobalCliOptions.NUM_THREADS_LONG_ARG,
-      aliases = "-j",
-      usage = "Default is 1.25 * num processors.")
+    name = GlobalCliOptions.NUM_THREADS_LONG_ARG,
+    aliases = "-j",
+    usage = "Default is 1.25 * num processors.")
   @Nullable
   private Integer numThreads = null;
 
   @Option(
-      name = GlobalCliOptions.CONFIG_LONG_ARG,
-      aliases = {"-c"},
-      usage = "Override .buckconfig option",
-      metaVar = "section.option=value")
+    name = GlobalCliOptions.CONFIG_LONG_ARG,
+    aliases = {"-c"},
+    usage = "Override .buckconfig option",
+    metaVar = "section.option=value")
   void addConfigOverride(String configOverride) {
     saveConfigOptionInOverrides(configOverride);
   }
 
   @Option(
-      name = GlobalCliOptions.CONFIG_FILE_LONG_ARG,
-      usage = "Override options in .buckconfig using a file parameter",
-      metaVar = "PATH")
+    name = GlobalCliOptions.CONFIG_FILE_LONG_ARG,
+    usage = "Override options in .buckconfig using a file parameter",
+    metaVar = "PATH")
   void addConfigFile(String filePath) {
     configOverrides.add(filePath);
   }
 
   @Option(
-      name = GlobalCliOptions.SKYLARK_PROFILE_LONG_ARG,
-      usage =
-          "Experimental. Path to a file where Skylark profile information should be written into."
-              + " The output is in Chrome Tracing format and can be viewed in chrome://tracing tab",
-      metaVar = "PATH")
+    name = GlobalCliOptions.SKYLARK_PROFILE_LONG_ARG,
+    usage =
+      "Experimental. Path to a file where Skylark profile information should be written into."
+        + " The output is in Chrome Tracing format and can be viewed in chrome://tracing tab",
+    metaVar = "PATH")
   @Nullable
   private String skylarkProfile;
 
   @Option(name = GlobalCliOptions.TARGET_PLATFORMS_LONG_ARG, usage = "Target platforms.")
   private List<String> targetPlatforms = new ArrayList<>();
+
+  @Nullable
+  @Option(name = GlobalCliOptions.HOST_PLATFORM_LONG_ARG, usage = "Host platform.")
+  private String hostPlatform = null;
 
   @Override
   public LogConfigSetup getLogConfig() {
@@ -141,38 +151,59 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   @Option(
-      name = GlobalCliOptions.NO_CACHE_LONG_ARG,
-      usage = "Whether to ignore the remote & local cache declared in .buckconfig.")
+    name = GlobalCliOptions.NO_CACHE_LONG_ARG,
+    usage = "Whether to ignore the remote & local cache declared in .buckconfig.")
   private boolean noCache = false;
 
   @Nullable
   @Option(
-      name = GlobalCliOptions.OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
-      aliases = {"--output-events-to-file"},
-      usage =
-          "Serialize test-related event-bus events to the given file "
-              + "as line-oriented JSON objects.")
+    name = GlobalCliOptions.OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
+    aliases = {"--output-events-to-file"},
+    usage =
+      "Serialize test-related event-bus events to the given file "
+        + "as line-oriented JSON objects.")
   private String eventsOutputPath = null;
 
   @Option(
-      name = GlobalCliOptions.PROFILE_PARSER_LONG_ARG,
-      usage =
-          "Enable profiling of buck.py internals (not the target being compiled) in the debug"
-              + "log and trace.")
+    name = GlobalCliOptions.PROFILE_PARSER_LONG_ARG,
+    usage =
+      "Enable profiling of buck.py internals (not the target being compiled) in the debug"
+        + "log and trace.")
   private boolean enableParserProfiling = false;
 
   @Option(
-      name = GlobalCliOptions.EXCLUDE_INCOMPATIBLE_TARGETS_LONG_ARG,
-      usage =
-          "Exclude targets that are not compatible with the given target platform. (experimental)")
+    name = GlobalCliOptions.EXCLUDE_INCOMPATIBLE_TARGETS_LONG_ARG,
+    usage = "This option is ignored")
   private boolean excludeIncompatibleTargets = false;
 
   @Option(name = GlobalCliOptions.HELP_LONG_ARG, usage = "Prints the available options and exits.")
   private boolean help = false;
 
+  @Option(
+    name = GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG,
+    usage = "Whether to re-use configuration of the currently running Buck daemon process.",
+    forbids = {GlobalCliOptions.CONFIG_LONG_ARG, GlobalCliOptions.CONFIG_FILE_LONG_ARG})
+  private boolean reuseCurrentConfig = false;
+
+  @Nullable
+  @Option(
+    name = GlobalCliOptions.COMMAND_ARGS_FILE_LONG_ARG,
+    usage = GlobalCliOptions.COMMAND_ARGS_FILE_HELP,
+    hidden = true)
+  protected String commandArgsFile;
+
   /** @return {code true} if the {@code [cache]} in {@code .buckconfig} should be ignored. */
   public boolean isNoCache() {
     return noCache;
+  }
+
+  public boolean isReuseCurrentConfig() {
+    return reuseCurrentConfig;
+  }
+
+  @Nullable
+  public String getCommandArgsFile() {
+    return commandArgsFile;
   }
 
   public Optional<Path> getEventsOutputPath() {
@@ -190,11 +221,11 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
 
   /** Print error message when there are unknown options */
   protected void handleException(CmdLineException e, String printedErrorMessage)
-      throws CmdLineException {
+    throws CmdLineException {
     String message = e.getMessage();
     if (message != null && message.endsWith("is not a valid option")) {
       throw new CmdLineException(
-          e.getParser(), String.format("%s\n%s", message, printedErrorMessage), e.getCause());
+        e.getParser(), String.format("%s\n%s", message, printedErrorMessage), e.getCause());
     } else {
       throw e;
     }
@@ -211,9 +242,9 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
 
     stream.println("Options:");
     parser.printUsage(
-        new OutputStreamWriter(stream),
-        null,
-        optionHandler -> !GlobalCliOptions.isGlobalOption(optionHandler));
+      new OutputStreamWriter(stream),
+      null,
+      optionHandler -> !GlobalCliOptions.isGlobalOption(optionHandler));
     stream.println();
   }
 
@@ -233,7 +264,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       return ExitCode.SUCCESS;
     }
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
-      ImmutableList<String> motd = params.getBuckConfig().getMessageOfTheDay();
+      ImmutableList<String> motd =
+        params.getBuckConfig().getView(CliConfig.class).getMessageOfTheDay();
       if (!motd.isEmpty()) {
         for (String line : motd) {
           params.getBuckEventBus().post(ConsoleEvent.info(line));
@@ -241,7 +273,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       }
     }
     try (Closeable closeable = prepareExecutionContext(params);
-        Closeable bazelProfiler = prepareBazelProfiler()) {
+      Closeable bazelProfiler = prepareBazelProfiler()) {
       return runWithoutHelp(params);
     }
   }
@@ -251,20 +283,24 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       Clock clock = new JavaClock();
       try {
         OutputStream outputStream =
-            new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
+          new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
         Profiler.instance()
-            .start(
-                ProfiledTaskKinds.ALL,
-                outputStream,
-                Format.JSON_TRACE_FILE_FORMAT,
-                "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
-                false,
-                clock,
-                clock.nanoTime(),
-                false);
+          .start(
+            ImmutableSet.copyOf(ProfilerTask.values()),
+            outputStream,
+            Format.JSON_TRACE_FILE_FORMAT,
+            "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
+            "buck",
+            UUID.nameUUIDFromBytes(new byte[0]),
+            false,
+            clock,
+            clock.nanoTime(),
+            false,
+            false,
+            false);
       } catch (IOException e) {
         throw new HumanReadableException(
-            "Cannot initialize Skylark profiler for " + skylarkProfile, e);
+          "Cannot initialize Skylark profiler for " + skylarkProfile, e);
       }
     }
     return () -> Profiler.instance().stop();
@@ -279,26 +315,80 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     };
   }
 
+  /** Helper for printing warnings to the console. */
+  protected void printWarning(CommandRunnerParams params, String format, Object... args) {
+    printWarning(params, String.format(format, args));
+  }
+
+  /** Helper for printing warnings to the console. */
+  protected void printWarning(CommandRunnerParams params, String s) {
+    params.getBuckEventBus().post(ConsoleEvent.warning(s));
+  }
+
   public abstract ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception;
 
   protected CommandLineBuildTargetNormalizer getCommandLineBuildTargetNormalizer(
-      BuckConfig buckConfig) {
-    return new CommandLineBuildTargetNormalizer(buckConfig);
+    Cell rootCell, Path clientWorkingDirectory, BuckConfig buckConfig) {
+    return new CommandLineBuildTargetNormalizer(rootCell, clientWorkingDirectory, buckConfig);
   }
 
   public boolean getEnableParserProfiling() {
     return enableParserProfiling;
   }
 
-  public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
+  ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
+    Cell owningCell,
+    Path absoluteClientWorkingDir,
+    Iterable<String> targetsAsArgs,
+    BuckConfig config) {
     ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
     CommandLineTargetNodeSpecParser parser =
-        new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
+      new CommandLineTargetNodeSpecParser(
+        owningCell, absoluteClientWorkingDir, config, new BuildTargetMatcherTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.addAll(parser.parse(cellPathResolver, arg));
+      specs.addAll(parser.parse(owningCell, arg));
     }
     return specs.build();
+  }
+
+  /**
+   * Returns a set of {@link BuildTargetWithOutputs} instances by matching the given {@link
+   * BuildTarget} instances with the given {@link TargetNodeSpec} instances, and applying any {@link
+   * OutputLabel} instances to the matching {@link BuildTarget} instances. Applies the default label
+   * if a given build target cannot find a matching spec.
+   */
+  protected ImmutableSet<BuildTargetWithOutputs> matchBuildTargetsWithLabelsFromSpecs(
+    ImmutableList<TargetNodeSpec> specs, ImmutableSet<BuildTarget> buildTargets) {
+    ImmutableSet.Builder<BuildTargetWithOutputs> builder =
+      ImmutableSet.builderWithExpectedSize(buildTargets.size());
+    for (BuildTarget target : buildTargets) {
+      boolean mappedTarget = false;
+
+      // Need to look through all the specs even after finding a match because there may be multiple
+      // matches
+      for (TargetNodeSpec spec : specs) {
+        if (!(spec instanceof BuildTargetSpec)) {
+          continue;
+        }
+        BuildTargetSpec buildTargetSpec = (BuildTargetSpec) spec;
+        if (buildTargetSpec
+          .getUnconfiguredBuildTargetView()
+          .equals(target.getUnconfiguredBuildTargetView())) {
+          builder.add(
+            BuildTargetWithOutputs.of(
+              target,
+              buildTargetSpec.getUnconfiguredBuildTargetViewWithOutputs().getOutputLabel()));
+          mappedTarget = true;
+        }
+      }
+
+      // A target may not map to an output label if the build command wasn't invoked with a build
+      // pattern that specifies a specific target
+      if (!mappedTarget) {
+        builder.add(BuildTargetWithOutputs.of(target, OutputLabel.defaultLabel()));
+      }
+    }
+    return builder.build();
   }
 
   protected ExecutionContext getExecutionContext() {
@@ -310,25 +400,29 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
-    TestBuckConfig testBuckConfig = params.getBuckConfig().getView(TestBuckConfig.class);
+    BuckConfig buckConfig = params.getBuckConfig();
+    TestBuckConfig testBuckConfig = buckConfig.getView(TestBuckConfig.class);
+    CliConfig cliConfig = buckConfig.getView(CliConfig.class);
+
     ExecutionContext.Builder builder =
-        ExecutionContext.builder()
-            .setConsole(params.getConsole())
-            .setBuckEventBus(params.getBuckEventBus())
-            .setPlatform(params.getPlatform())
-            .setEnvironment(params.getEnvironment())
-            .setJavaPackageFinder(params.getJavaPackageFinder())
-            .setExecutors(params.getExecutors())
-            .setCellPathResolver(params.getCell().getCellPathResolver())
-            .setBuildCellRootPath(params.getCell().getRoot())
-            .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
-            .setDefaultTestTimeoutMillis(testBuckConfig.getDefaultTestTimeoutMillis())
-            .setInclNoLocationClassesEnabled(testBuckConfig.isInclNoLocationClassesEnabled())
-            .setRuleKeyDiagnosticsMode(
-                params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
-            .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
-            .setPersistentWorkerPools(params.getPersistentWorkerPools())
-            .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
+      ExecutionContext.builder()
+        .setConsole(params.getConsole())
+        .setBuckEventBus(params.getBuckEventBus())
+        .setPlatform(params.getPlatform())
+        .setEnvironment(params.getEnvironment())
+        .setJavaPackageFinder(params.getJavaPackageFinder())
+        .setExecutors(params.getExecutors())
+        .setCellPathResolver(params.getCell().getCellPathResolver())
+        .setBuildCellRootPath(params.getCell().getRoot())
+        .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
+        .setDefaultTestTimeoutMillis(testBuckConfig.getDefaultTestTimeoutMillis())
+        .setInclNoLocationClassesEnabled(testBuckConfig.isInclNoLocationClassesEnabled())
+        .setRuleKeyDiagnosticsMode(
+          buckConfig.getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
+        .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
+        .setPersistentWorkerPools(params.getPersistentWorkerPools())
+        .setProjectFilesystemFactory(params.getProjectFilesystemFactory())
+        .setTruncateFailingCommandEnabled(cliConfig.getEnableFailingCommandTruncation());
     return builder;
   }
 
@@ -341,39 +435,41 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     return false;
   }
 
-  TargetGraphAndBuildTargets toVersionedTargetGraph(
-      CommandRunnerParams params, TargetGraphAndBuildTargets targetGraphAndBuildTargets)
-      throws VersionException, InterruptedException {
+  TargetGraphCreationResult toVersionedTargetGraph(
+    CommandRunnerParams params, TargetGraphCreationResult targetGraphCreationResult)
+    throws VersionException, InterruptedException {
     return params
-        .getVersionedTargetGraphCache()
-        .toVersionedTargetGraph(
-            params.getBuckEventBus(),
-            params.getBuckConfig(),
-            params.getTypeCoercerFactory(),
-            params.getUnconfiguredBuildTargetFactory(),
-            targetGraphAndBuildTargets);
+      .getVersionedTargetGraphCache()
+      .toVersionedTargetGraph(
+        params.getDepsAwareExecutorSupplier().get(),
+        params.getBuckConfig(),
+        params.getTypeCoercerFactory(),
+        params.getUnconfiguredBuildTargetFactory(),
+        targetGraphCreationResult,
+        params.getTargetConfiguration(),
+        params.getBuckEventBus());
   }
 
   @Override
   public Iterable<BuckEventListener> getEventListeners(
-      Map<ExecutorPool, ListeningExecutorService> executorPool,
-      ScheduledExecutorService scheduledExecutorService) {
+    Map<ExecutorPool, ListeningExecutorService> executorPool,
+    ScheduledExecutorService scheduledExecutorService) {
     return ImmutableList.of();
   }
 
   RuleKeyCacheScope<RuleKey> getDefaultRuleKeyCacheScope(
-      CommandRunnerParams params, RuleKeyCacheRecycler.SettingsAffectingCache settings) {
+    CommandRunnerParams params, RuleKeyCacheRecycler.SettingsAffectingCache settings) {
     return params
-        .getDefaultRuleKeyFactoryCacheRecycler()
-        // First try to get the cache from the recycler.
-        .map(recycler -> recycler.withRecycledCache(params.getBuckEventBus(), settings))
-        // Otherwise, create a new one.
-        .orElseGet(
-            () ->
-                new EventPostingRuleKeyCacheScope<>(
-                    params.getBuckEventBus(),
-                    new TrackedRuleKeyCache<>(
-                        new DefaultRuleKeyCache<>(), new InstrumentingCacheStatsTracker())));
+      .getDefaultRuleKeyFactoryCacheRecycler()
+      // First try to get the cache from the recycler.
+      .map(recycler -> recycler.withRecycledCache(params.getBuckEventBus(), settings))
+      // Otherwise, create a new one.
+      .orElseGet(
+        () ->
+          new EventPostingRuleKeyCacheScope<>(
+            params.getBuckEventBus(),
+            new TrackedRuleKeyCache<>(
+              new DefaultRuleKeyCache<>(), new InstrumentingCacheStatsTracker())));
   }
 
   @Override
@@ -387,12 +483,19 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   @Override
-  public TargetConfiguration getTargetConfiguration() {
-    return EmptyTargetConfiguration.INSTANCE;
+  public Optional<String> getHostPlatform() {
+    return hostPlatform != null && !hostPlatform.isEmpty()
+      ? Optional.of(hostPlatform)
+      : Optional.empty();
   }
 
   public boolean getExcludeIncompatibleTargets() {
-    return excludeIncompatibleTargets;
+    // Exclude platform-incompatible target because
+    // this is generally what Buck users want.
+    // But keep the function virtual because
+    // `uquery` command (and probably others in the future)
+    // do not need target filtering by design.
+    return true;
   }
 
   /**
@@ -400,18 +503,24 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
    * implicit package target, etc).
    */
   protected ImmutableSet<BuildTarget> convertArgumentsToBuildTargets(
-      CommandRunnerParams params, List<String> arguments) {
-    UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
-        params.getUnconfiguredBuildTargetFactory();
-    return getCommandLineBuildTargetNormalizer(params.getBuckConfig())
-        .normalizeAll(arguments)
-        .stream()
-        .map(
-            input ->
-                unconfiguredBuildTargetFactory.create(
-                    params.getCell().getCellPathResolver(), input))
-        .map(unconfiguredBuildTarget -> unconfiguredBuildTarget.configure(getTargetConfiguration()))
-        .collect(ImmutableSet.toImmutableSet());
+    CommandRunnerParams params, List<String> arguments) {
+    UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory =
+      params.getUnconfiguredBuildTargetFactory();
+    return getCommandLineBuildTargetNormalizer(
+      params.getCell(), params.getClientWorkingDir(), params.getBuckConfig())
+      .normalizeAll(arguments).stream()
+      .map(
+        input ->
+          unconfiguredBuildTargetFactory.create(
+            input, params.getCell().getCellNameResolver()))
+      .map(
+        unconfiguredBuildTarget ->
+          // TODO(nga): ignores default_target_platform and configuration detectors
+          unconfiguredBuildTarget.configure(
+            params
+              .getTargetConfiguration()
+              .orElse(UnconfiguredTargetConfiguration.INSTANCE)))
+      .collect(ImmutableSet.toImmutableSet());
   }
 
   private void parseConfigOption(CellConfig.Builder builder, Pair<String, String> config) {
@@ -432,8 +541,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     int separatorIndex = configKey.lastIndexOf('.');
     if (separatorIndex < 0 || separatorIndex == configKey.length() - 1) {
       throw new HumanReadableException(
-          "Invalid config override \"%s=%s\" Expected <section>.<field>=<value>.",
-          configKey, config.getSecond());
+        "Invalid config override \"%s=%s\" Expected <section>.<field>=<value>.",
+        configKey, config.getSecond());
     }
     // Overrides for locations of transitive children of cells are weird as the order of overrides
     // can affect the result (for example `-c a/b/c.k=v -c a/b//repositories.c=foo` causes an
@@ -444,9 +553,9 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     String section = configKey.substring(0, separatorIndex);
     if (section.equals("repositories")) {
       throw new HumanReadableException(
-          "Overriding repository locations from the command line "
-              + "is not supported. Please place a .buckconfig.local in the appropriate location and "
-              + "use that instead.");
+        "Overriding repository locations from the command line "
+          + "is not supported. Please place a .buckconfig.local in the appropriate location and "
+          + "use that instead.");
     }
     String value = config.getSecond();
     String field = configKey.substring(separatorIndex + 1);
@@ -454,7 +563,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   private void parseConfigFileOption(
-      ImmutableMap<CellName, Path> cellMapping, CellConfig.Builder builder, String filename) {
+    ImmutableMap<CellName, Path> cellMapping, CellConfig.Builder builder, String filename) {
     // See if the filename argument specifies the cell.
     String[] matches = filename.split("=", 2);
 
@@ -480,10 +589,10 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     BuckCellArg filenameArg = BuckCellArg.of(filename);
     filename = BuckCellArg.of(filename).getArg();
     Path projectRoot =
-        cellMapping.get(
-            filenameArg.getCellName().isPresent()
-                ? CellName.of(filenameArg.getCellName().get())
-                : CellName.ROOT_CELL_NAME);
+      cellMapping.get(
+        filenameArg.getCellName().isPresent()
+          ? CellName.of(filenameArg.getCellName().get())
+          : CellName.ROOT_CELL_NAME);
 
     Path path = projectRoot.resolve(filename);
     ImmutableMap<String, ImmutableMap<String, String>> sectionsToEntries;
@@ -508,8 +617,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   void saveConfigOptionInOverrides(String configOverride) {
     if (configOverride.indexOf('=') == -1) {
       throw new HumanReadableException(
-          "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
-          configOverride);
+        "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
+        configOverride);
     }
 
     final String key;
@@ -522,8 +631,8 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
 
     if (key.length() == 0)
       throw new HumanReadableException(
-          "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
-          configOverride);
+        "Invalid config configOverride \"%s\" Expected <section>.<field>=<value>.",
+        configOverride);
 
     maybeValue.ifPresent(value -> configOverrides.add(new Pair<String, String>(key, value)));
   }
@@ -547,6 +656,25 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
       builder.put(CellName.ALL_CELLS_SPECIAL_NAME, "cache", "mode", "");
     }
 
+    addCommandSpecificConfigOverrides(builder);
+
     return builder.build();
+  }
+
+  /**
+   * Injection point for commands to add config overrides. Adding anything here will likely
+   * invalidate the @{link BuckGlobalState} and so it should be used extremely sparingly.
+   */
+  @SuppressWarnings("unused")
+  protected void addCommandSpecificConfigOverrides(CellConfig.Builder builder) {}
+
+  @Override
+  public ParsingContext createParsingContext(Cell cell, ListeningExecutorService executor) {
+    return ParsingContext.builder(cell, executor)
+      .setProfilingEnabled(getEnableParserProfiling())
+      .setExcludeUnsupportedTargets(getExcludeIncompatibleTargets())
+      .setEnableTargetCompatibilityChecks(
+        cell.getBuckConfig().getView(ParserConfig.class).getEnableTargetCompatibilityChecks())
+      .build();
   }
 }

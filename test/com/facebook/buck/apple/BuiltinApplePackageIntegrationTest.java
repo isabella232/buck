@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.apple;
@@ -24,6 +24,7 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -85,15 +86,15 @@ public class BuiltinApplePackageIntegrationTest {
         .runBuckCommand("build", appTarget.getUnflavoredBuildTarget().getFullyQualifiedName())
         .assertSuccess();
 
-    workspace.getBuildLog().assertTargetBuiltLocally(appTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetBuiltLocally(appTarget);
 
     workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
 
     BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
     workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
 
-    workspace.getBuildLog().assertTargetWasFetchedFromCache(appTarget.getFullyQualifiedName());
-    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetWasFetchedFromCache(appTarget);
+    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget);
 
     Path templateDir =
         TestDataHelper.getTestDataScenario(this, "simple_application_bundle_no_debug");
@@ -123,7 +124,7 @@ public class BuiltinApplePackageIntegrationTest {
     BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
     workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
 
-    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget);
 
     ZipInspector zipInspector =
         new ZipInspector(
@@ -142,7 +143,7 @@ public class BuiltinApplePackageIntegrationTest {
     BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
     workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
 
-    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget.getFullyQualifiedName());
+    workspace.getBuildLog().assertTargetBuiltLocally(packageTarget);
 
     ZipInspector zipInspector =
         new ZipInspector(
@@ -222,8 +223,10 @@ public class BuiltinApplePackageIntegrationTest {
           workspace.getPath(
               BuildTargetPaths.getGenPath(
                   filesystem,
-                  target,
-                  "DemoWatchApp#dwarf-and-dsym,no-include-frameworks," + platformInfo.getFirst()));
+                  target.withAppendedFlavors(
+                      InternalFlavor.of("dwarf-and-dsym"),
+                      InternalFlavor.of("no-include-frameworks")),
+                  "%s"));
 
       Path binaryPath = outputPath.resolve("DemoWatchApp.app/DemoWatchApp");
       ImmutableList<String> command =
@@ -315,5 +318,36 @@ public class BuiltinApplePackageIntegrationTest {
         .runBuckBuild("-c", "apple.cache_bundles_and_packages=false", "//:DemoAppPackage")
         .assertSuccess();
     workspace.getBuildLog().assertTargetBuiltLocally("//:DemoAppPackage");
+  }
+
+  @Test
+  public void testPackageWithoutDefaultPlatform() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "default_platform_in_rules", tmp);
+    workspace.setUp();
+
+    BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
+    workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertSuccess();
+  }
+
+  @Test
+  public void testPackageWithoutDefaultPlatformAndFlavorOverride() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "default_platform_in_rules", tmp);
+    workspace.setUp();
+
+    BuildTarget packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage#thisshouldfail");
+    // Assert a flavor on the target wins
+    workspace.runBuckCommand("build", packageTarget.getFullyQualifiedName()).assertFailure();
+
+    packageTarget = BuildTargetFactory.newInstance("//:DemoAppPackage");
+    // Assert a flavor from configuration the target loses
+    workspace
+        .runBuckCommand(
+            "build",
+            packageTarget.getFullyQualifiedName(),
+            "--config",
+            "cxx.default_platform=doesnotexist")
+        .assertSuccess();
   }
 }

@@ -1,5 +1,3 @@
-load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
-
 java_library(
     name = "interfaces",
     srcs = glob(["*.java"]),
@@ -7,6 +5,7 @@ java_library(
         "PUBLIC",
     ],
     deps = [
+        "//src-gen:protobuf",
         "//src-gen:thrift",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/core/build/event:event",

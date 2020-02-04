@@ -1,17 +1,17 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.core.build.engine.cache.manager;
@@ -100,7 +100,11 @@ public class BuildRuleScopeManager {
       Preconditions.checkState(
           finishedData == null, "RuleScope started after rule marked as finished.");
       if (currentBuildRuleScopeThread != null) {
-        Preconditions.checkState(Thread.currentThread() == currentBuildRuleScopeThread);
+        Preconditions.checkState(
+            Thread.currentThread() == currentBuildRuleScopeThread,
+            "Must execute in the scope of thread [%s] but running in thread [%s].",
+            Thread.currentThread().getName(),
+            currentBuildRuleScopeThread.getName());
         return () -> {};
       }
       BuildRuleEvent.Resumed resumed = postResumed();
@@ -175,12 +179,7 @@ public class BuildRuleScopeManager {
     Optional<RuleKey> depFileKey =
         onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.DEP_FILE_RULE_KEY);
     Optional<RuleKey> manifestKey = onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.MANIFEST_KEY);
-    return BuildRuleKeys.builder()
-        .setRuleKey(defaultKey)
-        .setInputRuleKey(inputKey)
-        .setDepFileRuleKey(depFileKey)
-        .setManifestRuleKey(manifestKey)
-        .build();
+    return BuildRuleKeys.of(defaultKey, inputKey, depFileKey, manifestKey);
   }
 
   private Optional<BuildRuleDiagnosticData> getBuildRuleDiagnosticData(
@@ -258,7 +257,8 @@ public class BuildRuleScopeManager {
           ruleKeyCacheCheckTimestamps,
           inputRuleKeyCacheCheckTimestamps,
           manifestRuleKeyCacheCheckTimestamps,
-          buildTimestamps);
+          buildTimestamps,
+          input.getStrategyResult());
     }
   }
 }

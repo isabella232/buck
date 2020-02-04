@@ -1,17 +1,17 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.util.versioncontrol;
@@ -19,6 +19,7 @@ package com.facebook.buck.util.versioncontrol;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
@@ -141,8 +142,7 @@ public class HgCmdLineInterfaceIntegrationTest {
   @Test
   public void testDiffBetweenTheSameRevision()
       throws VersionControlCommandFailedException, InterruptedException {
-    exception.expect(VersionControlCommandFailedException.class);
-    repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0").get();
+    assertFalse(repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0").isPresent());
   }
 
   @Test
@@ -162,7 +162,7 @@ public class HgCmdLineInterfaceIntegrationTest {
             "new file mode 100644",
             "");
     try (InputStream diffFileStream =
-        repoThreeCmdLine.diffBetweenRevisions("b1fd7e", "2911b3").get()) {
+        repoThreeCmdLine.diffBetweenRevisions("b1fd7e", "2911b3").get().get()) {
       InputStreamReader diffFileReader = new InputStreamReader(diffFileStream, Charsets.UTF_8);
       String actualDiff = CharStreams.toString(diffFileReader);
       assertEquals(String.join("\n", expectedValue), actualDiff);

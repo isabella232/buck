@@ -1,26 +1,26 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
-import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.execution.context.ExecutionContext;
@@ -30,10 +30,7 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleValue;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
@@ -68,7 +65,6 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import org.immutables.value.Value;
 
 public class Build implements Closeable {
 
@@ -105,22 +101,18 @@ public class Build implements Closeable {
 
   private BuildEngineBuildContext createBuildContext(boolean isKeepGoing) {
     BuildId buildId = executionContext.getBuildId();
-    return BuildEngineBuildContext.builder()
-        .setBuildContext(
-            BuildContext.builder()
-                .setSourcePathResolver(
-                    DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder)))
-                .setBuildCellRootPath(rootCell.getRoot())
-                .setJavaPackageFinder(javaPackageFinder)
-                .setEventBus(executionContext.getBuckEventBus())
-                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
-                .build())
-        .setClock(clock)
-        .setArtifactCache(artifactCache)
-        .setBuildId(buildId)
-        .putAllEnvironment(executionContext.getEnvironment())
-        .setKeepGoing(isKeepGoing)
-        .build();
+    return BuildEngineBuildContext.of(
+        BuildContext.of(
+            graphBuilder.getSourcePathResolver(),
+            rootCell.getRoot(),
+            javaPackageFinder,
+            executionContext.getBuckEventBus(),
+            rootCell.getBuckConfig().getView(BuildBuckConfig.class).getShouldDeleteTemporaries()),
+        artifactCache,
+        clock,
+        buildId,
+        executionContext.getEnvironment(),
+        isKeepGoing);
   }
 
   public ActionGraphBuilder getGraphBuilder() {
@@ -140,13 +132,9 @@ public class Build implements Closeable {
       throws Exception {
 
     ImmutableList<BuildRule> rulesToBuild = getRulesToBuild(targetsish);
-    List<BuildEngineResult> resultFutures = initializeBuild(rulesToBuild);
+    List<BuildEngine.BuildEngineResult> resultFutures = initializeBuild(rulesToBuild);
     return waitForBuildToFinishAndPrintFailuresToEventBus(
         rulesToBuild, resultFutures, eventBus, console, pathToBuildReport);
-  }
-
-  public void terminateBuildWithFailure(Throwable failure) {
-    buildEngine.terminateBuildWithFailure(failure);
   }
 
   /** Setup all the symlinks necessary for a build */
@@ -173,7 +161,7 @@ public class Build implements Closeable {
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths configuredPaths = filesystem.getBuckPaths();
       if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
-          && buckConfig.getBuckOutCompatLink()
+          && buckConfig.getView(BuildBuckConfig.class).getBuckOutCompatLink()
           && Platform.detect() != Platform.WINDOWS) {
         BuckPaths unconfiguredPaths =
             configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
@@ -185,10 +173,10 @@ public class Build implements Closeable {
                     configuredPaths.getSymlinkPathForDir(unconfiguredPaths.getScratchDir()));
         for (Map.Entry<Path, Path> entry : paths.entrySet()) {
           filesystem.deleteRecursivelyIfExists(entry.getKey());
+          Path parent = entry.getKey().getParent();
+          filesystem.mkdirs(parent);
           filesystem.createSymLink(
-              entry.getKey(),
-              entry.getKey().getParent().relativize(entry.getValue()),
-              /* force */ false);
+              entry.getKey(), parent.relativize(entry.getValue()), /* force */ false);
         }
       }
     }
@@ -199,10 +187,10 @@ public class Build implements Closeable {
       ProjectFilesystem filesystem = cell.getFilesystem();
       BuckPaths buckPaths = filesystem.getBuckPaths();
 
-      filesystem.deleteFileAtPathIfExists(buckPaths.getProjectRootDir());
-
-      filesystem.writeContentsToPath(
-          filesystem.getRootPath().toString(), buckPaths.getProjectRootDir());
+      Path projectRootDir = buckPaths.getProjectRootDir();
+      filesystem.deleteFileAtPathIfExists(projectRootDir);
+      filesystem.createParentDirs(projectRootDir);
+      filesystem.writeContentsToPath(filesystem.getRootPath().toString(), projectRootDir);
     }
   }
 
@@ -220,8 +208,7 @@ public class Build implements Closeable {
 
     ImmutableList<BuildRule> rulesToBuild =
         ImmutableList.copyOf(
-            targetsToBuild
-                .stream()
+            targetsToBuild.stream()
                 .map(buildTarget -> getGraphBuilder().requireRule(buildTarget))
                 .collect(ImmutableSet.toImmutableSet()));
 
@@ -257,14 +244,9 @@ public class Build implements Closeable {
         resultBuilder.put(rule, Optional.ofNullable(buildResults.get(i)));
       }
 
-      return BuildExecutionResult.builder()
-          .setFailures(
-              buildResults
-                  .stream()
-                  .filter(input -> !input.isSuccess())
-                  .collect(Collectors.toList()))
-          .setResults(resultBuilder)
-          .build();
+      return ImmutableBuildExecutionResult.of(
+          resultBuilder,
+          buildResults.stream().filter(input -> !input.isSuccess()).collect(Collectors.toList()));
     }
   }
 
@@ -279,38 +261,30 @@ public class Build implements Closeable {
       resultBuilder.put(rule, Optional.ofNullable(results.get(i)));
     }
 
-    return BuildExecutionResult.builder()
-        .setFailures(
-            results.stream().filter(input -> !input.isSuccess()).collect(Collectors.toList()))
-        .setResults(resultBuilder)
-        .build();
+    return ImmutableBuildExecutionResult.of(
+        resultBuilder,
+        results.stream().filter(input -> !input.isSuccess()).collect(Collectors.toList()));
   }
 
-  /**
-   * Starts building the given BuildRules asynchronously.
-   *
-   * @param rulesToBuild
-   * @return Futures that will complete once the rules have finished building
-   * @throws IOException
-   */
-  public List<BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
+  /** Starts building the given BuildRules asynchronously. */
+  private List<BuildEngine.BuildEngineResult> initializeBuild(ImmutableList<BuildRule> rulesToBuild)
       throws IOException {
-
     setupBuildSymlinks();
 
-    return rulesToBuild
-        .stream()
+    return rulesToBuild.stream()
         .map(rule -> buildEngine.build(buildContext, executionContext, rule))
         .collect(ImmutableList.toImmutableList());
   }
 
   private BuildExecutionResult waitForBuildToFinish(
-      ImmutableList<BuildRule> rulesToBuild, List<BuildEngineResult> resultFutures)
+      ImmutableList<BuildRule> rulesToBuild, List<BuildEngine.BuildEngineResult> resultFutures)
       throws ExecutionException, InterruptedException, CleanBuildShutdownException {
     // Get the Future representing the build and then block until everything is built.
     ListenableFuture<List<BuildResult>> buildFuture =
         Futures.allAsList(
-            resultFutures.stream().map(BuildEngineResult::getResult).collect(Collectors.toList()));
+            resultFutures.stream()
+                .map(BuildEngine.BuildEngineResult::getResult)
+                .collect(Collectors.toList()));
     List<BuildResult> results;
     try {
       results = buildFuture.get();
@@ -353,9 +327,8 @@ public class Build implements Closeable {
       throws IOException {
     int exitCode;
 
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-    BuildReport buildReport = new BuildReport(buildExecutionResult, pathResolver, rootCell);
+    BuildReport buildReport =
+        new BuildReport(buildExecutionResult, graphBuilder.getSourcePathResolver(), rootCell);
 
     if (buildContext.isKeepGoing()) {
       String buildReportText = buildReport.generateForConsole(console);
@@ -408,7 +381,7 @@ public class Build implements Closeable {
    */
   public ExitCode waitForBuildToFinishAndPrintFailuresToEventBus(
       ImmutableList<BuildRule> rulesToBuild,
-      List<BuildEngineResult> resultFutures,
+      List<BuildEngine.BuildEngineResult> resultFutures,
       BuckEventBus eventBus,
       Console console,
       Optional<Path> pathToBuildReport)
@@ -447,14 +420,13 @@ public class Build implements Closeable {
       BuckEventBus eventBus, Path pathToBuildReport, BuildExecutionException e) {
     // Note that pathToBuildReport is an absolute path that may exist outside of the project
     // root, so it is not appropriate to use ProjectFilesystem to write the output.
-    SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildReport buildReport =
-        new BuildReport(e.createBuildExecutionResult(), pathResolver, rootCell);
+        new BuildReport(
+            e.createBuildExecutionResult(), graphBuilder.getSourcePathResolver(), rootCell);
     try {
       String jsonBuildReport = buildReport.generateJsonBuildReport();
       eventBus.post(BuildEvent.buildReport(jsonBuildReport));
-      Files.write(jsonBuildReport, pathToBuildReport.toFile(), Charsets.UTF_8);
+      Files.asCharSink(pathToBuildReport.toFile(), Charsets.UTF_8).write(jsonBuildReport);
     } catch (IOException writeException) {
       LOG.warn(writeException, "Failed to write the build report to %s", pathToBuildReport);
       eventBus.post(ThrowableConsoleEvent.create(e, "Failed writing report"));
@@ -468,9 +440,8 @@ public class Build implements Closeable {
     // when it doesn't do anything.
   }
 
-  @Value.Immutable
-  @BuckStyleImmutable
-  abstract static class AbstractBuildExecutionResult {
+  @BuckStyleValue
+  abstract static class BuildExecutionResult {
 
     /**
      * @return Keys are build rules built during this invocation of Buck. Values reflect the success

@@ -1,17 +1,17 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.versions;
@@ -23,11 +23,11 @@ import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwar
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
-import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphCreationResult;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
-import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetViewFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetViewFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.google.common.collect.ImmutableMap;
@@ -37,41 +37,45 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.lang.reflect.Field;
 import java.util.Map;
-import java.util.concurrent.ForkJoinPool;
-import junitparams.JUnitParamsRunner;
-import junitparams.Parameters;
 import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
-@RunWith(JUnitParamsRunner.class)
 public class VersionedTargetGraphBuilderTest {
 
-  private ForkJoinPool pool;
-  private ForkJoinPool executorPool;
   private DepsAwareExecutor executor;
-  private UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+  private UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory;
+  private VersionedTargetGraphBuilderFactory factory;
 
   @Before
   public void setUp() {
-    pool = new ForkJoinPool(2);
-    executorPool = new ForkJoinPool(2);
-    executor = DefaultDepsAwareExecutor.from(executorPool);
-    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetFactory();
+    executor = DefaultDepsAwareExecutor.of(2);
+    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetViewFactory();
+    factory =
+        (executor,
+            versionSelector,
+            unversionedTargetGraphAndBuildTargets,
+            typeCoercerFactory,
+            unconfiguredBuildTargetFactory) ->
+            new AsyncVersionedTargetGraphBuilder(
+                executor,
+                versionSelector,
+                unversionedTargetGraphAndBuildTargets,
+                typeCoercerFactory,
+                unconfiguredBuildTargetFactory,
+                20);
   }
 
   @After
   public void tearDown() {
     executor.close();
-    executorPool.shutdownNow();
   }
 
   private static String getVersionedTarget(
       BuildTarget target, ImmutableSortedMap<BuildTarget, Version> versions) {
     return target
-        .withAppendedFlavors(ParallelVersionedTargetGraphBuilder.getVersionedFlavor(versions))
+        .withAppendedFlavors(AbstractVersionedTargetGraphBuilder.getVersionedFlavor(versions))
         .toString();
   }
 
@@ -120,16 +124,14 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void singleRootNode(VersionedTargetGraphBuilderFactory factory) throws Exception {
+  public void singleRootNode() throws Exception {
     TargetNode<?> root = new VersionRootBuilder("//:root").build();
     TargetGraph graph = TargetGraphFactory.newInstanceExact(root);
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(graph, ImmutableSet.of(root.getBuildTarget())),
+            TargetGraphCreationResult.of(graph, ImmutableSet.of(root.getBuildTarget())),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
     TargetGraph versionedGraph = builder.build();
@@ -137,18 +139,16 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void rootWithDepOnRoot(VersionedTargetGraphBuilderFactory factory) throws Exception {
+  public void rootWithDepOnRoot() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionRootBuilder("//:root2").build(),
             new VersionRootBuilder("//:root1").setDeps("//:root2").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph,
                 ImmutableSet.of(
                     BuildTargetFactory.newInstance("//:root1"),
@@ -160,8 +160,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void versionedSubGraph(VersionedTargetGraphBuilderFactory factory) throws Exception {
+  public void versionedSubGraph() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:dep").build(),
@@ -169,10 +168,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionRootBuilder("//:root").setDeps("//:versioned").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph, ImmutableSet.of(BuildTargetFactory.newInstance("//:root"))),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
@@ -185,9 +183,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void versionedSubGraphWithDepOnRoot(VersionedTargetGraphBuilderFactory factory)
-      throws Exception {
+  public void versionedSubGraphWithDepOnRoot() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionRootBuilder("//:dep_root").build(),
@@ -196,10 +192,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionRootBuilder("//:root").setDeps("//:versioned").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph, ImmutableSet.of(BuildTargetFactory.newInstance("//:root"))),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
@@ -213,9 +208,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void versionedSubGraphWithDepAnotherVersionedSubGraph(
-      VersionedTargetGraphBuilderFactory factory) throws Exception {
+  public void versionedSubGraphWithDepAnotherVersionedSubGraph() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:dep2").build(),
@@ -226,10 +219,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionRootBuilder("//:root1").setDeps("//:versioned1").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph, ImmutableSet.of(BuildTargetFactory.newInstance("//:root1"))),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
@@ -244,9 +236,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void versionedSubGraphWithVersionedFlavor(VersionedTargetGraphBuilderFactory factory)
-      throws Exception {
+  public void versionedSubGraphWithVersionedFlavor() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:dep").build(),
@@ -255,10 +245,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionRootBuilder("//:root").setDeps("//:a").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph, ImmutableSet.of(BuildTargetFactory.newInstance("//:root"))),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
@@ -276,9 +265,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void versionedSubGraphWithConstraints(VersionedTargetGraphBuilderFactory factory)
-      throws Exception {
+  public void versionedSubGraphWithConstraints() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:v2").build(),
@@ -298,13 +285,12 @@ public class VersionedTargetGraphBuilderTest {
     BuildTarget dep = BuildTargetFactory.newInstance("//:dep");
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new FixedVersionSelector(
                 ImmutableMap.of(
                     a, ImmutableMap.of(dep, Version.of("1.0")),
                     b, ImmutableMap.of(dep, Version.of("2.0")))),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph,
                 ImmutableSet.of(
                     BuildTargetFactory.newInstance("//:a"),
@@ -334,9 +320,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void explicitNonRootTreatedAsRoot(VersionedTargetGraphBuilderFactory factory)
-      throws Exception {
+  public void explicitNonRootTreatedAsRoot() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:dep").build(),
@@ -344,10 +328,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionPropagatorBuilder("//:root").setDeps("//:versioned").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph, ImmutableSet.of(BuildTargetFactory.newInstance("//:root"))),
             new DefaultTypeCoercerFactory(),
             unconfiguredBuildTargetFactory);
@@ -360,9 +343,7 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   @Test
-  @Parameters(method = "builderFactory")
-  public void nodeWithTestParameterReferringToNonExistentTarget(
-      VersionedTargetGraphBuilderFactory factory) throws Exception {
+  public void nodeWithTestParameterReferringToNonExistentTarget() throws Exception {
     TargetGraph graph =
         TargetGraphFactory.newInstanceExact(
             new VersionPropagatorBuilder("//:root2")
@@ -371,10 +352,9 @@ public class VersionedTargetGraphBuilderTest {
             new VersionRootBuilder("//:root1").setDeps("//:root2").build());
     VersionedTargetGraphBuilder builder =
         factory.create(
-            pool,
             executor,
             new NaiveVersionSelector(),
-            TargetGraphAndBuildTargets.of(
+            TargetGraphCreationResult.of(
                 graph,
                 ImmutableSet.of(
                     BuildTargetFactory.newInstance("//:root1"),
@@ -385,51 +365,12 @@ public class VersionedTargetGraphBuilderTest {
     assertEquals(graph, versionedGraph);
   }
 
-  @SuppressWarnings("unused")
-  private Object[] builderFactory() {
-    return new Object[] {
-      new Object[] {
-        (VersionedTargetGraphBuilderFactory)
-            (pool,
-                executor,
-                versionSelector,
-                unversionedTargetGraphAndBuildTargets,
-                typeCoercerFactory,
-                unconfiguredBuildTargetFactory) ->
-                new ParallelVersionedTargetGraphBuilder(
-                    pool,
-                    versionSelector,
-                    unversionedTargetGraphAndBuildTargets,
-                    typeCoercerFactory,
-                    unconfiguredBuildTargetFactory,
-                    20)
-      },
-      new Object[] {
-        (VersionedTargetGraphBuilderFactory)
-            (pool,
-                executor,
-                versionSelector,
-                unversionedTargetGraphAndBuildTargets,
-                typeCoercerFactory,
-                unconfiguredBuildTargetFactory) ->
-                new AsyncVersionedTargetGraphBuilder(
-                    executor,
-                    versionSelector,
-                    unversionedTargetGraphAndBuildTargets,
-                    typeCoercerFactory,
-                    unconfiguredBuildTargetFactory,
-                    20)
-      }
-    };
-  }
-
   private interface VersionedTargetGraphBuilderFactory {
     VersionedTargetGraphBuilder create(
-        ForkJoinPool pool,
         DepsAwareExecutor executor,
         VersionSelector versionSelector,
-        TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
+        TargetGraphCreationResult unversionedTargetGraphAndBuildTargets,
         TypeCoercerFactory typeCoercerFactory,
-        UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory);
+        UnconfiguredBuildTargetViewFactory unconfiguredBuildTargetFactory);
   }
 }

@@ -1,17 +1,17 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.features.apple.project;
@@ -20,6 +20,7 @@ import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.apple.xcode.XCScheme.AdditionalActions;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.features.apple.common.SchemeActionType;
 import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
@@ -74,6 +75,7 @@ class SchemeGenerator {
   private final String schemeName;
   private final Path outputDirectory;
   private final boolean parallelizeBuild;
+  private final boolean wasCreatedForAppExtension;
   private final Optional<String> runnablePath;
   private final Optional<String> remoteRunnablePath;
   private final ImmutableMap<SchemeActionType, String> actionConfigNames;
@@ -99,6 +101,7 @@ class SchemeGenerator {
       String schemeName,
       Path outputDirectory,
       boolean parallelizeBuild,
+      Optional<Boolean> wasCreatedForAppExtension,
       Optional<String> runnablePath,
       Optional<String> remoteRunnablePath,
       ImmutableMap<SchemeActionType, String> actionConfigNames,
@@ -122,6 +125,7 @@ class SchemeGenerator {
     this.schemeName = schemeName;
     this.outputDirectory = outputDirectory;
     this.parallelizeBuild = parallelizeBuild;
+    this.wasCreatedForAppExtension = wasCreatedForAppExtension.orElse(false);
     this.runnablePath = runnablePath;
     this.remoteRunnablePath = remoteRunnablePath;
     this.actionConfigNames = actionConfigNames;
@@ -149,15 +153,18 @@ class SchemeGenerator {
             .orElse(Optional.empty());
     if (commands.isPresent()) {
       ImmutableList<XCScheme.SchemePrePostAction> actions =
-          commands
-              .get()
-              .stream()
+          commands.get().stream()
               .map(command -> new XCScheme.SchemePrePostAction(primaryTarget, command))
               .collect(ImmutableList.toImmutableList());
       return Optional.of(actions);
     } else {
       return Optional.empty();
     }
+  }
+
+  @VisibleForTesting
+  Path getOutputDirectory() {
+    return outputDirectory;
   }
 
   @VisibleForTesting
@@ -322,6 +329,7 @@ class SchemeGenerator {
     XCScheme scheme =
         new XCScheme(
             schemeName,
+            wasCreatedForAppExtension,
             Optional.of(buildAction),
             Optional.of(testAction),
             launchAction,
@@ -598,6 +606,9 @@ class SchemeGenerator {
 
     Element rootElem = doc.getDocumentElement();
     rootElem.setAttribute("LastUpgradeVersion", "9999");
+    if (scheme.getWasCreatedForExtension()) {
+      rootElem.setAttribute("wasCreatedForAppExtension", "YES");
+    }
     rootElem.setAttribute("version", "1.7");
 
     Optional<XCScheme.BuildAction> buildAction = scheme.getBuildAction();

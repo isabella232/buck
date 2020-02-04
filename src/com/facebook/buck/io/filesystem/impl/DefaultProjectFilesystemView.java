@@ -1,38 +1,44 @@
 /*
- * Copyright 2018-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.io.filesystem.impl;
 
+import com.facebook.buck.core.path.ForwardRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.PathMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystemView;
+import com.facebook.buck.io.watchman.Capability;
+import com.facebook.buck.util.stream.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileAttribute;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Set;
@@ -66,6 +72,13 @@ public class DefaultProjectFilesystemView implements ProjectFilesystemView {
   }
 
   @Override
+  public ImmutableList<String> toWatchmanQuery(Set<Capability> capabilities) {
+    return ignoredPaths.keySet().stream()
+        .map(PathMatcher::getPathOrGlob)
+        .collect(ImmutableList.toImmutableList());
+  }
+
+  @Override
   public boolean isSubdirOf(Path path) {
     return path.normalize().startsWith(resolvedProjectRoot.normalize());
   }
@@ -86,8 +99,24 @@ public class DefaultProjectFilesystemView implements ProjectFilesystemView {
   }
 
   @Override
+  public Path resolve(ForwardRelativePath path) {
+    return resolve(path.toPath(filesystemParent.getFileSystem()));
+  }
+
+  @Override
+  public boolean isFile(Path path, LinkOption... options) {
+    return filesystemParent.isFile(projectRoot.resolve(path), options);
+  }
+
+  @Override
   public boolean isDirectory(Path path) {
     return filesystemParent.isDirectory(projectRoot.resolve(path));
+  }
+
+  @Override
+  public <A extends BasicFileAttributes> A readAttributes(
+      Path path, Class<A> type, LinkOption... options) throws IOException {
+    return filesystemParent.readAttributes(projectRoot.resolve(path), type, options);
   }
 
   @Override
@@ -178,14 +207,22 @@ public class DefaultProjectFilesystemView implements ProjectFilesystemView {
 
   @Override
   public ImmutableCollection<Path> getDirectoryContents(Path pathToUse) throws IOException {
+    Path relativeDirectoryPath =
+        MorePaths.relativize(resolvedProjectRoot, resolvedProjectRoot.resolve(pathToUse));
     try (DirectoryStream<Path> stream =
         filesystemParent.getDirectoryContentsStream(
-            filesystemParent.getPathForRelativePath(pathToUse))) {
-      return FluentIterable.from(stream)
+            filesystemParent.getPathForRelativePath(projectRoot.resolve(pathToUse)))) {
+      return RichStream.from(stream)
           .filter(this::shouldExplorePaths)
-          .transform(absolutePath -> MorePaths.relativize(resolvedProjectRoot, absolutePath))
-          .toSortedList(Comparator.naturalOrder());
+          .map((Path absolutePath) -> relativeDirectoryPath.resolve(absolutePath.getFileName()))
+          .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder()));
     }
+  }
+
+  @Override
+  public void writeLinesToPath(Iterable<String> lines, Path path, FileAttribute<?>... attrs)
+      throws IOException {
+    filesystemParent.writeLinesToPath(lines, resolvedProjectRoot.resolve(path), attrs);
   }
 
   private boolean shouldExplorePaths(Path p) {

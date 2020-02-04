@@ -1,22 +1,22 @@
 /*
- * Copyright 2017-present Facebook, Inc.
+ * Copyright (c) Facebook, Inc. and its affiliates.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License. You may obtain
- * a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.facebook.buck.android.exopackage;
 
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolverAdapter;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -29,29 +29,32 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 public class NativeExoHelper {
   @VisibleForTesting public static final Path NATIVE_LIBS_DIR = Paths.get("native-libs");
-  private final AndroidDevice device;
-  private final SourcePathResolver pathResolver;
+  private final Supplier<List<String>> abiSupplier;
+  private final SourcePathResolverAdapter pathResolver;
   private final ProjectFilesystem projectFilesystem;
   private final ExopackageInfo.NativeLibsInfo nativeLibsInfo;
 
   NativeExoHelper(
-      AndroidDevice device,
-      SourcePathResolver pathResolver,
+      Supplier<List<String>> abiSupplier,
+      SourcePathResolverAdapter pathResolver,
       ProjectFilesystem projectFilesystem,
       ExopackageInfo.NativeLibsInfo nativeLibsInfo) {
-    this.device = device;
+    this.abiSupplier = abiSupplier;
     this.pathResolver = pathResolver;
     this.projectFilesystem = projectFilesystem;
     this.nativeLibsInfo = nativeLibsInfo;
   }
 
-  public ImmutableMap<Path, Path> getFilesToInstall() throws Exception {
+  /** @return a mapping from destinationPathOnDevice -> localPath */
+  public ImmutableMap<Path, Path> getFilesToInstall() throws IOException {
     ImmutableMap.Builder<Path, Path> filesToInstallBuilder = ImmutableMap.builder();
     ImmutableMap<String, ImmutableMultimap<String, Path>> filesByHashForAbis =
         getFilesByHashForAbis();
@@ -71,7 +74,11 @@ public class NativeExoHelper {
     return filesToInstallBuilder.build();
   }
 
-  public ImmutableMap<Path, String> getMetadataToInstall() throws Exception {
+  /**
+   * @return a mapping from destinationPathOnDevice -> contents of file for all native-libs metadata
+   *     files (one per abi)
+   */
+  public ImmutableMap<Path, String> getMetadataToInstall() throws IOException {
     ImmutableMap<String, ImmutableMultimap<String, Path>> filesByHashForAbis =
         getFilesByHashForAbis();
     ImmutableMap.Builder<Path, String> metadataBuilder = ImmutableMap.builder();
@@ -93,12 +100,13 @@ public class NativeExoHelper {
   }
 
   private ImmutableMap<String, ImmutableMultimap<String, Path>> getFilesByHashForAbis()
-      throws Exception {
+      throws IOException {
+    List<String> deviceAbis = abiSupplier.get();
     ImmutableMap.Builder<String, ImmutableMultimap<String, Path>> filesByHashForAbisBuilder =
         ImmutableMap.builder();
     ImmutableMultimap<String, Path> allLibraries = getAllLibraries();
     ImmutableSet.Builder<String> providedLibraries = ImmutableSet.builder();
-    for (String abi : device.getDeviceAbis()) {
+    for (String abi : deviceAbis) {
       ImmutableMultimap<String, Path> filesByHash =
           getRequiredLibrariesForAbi(allLibraries, abi, providedLibraries.build());
       if (filesByHash.isEmpty()) {
@@ -152,7 +160,7 @@ public class NativeExoHelper {
                     input -> {
                       String hash = input.getKey();
                       String filename = input.getValue().getFileName().toString();
-                      int index = filename.indexOf('.');
+                      int index = filename.lastIndexOf('.');
                       String libname = index == -1 ? filename : filename.substring(0, index);
                       return String.format("%s native-%s.so", libname, hash);
                     }));
