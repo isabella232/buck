@@ -421,7 +421,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   public ImmutableList<Arg> getAstLinkArgs() {
-    if (!swiftBuckConfig.getUseModulewrap()) {
+    if (!swiftBuckConfig.getUseModulewrap() && swiftBuckConfig.getAddASTPath()) {
       return ImmutableList.<Arg>builder()
           .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
           .add(SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), modulePath)))
