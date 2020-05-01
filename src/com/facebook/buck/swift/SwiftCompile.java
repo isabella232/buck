@@ -24,6 +24,7 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -62,12 +63,14 @@ import com.google.common.collect.Streams;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
-public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps implements
+  SupportsInputBasedRuleKey {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -89,6 +92,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   private final Path swiftdocPath;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
+//  private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final SwiftTargetTriple swiftTarget;
   @AddToRuleKey private final Optional<String> version;
   @AddToRuleKey private final ImmutableList<? extends Arg> compilerFlags;
@@ -99,6 +103,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final boolean enableObjcInterop;
   @AddToRuleKey private final Optional<SourcePath> bridgingHeader;
+  @AddToRuleKey private final SourcePath otherSourcePath;
 
   private final SwiftBuckConfig swiftBuckConfig;
 
@@ -128,6 +133,9 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       PreprocessorFlags cxxDeps,
       boolean importUnderlyingModule) {
     super(buildTarget, projectFilesystem, params);
+
+//    new Exception().printStackTrace();
+
     this.cxxPlatform = cxxPlatform;
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
@@ -135,6 +143,23 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.outputPath = outputPath;
     this.importUnderlyingModule = importUnderlyingModule;
     this.headerPath = outputPath.resolve(SwiftDescriptions.toSwiftHeaderName(moduleName) + ".h");
+
+    BuildRule r = null;
+    if (moduleName.equals("SecondSwiftModule")) {
+      for (BuildRule rule : getBuildDeps()) {
+        r = rule;
+        break;
+      }
+    }
+    if (r == null) {
+      this.otherSourcePath = null;
+    } else {
+      this.otherSourcePath = ExplicitBuildTargetSourcePath.of(
+        r.getBuildTarget(),
+        Paths.get(
+          "buck-out/gen/Libraries/YetAnotherSwiftModule/YetAnotherSwiftModule#apple-swift-compile,iphonesimulator-x86_64/YetAnotherSwiftModule.swiftmodule")
+      );
+    }
 
     String escapedModuleName = CxxDescriptionEnhancer.normalizeModuleName(moduleName);
     this.moduleName = escapedModuleName;
@@ -469,6 +494,16 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
    *     (object files, Swift module metadata, etc).
    */
   public SourcePath getOutputPath() {
+//    System.out.println("\nGetting output path for:" + getBuildTarget().getFullyQualifiedName());
+//    System.out.println("\t" + outputPath);
+//    System.out.println("\t" + outputPath + "/" + moduleName + ".swiftmodule");
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
+//    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
+//      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
+  }
+
+  public SourcePath getSwiftModuleOutputPath() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
+      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
   }
 }

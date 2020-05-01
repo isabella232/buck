@@ -52,7 +52,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeaders;
-import com.facebook.buck.cxx.CxxHeadersDir;
+//import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLibraryDescriptionDelegate;
@@ -362,11 +362,15 @@ public class AppleLibraryDescription
       BuildTarget buildTarget,
       BuildRuleParams params,
       AppleLibraryDescriptionArg args) {
+
+//    System.out.println("AAA. createBuildRule: " +buildTarget.getFullyQualifiedName());
+
     TargetGraph targetGraph = context.getTargetGraph();
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     args.checkDuplicateSources(graphBuilder.getSourcePathResolver());
     Optional<Map.Entry<Flavor, Type>> type = LIBRARY_TYPE.getFlavorAndValue(buildTarget);
     if (type.isPresent() && type.get().getValue().equals(Type.FRAMEWORK)) {
+//      System.out.println("BBB.a finish createBuildRule: " +buildTarget.getFullyQualifiedName());
       return createFrameworkBundleBuildRule(
           targetGraph, buildTarget, context.getProjectFilesystem(), params, graphBuilder, args);
     }
@@ -381,9 +385,11 @@ public class AppleLibraryDescription
             args,
             Optional.empty());
     if (swiftRule.isPresent()) {
+//      System.out.println("BBB.b finish createBuildRule: " +buildTarget.getFullyQualifiedName());
       return swiftRule.get();
     }
 
+//    System.out.println("BBB.c finish createBuildRule: " +buildTarget.getFullyQualifiedName());
     return createLibraryBuildRule(
         context,
         buildTarget,
@@ -622,6 +628,8 @@ public class AppleLibraryDescription
           ImmutableSortedSet<BuildTarget> extraCxxDeps,
           CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction transitiveCxxDeps) {
 
+//    System.out.println("+++ require build rule: " + buildTarget.getFullyQualifiedName());
+
     Optional<AppleCxxPlatform> appleCxxPlatform =
         getAppleCxxPlatformDomain(buildTarget.getTargetConfiguration()).getValue(buildTarget);
 
@@ -637,6 +645,7 @@ public class AppleLibraryDescription
                     context, buildTarget, params, graphBuilder, args, args.getTargetSdkVersion()));
     if (swiftCompanionBuildRule.isPresent() && isSwiftTarget(buildTarget)) {
       // when creating a swift target, there is no need to proceed with apple library rules
+//      System.out.println("--- 1. complete build rule: " + buildTarget.getFullyQualifiedName());
       return swiftCompanionBuildRule.get();
     } else if (swiftCompanionBuildRule.isPresent()) {
       delegateArg.addExportedDeps(swiftCompanionBuildRule.get().getBuildTarget());
@@ -663,6 +672,7 @@ public class AppleLibraryDescription
         && libType.get().equals(Type.EXPORTED_HEADERS)
         && headerMode.isPresent()
         && headerMode.get().includesModuleMap()) {
+//      System.out.println("--- 2. complete build rule: " + buildTarget.getFullyQualifiedName());
       return createExportedModuleSymlinkTreeBuildRule(
           buildTarget,
           context.getProjectFilesystem(),
@@ -672,10 +682,12 @@ public class AppleLibraryDescription
     } else if (platform.isPresent()
         && libType.isPresent()
         && libType.get().equals(Type.SWIFT_UNDERLYING_MODULE)) {
+//      System.out.println("--- 3. complete build rule: " + buildTarget.getFullyQualifiedName());
       return createUnderlyingModuleSymlinkTreeBuildRule(
           buildTarget, context.getProjectFilesystem(), graphBuilder, args);
     }
 
+//    System.out.println("--- 4. complete build rule: " + buildTarget.getFullyQualifiedName());
     return graphBuilder.computeIfAbsent(
         unstrippedTarget,
         unstrippedTarget1 -> {
@@ -869,24 +881,27 @@ public class AppleLibraryDescription
 
   private static CxxPreprocessorInput createSwiftPreprocessorInput(
       ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
-    CxxHeaders swiftCompileHeaders = createSwiftModuleHeaders(graphBuilder, baseTarget);
+//    CxxHeaders swiftCompileHeaders = createSwiftModuleHeaders(graphBuilder, baseTarget);
     CxxHeaders headers =
         createSwiftObjcHeaders(graphBuilder, baseTarget, Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER);
 
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
-    builder.addIncludes(swiftCompileHeaders);
+//    builder.addIncludes(swiftCompileHeaders);
     builder.addIncludes(headers);
     CxxPreprocessorInput input = builder.build();
     return input;
   }
 
-  private static CxxHeaders createSwiftModuleHeaders(
-      ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
-    BuildTarget swiftCompileTarget = baseTarget.withAppendedFlavors(Type.SWIFT_COMPILE.getFlavor());
-    SwiftCompile compile = (SwiftCompile) graphBuilder.requireRule(swiftCompileTarget);
-
-    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getOutputPath());
-  }
+//  private static CxxHeaders createSwiftModuleHeaders(
+//      ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
+//    BuildTarget swiftCompileTarget = baseTarget.withAppendedFlavors(Type.SWIFT_COMPILE.getFlavor());
+//    SwiftCompile compile = (SwiftCompile) graphBuilder.requireRule(swiftCompileTarget);
+//
+//    System.out.println("createSwiftModuleHeaders for:" + baseTarget.getFullyQualifiedName());
+//    System.out.println("\toutput path:" + compile.getSwiftModuleOutputPath());
+////    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getSwiftModuleOutputPath());
+//    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getOutputPath());
+//  }
 
   private static CxxHeaders createSwiftObjcHeaders(
       ActionGraphBuilder graphBuilder,
@@ -897,6 +912,9 @@ public class AppleLibraryDescription
     HeaderSymlinkTreeWithHeaderMap headersRule =
         (HeaderSymlinkTreeWithHeaderMap) graphBuilder.requireRule(swiftHeadersTarget);
 
+//    new Exception().printStackTrace();
+//    System.out.println("createSwiftObjcHeaders for:" + baseTarget.getFullyQualifiedName());
+//    System.out.println("\t headersRule:" + headersRule.getFullyQualifiedName());
     return CxxSymlinkTreeHeaders.from(headersRule, CxxPreprocessables.IncludeType.LOCAL);
   }
 
@@ -1042,6 +1060,7 @@ public class AppleLibraryDescription
     }
 
     target = target.withFlavors(platform.getFlavor());
+    System.out.println("createCxxLibraryDelegateForSwiftTargets: " + target.getFullyQualifiedName());
 
     CxxPreprocessorInput publicPreprocessorInput =
         createSwiftPreprocessorInput(graphBuilder, target);
