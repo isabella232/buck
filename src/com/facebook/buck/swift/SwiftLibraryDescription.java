@@ -312,7 +312,6 @@ public class SwiftLibraryDescription
           cxxPlatform.getCpp().resolve(graphBuilder, buildTarget.getTargetConfiguration());
 
       BuildTarget buildTargetCopy = buildTarget;
-//      System.out.println("*** Creating Build Rule: " + buildTarget.getFullyQualifiedName());
       return new SwiftCompile(
           cxxPlatform,
           swiftBuckConfig,
@@ -501,7 +500,6 @@ public class SwiftLibraryDescription
     args.getSrcs().forEach(src -> srcsDepsBuilder.add(src));
     BuildRuleParams paramsWithSrcDeps = params.copyAppendingExtraDeps(srcsDepsBuilder.build());
 
-//    System.out.println("*** Creating Swift Compile Build Rule: " + buildTarget.getFullyQualifiedName());
     return new SwiftCompile(
         cxxPlatform,
         swiftBuckConfig,

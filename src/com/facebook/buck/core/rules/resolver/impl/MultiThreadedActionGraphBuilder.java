@@ -231,7 +231,6 @@ public class MultiThreadedActionGraphBuilder extends AbstractActionGraphBuilder 
   }
 
   private Task<BuildRule> addRequireTask(BuildTarget target) {
-    System.out.println("*** require rule: " + target.getFullyQualifiedName());
     return buildRuleIndex.computeIfAbsent(
         target,
         ignored ->

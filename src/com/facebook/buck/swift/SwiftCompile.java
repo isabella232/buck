@@ -92,7 +92,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
   private final Path swiftdocPath;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
-//  private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final SwiftTargetTriple swiftTarget;
   @AddToRuleKey private final Optional<String> version;
   @AddToRuleKey private final ImmutableList<? extends Arg> compilerFlags;
@@ -133,9 +132,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
       PreprocessorFlags cxxDeps,
       boolean importUnderlyingModule) {
     super(buildTarget, projectFilesystem, params);
-
-//    new Exception().printStackTrace();
-
     this.cxxPlatform = cxxPlatform;
     this.frameworks = frameworks;
     this.swiftBuckConfig = swiftBuckConfig;
@@ -494,16 +490,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
    *     (object files, Swift module metadata, etc).
    */
   public SourcePath getOutputPath() {
-//    System.out.println("\nGetting output path for:" + getBuildTarget().getFullyQualifiedName());
-//    System.out.println("\t" + outputPath);
-//    System.out.println("\t" + outputPath + "/" + moduleName + ".swiftmodule");
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
-//    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
-//      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
-  }
-
-  public SourcePath getSwiftModuleOutputPath() {
-    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
-      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
   }
 }
