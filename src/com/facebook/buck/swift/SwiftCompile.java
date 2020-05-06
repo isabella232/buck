@@ -102,7 +102,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
 
   private final boolean enableObjcInterop;
   @AddToRuleKey private final Optional<SourcePath> bridgingHeader;
-  @AddToRuleKey private final SourcePath otherSourcePath;
+//  @AddToRuleKey private final SourcePath otherSourcePath;
 
   private final SwiftBuckConfig swiftBuckConfig;
 
@@ -139,23 +139,6 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
     this.outputPath = outputPath;
     this.importUnderlyingModule = importUnderlyingModule;
     this.headerPath = outputPath.resolve(SwiftDescriptions.toSwiftHeaderName(moduleName) + ".h");
-
-    BuildRule r = null;
-    if (moduleName.equals("SecondSwiftModule")) {
-      for (BuildRule rule : getBuildDeps()) {
-        r = rule;
-        break;
-      }
-    }
-    if (r == null) {
-      this.otherSourcePath = null;
-    } else {
-      this.otherSourcePath = ExplicitBuildTargetSourcePath.of(
-        r.getBuildTarget(),
-        Paths.get(
-          "buck-out/gen/Libraries/YetAnotherSwiftModule/YetAnotherSwiftModule#apple-swift-compile,iphonesimulator-x86_64/YetAnotherSwiftModule.swiftmodule")
-      );
-    }
 
     String escapedModuleName = CxxDescriptionEnhancer.normalizeModuleName(moduleName);
     this.moduleName = escapedModuleName;
@@ -491,5 +474,10 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
    */
   public SourcePath getOutputPath() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
+  }
+
+  public SourcePath getSwiftModuleOutputPath() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
+      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
   }
 }

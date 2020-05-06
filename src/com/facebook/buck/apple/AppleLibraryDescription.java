@@ -52,7 +52,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeaders;
-//import com.facebook.buck.cxx.CxxHeadersDir;
+import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLibraryDescriptionDelegate;
@@ -869,27 +869,24 @@ public class AppleLibraryDescription
 
   private static CxxPreprocessorInput createSwiftPreprocessorInput(
       ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
-//    CxxHeaders swiftCompileHeaders = createSwiftModuleHeaders(graphBuilder, baseTarget);
+    CxxHeaders swiftCompileHeaders = createSwiftModuleHeaders(graphBuilder, baseTarget);
     CxxHeaders headers =
         createSwiftObjcHeaders(graphBuilder, baseTarget, Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER);
 
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
-//    builder.addIncludes(swiftCompileHeaders);
+    builder.addIncludes(swiftCompileHeaders);
     builder.addIncludes(headers);
     CxxPreprocessorInput input = builder.build();
     return input;
   }
 
-//  private static CxxHeaders createSwiftModuleHeaders(
-//      ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
-//    BuildTarget swiftCompileTarget = baseTarget.withAppendedFlavors(Type.SWIFT_COMPILE.getFlavor());
-//    SwiftCompile compile = (SwiftCompile) graphBuilder.requireRule(swiftCompileTarget);
-//
-//    System.out.println("createSwiftModuleHeaders for:" + baseTarget.getFullyQualifiedName());
-//    System.out.println("\toutput path:" + compile.getSwiftModuleOutputPath());
-////    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getSwiftModuleOutputPath());
-//    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getOutputPath());
-//  }
+  private static CxxHeaders createSwiftModuleHeaders(
+      ActionGraphBuilder graphBuilder, BuildTarget baseTarget) {
+    BuildTarget swiftCompileTarget = baseTarget.withAppendedFlavors(Type.SWIFT_COMPILE.getFlavor());
+    SwiftCompile compile = (SwiftCompile) graphBuilder.requireRule(swiftCompileTarget);
+
+    return CxxHeadersDir.of(CxxPreprocessables.IncludeType.LOCAL, compile.getSwiftModuleOutputPath());
+  }
 
   private static CxxHeaders createSwiftObjcHeaders(
       ActionGraphBuilder graphBuilder,
