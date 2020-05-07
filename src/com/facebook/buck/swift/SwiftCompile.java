@@ -24,6 +24,7 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -62,12 +63,14 @@ import com.google.common.collect.Streams;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
 
 /** A build rule which compiles one or more Swift sources into a Swift module. */
-public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps implements
+  SupportsInputBasedRuleKey {
 
   private static final String INCLUDE_FLAG = "-I";
 
@@ -470,5 +473,19 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
    */
   public SourcePath getOutputPath() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
+  }
+
+  /**
+   * @return {@link SourcePath} to the .swiftmodule output from the compilation process. A
+   * swiftmodule file contains the public interface for a module, and is basically a binary file
+   * format equivalent to header files for a C framework or library.
+   *
+   * A swiftmodule file contains serialized ASTs (and possibly SIL), it conforms to
+   * Swift Binary Serialization Format, more details about this binary format can be found here:
+   * https://github.com/apple/swift/blob/master/docs/Serialization.rst.
+   */
+  public SourcePath getSwiftModuleOutputPath() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
+      Paths.get(outputPath.toString(), moduleName + ".swiftmodule"));
   }
 }
