@@ -482,7 +482,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps impl
    *
    * A swiftmodule file contains serialized ASTs (and possibly SIL), it conforms to
    * Swift Binary Serialization Format, more details about this binary format can be found here:
-   * https://github.com/apple/swift/blob/master/docs/Serialization.rst.
+   * https://github.com/apple/swift/blob/7e6d62dae4bae4eb3737a6f76c0e51534c1bcca3/docs/Serialization.rst.
    */
   public SourcePath getSwiftModuleOutputPath() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(),
